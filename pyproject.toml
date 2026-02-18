@@ -1,0 +1,54 @@
+[project]
+name = "elophanto"
+version = "0.1.0"
+description = "A self-evolving AI agent that acts as a personal AI operating system"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "litellm>=1.50.0",
+    "httpx>=0.27.0",
+    "click>=8.1.0",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "sqlite-vec>=0.1.1",
+    "playwright>=1.48.0",
+    "apscheduler>=3.10.0",
+    "cryptography>=42.0",
+    "aiogram>=3.0",
+    "websockets>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8.0",
+    "mypy>=1.13",
+]
+
+[project.scripts]
+elophanto = "cli.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "tools", "cli", "channels", "knowledge", "plugins", "skills"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_return_any = true
+warn_unused_configs = true

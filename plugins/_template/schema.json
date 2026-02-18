@@ -1,0 +1,10 @@
+{
+  "name": "{{tool_name}}",
+  "description": "{{description}}",
+  "version": "0.1.0",
+  "author": "EloPhanto",
+  "class_name": "{{ClassName}}",
+  "permission_level": "safe",
+  "dependencies": [],
+  "created_at": "{{date}}"
+}

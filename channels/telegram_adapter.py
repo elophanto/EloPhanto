@@ -1,0 +1,257 @@
+"""Telegram channel adapter — bridges Telegram Bot API to the gateway.
+
+Replaces the direct-coupled core/telegram.py with a gateway-based
+adapter. Messages from Telegram users are forwarded to the gateway,
+and responses are sent back as Telegram messages.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any
+
+from aiogram import Bot, Dispatcher, types
+from aiogram.enums import ChatAction, ParseMode
+from aiogram.filters import Command
+
+from channels.base import ChannelAdapter
+from core.config import TelegramConfig
+from core.protocol import GatewayMessage
+from core.telegram_fmt import split_message, to_plain_text, to_telegram_markdown
+
+logger = logging.getLogger(__name__)
+
+
+def _escape_md2(text: str) -> str:
+    """Light escape for MarkdownV2."""
+    safe_markers = {"*", "_", "`", "[", "]", "(", ")"}
+    result: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and i + 1 < len(text):
+            result.append(ch)
+            result.append(text[i + 1])
+            i += 2
+            continue
+        if ch in safe_markers:
+            result.append(ch)
+        elif ch in ".!->#+=|{}~":
+            result.append(f"\\{ch}")
+        else:
+            result.append(ch)
+        i += 1
+    return "".join(result)
+
+
+class TelegramChannelAdapter(ChannelAdapter):
+    """Telegram interface as a gateway channel adapter."""
+
+    name = "telegram"
+
+    def __init__(
+        self,
+        bot_token: str,
+        config: TelegramConfig,
+        gateway_url: str = "ws://127.0.0.1:18789",
+    ) -> None:
+        super().__init__(gateway_url)
+        self._tg_config = config
+        self._bot = Bot(token=bot_token)
+        self._dp = Dispatcher()
+        self._allowed_users = set(config.allowed_users)
+
+        # Map session_id → telegram chat_id (for sending responses back)
+        self._session_chats: dict[str, int] = {}
+        # Map session_id → user_id string
+        self._session_users: dict[str, str] = {}
+
+        self._register_handlers()
+
+    def _is_authorized(self, user_id: int) -> bool:
+        if not self._allowed_users:
+            return True
+        return user_id in self._allowed_users
+
+    def _register_handlers(self) -> None:
+        """Register Telegram message and command handlers."""
+
+        @self._dp.message(Command("start"))
+        async def cmd_start(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            await message.answer(
+                _escape_md2("*EloPhanto* is ready.\n\nSend me any task or question."),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+
+        @self._dp.message(Command("help"))
+        async def cmd_help(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            await message.answer(
+                _escape_md2(
+                    "*Commands*\n\n"
+                    "/status — Agent status\n"
+                    "/approve — Approve pending action\n"
+                    "/deny — Deny pending action\n"
+                    "/help — This message"
+                ),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+
+        @self._dp.message(Command("status"))
+        async def cmd_status(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            user_id = str(message.from_user.id)
+            await self.send_command("status", user_id=user_id)
+
+        @self._dp.message(Command("approve"))
+        async def cmd_approve(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            # Find pending approval for this user's session
+            user_id = str(message.from_user.id)
+            for req_id, future in list(self._pending_approvals.items()):
+                await self.send_approval(req_id, True)
+                await message.answer("Approved.")
+                return
+            await message.answer("No pending approvals.")
+
+        @self._dp.message(Command("deny"))
+        async def cmd_deny(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            user_id = str(message.from_user.id)
+            for req_id, future in list(self._pending_approvals.items()):
+                await self.send_approval(req_id, False)
+                await message.answer("Denied.")
+                return
+            await message.answer("No pending approvals.")
+
+        @self._dp.message()
+        async def handle_message(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            if not message.text:
+                return
+
+            user_id = str(message.from_user.id)
+            chat_id = message.chat.id
+
+            await self._bot.send_chat_action(chat_id, ChatAction.TYPING)
+
+            try:
+                response = await self.send_chat(
+                    content=message.text,
+                    user_id=user_id,
+                )
+
+                # Track chat mapping
+                if response.session_id:
+                    self._session_chats[response.session_id] = chat_id
+                    self._session_users[response.session_id] = user_id
+
+                content = response.data.get("content", "No response")
+                await self._send_formatted(chat_id, content)
+
+            except asyncio.TimeoutError:
+                await message.answer("Request timed out. Please try again.")
+            except Exception as e:
+                logger.error("Telegram message handling failed: %s", e)
+                await message.answer(f"Error: {e}")
+
+    # Track pending approval request IDs
+    _pending_approvals: dict[str, str] = {}
+
+    async def start(self) -> None:
+        """Connect to gateway and start Telegram polling."""
+        await self.connect_gateway()
+
+        # Start gateway listener and Telegram polling concurrently
+        await asyncio.gather(
+            self.gateway_listener(),
+            self._dp.start_polling(self._bot),
+        )
+
+    async def stop(self) -> None:
+        """Stop polling and disconnect."""
+        self._running = False
+        await self._dp.stop_polling()
+        await self._bot.session.close()
+        await self.disconnect_gateway()
+
+    async def on_response(self, msg: GatewayMessage) -> None:
+        """Handle unsolicited responses — send to the right Telegram chat."""
+        session_id = msg.session_id
+        chat_id = self._session_chats.get(session_id)
+        if chat_id:
+            content = msg.data.get("content", "")
+            if content:
+                await self._send_formatted(chat_id, content)
+
+    async def on_approval_request(self, msg: GatewayMessage) -> None:
+        """Show approval request as inline keyboard in Telegram."""
+        session_id = msg.session_id
+        chat_id = self._session_chats.get(session_id)
+        if not chat_id:
+            # Send to all allowed users
+            for uid in self._allowed_users:
+                chat_id = uid
+                break
+
+        if not chat_id:
+            return
+
+        tool_name = msg.data.get("tool_name", "?")
+        description = msg.data.get("description", "")
+
+        # Track this approval
+        self._pending_approvals[msg.id] = session_id
+
+        text = _escape_md2(
+            f"*Approval needed*\n\n"
+            f"Tool: `{tool_name}`\n"
+            f"Action: {description}\n\n"
+            f"/approve — Allow\n"
+            f"/deny — Block"
+        )
+        await self._bot.send_message(
+            chat_id, text, parse_mode=ParseMode.MARKDOWN_V2
+        )
+
+    async def on_event(self, msg: GatewayMessage) -> None:
+        """Forward events as Telegram notifications."""
+        event = msg.data.get("event", "")
+        session_id = msg.session_id
+        chat_id = self._session_chats.get(session_id)
+
+        if not chat_id:
+            return
+
+        if event == "task_complete":
+            goal = msg.data.get("goal", "")
+            await self._bot.send_message(
+                chat_id, f"Task complete: {goal[:200]}"
+            )
+        elif event == "task_error":
+            error = msg.data.get("error", "Unknown error")
+            await self._bot.send_message(chat_id, f"Error: {error[:300]}")
+
+    async def _send_formatted(self, chat_id: int, content: str) -> None:
+        """Send content as formatted Telegram message(s)."""
+        formatted = to_telegram_markdown(content)
+        chunks = split_message(formatted, self._tg_config.max_message_length)
+
+        for chunk in chunks:
+            try:
+                await self._bot.send_message(
+                    chat_id, chunk, parse_mode=ParseMode.MARKDOWN_V2
+                )
+            except Exception:
+                plain = to_plain_text(content)
+                for pc in split_message(plain, self._tg_config.max_message_length):
+                    await self._bot.send_message(chat_id, pc)
+                break

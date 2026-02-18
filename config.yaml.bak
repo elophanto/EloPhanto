@@ -1,0 +1,111 @@
+agent:
+  name: EloPhanto
+  permission_mode: full_auto
+llm:
+  providers:
+    openrouter:
+      api_key: ''
+      enabled: false
+      base_url: https://openrouter.ai/api/v1
+    zai:
+      api_key: 15da6cd44c4c42eb8e090d850110d6e0.LGold8zUUddk8Hx5
+      enabled: true
+      coding_plan: true
+      base_url_coding: https://api.z.ai/api/coding/paas/v4
+      base_url_paygo: https://api.z.ai/api/paas/v4
+      default_model: glm-4.7
+      fast_model: glm-4.7-flash
+    ollama:
+      base_url: http://localhost:11434
+      enabled: true
+  provider_priority:
+  - zai
+  routing:
+    planning:
+      preferred_provider: zai
+      preferred_model: glm-4.7
+      local_fallback: nomic-embed-text:latest
+    coding:
+      preferred_provider: zai
+      preferred_model: glm-4.7
+      local_fallback: nomic-embed-text:latest
+    analysis:
+      preferred_provider: zai
+      preferred_model: glm-4.7-flash
+      local_fallback: nomic-embed-text:latest
+    simple:
+      preferred_provider: zai
+      preferred_model: glm-4.7-flash
+      local_fallback: nomic-embed-text:latest
+    embedding:
+      preferred_model: nomic-embed-text
+      local_only: true
+  budget:
+    daily_limit_usd: 10.0
+    per_task_limit_usd: 2.0
+shell:
+  timeout: 30
+  blacklist_patterns:
+  - rm -rf /
+  - rm -rf /*
+  - mkfs
+  - dd if=
+  - '> /dev/sda'
+  - chmod -R 777 /
+  - ':(){ :|:& };:'
+  - DROP DATABASE
+  - TRUNCATE
+  safe_commands:
+  - ls
+  - cat
+  - pwd
+  - which
+  - echo
+  - grep
+  - find
+  - wc
+  - head
+  - tail
+  - df
+  - du
+  - ps
+  - uname
+plugins:
+  plugins_dir: plugins
+  auto_load: true
+self_dev:
+  max_llm_calls: 50
+  max_time_seconds: 1800
+  max_retries: 3
+  test_timeout: 60
+browser:
+  enabled: true
+  mode: profile
+  headless: false
+  cdp_port: 9222
+  cdp_ws_endpoint: ''
+  user_data_dir: /Users/0xroyce/Library/Application Support/Google/Chrome
+  use_system_chrome: true
+  viewport_width: 1280
+  viewport_height: 720
+  profile_directory: Profile 1
+scheduler:
+  enabled: true
+  max_concurrent_tasks: 1
+  default_max_retries: 3
+  task_timeout_seconds: 600
+telegram:
+  enabled: false
+  bot_token_ref: telegram_bot_token
+  allowed_users: []
+  mode: polling
+  max_message_length: 4000
+  send_files: true
+  send_screenshots: true
+  notifications:
+    task_complete: true
+    approval_needed: true
+    scheduled_results: true
+    errors: true
+    daily_summary: false
+    daily_summary_time: '20:00'
