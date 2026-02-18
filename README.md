@@ -349,12 +349,15 @@ See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
 ## Credits
 
+EloPhanto was built by **Petr Royce** as part of research into self-learning agents.
+
+- Browser automation inspired by [FellouAI/eko](https://github.com/FellouAI/eko)
+- Browser engine powered by [AwareBrowserAgent](https://github.com/AwareBrowserAgent)
 - UI skills from [ui-skills.com](https://www.ui-skills.com/) by Interface Office
 - Skills from [anthropics/skills](https://github.com/anthropics/skills) by Anthropic
 - React/Next.js skills from [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) by Vercel
 - Supabase skills from [supabase/agent-skills](https://github.com/supabase/agent-skills) by Supabase
 - Next.js/Prisma/shadcn skills from [gocallum/nextjs16-agent-skills](https://github.com/gocallum/nextjs16-agent-skills)
-- Browser engine powered by [AwareBrowserAgent](https://github.com/AwareBrowserAgent)
 
 ## License
 
