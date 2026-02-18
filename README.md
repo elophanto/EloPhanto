@@ -351,8 +351,7 @@ See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
 EloPhanto was built by **Petr Royce** as part of research into self-learning agents.
 
-- Browser automation inspired by [FellouAI/eko](https://github.com/FellouAI/eko)
-- Browser engine powered by [AwareBrowserAgent](https://github.com/AwareBrowserAgent)
+- Browser engine built on [FellouAI/eko](https://github.com/FellouAI/eko)
 - UI skills from [ui-skills.com](https://www.ui-skills.com/) by Interface Office
 - Skills from [anthropics/skills](https://github.com/anthropics/skills) by Anthropic
 - React/Next.js skills from [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) by Vercel
