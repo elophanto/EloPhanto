@@ -27,6 +27,7 @@
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
 | 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 27 bundled skills, trigger matching, EloPhantoHub registry |
+| 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 
 ---
 
