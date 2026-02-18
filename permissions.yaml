@@ -1,0 +1,18 @@
+# EloPhanto Permission Rules
+# Override per-tool permission behavior independent of the global permission_mode.
+
+# Per-tool overrides:
+#   "auto"    — always auto-approve (even in ask_always mode)
+#   "ask"     — always require approval (even in full_auto mode)
+#   "default" — follow the global permission_mode (this is the default)
+tool_overrides:
+  # shell_execute: ask
+  # file_write: default
+  # file_delete: ask
+  # browser_type: default
+
+# Tools that are completely disabled (agent cannot use them at all).
+disabled_tools: []
+# Example:
+#   - self_modify_source
+#   - browser_eval

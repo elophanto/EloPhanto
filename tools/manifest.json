@@ -1,0 +1,158 @@
+{
+  "version": "0.1.0",
+  "tools": {
+    "built_in": [
+      {
+        "name": "shell_execute",
+        "module": "tools.system.shell",
+        "class": "ShellExecuteTool",
+        "permission_level": "destructive"
+      },
+      {
+        "name": "file_read",
+        "module": "tools.system.filesystem",
+        "class": "FileReadTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "file_write",
+        "module": "tools.system.filesystem",
+        "class": "FileWriteTool",
+        "permission_level": "moderate"
+      },
+      {
+        "name": "file_list",
+        "module": "tools.system.filesystem",
+        "class": "FileListTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "llm_call",
+        "module": "tools.data.llm",
+        "class": "LLMCallTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "knowledge_search",
+        "module": "tools.knowledge.search",
+        "class": "KnowledgeSearchTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "knowledge_write",
+        "module": "tools.knowledge.writer",
+        "class": "KnowledgeWriteTool",
+        "permission_level": "moderate"
+      },
+      {
+        "name": "knowledge_index",
+        "module": "tools.knowledge.index_tool",
+        "class": "KnowledgeIndexTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "self_read_source",
+        "module": "tools.self_dev.reader",
+        "class": "SelfReadSourceTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "self_run_tests",
+        "module": "tools.self_dev.tester",
+        "class": "SelfRunTestsTool",
+        "permission_level": "moderate"
+      },
+      {
+        "name": "self_list_capabilities",
+        "module": "tools.self_dev.capabilities",
+        "class": "SelfListCapabilitiesTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "self_create_plugin",
+        "module": "tools.self_dev.creator",
+        "class": "SelfCreatePluginTool",
+        "permission_level": "critical"
+      },
+      {
+        "name": "browser_navigate",
+        "module": "tools.browser.tools",
+        "class": "BrowserNavigateTool",
+        "permission_level": "moderate"
+      },
+      {
+        "name": "browser_read_page",
+        "module": "tools.browser.tools",
+        "class": "BrowserReadPageTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "browser_interact",
+        "module": "tools.browser.tools",
+        "class": "BrowserInteractTool",
+        "permission_level": "moderate"
+      },
+      {
+        "name": "browser_tabs",
+        "module": "tools.browser.tools",
+        "class": "BrowserTabsTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "browser_screenshot",
+        "module": "tools.browser.tools",
+        "class": "BrowserScreenshotTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "browser_eval",
+        "module": "tools.browser.tools",
+        "class": "BrowserEvalTool",
+        "permission_level": "critical"
+      },
+      {
+        "name": "browser_cookies",
+        "module": "tools.browser.tools",
+        "class": "BrowserCookiesTool",
+        "permission_level": "moderate"
+      },
+      {
+        "name": "browser_storage",
+        "module": "tools.browser.tools",
+        "class": "BrowserStorageTool",
+        "permission_level": "moderate"
+      },
+      {
+        "name": "browser_console",
+        "module": "tools.browser.tools",
+        "class": "BrowserConsoleTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "browser_network",
+        "module": "tools.browser.tools",
+        "class": "BrowserNetworkTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "browser_elements",
+        "module": "tools.browser.tools",
+        "class": "BrowserElementsTool",
+        "permission_level": "safe"
+      },
+      {
+        "name": "schedule_task",
+        "module": "tools.scheduling.schedule_tool",
+        "class": "ScheduleTaskTool",
+        "permission_level": "moderate"
+      },
+      {
+        "name": "schedule_list",
+        "module": "tools.scheduling.list_tool",
+        "class": "ScheduleListTool",
+        "permission_level": "safe"
+      }
+    ],
+    "plugins": []
+  }
+}
