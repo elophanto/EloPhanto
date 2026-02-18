@@ -432,6 +432,30 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 7.9: EloPhantoHub | **Done** — Skill registry, search, install, update, agent auto-discovery |
 | Phase 8: Web UI | Planned |
 | Phase 9: Polish & Release | Planned |
+| Phase 10: Self-Learning Model | Idea Phase |
+
+## Phase 10: Self-Learning Model (Idea Phase)
+
+**Goal**: Train a custom EloPhanto base model that improves over time from its own interaction data.
+
+### Deliverables
+
+- Automated dataset collector capturing planning traces, tool calls, conversations, and reflections
+- Central dataset repository (GitHub/HuggingFace) with quality filtering and privacy sanitization
+- Unsloth QLoRA fine-tuning pipeline on an open-source base model (7B-14B range)
+- Model published to HuggingFace (`0xroyce/EloPhanto-Base-Model`) with versioning
+- Ollama integration for local deployment with auto-pull of new versions
+- Benchmark suite: tool accuracy, plan quality, code generation, reflection quality
+- Continuous improvement loop: collect → train → publish → deploy → monitor → repeat
+- Fallback strategy: auto-rollback to previous version if regression detected
+
+### Exit Criteria
+
+The fine-tuned EloPhanto model outperforms the base model on agent-specific benchmarks (tool selection, multi-step planning) and runs locally via Ollama as the default model for routine tasks.
+
+See [14-SELF-LEARNING.md](14-SELF-LEARNING.md) for the full specification.
+
+---
 
 ## Future Directions (Post-Launch)
 

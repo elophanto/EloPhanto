@@ -344,6 +344,7 @@ elophanto/
 | 7.9 | EloPhantoHub (skill registry, search, install, update) | Done |
 | 8 | Web UI (FastAPI + React) | Planned |
 | 9 | Polish & Open Source Release | Planned |
+| 10 | Self-Learning Model (Unsloth, HuggingFace, Ollama) | Idea Phase |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
