@@ -434,6 +434,7 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 9: Polish & Release | Planned |
 | Phase 10: Self-Learning Model | Idea Phase |
 | Phase 11: Agent Payments | Idea Phase |
+| Phase 12: Document & Media Analysis | Done |
 
 ## Phase 10: Self-Learning Model (Idea Phase)
 
@@ -478,6 +479,33 @@ See [14-SELF-LEARNING.md](14-SELF-LEARNING.md) for the full specification.
 The agent can receive a task like "Buy the cheapest VPS on Hetzner", browse pricing, select a plan, request payment approval via Telegram, process the payment via Stripe, and log the transaction — all with full audit trail.
 
 See [15-PAYMENTS.md](15-PAYMENTS.md) for the full specification.
+
+---
+
+## Phase 12: Document & Media Analysis (Done)
+
+**Goal**: Enable EloPhanto to receive and analyze files — images, PDFs, Word docs, spreadsheets, code archives — from any channel, with full RAG support for large-document research.
+
+### Deliverables
+
+- File intake system: channel adapters download attachments, CLI accepts file paths and URLs
+- Gateway protocol extension with `attachments` field on chat messages
+- Type router: MIME detection → image (vision model), short doc (direct context), large doc (RAG pipeline)
+- Text extraction: `pymupdf` (PDF), `python-docx` (DOCX), `openpyxl` (XLSX), `python-pptx` (PPTX), `ebooklib` (EPUB)
+- Local OCR via `rapidocr-onnxruntime` for scanned documents and image text
+- Document-aware chunking (structural for docs, row-group for spreadsheets, slide-based for presentations)
+- Vector store: `document_chunks` table in sqlite-vec, per-collection organization
+- Document collections: group related files for cross-document research queries
+- Image analysis via vision-capable models (local VLMs via Ollama, cloud fallback)
+- Tools: `document_analyze`, `document_query`, `document_collections`
+- Natural chat flow — no special commands, agent detects files and uses tools automatically
+- Configuration in `config.yaml` under `documents:` section
+
+### Exit Criteria
+
+The user can send a 100-page PDF via Telegram, ask "What are the key findings in chapter 3?", and get an accurate answer with page citations. They can then send two more PDFs and ask cross-document comparison questions.
+
+See [16-DOCUMENT-ANALYSIS.md](16-DOCUMENT-ANALYSIS.md) for the full specification.
 
 ---
 

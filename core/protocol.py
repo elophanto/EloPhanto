@@ -67,14 +67,18 @@ def chat_message(
     channel: str,
     user_id: str,
     session_id: str = "",
+    attachments: list[dict[str, Any]] | None = None,
 ) -> GatewayMessage:
     """Create a chat message from a channel adapter."""
+    data: dict[str, Any] = {"content": content}
+    if attachments:
+        data["attachments"] = attachments
     return GatewayMessage(
         type=MessageType.CHAT,
         channel=channel,
         user_id=user_id,
         session_id=session_id,
-        data={"content": content},
+        data=data,
     )
 
 

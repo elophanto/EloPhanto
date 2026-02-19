@@ -29,6 +29,7 @@
 | 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 27 bundled skills, trigger matching, EloPhantoHub registry |
 | 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail (idea phase) |
+| 16 | [Document & Media Analysis](16-DOCUMENT-ANALYSIS.md) | File intake, OCR, vision analysis, RAG for large documents, research mode |
 
 ---
 

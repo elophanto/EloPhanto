@@ -110,7 +110,8 @@ class ChannelAdapter(ABC):
             await self._ws.send(msg.to_json())
 
     async def send_chat(
-        self, content: str, user_id: str, session_id: str = ""
+        self, content: str, user_id: str, session_id: str = "",
+        attachments: list[dict] | None = None,
     ) -> GatewayMessage:
         """Send a chat message and wait for the response."""
         msg = chat_message(
@@ -118,6 +119,7 @@ class ChannelAdapter(ABC):
             channel=self.name,
             user_id=user_id,
             session_id=session_id,
+            attachments=attachments,
         )
 
         # Create future for response
