@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class PaymentAuditor:
         error: str | None = None,
     ) -> int:
         """Insert an audit record. Returns the row ID."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         row_id: int = await self._db.execute_insert(
             "INSERT INTO payment_audit "
             "(timestamp, tool_name, amount, currency, recipient, payment_type, "
@@ -106,7 +106,7 @@ class PaymentAuditor:
 
     async def get_monthly_total(self) -> float:
         """Sum of executed amounts in the current calendar month."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
         rows = await self._db.execute(
             "SELECT COALESCE(SUM(amount), 0) AS total FROM payment_audit "
