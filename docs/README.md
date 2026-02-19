@@ -5,7 +5,7 @@
 > Full system access. Persistent memory. Self-development with QA. Real browser control. Open source.
 
 **Website**: elophanto.com  
-**License**: MIT  
+**License**: Apache 2.0  
 **Status**: Active development
 
 ---

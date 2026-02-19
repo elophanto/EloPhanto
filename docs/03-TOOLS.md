@@ -320,3 +320,31 @@ Lists all scheduled tasks.
 - **Permission**: `safe`
 - **Input**: `filter` (enum: `all`, `active`, `paused`)
 - **Output**: `tasks` (array of task objects with `id`, `name`, `schedule`, `next_run`, `last_run`, `status`)
+
+### Document Tools
+
+#### `document_analyze`
+
+Analyzes a document or image file — extracts text, runs OCR if needed, and returns structured content.
+
+- **Permission**: `moderate`
+- **Input**: `file_path` (string — absolute path to the file), `query` (string, optional — focus the analysis on a specific question), `ocr` (boolean, optional — force OCR even for text-based documents)
+- **Output**: `content` (string — extracted/analyzed text), `metadata` (object — `filename`, `mime_type`, `size_bytes`, `pages`, `method`), `collection_id` (string, optional — if RAG was used, the collection ID for follow-up queries)
+- **Supported formats**: PDF, DOCX, XLSX, PPTX, EPUB, CSV, plain text, images (PNG, JPG, GIF, WEBP, BMP, TIFF)
+- **Behavior**: Files under ~8,000 tokens are sent directly to the LLM. Larger files are chunked, embedded, and stored in a RAG collection for semantic retrieval. Images are analyzed via vision LLM with optional OCR.
+
+#### `document_query`
+
+Queries a previously analyzed document collection using semantic search.
+
+- **Permission**: `safe`
+- **Input**: `collection_id` (string — from a previous `document_analyze` result), `query` (string — the question to answer)
+- **Output**: `answer` (string — synthesized answer), `chunks` (array of relevant chunks with `content`, `page`, `score`), `total_chunks` (integer)
+
+#### `document_collections`
+
+Lists or manages document collections.
+
+- **Permission**: `safe`
+- **Input**: `action` (enum: `list`, `info`, `delete`), `collection_id` (string, required for `info` and `delete`)
+- **Output**: For `list`: `collections` (array of collection summaries). For `info`: collection metadata with file count and chunk count. For `delete`: confirmation.
