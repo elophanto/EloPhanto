@@ -44,13 +44,28 @@ Best practices for decomposing complex goals into executable checkpoints.
 
 ## Examples
 
-### Good Decomposition
+### Good Decomposition: Job Application
 Goal: "Get a job at company X"
 1. Research X (culture, stack, recent news) — criteria: summary written
 2. Find open positions — criteria: 3+ positions listed with URLs
 3. Tailor resume — criteria: resume file updated, relevant skills highlighted
 4. Draft cover letter — criteria: cover letter file created, <400 words
 5. Submit application — criteria: confirmation page screenshot saved
+
+### Good Decomposition: Portfolio Website
+Goal: "Build me a portfolio website"
+1. Research design trends and gather requirements — criteria: design brief written
+2. Set up project (Next.js + deployment target) — criteria: project scaffolded, dev server runs
+3. Build core pages (home, about, projects) — criteria: 3 pages render with placeholder content
+4. Add real content and styling — criteria: all sections populated, responsive on mobile
+5. Deploy to production — criteria: live URL accessible, no console errors
+
+### Good Decomposition: Security Audit
+Goal: "Audit this codebase for security vulnerabilities"
+1. Scan dependencies for known CVEs — criteria: dependency report generated
+2. Review authentication and session handling — criteria: auth flow documented, issues listed
+3. Check for injection vulnerabilities (SQL, XSS, command) — criteria: each input path tested
+4. Write audit report with severity ratings — criteria: report file created, findings prioritized
 
 ### Bad Decomposition
 Goal: "Get a job at company X"

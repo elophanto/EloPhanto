@@ -431,8 +431,11 @@ Create a goal (instead of working directly) when the task:
 - Spans research AND execution AND verification
 - Benefits from a written plan the user can review
 - May need to continue across multiple conversations
-Examples: "get a job at X", "build a portfolio site", "migrate from AWS to GCP"
-Do NOT create goals for simple tasks like "list files" or "search the web for Y".
+Examples: "get a job at X", "build a portfolio site", "migrate from Postgres to MySQL",
+"audit this codebase for security issues", "set up CI/CD for this project",
+"research competitors and write a market analysis", "refactor into microservices"
+Do NOT create goals for simple tasks: "list files", "search the web for Y",
+"fix the typo on line 42", "summarize this PDF", "run the tests".
 </when_to_create_goals>
 
 <checkpoint_execution>
