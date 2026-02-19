@@ -123,6 +123,43 @@ _SCHEMA = [
         UNIQUE(channel, user_id)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS document_collections (
+        collection_id   TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        session_id      TEXT,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        file_count      INTEGER DEFAULT 0,
+        chunk_count     INTEGER DEFAULT 0,
+        total_tokens    INTEGER DEFAULT 0
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS document_files (
+        file_id         TEXT PRIMARY KEY,
+        collection_id   TEXT REFERENCES document_collections(collection_id),
+        filename        TEXT NOT NULL,
+        mime_type       TEXT,
+        size_bytes      INTEGER,
+        page_count      INTEGER,
+        local_path      TEXT,
+        content_hash    TEXT,
+        processed_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS document_chunks (
+        chunk_id        TEXT PRIMARY KEY,
+        collection_id   TEXT REFERENCES document_collections(collection_id),
+        file_id         TEXT REFERENCES document_files(file_id),
+        chunk_index     INTEGER,
+        content         TEXT NOT NULL,
+        token_count     INTEGER,
+        page_number     INTEGER,
+        section_title   TEXT,
+        metadata        TEXT
+    )
+    """,
 ]
 
 
@@ -186,6 +223,23 @@ class Database:
             self._conn.execute(
                 f"CREATE VIRTUAL TABLE vec_chunks USING vec0("
                 f"chunk_id INTEGER PRIMARY KEY, "
+                f"embedding float[{dimensions}])"
+            )
+            self._conn.commit()
+
+        await asyncio.to_thread(_create)
+
+    async def create_document_vec_table(self, dimensions: int) -> None:
+        """Create the document_chunks_vec virtual table for document embeddings."""
+        if not self._vec_available:
+            return
+
+        def _create() -> None:
+            assert self._conn is not None
+            self._conn.execute("DROP TABLE IF EXISTS document_chunks_vec")
+            self._conn.execute(
+                f"CREATE VIRTUAL TABLE document_chunks_vec USING vec0("
+                f"chunk_id TEXT PRIMARY KEY, "
                 f"embedding float[{dimensions}])"
             )
             self._conn.commit()

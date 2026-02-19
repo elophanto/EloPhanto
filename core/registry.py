@@ -108,3 +108,12 @@ class ToolRegistry:
         # Scheduling tools
         self.register(ScheduleTaskTool())
         self.register(ScheduleListTool())
+
+        # Document analysis tools
+        from tools.documents.analyze_tool import DocumentAnalyzeTool
+        from tools.documents.query_tool import DocumentQueryTool
+        from tools.documents.collections_tool import DocumentCollectionsTool
+
+        self.register(DocumentAnalyzeTool())
+        self.register(DocumentQueryTool())
+        self.register(DocumentCollectionsTool())

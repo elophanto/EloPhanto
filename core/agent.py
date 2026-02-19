@@ -98,6 +98,9 @@ class Agent:
         self._vault: Any = None  # Set by caller (e.g. chat_cmd) before initialize
         self._approval_queue: Any = None  # Set during initialize if DB available
         self._hub: Any = None  # EloPhantoHub client, set during initialize
+        self._storage_manager: Any = None  # StorageManager, set during initialize
+        self._document_processor: Any = None  # DocumentProcessor
+        self._document_store: Any = None  # DocumentStore
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
         self._on_task_complete: Callable[..., Any] | None = None
@@ -274,6 +277,38 @@ class Agent:
             except Exception as e:
                 logger.debug(f"EloPhantoHub initialization failed: {e}")
 
+        # Initialize document analysis subsystem
+        if self._config.documents.enabled:
+            _status("Preparing document analysis")
+            try:
+                from core.storage import StorageManager
+                from core.document_processor import DocumentProcessor
+                from core.document_store import DocumentStore
+
+                self._storage_manager = StorageManager(self._config.storage, self._config.project_root)
+                await self._storage_manager.initialize()
+
+                self._document_processor = DocumentProcessor(self._config.documents)
+                self._document_store = DocumentStore(
+                    db=self._db,
+                    embedder=self._embedder,
+                    embedding_model=self._indexer._embedding_model,
+                    storage=self._storage_manager,
+                    config=self._config.documents,
+                )
+
+                # Create document vector table if embeddings available
+                if embed_model and embed_dims:
+                    try:
+                        await self._db.create_document_vec_table(embed_dims)
+                    except Exception as e:
+                        logger.debug(f"Document vec table: {e}")
+
+                self._inject_document_deps()
+                logger.info("Document analysis ready")
+            except Exception as e:
+                logger.warning(f"Document analysis setup failed: {e}")
+
         # Auto-index knowledge on startup
         if self._config.knowledge.auto_index_on_startup:
             _status("Indexing knowledge")
@@ -368,6 +403,24 @@ class Agent:
         hub_install = HubInstallTool()
         hub_install._hub = self._hub
         self._registry.register(hub_install)
+
+    def _inject_document_deps(self) -> None:
+        """Inject document subsystem into document tools."""
+        analyze_tool = self._registry.get("document_analyze")
+        if analyze_tool:
+            analyze_tool._processor = self._document_processor
+            analyze_tool._store = self._document_store
+            analyze_tool._storage = self._storage_manager
+            analyze_tool._router = self._router
+            analyze_tool._config = self._config.documents
+
+        query_tool = self._registry.get("document_query")
+        if query_tool:
+            query_tool._store = self._document_store
+
+        collections_tool = self._registry.get("document_collections")
+        if collections_tool:
+            collections_tool._store = self._document_store
 
     def set_approval_callback(
         self, callback: Callable[[str, str, dict[str, Any]], bool]
