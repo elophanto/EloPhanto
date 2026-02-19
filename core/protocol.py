@@ -39,6 +39,11 @@ class EventType(StrEnum):
     STEP_PROGRESS = "step_progress"
     SESSION_CREATED = "session_created"
     NOTIFICATION = "notification"
+    GOAL_STARTED = "goal_started"
+    GOAL_CHECKPOINT_COMPLETE = "goal_checkpoint_complete"
+    GOAL_COMPLETED = "goal_completed"
+    GOAL_FAILED = "goal_failed"
+    GOAL_PAUSED = "goal_paused"
 
 
 @dataclass

@@ -48,6 +48,7 @@ elophanto/
 ├── core/                               # Agent brain — the main loop and systems
 │   ├── __init__.py
 │   ├── agent.py                        # Main agent class and loop (plan/execute/reflect/remember)
+│   ├── goal_manager.py                 # Autonomous goal loop (decompose, checkpoints, context)
 │   ├── planner.py                      # Goal decomposition and step planning
 │   ├── executor.py                     # Tool execution orchestration (per-call approval routing)
 │   ├── reflector.py                    # Post-action reflection and evaluation
@@ -119,6 +120,11 @@ elophanto/
 │   │   ├── tester.py                   # Run tests
 │   │   └── pipeline.py                 # Orchestrates the full dev pipeline
 │   │
+│   ├── goals/                          # Autonomous goal loop tools
+│   │   ├── create_tool.py             # Start a new multi-checkpoint goal
+│   │   ├── status_tool.py             # Check goal/checkpoint progress
+│   │   └── manage_tool.py             # Pause, resume, cancel, revise goals
+│   │
 │   ├── scheduling/                     # Task scheduling tools
 │   │   └── scheduler.py               # Create/list/manage scheduled tasks
 │   │
@@ -147,7 +153,9 @@ elophanto/
 │   │   └── SKILL.md
 │   ├── research/                      # Bundled: information gathering
 │   │   └── SKILL.md
-│   └── file-management/              # Bundled: file operations
+│   ├── file-management/              # Bundled: file operations
+│   │   └── SKILL.md
+│   └── goals/                        # Bundled: goal decomposition best practices
 │       └── SKILL.md
 │
 ├── plugins/                            # Agent-created tools (grows over time)
@@ -350,6 +358,41 @@ CREATE TABLE document_files (
     page_count INTEGER,
     content_hash TEXT,
     created_at TEXT NOT NULL
+);
+
+-- Autonomous goals
+CREATE TABLE goals (
+    goal_id TEXT PRIMARY KEY,
+    session_id TEXT,
+    goal TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'planning',
+    plan_json TEXT NOT NULL DEFAULT '[]',
+    context_summary TEXT NOT NULL DEFAULT '',
+    current_checkpoint INTEGER NOT NULL DEFAULT 0,
+    total_checkpoints INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    llm_calls_used INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0.0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+
+-- Goal checkpoints
+CREATE TABLE goal_checkpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    goal_id TEXT NOT NULL REFERENCES goals(goal_id),
+    checkpoint_order INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    success_criteria TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    result_summary TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT,
+    completed_at TEXT,
+    UNIQUE(goal_id, checkpoint_order)
 );
 
 -- Document chunks (for RAG retrieval)

@@ -410,6 +410,49 @@ You can schedule tasks to run automatically — both recurring and one-time.
 # Closing tag for tool_usage
 # ---------------------------------------------------------------------------
 
+_TOOL_GOALS = """\
+<goals>
+You can pursue long-running goals that span multiple sessions and require
+multi-step planning. Goals are decomposed into ordered checkpoints that you
+execute one at a time.
+
+<available_tools>
+- goal_create: Start a new goal. Triggers automatic decomposition into
+  checkpoints. Use this when the user asks for something that clearly requires
+  multiple phases of work (research + execution + verification).
+- goal_status: Check progress on active goals, list all goals, or see
+  detailed checkpoint status.
+- goal_manage: Pause, resume, cancel, or revise an active goal's plan.
+</available_tools>
+
+<when_to_create_goals>
+Create a goal (instead of working directly) when the task:
+- Requires more than ~10 tool calls across distinct phases
+- Spans research AND execution AND verification
+- Benefits from a written plan the user can review
+- May need to continue across multiple conversations
+Examples: "get a job at X", "build a portfolio site", "migrate from AWS to GCP"
+Do NOT create goals for simple tasks like "list files" or "search the web for Y".
+</when_to_create_goals>
+
+<checkpoint_execution>
+When executing a checkpoint:
+1. Focus ONLY on the current checkpoint's objective
+2. Use the success criteria to know when you are done
+3. When complete, summarize what was accomplished
+4. The system will automatically advance to the next checkpoint
+If a checkpoint fails after retries, pause the goal and inform the user.
+</checkpoint_execution>
+
+<self_evaluation>
+After completing checkpoints, periodically evaluate:
+- Am I making real progress toward the overall goal?
+- Has new information changed what the remaining plan should be?
+- Should any checkpoints be added, removed, or reordered?
+If the plan needs revision, use goal_manage with action="revise".
+</self_evaluation>
+</goals>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -448,8 +491,10 @@ def build_system_prompt(
     permission_mode: str = "ask_always",
     browser_enabled: bool = False,
     scheduler_enabled: bool = False,
+    goals_enabled: bool = False,
     knowledge_context: str = "",
     available_skills: str = "",
+    goal_context: str = "",
 ) -> str:
     """Assemble the full system prompt from XML-structured sections.
 
@@ -457,8 +502,10 @@ def build_system_prompt(
         permission_mode: One of "ask_always", "smart_auto", "full_auto".
         browser_enabled: Whether browser automation tools are available.
         scheduler_enabled: Whether scheduling tools are available.
+        goals_enabled: Whether goal loop tools are available.
         knowledge_context: Pre-formatted knowledge chunks from WorkingMemory.
         available_skills: Pre-formatted XML block from SkillManager.
+        goal_context: Pre-built XML from GoalManager.build_goal_context().
 
     Returns:
         Complete system prompt string with XML structure.
@@ -496,6 +543,9 @@ def build_system_prompt(
     if scheduler_enabled:
         sections.append(_TOOL_SCHEDULING)
 
+    if goals_enabled:
+        sections.append(_TOOL_GOALS)
+
     sections.append(_TOOL_CLOSE)
 
     # Skills system (always included if skills exist)
@@ -504,8 +554,9 @@ def build_system_prompt(
         sections.append(available_skills)
 
     if knowledge_context:
-        sections.append(
-            f"<relevant_knowledge>\n{knowledge_context}\n</relevant_knowledge>"
-        )
+        sections.append(f"<relevant_knowledge>\n{knowledge_context}\n</relevant_knowledge>")
+
+    if goal_context:
+        sections.append(goal_context)
 
     return "\n\n".join(sections)

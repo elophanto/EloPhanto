@@ -321,6 +321,34 @@ Lists all scheduled tasks.
 - **Input**: `filter` (enum: `all`, `active`, `paused`)
 - **Output**: `tasks` (array of task objects with `id`, `name`, `schedule`, `next_run`, `last_run`, `status`)
 
+### Goal Tools
+
+#### `goal_create`
+
+Starts a long-running goal that spans multiple sessions. Triggers LLM-powered decomposition into ordered checkpoints.
+
+- **Permission**: `moderate`
+- **Input**: `goal` (string — the goal to achieve)
+- **Output**: `goal_id` (string), `goal` (string), `status` (string), `total_checkpoints` (integer), `checkpoints` (array of objects with `order`, `title`, `success_criteria`)
+- **Behavior**: Creates a goal record, calls the LLM to decompose into 3-20 checkpoints, persists to database, and sets status to "active".
+
+#### `goal_status`
+
+Checks progress on active or past goals.
+
+- **Permission**: `safe`
+- **Input**: `goal_id` (string, optional — omit to list all goals), `action` (enum: `list`, `detail`, default `list`)
+- **Output**: For `list`: `goals` (array of goal summaries), `total` (integer). For `detail`: full goal info with `checkpoints` (array), `progress`, `context_summary`, `llm_calls_used`.
+
+#### `goal_manage`
+
+Pauses, resumes, cancels, or revises an active goal's plan.
+
+- **Permission**: `moderate`
+- **Input**: `goal_id` (string), `action` (enum: `pause`, `resume`, `cancel`, `revise`), `reason` (string — required for `revise`)
+- **Output**: `goal_id` (string), `action` (string), and for `revise`: `new_checkpoints` (array), `total_checkpoints` (integer)
+- **Behavior**: `pause` requires active status. `resume` requires paused status. `revise` uses LLM to regenerate remaining checkpoints.
+
 ### Document Tools
 
 #### `document_analyze`

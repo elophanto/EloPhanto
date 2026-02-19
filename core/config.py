@@ -120,9 +120,7 @@ class BrowserConfig:
     cdp_port: int = 9222
     cdp_ws_endpoint: str = ""
     user_data_dir: str = ""
-    profile_directory: str = (
-        "Default"  # Chrome profile subdir (Default, Profile 1, etc.)
-    )
+    profile_directory: str = "Default"  # Chrome profile subdir (Default, Profile 1, etc.)
     use_system_chrome: bool = True
     viewport_width: int = 1280
     viewport_height: int = 720
@@ -202,9 +200,7 @@ class TelegramConfig:
     max_message_length: int = 4000
     send_files: bool = True
     send_screenshots: bool = True
-    notifications: TelegramNotificationConfig = field(
-        default_factory=TelegramNotificationConfig
-    )
+    notifications: TelegramNotificationConfig = field(default_factory=TelegramNotificationConfig)
 
 
 @dataclass
@@ -235,6 +231,20 @@ class DocumentConfig:
 
 
 @dataclass
+class GoalsConfig:
+    """Autonomous goal loop configuration."""
+
+    enabled: bool = True
+    max_checkpoints: int = 20
+    max_checkpoint_attempts: int = 3
+    max_goal_attempts: int = 3
+    max_llm_calls_per_goal: int = 200
+    max_time_per_checkpoint_seconds: int = 600
+    context_summary_max_tokens: int = 1500
+    auto_continue: bool = True
+
+
+@dataclass
 class Config:
     """Top-level EloPhanto configuration."""
 
@@ -257,6 +267,7 @@ class Config:
     slack: SlackConfig = field(default_factory=SlackConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     documents: DocumentConfig = field(default_factory=DocumentConfig)
+    goals: GoalsConfig = field(default_factory=GoalsConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -515,6 +526,19 @@ def load_config(config_path: Path | str | None = None) -> Config:
         max_collection_files=docs_raw.get("max_collection_files", 50),
     )
 
+    # Parse goals section
+    goals_raw = raw.get("goals", {})
+    goals_config = GoalsConfig(
+        enabled=goals_raw.get("enabled", True),
+        max_checkpoints=goals_raw.get("max_checkpoints", 20),
+        max_checkpoint_attempts=goals_raw.get("max_checkpoint_attempts", 3),
+        max_goal_attempts=goals_raw.get("max_goal_attempts", 3),
+        max_llm_calls_per_goal=goals_raw.get("max_llm_calls_per_goal", 200),
+        max_time_per_checkpoint_seconds=goals_raw.get("max_time_per_checkpoint_seconds", 600),
+        context_summary_max_tokens=goals_raw.get("context_summary_max_tokens", 1500),
+        auto_continue=goals_raw.get("auto_continue", True),
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -535,6 +559,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         slack=slack_config,
         storage=storage_config,
         documents=documents_config,
+        goals=goals_config,
         project_root=config_path.parent,
     )
 

@@ -105,6 +105,7 @@ class Agent:
         self._storage_manager: Any = None  # StorageManager, set during initialize
         self._document_processor: Any = None  # DocumentProcessor
         self._document_store: Any = None  # DocumentStore
+        self._goal_manager: Any = None  # GoalManager, set during initialize
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
         self._on_task_complete: Callable[..., Any] | None = None
@@ -312,6 +313,20 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Document analysis setup failed: {e}")
 
+        # Initialize goal loop system
+        if self._config.goals.enabled:
+            _status("Preparing goal system")
+            try:
+                from core.goal_manager import GoalManager
+
+                self._goal_manager = GoalManager(
+                    db=self._db, router=self._router, config=self._config.goals
+                )
+                self._inject_goal_deps()
+                logger.info("Goal system ready")
+            except Exception as e:
+                logger.warning(f"Goal system setup failed: {e}")
+
         # Auto-index knowledge on startup
         if self._config.knowledge.auto_index_on_startup:
             _status("Indexing knowledge")
@@ -425,6 +440,13 @@ class Agent:
         if collections_tool:
             collections_tool._store = self._document_store
 
+    def _inject_goal_deps(self) -> None:
+        """Inject goal manager into goal tools."""
+        for tool_name in ("goal_create", "goal_status", "goal_manage"):
+            tool = self._registry.get(tool_name)
+            if tool and self._goal_manager:
+                tool._goal_manager = self._goal_manager
+
     def set_approval_callback(self, callback: Callable[[str, str, dict[str, Any]], bool]) -> None:
         """Set the user approval callback (from CLI layer)."""
         self._executor.set_approval_callback(callback)
@@ -521,12 +543,28 @@ class Agent:
         # Build system prompt with XML-structured sections, skills, and knowledge
         knowledge_context = self._working_memory.format_context()
         available_skills = self._skill_manager.format_available_skills()
+
+        # Check for active goal context
+        goal_context = ""
+        if self._goal_manager:
+            try:
+                # Try to find active goal (session-scoped or global)
+                active_goal = await self._goal_manager.list_goals(status="active", limit=1)
+                if active_goal:
+                    goal_context = await self._goal_manager.build_goal_context(
+                        active_goal[0].goal_id
+                    )
+            except Exception:
+                pass
+
         system_content = build_system_prompt(
             permission_mode=self._config.permission_mode,
             browser_enabled=self._config.browser.enabled,
             scheduler_enabled=self._config.scheduler.enabled,
+            goals_enabled=self._config.goals.enabled,
             knowledge_context=knowledge_context,
             available_skills=available_skills,
+            goal_context=goal_context,
         )
 
         # Build conversation for LLM: prior turns + current user message
