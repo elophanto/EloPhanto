@@ -180,9 +180,7 @@ class TestAgentLoop:
         with patch.object(agent._router, "complete", side_effect=infinite_tool_calls):
             response = await agent.run("do something forever")
 
-        assert (
-            "stopped" in response.content.lower() or "step" in response.content.lower()
-        )
+        assert "stopped" in response.content.lower() or "step" in response.content.lower()
         assert response.steps_taken == 3
 
     @pytest.mark.asyncio
@@ -300,10 +298,15 @@ class TestConversationHistory:
             await agent.run("first message")
             await agent.run("second message")
 
-        # Second call should include prior history
-        second_call_messages = captured_messages[1]
-        # Find user messages (excluding system)
-        user_msgs = [m for m in second_call_messages if m["role"] == "user"]
+        # Find the call that contains "second message" (skip identity reflection calls)
+        second_run_messages = None
+        for msgs in captured_messages:
+            user_msgs = [m for m in msgs if m["role"] == "user"]
+            if any("second message" in m["content"] for m in user_msgs):
+                second_run_messages = msgs
+                break
+        assert second_run_messages is not None, "Could not find second run call"
+        user_msgs = [m for m in second_run_messages if m["role"] == "user"]
         assert len(user_msgs) == 2  # "first message" + "second message"
         assert user_msgs[0]["content"] == "first message"
         assert user_msgs[1]["content"] == "second message"

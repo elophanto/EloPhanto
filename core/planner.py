@@ -498,6 +498,7 @@ def build_system_prompt(
     knowledge_context: str = "",
     available_skills: str = "",
     goal_context: str = "",
+    identity_context: str = "",
 ) -> str:
     """Assemble the full system prompt from XML-structured sections.
 
@@ -509,6 +510,7 @@ def build_system_prompt(
         knowledge_context: Pre-formatted knowledge chunks from WorkingMemory.
         available_skills: Pre-formatted XML block from SkillManager.
         goal_context: Pre-built XML from GoalManager.build_goal_context().
+        identity_context: Pre-built XML from IdentityManager.build_identity_context().
 
     Returns:
         Complete system prompt string with XML structure.
@@ -530,8 +532,14 @@ def build_system_prompt(
         "full_auto": _PERMISSION_FULL_AUTO,
     }.get(permission_mode, _PERMISSION_ASK_ALWAYS)
 
+    # Use dynamic identity if available, otherwise fall back to static
+    if identity_context:
+        identity_section = _IDENTITY + "\n\n" + identity_context
+    else:
+        identity_section = _IDENTITY
+
     sections = [
-        _IDENTITY,
+        identity_section,
         runtime,
         _BEHAVIOR,
         permission_section,

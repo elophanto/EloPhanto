@@ -1,7 +1,9 @@
 """Centralized logging setup — file + optional console output.
 
-Logs are written to ``logs/elophanto.log`` (rotated at 5 MB, 3 backups kept).
-Console output is controlled by the *debug* flag.
+Each launch creates a new timestamped log file in ``logs/`` (e.g.
+``logs/elophanto_2026-02-19_15-30-00.log``). A ``latest.log`` symlink
+always points to the current session's log. Old logs beyond
+``_MAX_LOG_FILES`` are automatically cleaned up.
 
 Includes a RedactingFilter that strips API keys, passwords, and other
 secrets from log messages before they reach disk.
@@ -10,14 +12,13 @@ secrets from log messages before they reach disk.
 from __future__ import annotations
 
 import logging
+import os
 import re
-from logging.handlers import RotatingFileHandler
+from datetime import datetime
 from pathlib import Path
 
 _LOG_DIR = Path("logs")
-_LOG_FILE = _LOG_DIR / "elophanto.log"
-_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
-_BACKUP_COUNT = 3
+_MAX_LOG_FILES = 10
 _FMT = "%(asctime)s %(levelname)-7s [%(name)s] %(message)s"
 _DATE_FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -52,8 +53,23 @@ class RedactingFilter(logging.Filter):
         return True
 
 
+def _cleanup_old_logs() -> None:
+    """Remove oldest log files when count exceeds _MAX_LOG_FILES."""
+    log_files = sorted(
+        (f for f in _LOG_DIR.iterdir() if f.name.startswith("elophanto_") and f.suffix == ".log"),
+        key=lambda f: f.stat().st_mtime,
+    )
+    while len(log_files) > _MAX_LOG_FILES:
+        oldest = log_files.pop(0)
+        oldest.unlink(missing_ok=True)
+
+
 def setup_logging(*, debug: bool = False) -> None:
-    """Configure root logger with file handler (always) and console level.
+    """Configure root logger with a timestamped file handler and console.
+
+    Each call creates a new ``logs/elophanto_<timestamp>.log`` file and
+    updates a ``logs/latest.log`` symlink. Old logs are pruned to keep
+    at most ``_MAX_LOG_FILES``.
 
     Safe to call multiple times — subsequent calls are no-ops.
     """
@@ -64,6 +80,19 @@ def setup_logging(*, debug: bool = False) -> None:
 
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Timestamped log file for this session
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_file = _LOG_DIR / f"elophanto_{timestamp}.log"
+
+    # Update latest.log symlink
+    latest_link = _LOG_DIR / "latest.log"
+    try:
+        if latest_link.is_symlink() or latest_link.exists():
+            latest_link.unlink()
+        os.symlink(log_file.name, latest_link)
+    except OSError:
+        pass  # Symlinks may not work on all platforms
+
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
 
@@ -71,9 +100,7 @@ def setup_logging(*, debug: bool = False) -> None:
 
     fmt = logging.Formatter(_FMT, datefmt=_DATE_FMT)
 
-    fh = RotatingFileHandler(
-        _LOG_FILE, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8"
-    )
+    fh = logging.FileHandler(log_file, encoding="utf-8")
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(fmt)
     fh.addFilter(redact_filter)
@@ -84,3 +111,5 @@ def setup_logging(*, debug: bool = False) -> None:
     ch.setFormatter(fmt)
     ch.addFilter(redact_filter)
     root.addHandler(ch)
+
+    _cleanup_old_logs()
