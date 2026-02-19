@@ -245,6 +245,17 @@ class GoalsConfig:
 
 
 @dataclass
+class IdentityConfig:
+    """Evolving agent identity configuration."""
+
+    enabled: bool = True
+    auto_evolve: bool = True
+    reflection_frequency: int = 10
+    first_awakening: bool = True
+    nature_file: str = "knowledge/self/nature.md"
+
+
+@dataclass
 class Config:
     """Top-level EloPhanto configuration."""
 
@@ -268,6 +279,7 @@ class Config:
     storage: StorageConfig = field(default_factory=StorageConfig)
     documents: DocumentConfig = field(default_factory=DocumentConfig)
     goals: GoalsConfig = field(default_factory=GoalsConfig)
+    identity: IdentityConfig = field(default_factory=IdentityConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -539,6 +551,16 @@ def load_config(config_path: Path | str | None = None) -> Config:
         auto_continue=goals_raw.get("auto_continue", True),
     )
 
+    # Parse identity section
+    identity_raw = raw.get("identity", {})
+    identity_config = IdentityConfig(
+        enabled=identity_raw.get("enabled", True),
+        auto_evolve=identity_raw.get("auto_evolve", True),
+        reflection_frequency=identity_raw.get("reflection_frequency", 10),
+        first_awakening=identity_raw.get("first_awakening", True),
+        nature_file=identity_raw.get("nature_file", "knowledge/self/nature.md"),
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -560,6 +582,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         storage=storage_config,
         documents=documents_config,
         goals=goals_config,
+        identity=identity_config,
         project_root=config_path.parent,
     )
 

@@ -126,3 +126,12 @@ class ToolRegistry:
         self.register(GoalCreateTool())
         self.register(GoalStatusTool())
         self.register(GoalManageTool())
+
+        # Identity tools
+        from tools.identity.reflect_tool import IdentityReflectTool
+        from tools.identity.status_tool import IdentityStatusTool
+        from tools.identity.update_tool import IdentityUpdateTool
+
+        self.register(IdentityStatusTool())
+        self.register(IdentityUpdateTool())
+        self.register(IdentityReflectTool())
