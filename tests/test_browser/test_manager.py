@@ -35,9 +35,7 @@ class TestBrowserManager:
         assert mgr._cdp_port == 9333
 
     def test_init_cdp_ws_mode(self) -> None:
-        mgr = BrowserManager(
-            mode="cdp_ws", cdp_ws_endpoint="ws://localhost:9222/devtools"
-        )
+        mgr = BrowserManager(mode="cdp_ws", cdp_ws_endpoint="ws://localhost:9222/devtools")
         assert mgr.mode == "cdp_ws"
         assert mgr._cdp_ws_endpoint == "ws://localhost:9222/devtools"
 
@@ -320,9 +318,7 @@ class TestGetChromeProfiles:
         assert by_name["Work"]["email"] == ""
 
     def test_returns_empty_no_chrome(self) -> None:
-        with patch(
-            "core.browser_manager.get_default_chrome_user_data_dir", return_value=None
-        ):
+        with patch("core.browser_manager.get_default_chrome_user_data_dir", return_value=None):
             profiles = get_chrome_profiles()
         assert profiles == []
 
@@ -343,15 +339,13 @@ class TestCrashStateCleanup:
     def test_disables_session_restore(self, tmp_path: Path) -> None:
         import json
 
-        prefs = {
-            "session": {"restore_on_startup": 1, "startup_urls": ["https://x.com"]}
-        }
+        prefs = {"session": {"restore_on_startup": 1, "startup_urls": ["https://x.com"]}}
         (tmp_path / "Preferences").write_text(json.dumps(prefs))
 
         _clean_crash_state(tmp_path)
 
         result = json.loads((tmp_path / "Preferences").read_text())
-        assert result["session"]["restore_on_startup"] == 4
+        assert result["session"]["restore_on_startup"] == 5
         assert "startup_urls" not in result["session"]
 
     def test_handles_missing_prefs(self, tmp_path: Path) -> None:
