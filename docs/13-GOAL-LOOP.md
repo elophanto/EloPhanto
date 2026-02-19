@@ -2,17 +2,65 @@
 
 ## Overview
 
-The Goal Loop allows EloPhanto to pursue multi-phase goals that span sessions, require progress tracking, and may need mid-run replanning. A user saying "get a job at X" triggers: research the company, tailor resume, find openings, apply, follow up — spread across hours/days with persistent state.
+The Goal Loop allows EloPhanto to pursue multi-phase goals that span sessions, require progress tracking, and may need mid-run replanning. Any task that spans distinct phases — research, execution, verification — across minutes, hours, or days gets decomposed into ordered checkpoints with persistent state.
+
+## How Goal Creation is Triggered
+
+Goal creation is **LLM-driven, not rule-based**. There is no keyword matcher or heuristic that auto-creates goals. Instead, the system prompt includes a `<goals>` section that teaches the agent *when* to call `goal_create` vs working directly. Two mechanisms guide this decision:
+
+1. **System prompt guidance** (`<when_to_create_goals>` in `core/planner.py`) — The LLM sees criteria for when a task warrants a goal: requires 10+ tool calls across distinct phases, spans research AND execution AND verification, may need to continue across conversations.
+
+2. **Skill auto-loading** (`skills/goals/SKILL.md`) — When the user's message contains trigger words like "goal", "plan", "project", "achieve", "milestone", the goals skill is loaded into context, giving the LLM additional decomposition guidance and anti-patterns.
+
+The LLM then decides: call `goal_create` for complex multi-phase work, or just work directly for simple tasks.
+
+### Examples — When Goals ARE Created
+
+| User says | Why it triggers a goal |
+|-----------|----------------------|
+| "Get a job at company X" | Research + resume + applications + follow-up across days |
+| "Build me a portfolio website" | Design + implement + deploy + iterate — distinct phases |
+| "Migrate our database from Postgres to MySQL" | Audit schema + write migration + test + cutover + verify |
+| "Research competitors and write a market analysis report" | Gather data from multiple sources + synthesize + write + review |
+| "Set up CI/CD for this project" | Evaluate options + configure + write pipeline + test + document |
+| "Learn Python basics and build a small project" | Study topics + practice + plan project + implement + review |
+| "Audit this codebase for security vulnerabilities" | Scan dependencies + review auth + check injections + report |
+| "Plan and execute a social media campaign" | Research audience + create content + schedule posts + track metrics |
+| "Refactor the monolith into microservices" | Map dependencies + define boundaries + extract services + test + deploy |
+
+### Examples — When Goals Are NOT Created
+
+| User says | Why it's handled directly |
+|-----------|-------------------------|
+| "List files in this directory" | Single tool call |
+| "Search the web for Python tutorials" | One search, one response |
+| "What's the weather in Tokyo?" | Simple lookup |
+| "Fix the typo on line 42" | Single edit |
+| "Summarize this PDF" | One document analysis call |
+| "Run the test suite" | Single shell command |
+
+### Edge Cases
+
+The LLM uses judgment for tasks that sit between simple and complex:
+- "Write a Python script that scrapes job listings" — Likely direct (single focused coding task)
+- "Build a job scraping pipeline with scheduling, alerts, and a dashboard" — Goal (multiple distinct phases)
+- "Research the best React state management library" — Likely direct (focused research)
+- "Evaluate React state management libraries, prototype with the top 3, and recommend one with benchmarks" — Goal (research + prototyping + analysis)
 
 ## Architecture
 
 ```
-User: "get a job at X"
+User: "Build me a portfolio website"
          │
          ▼
+   ┌─────────────┐     LLM decides this needs a goal
+   │   Agent LLM  │────► Calls goal_create tool
+   └──────┬──────┘
+          │
+          ▼
    ┌─────────────┐     LLM call (task_type="simple")
    │ goal_create  │────► Decompose into checkpoints
-   │   tool       │◄──── [{order:1, title:"Research X", ...}, ...]
+   │   tool       │◄──── [{order:1, title:"Research design trends", ...}, ...]
    └──────┬──────┘
           │ persist to goals + goal_checkpoints tables
           ▼
