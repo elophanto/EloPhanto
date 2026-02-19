@@ -43,10 +43,8 @@ class DiscordAdapter(ChannelAdapter):
         try:
             import discord
             from discord import app_commands
-        except ImportError:
-            raise RuntimeError(
-                "discord.py not installed. Run: pip install discord.py"
-            )
+        except ImportError as err:
+            raise RuntimeError("discord.py not installed. Run: pip install discord.py") from err
 
         await self.connect_gateway()
 
@@ -93,9 +91,7 @@ class DiscordAdapter(ChannelAdapter):
 
             async with message.channel.typing():
                 try:
-                    response = await self.send_chat(
-                        content=content, user_id=user_id
-                    )
+                    response = await self.send_chat(content=content, user_id=user_id)
 
                     if response.session_id:
                         self._session_channels[response.session_id] = channel_id
@@ -105,16 +101,14 @@ class DiscordAdapter(ChannelAdapter):
                     for chunk in _split_discord(reply, 1900):
                         await message.channel.send(chunk)
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     await message.channel.send("Request timed out.")
                 except Exception as e:
                     logger.error("Discord message handling failed: %s", e)
                     await message.channel.send(f"Error: {e}")
 
         @tree.command(name="ask", description="Ask EloPhanto a question")
-        async def slash_ask(
-            interaction: discord.Interaction, question: str
-        ) -> None:
+        async def slash_ask(interaction: discord.Interaction, question: str) -> None:
             await interaction.response.defer(thinking=True)
             user_id = str(interaction.user.id)
 
@@ -189,7 +183,7 @@ class DiscordAdapter(ChannelAdapter):
                     await self.send_approval(msg.id, approved)
                     status = "Approved" if approved else "Denied"
                     await channel.send(f"{status} by {user.display_name}.")
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     await self.send_approval(msg.id, False)
                     await channel.send("Approval timed out (denied).")
 

@@ -10,7 +10,7 @@ import json
 import logging
 import struct
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +49,7 @@ class DocumentStore:
     ) -> str:
         """Create a new collection, return collection_id."""
         collection_id = uuid.uuid4().hex[:16]
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._db.execute_insert(
             "INSERT INTO document_collections (collection_id, name, session_id, created_at) "
             "VALUES (?, ?, ?, ?)",
@@ -72,7 +72,7 @@ class DocumentStore:
         file_id = uuid.uuid4().hex[:16]
         content_hash = DocumentProcessor.content_hash(file_path)
         size_bytes = file_path.stat().st_size
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         # Insert file record
         await self._db.execute_insert(

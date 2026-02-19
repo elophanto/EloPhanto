@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,7 +18,6 @@ from tools.self_dev.pipeline import (
 )
 from tools.self_dev.reader import SelfReadSourceTool
 from tools.self_dev.tester import SelfRunTestsTool
-
 
 # ─── SelfReadSourceTool ───
 

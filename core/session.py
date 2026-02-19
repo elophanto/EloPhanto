@@ -10,7 +10,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.database import Database
@@ -28,8 +28,8 @@ class Session:
     channel: str
     user_id: str
     conversation_history: list[dict[str, Any]] = field(default_factory=list)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    last_active: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_active: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def append_conversation_turn(self, user_msg: str, assistant_msg: str) -> None:
@@ -43,7 +43,7 @@ class Session:
 
     def touch(self) -> None:
         """Update last_active timestamp."""
-        self.last_active = datetime.now(timezone.utc)
+        self.last_active = datetime.now(UTC)
 
 
 class SessionManager:
@@ -123,7 +123,7 @@ class SessionManager:
         """Remove sessions older than max_age_hours. Returns count removed."""
         from datetime import timedelta
 
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(hours=max_age_hours)).isoformat()
         rows = await self._db.execute(
             "SELECT session_id FROM sessions WHERE last_active < ?",
             (cutoff,),

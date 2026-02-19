@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.config import Config, LLMConfig, ProviderConfig, RoutingConfig, BudgetConfig
+from core.config import BudgetConfig, Config, LLMConfig, ProviderConfig, RoutingConfig
 from core.router import LLMRouter
 
 

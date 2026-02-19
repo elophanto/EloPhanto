@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tools.base import BaseTool, PermissionLevel, ToolResult
+from tools.base import PermissionLevel
 from tools.browser.tools import BridgeBrowserTool, create_browser_tools
 
 

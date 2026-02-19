@@ -12,14 +12,12 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import click
 import yaml
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
-from rich.table import Table
 
 console = Console()
 

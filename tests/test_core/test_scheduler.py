@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 from core.database import Database
 from core.scheduler import TaskScheduler, parse_natural_language_schedule
-
 
 # ─── Natural Language Schedule Parsing ───
 

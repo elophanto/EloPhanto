@@ -7,17 +7,13 @@ from pathlib import Path
 import pytest
 
 from core.config import (
-    BrowserConfig,
     BudgetConfig,
     Config,
     DatabaseConfig,
     KnowledgeConfig,
     LLMConfig,
-    PluginConfig,
     ProviderConfig,
     RoutingConfig,
-    SchedulerConfig,
-    SelfDevConfig,
     ShellConfig,
 )
 

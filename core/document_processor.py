@@ -294,9 +294,10 @@ class DocumentProcessor:
 
     async def _extract_epub(self, file_path: Path) -> ExtractedContent:
         def _extract() -> ExtractedContent:
+            from html.parser import HTMLParser
+
             import ebooklib
             from ebooklib import epub
-            from html.parser import HTMLParser
 
             book = epub.read_epub(str(file_path), options={"ignore_ncx": True})
             chapters: list[str] = []

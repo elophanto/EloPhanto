@@ -7,7 +7,7 @@ any interface (CLI, Telegram, Web UI).
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.database import Database
@@ -41,7 +41,7 @@ class ApprovalQueue:
         params: dict[str, Any],
     ) -> int:
         """Add a new pending approval request. Returns the row ID."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         return await self._db.execute_insert(
             "INSERT INTO approval_queue (tool_name, description, params_json, "
             "status, created_at) VALUES (?, ?, ?, 'pending', ?)",
@@ -50,9 +50,9 @@ class ApprovalQueue:
 
     async def resolve(self, approval_id: int, approved: bool) -> bool:
         """Resolve a pending approval. Returns True if the item existed."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         status = "approved" if approved else "denied"
-        rows = await self._db.execute(
+        await self._db.execute(
             "UPDATE approval_queue SET status = ?, resolved_at = ? "
             "WHERE id = ? AND status = 'pending'",
             (status, now, approval_id),

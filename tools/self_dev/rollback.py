@@ -173,7 +173,7 @@ class SelfRollbackTool(BaseTool):
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
             tests_passed = proc.returncode == 0
             test_output = stdout.decode("utf-8", errors="replace")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             tests_passed = False
             test_output = "Test suite timed out"
         except Exception:

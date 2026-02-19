@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.database import Database
@@ -85,7 +85,7 @@ class MemoryManager:
         tools_used: list[str] | None = None,
     ) -> int:
         """Store a completed task's summary for future recall."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         return await self._db.execute_insert(
             "INSERT INTO memory (session_id, task_goal, task_summary, outcome, "
             "tools_used, created_at) VALUES (?, ?, ?, ?, ?, ?)",

@@ -20,15 +20,14 @@ import json
 import logging
 import os
 import platform
-import sqlite3
 import shutil
+import sqlite3
 import tempfile
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core.node_bridge import BridgeError, NodeBridge
+from core.node_bridge import NodeBridge
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +289,7 @@ def _format_profile_cookie_stats(source_root: Path) -> str:
 
 def _prepare_launch_profile(source: str, selected_profile: str) -> tuple[str, str]:
     """Prepare profile copy with strict, deterministic profile selection."""
-    source_root = Path(source)
+    Path(source)
     prepared = _prepare_profile_copy(source, selected_profile)
 
     logger.info(

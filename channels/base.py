@@ -8,7 +8,6 @@ platform-specific messages and the gateway protocol.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
@@ -19,7 +18,6 @@ from core.protocol import (
     approval_response_message,
     chat_message,
     command_message,
-    status_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,9 +68,7 @@ class ChannelAdapter(ABC):
 
     async def on_error(self, msg: GatewayMessage) -> None:
         """Handle an error message. Override for custom behavior."""
-        logger.error(
-            "Gateway error: %s", msg.data.get("detail", "unknown")
-        )
+        logger.error("Gateway error: %s", msg.data.get("detail", "unknown"))
 
     # ── Gateway connection ──────────────────────────────────────
 
@@ -80,8 +76,8 @@ class ChannelAdapter(ABC):
         """Connect to the gateway WebSocket."""
         try:
             import websockets
-        except ImportError:
-            raise RuntimeError("websockets package required: pip install websockets")
+        except ImportError as err:
+            raise RuntimeError("websockets package required: pip install websockets") from err
 
         self._ws = await websockets.connect(self._gateway_url)
         self._running = True
@@ -110,7 +106,10 @@ class ChannelAdapter(ABC):
             await self._ws.send(msg.to_json())
 
     async def send_chat(
-        self, content: str, user_id: str, session_id: str = "",
+        self,
+        content: str,
+        user_id: str,
+        session_id: str = "",
         attachments: list[dict] | None = None,
     ) -> GatewayMessage:
         """Send a chat message and wait for the response."""
@@ -130,7 +129,7 @@ class ChannelAdapter(ABC):
 
         try:
             return await asyncio.wait_for(future, timeout=600)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Chat response timed out for message %s", msg.id[:8])
             raise
         finally:
@@ -142,7 +141,10 @@ class ChannelAdapter(ABC):
         await self.send_to_gateway(msg)
 
     async def send_command(
-        self, command: str, args: dict | None = None, user_id: str = "",
+        self,
+        command: str,
+        args: dict | None = None,
+        user_id: str = "",
         session_id: str = "",
     ) -> None:
         """Send a slash command to the gateway."""
@@ -194,9 +196,7 @@ class ChannelAdapter(ABC):
             reply_to = msg.data.get("reply_to", "")
             future = self._pending_responses.get(reply_to)
             if future and not future.done():
-                future.set_exception(
-                    RuntimeError(msg.data.get("detail", "Gateway error"))
-                )
+                future.set_exception(RuntimeError(msg.data.get("detail", "Gateway error")))
             else:
                 await self.on_error(msg)
 
