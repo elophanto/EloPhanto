@@ -60,6 +60,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **Slack bot** — app mentions, DM support, thread-based responses (untested)
 - **Skills + EloPhantoHub** — best-practice guides loaded before tasks (27 bundled), with a public skill registry for searching, installing, and updating skills
 - **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
+- **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 
 ## Architecture
@@ -76,7 +77,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 ├─────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├─────────────────────────────────────────────────┤
-│   Tool System (72+ built-in + plugins)           │  Capabilities
+│   Tool System (75+ built-in + plugins)           │  Capabilities
 ├─────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├─────────────────────────────────────────────────┤
@@ -114,6 +115,7 @@ Slack Adapter ─────┘                   ▼
 | Self-Dev | self_create_plugin, self_modify_source, self_rollback, self_read_source, self_run_tests, self_list_capabilities | 6 |
 | Data | llm_call, vault_lookup, vault_set | 3 |
 | Documents | document_analyze, document_query, document_collections | 3 |
+| Goals | goal_create, goal_status, goal_manage | 3 |
 | Scheduling | schedule_task, schedule_list | 2 |
 
 ## Skills System
@@ -310,7 +312,7 @@ elophanto/
 │   ├── telegram_adapter.py # Telegram adapter (aiogram)
 │   ├── discord_adapter.py  # Discord adapter (discord.py)
 │   └── slack_adapter.py    # Slack adapter (slack-bolt)
-├── tools/               # 72+ built-in tools
+├── tools/               # 75+ built-in tools
 │   ├── system/          # Shell, filesystem
 │   ├── browser/         # 47 browser tools
 │   ├── knowledge/       # Search, write, index, skills, hub
@@ -350,16 +352,17 @@ elophanto/
 | 7.8b | Channel Adapters (Discord, Slack via gateway) | Untested |
 | 7.9 | EloPhantoHub (skill registry, search, install, update) | Done |
 | 8 | Web UI (FastAPI + React) | Planned |
-| 9 | Polish & Open Source Release | Planned |
+| 9 | Polish & Open Source Release | Done |
 | 10 | Self-Learning Model (Unsloth, HuggingFace, Ollama) | Idea Phase |
 | 11 | Agent Payments (fiat + crypto, spending limits, audit) | Idea Phase |
 | 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
+| 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval) | Done |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
 ## Credits
 
-EloPhanto was built by **Petr Royce** as part of research into self-learning agents.
+EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of research into self-learning agents.
 
 - Browser engine built on [FellouAI/eko](https://github.com/FellouAI/eko)
 - UI skills from [ui-skills.com](https://www.ui-skills.com/) by Interface Office
@@ -372,6 +375,7 @@ EloPhanto was built by **Petr Royce** as part of research into self-learning age
 
 | Date | Change |
 |------|--------|
+| 2026-02-19 | **Autonomous goal loop** — GoalManager decomposes complex goals into ordered checkpoints, persists progress across sessions, summarizes context to stay within token limits, self-evaluates and revises plans. 3 new tools (goal_create, goal_status, goal_manage), goals skill, 61 new tests |
 | 2026-02-19 | **Document & media analysis** — PDF, DOCX, XLSX, PPTX, EPUB, image extraction with OCR (rapidocr), RAG collections for large documents, 3 new tools (document_analyze, document_query, document_collections), Telegram file/photo intake, structured `data/` storage manager |
 | 2026-02-19 | Fix `/stats`, `/clear`, `/help` commands in gateway CLI mode |
 | 2026-02-19 | Add EloPhanto logo assets |

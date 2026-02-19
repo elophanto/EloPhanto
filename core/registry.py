@@ -117,3 +117,12 @@ class ToolRegistry:
         self.register(DocumentAnalyzeTool())
         self.register(DocumentQueryTool())
         self.register(DocumentCollectionsTool())
+
+        # Goal tools
+        from tools.goals.create_tool import GoalCreateTool
+        from tools.goals.manage_tool import GoalManageTool
+        from tools.goals.status_tool import GoalStatusTool
+
+        self.register(GoalCreateTool())
+        self.register(GoalStatusTool())
+        self.register(GoalManageTool())

@@ -159,6 +159,41 @@ _SCHEMA = [
         metadata        TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS goals (
+        goal_id TEXT PRIMARY KEY,
+        session_id TEXT,
+        goal TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'planning',
+        plan_json TEXT NOT NULL DEFAULT '[]',
+        context_summary TEXT NOT NULL DEFAULT '',
+        current_checkpoint INTEGER NOT NULL DEFAULT 0,
+        total_checkpoints INTEGER NOT NULL DEFAULT 0,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 3,
+        llm_calls_used INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0.0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS goal_checkpoints (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goal_id TEXT NOT NULL REFERENCES goals(goal_id),
+        checkpoint_order INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        success_criteria TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        result_summary TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT,
+        completed_at TEXT,
+        UNIQUE(goal_id, checkpoint_order)
+    )
+    """,
 ]
 
 
@@ -206,9 +241,7 @@ class Database:
             logger.info("sqlite-vec extension loaded")
         except Exception as e:
             self._vec_available = False
-            logger.warning(
-                f"sqlite-vec not available, falling back to keyword search: {e}"
-            )
+            logger.warning(f"sqlite-vec not available, falling back to keyword search: {e}")
 
     async def create_vec_table(self, dimensions: int) -> None:
         """Create the vec_chunks virtual table with the detected embedding dimensions."""
@@ -257,9 +290,7 @@ class Database:
 
         return await asyncio.to_thread(_exec)
 
-    async def execute_insert(
-        self, sql: str, params: tuple[Any, ...] | list[Any] = ()
-    ) -> int:
+    async def execute_insert(self, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> int:
         """Execute an INSERT and return the last row id."""
 
         def _exec() -> int:

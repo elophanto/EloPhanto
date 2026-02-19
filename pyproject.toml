@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "A self-evolving AI agent that acts as a personal AI operating system"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
+authors = [
+    { name = "Petr Royce" },
+]
 dependencies = [
     "litellm>=1.50.0",
     "httpx>=0.27.0",
@@ -35,6 +38,10 @@ dev = [
 
 [project.scripts]
 elophanto = "cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/0xroyce/EloPhanto"
+Repository = "https://github.com/0xroyce/EloPhanto"
 
 [build-system]
 requires = ["hatchling"]
