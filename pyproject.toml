@@ -55,6 +55,9 @@ ignore = [
     "E402",  # Module-level import not at top — deferred imports are intentional
 ]
 
+[tool.ruff.lint.isort]
+known-first-party = ["core", "tools", "cli", "channels", "plugins"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
