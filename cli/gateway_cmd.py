@@ -47,7 +47,10 @@ _BANNER = f"""\
 
 @click.command()
 @click.option(
-    "--config", "config_path", type=click.Path(), default=None,
+    "--config",
+    "config_path",
+    type=click.Path(),
+    default=None,
     help="Path to config.yaml",
 )
 @click.option("--debug", is_flag=True, default=False, help="Enable debug logging")
@@ -64,6 +67,7 @@ def gateway_cmd(config_path: str | None, debug: bool, no_cli: bool) -> None:
         nonlocal _interrupted_once
         if _interrupted_once:
             import os
+
             os._exit(1)
         _interrupted_once = True
         raise KeyboardInterrupt
@@ -77,9 +81,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     cfg = load_config(config_path)
 
     if not cfg.gateway.enabled:
-        console.print(
-            f"  [{_C_WARN}]Gateway disabled in config. Set gateway.enabled: true[/]"
-        )
+        console.print(f"  [{_C_WARN}]Gateway disabled in config. Set gateway.enabled: true[/]")
         return
 
     console.print(_BANNER)
@@ -108,7 +110,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
         spinner.update(f"  [{_C_DIM}]{msg}...[/]")
 
     try:
-        await agent.initialize(on_status=_on_status)
+        await agent.initialize(on_status=_on_status)  # type: ignore[arg-type]
     except Exception as e:
         spinner.stop()
         console.print(f"  [bold red]Initialization failed:[/] {e}")
@@ -204,7 +206,9 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     info.add_column(style=_C_DIM, justify="right", min_width=14)
     info.add_column()
     info.add_row("Gateway", f"[{_C_SUCCESS}]{gw_url}[/]")
-    info.add_row("Providers", " ".join(f"[{_C_SUCCESS}]{p}[/]" for p in providers) or "[red]none[/]")
+    info.add_row(
+        "Providers", " ".join(f"[{_C_SUCCESS}]{p}[/]" for p in providers) or "[red]none[/]"
+    )
     info.add_row("Tools", f"[bold]{tool_count}[/]")
     info.add_row("Skills", f"[bold]{skill_count}[/]")
     info.add_row(

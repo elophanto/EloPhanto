@@ -24,9 +24,7 @@ _DATE_FMT = "%Y-%m-%d %H:%M:%S"
 _configured = False
 
 _REDACT_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(
-        r"(api[_-]?key|token|secret|password|passwd|authorization)\s*[:=]\s*\S+", re.I
-    ),
+    re.compile(r"(api[_-]?key|token|secret|password|passwd|authorization)\s*[:=]\s*\S+", re.I),
     re.compile(r"(sk-[a-zA-Z0-9]{20,})"),
     re.compile(r"(ghp_[a-zA-Z0-9]{36,})"),
     re.compile(r"([a-f0-9]{32,}\.[a-zA-Z0-9]{16,})"),
@@ -45,14 +43,12 @@ class RedactingFilter(logging.Filter):
                 record.msg = pattern.sub(_REDACTED, record.msg)
         if record.args:
             new_args: list[object] = []
-            for arg in (
-                record.args if isinstance(record.args, tuple) else (record.args,)
-            ):
+            for arg in record.args if isinstance(record.args, tuple) else (record.args,):
                 if isinstance(arg, str):
                     for pattern in _REDACT_PATTERNS:
                         arg = pattern.sub(_REDACTED, arg)
                 new_args.append(arg)
-            record.args = tuple(new_args) if len(new_args) > 1 else new_args[0]
+            record.args = tuple(new_args) if len(new_args) > 1 else new_args[0]  # type: ignore[assignment]
         return True
 
 
