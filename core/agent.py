@@ -593,6 +593,7 @@ class Agent:
             browser_enabled=self._config.browser.enabled,
             scheduler_enabled=self._config.scheduler.enabled,
             goals_enabled=self._config.goals.enabled,
+            identity_enabled=self._config.identity.enabled,
             knowledge_context=knowledge_context,
             available_skills=available_skills,
             goal_context=goal_context,
