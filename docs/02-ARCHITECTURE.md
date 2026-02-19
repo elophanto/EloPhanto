@@ -121,6 +121,47 @@ plugins/
     schema.json        # input/output schema
 ```
 
+### Document Analysis Pipeline
+
+The document analysis system provides file intake, extraction, and RAG capabilities:
+
+```
+File Input → MIME Detection → Extraction → Token Check → Direct / RAG Pipeline
+                                  │
+                          ┌───────┼────────┐
+                          │       │        │
+                        Text    Image    Binary
+                       (PDF,   (PNG,    (DOCX,
+                        CSV,    JPG,     XLSX,
+                        TXT)    etc.)    PPTX,
+                          │       │      EPUB)
+                          ▼       ▼        ▼
+                       PyMuPDF  Vision   python-docx
+                       plain    LLM +    openpyxl
+                       text     OCR      python-pptx
+                          │       │      ebooklib
+                          └───────┼────────┘
+                                  ▼
+                          Token Estimation
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │                           │
+              < 8,000 tokens              ≥ 8,000 tokens
+                    │                           │
+              Direct to LLM              Chunk → Embed
+                    │                    → Store in Collection
+                    ▼                           │
+                Response                   RAG Query
+                                          (semantic search
+                                           + LLM synthesis)
+```
+
+**Extraction pipeline**: MIME type is detected from file extension and magic bytes. Each format has a dedicated extractor — PyMuPDF for PDFs, python-docx for DOCX, openpyxl for XLSX, python-pptx for PPTX, ebooklib for EPUB, and rapidocr-onnxruntime for OCR on images and scanned pages.
+
+**RAG pipeline**: Documents exceeding the context threshold (~8,000 tokens) are chunked by pages (PDF), sections (DOCX/EPUB), or sliding windows (fallback). Chunks are embedded via the existing embedding pipeline and stored in SQLite with sqlite-vec for vector search. Follow-up queries use hybrid keyword + semantic search over chunks.
+
+**Gateway integration**: Channel adapters (Telegram, Discord, Slack) download file attachments to `data/documents/uploads/` and pass attachment metadata through the gateway protocol. The gateway augments the chat message content with `[Attached file: ...]` references so the LLM sees them.
+
 ## Layer 4: Self-Development Pipeline
 
 This is the engine that allows EloPhanto to grow. It is described in full in `04-SELF-DEVELOPMENT.md`.

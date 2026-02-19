@@ -328,7 +328,7 @@ elophanto/
 ├── start.sh             # Quick launcher (activates venv)
 ├── config.yaml          # Configuration
 ├── permissions.yaml     # Per-tool permission overrides
-└── docs/                # Full specification (14 docs)
+└── docs/                # Full specification (16 docs)
 ```
 
 ## Implementation Status
@@ -381,4 +381,4 @@ EloPhanto was built by **Petr Royce** as part of research into self-learning age
 
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
