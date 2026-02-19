@@ -1,6 +1,6 @@
 # EloPhanto
 
-A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, document & media analysis (PDFs, images, DOCX, XLSX, PPTX, EPUB with OCR and RAG), a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), an evolving identity that develops through experience, encrypted credential vault, and the ability to create new capabilities autonomously.
+A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, document & media analysis (PDFs, images, DOCX, XLSX, PPTX, EPUB with OCR and RAG), a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), an evolving identity that develops through experience, crypto payments with spending limits and audit trail, encrypted credential vault, and the ability to create new capabilities autonomously.
 
 ## Quick Start
 
@@ -8,7 +8,7 @@ A self-evolving AI agent that runs locally as your personal AI operating system.
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) package manager
-- Node.js 18+ (for the browser bridge)
+- Node.js 24+ LTS (for the browser bridge)
 - At least one LLM provider:
   - **Ollama** (local, free) — [install](https://ollama.ai)
   - **OpenRouter** (cloud) — [get API key](https://openrouter.ai)
@@ -62,6 +62,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans
 - **Evolving identity** — discovers its own identity on first run, evolves personality/values/capabilities through task reflection, maintains a living nature document, tracks credential accounts
+- **Crypto payments** — agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config) or Coinbase AgentKit (managed custody, gasless, DEX swaps). USDC/ETH transfers, spending limits ($100/txn, $500/day, $5K/month), full audit trail, preview-before-execute protocol
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 
 ## Architecture
@@ -78,11 +79,11 @@ Give the agent a task in natural language. It plans which tools to use, executes
 ├─────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├─────────────────────────────────────────────────┤
-│   Tool System (78+ built-in + plugins)           │  Capabilities
+│   Tool System (85+ built-in + plugins)           │  Capabilities
 ├─────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├─────────────────────────────────────────────────┤
-│ Memory │ Knowledge │ Skills │ Identity │ Vault  │  Foundation
+│ Memory │ Knowledge │ Skills │ Identity │Payments│  Foundation
 ├─────────────────────────────────────────────────┤
 │              EloPhantoHub Registry               │  Skill Marketplace
 └─────────────────────────────────────────────────┘
@@ -118,6 +119,7 @@ Slack Adapter ─────┘                   ▼
 | Documents | document_analyze, document_query, document_collections | 3 |
 | Goals | goal_create, goal_status, goal_manage | 3 |
 | Identity | identity_status, identity_update, identity_reflect | 3 |
+| Payments | wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 7 |
 | Scheduling | schedule_task, schedule_list | 2 |
 
 ## Skills System
@@ -240,6 +242,13 @@ identity:
   auto_evolve: true
   reflection_frequency: 10
 
+payments:
+  enabled: false
+  crypto:
+    enabled: false
+    default_chain: base
+    provider: local           # "local" (self-custody) or "agentkit" (Coinbase CDP)
+
 documents:
   enabled: true
   ocr_enabled: true
@@ -311,6 +320,7 @@ elophanto/
 │   ├── browser_manager.py # Chrome control via Node.js bridge
 │   ├── vault.py         # Encrypted credential vault
 │   ├── identity.py      # Evolving agent identity manager
+│   ├── payments/        # Crypto payments (manager, limits, audit)
 │   ├── goal_manager.py  # Autonomous goal loop
 │   ├── protected.py     # Protected files system
 │   ├── approval_queue.py # Persistent approval tracking
@@ -321,13 +331,14 @@ elophanto/
 │   ├── telegram_adapter.py # Telegram adapter (aiogram)
 │   ├── discord_adapter.py  # Discord adapter (discord.py)
 │   └── slack_adapter.py    # Slack adapter (slack-bolt)
-├── tools/               # 78+ built-in tools
+├── tools/               # 85+ built-in tools
 │   ├── system/          # Shell, filesystem
 │   ├── browser/         # 47 browser tools
 │   ├── knowledge/       # Search, write, index, skills, hub
 │   ├── documents/       # Document analysis, query, collections
 │   ├── goals/           # Goal loop tools
 │   ├── identity/        # Identity status, update, reflection
+│   ├── payments/        # Crypto wallet, transfers, swaps, audit
 │   ├── self_dev/        # Plugin creation, modification, rollback
 │   ├── scheduling/      # Cron-based task scheduling
 │   └── data/            # LLM calls
@@ -365,7 +376,7 @@ elophanto/
 | 8 | Web UI (FastAPI + React) | Planned |
 | 9 | Polish & Open Source Release | Done |
 | 10 | Self-Learning Model (Unsloth, HuggingFace, Ollama) | Idea Phase |
-| 11 | Agent Payments (fiat + crypto, spending limits, audit) | Idea Phase |
+| 11 | Agent Payments (crypto wallet, spending limits, audit trail) | Done |
 | 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
 | 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval) | Done |
 | 14 | Evolving Identity (first awakening, reflection, nature document, credential tracking) | Done |
@@ -382,11 +393,14 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 - React/Next.js skills from [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) by Vercel
 - Supabase skills from [supabase/agent-skills](https://github.com/supabase/agent-skills) by Supabase
 - Next.js/Prisma/shadcn skills from [gocallum/nextjs16-agent-skills](https://github.com/gocallum/nextjs16-agent-skills)
+- Local wallet powered by [eth-account](https://github.com/ethereum/eth-account) by the Ethereum Foundation
+- Managed wallet provider by [Coinbase AgentKit](https://github.com/coinbase/agentkit) by Coinbase
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
+| 2026-02-19 | **Crypto payments** — Agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config, eth-account) and Coinbase AgentKit (optional, managed custody, gasless, DEX swaps). 7 payment tools (wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history), spending limits ($100/txn, $500/day, $5K/month), full audit trail, preview-before-execute protocol, chat-based setup |
 | 2026-02-19 | **Evolving identity** — IdentityManager discovers identity on first run via LLM, evolves personality/values/capabilities through task reflection, maintains a living `knowledge/self/nature.md` document, tracks credential accounts in beliefs. 3 new tools (identity_status, identity_update, identity_reflect), 45 new tests. Per-session timestamped log files |
 | 2026-02-19 | **Autonomous goal loop** — GoalManager decomposes complex goals into ordered checkpoints, persists progress across sessions, summarizes context to stay within token limits, self-evaluates and revises plans. 3 new tools (goal_create, goal_status, goal_manage), goals skill, 61 new tests |
 | 2026-02-19 | **Document & media analysis** — PDF, DOCX, XLSX, PPTX, EPUB, image extraction with OCR (rapidocr), RAG collections for large documents, 3 new tools (document_analyze, document_query, document_collections), Telegram file/photo intake, structured `data/` storage manager |

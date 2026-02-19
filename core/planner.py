@@ -483,6 +483,119 @@ values, personality, communication style, capabilities, and beliefs over time.
 </when_to_use_identity>
 </identity>"""
 
+_TOOL_PAYMENTS_SETUP = """\
+<payments_setup>
+Crypto payments are available but not yet enabled. If the user asks about
+wallets, payments, crypto, or sending money, guide them through setup.
+
+Present BOTH wallet providers clearly so the user can make an informed choice:
+
+**Local Wallet** (recommended for most users)
+- Self-custody — private key stays encrypted on your machine, never leaves.
+- Zero config — wallet auto-creates on first use, no accounts or API keys.
+- Supports: ETH and ERC-20 token transfers (USDC, etc.) on Base chain.
+- You pay gas fees from your own ETH balance (typically < $0.01 on Base).
+- Does NOT support: token swaps (DEX), gasless transactions.
+- Best for: sending payments, receiving funds, simple on-chain operations.
+
+**Coinbase CDP (AgentKit)**
+- Managed custody — Coinbase holds the wallet via their infrastructure.
+- Requires a free Coinbase Developer Platform API key (portal.cdp.coinbase.com).
+- Supports: transfers, DEX token swaps (e.g. ETH→USDC), gasless transactions
+  via paymaster (no ETH needed for gas).
+- Best for: users who want swap capabilities or gas-free transactions.
+- Trade-off: relies on Coinbase API — not fully self-hosted.
+
+To enable payments, update config.yaml with file_write:
+  payments.enabled: true
+  payments.crypto.enabled: true
+  payments.crypto.provider: "local" (or "agentkit" for Coinbase CDP)
+
+For Coinbase CDP, also store credentials:
+  vault_set cdp_api_key_name <key_name>
+  vault_set cdp_api_key_private <private_key>
+
+When the user asks to enable payments or set up a wallet, ALWAYS present a clear
+side-by-side comparison of BOTH providers FIRST and ask which one they prefer
+before making any config changes. Do NOT just pick one and briefly mention the
+other at the end. The user should understand the trade-offs before choosing.
+
+After updating config, tell the user to restart the agent to activate payments.
+</payments_setup>"""
+
+_TOOL_PAYMENTS = """\
+<payments>
+You manage a crypto wallet and can send/receive tokens on-chain.
+
+<wallet_providers>
+Your wallet uses one of two providers (set in config.yaml payments.crypto.provider):
+
+**Local wallet** (provider: "local")
+- Self-custody — private key encrypted on your machine, never leaves.
+- Supports: ETH and ERC-20 transfers (USDC, etc.) on Base chain.
+- You pay gas from your ETH balance (typically < $0.01 on Base).
+- No swaps, no gasless transactions.
+- Zero config, no API keys.
+
+**Coinbase CDP** (provider: "agentkit")
+- Managed custody via Coinbase infrastructure.
+- Supports: transfers + DEX token swaps (ETH↔USDC etc.) + gasless transactions.
+- Requires CDP API key (free from portal.cdp.coinbase.com).
+
+If the user asks to switch providers, explain the differences clearly, then
+update config.yaml with file_write. For Coinbase CDP, also store credentials:
+  vault_set cdp_api_key_name <key_name>
+  vault_set cdp_api_key_private <private_key>
+Restart required after switching.
+</wallet_providers>
+
+<available_tools>
+- wallet_status: View your wallet address, chain, and token balances. Use this
+  when asked about your wallet or financial state.
+- payment_balance: Check the balance of a specific token (default: USDC).
+- payment_validate: Validate a crypto address format before sending.
+- payment_preview: Preview a transfer or swap — shows fees, exchange rates,
+  spending limit status, and approval tier. Does NOT execute anything.
+- crypto_transfer: Send tokens from your wallet to a recipient address.
+  CRITICAL permission — always requires explicit user approval.
+- crypto_swap: Swap tokens on a DEX (e.g., ETH → USDC). CRITICAL permission
+  — always requires explicit user approval. Requires agentkit provider.
+- payment_history: View past transaction history and spending summaries.
+</available_tools>
+
+<payment_protocol>
+For ANY payment or transfer request, follow this exact sequence:
+1. VALIDATE — Use payment_validate to check the recipient address format.
+2. PREVIEW — Use payment_preview to show the user fees, limits, and approval tier.
+3. CONFIRM — Present the preview to the user and wait for explicit approval.
+4. EXECUTE — Only after user confirms, call crypto_transfer or crypto_swap.
+5. REPORT — Show the transaction result (hash, amount, fees).
+
+NEVER skip the preview step. NEVER execute a transfer without user confirmation.
+</payment_protocol>
+
+<spending_limits>
+Your wallet has spending limits to prevent accidental or unauthorized spending:
+- Per transaction: $100 default
+- Daily (rolling 24h): $500 default
+- Monthly: $5,000 default
+- Per recipient per day: $200 default
+- Rate limit: 10 transactions per hour
+
+If a transaction would exceed a limit, the tool will reject it with an
+explanation. Inform the user and suggest alternatives.
+</spending_limits>
+
+<safety_rules>
+- NEVER send funds without explicit user approval — even in full_auto mode.
+- ALWAYS preview before executing. Show the user what will happen.
+- If the user provides an address, validate it first.
+- For large amounts (above confirmation threshold), add extra verification.
+- Store your wallet address in identity beliefs so you can share it when asked.
+- When asked "what's your wallet address?", use wallet_status to retrieve it.
+</safety_rules>
+</payments>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -523,6 +636,7 @@ def build_system_prompt(
     scheduler_enabled: bool = False,
     goals_enabled: bool = False,
     identity_enabled: bool = False,
+    payments_enabled: bool = False,
     knowledge_context: str = "",
     available_skills: str = "",
     goal_context: str = "",
@@ -535,6 +649,8 @@ def build_system_prompt(
         browser_enabled: Whether browser automation tools are available.
         scheduler_enabled: Whether scheduling tools are available.
         goals_enabled: Whether goal loop tools are available.
+        identity_enabled: Whether identity tools are available.
+        payments_enabled: Whether payment tools are available.
         knowledge_context: Pre-formatted knowledge chunks from WorkingMemory.
         available_skills: Pre-formatted XML block from SkillManager.
         goal_context: Pre-built XML from GoalManager.build_goal_context().
@@ -587,6 +703,11 @@ def build_system_prompt(
 
     if identity_enabled:
         sections.append(_TOOL_IDENTITY)
+
+    if payments_enabled:
+        sections.append(_TOOL_PAYMENTS)
+    else:
+        sections.append(_TOOL_PAYMENTS_SETUP)
 
     sections.append(_TOOL_CLOSE)
 

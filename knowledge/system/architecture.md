@@ -36,7 +36,7 @@ The agent loop follows a plan-execute-reflect cycle:
 
 ## Tool System
 
-67+ tools across 6 categories: system (6), browser (47), knowledge & skills (5), self-development (6), scheduling (2), data (2). All implement the BaseTool ABC with name, description, input_schema, permission_level, and async execute().
+85+ tools across 10 categories: system (6), browser (47), knowledge & skills (5), self-development (6), scheduling (2), data (3), documents (3), goals (3), identity (3), payments (7). All implement the BaseTool ABC with name, description, input_schema, permission_level, and async execute().
 
 ## Foundation
 
@@ -46,3 +46,4 @@ The agent loop follows a plan-execute-reflect cycle:
 - **LLM Router**: Multi-provider routing (Ollama, Z.ai, OpenRouter) with task-type-based model selection and cost tracking
 - **Vault**: Encrypted credential storage (Fernet + PBKDF2)
 - **Scheduler**: APScheduler for recurring (cron) and one-time (delay) task execution
+- **Payments**: Crypto wallet via Coinbase AgentKit (Base chain, gasless), spending limits, audit trail

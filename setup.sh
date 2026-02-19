@@ -49,8 +49,16 @@ fi
 echo ""
 echo "  → Installing dependencies..."
 uv sync 2>/dev/null
-uv pip install -e . 2>/dev/null
-echo "  ✓ Dependencies installed"
+uv pip install -e '.[payments]' 2>/dev/null
+echo "  ✓ Dependencies installed (includes crypto wallet support)"
+
+# Install Coinbase AgentKit if configured
+if grep -q "provider: agentkit" config.yaml 2>/dev/null; then
+    echo "  → Installing Coinbase AgentKit (CDP provider detected)..."
+    uv pip install -e '.[payments-cdp]' 2>/dev/null && \
+        echo "  ✓ Coinbase AgentKit installed" || \
+        echo "  ⚠ AgentKit install failed (optional — switch to provider: local in config.yaml)"
+fi
 
 # Build browser bridge if Node.js is available
 if command -v node &>/dev/null && [ -f "bridge/browser/package.json" ]; then
@@ -74,4 +82,7 @@ echo ""
 echo "    source .venv/bin/activate    # activate the environment"
 echo "    elophanto init               # first-time configuration"
 echo "    elophanto chat               # start chatting"
+echo ""
+echo "  Optional extras:"
+echo "    uv pip install -e '.[payments-cdp]'  # Coinbase AgentKit (managed custody, gasless, swaps)"
 echo ""

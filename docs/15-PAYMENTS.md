@@ -1,6 +1,6 @@
 # EloPhanto — Agent Payments
 
-> **Status: Idea Phase** — This document describes a planned capability, not yet implemented.
+> **Status: Phase 1 Done** — Core crypto wallet with dual provider support: local self-custody wallet (default, zero config) + Coinbase AgentKit (optional, managed custody, gasless, swaps). 7 tools, spending limits, audit trail. Phase 2 (fiat/Stripe) and Phase 3 (invoicing) planned.
 
 ## Overview
 
@@ -15,11 +15,98 @@ Both rails integrate with EloPhanto's existing permission system — every trans
 
 ### Design Principles
 
-- **Never store raw private keys** — Use signing providers, hardware wallet bridges, or custodial APIs
+- **Agent gets its own wallet** — Like a prepaid card: user funds it, agent spends within limits. User's main wallet is never exposed.
+- **Dual wallet providers** — Local self-custody (default, zero config) or Coinbase CDP (optional, managed custody with gasless + swaps)
+- **Private keys secured** — Local wallet stores encrypted key in vault (Fernet + PBKDF2). CDP manages keys server-side.
 - **Always require approval for real transactions** — Even in `full_auto` mode, payments above threshold require explicit user consent
 - **Audit everything** — Every transaction logged with full context (who requested, why, approval chain, result)
 - **Credentials in vault** — Payment API keys and tokens stored encrypted, retrieved at execution time, never in LLM context
 - **Multi-channel approval** — Approve a $500 purchase from Telegram while the agent runs on your desktop
+
+## Agent Wallet Setup
+
+The agent creates its own wallet on first use — the user funds it like a prepaid card.
+
+### First-Time Setup (Local Wallet — Default)
+
+```
+# In config.yaml:
+payments:
+  enabled: true
+  crypto:
+    enabled: true
+    provider: local       # zero config, wallet auto-creates
+
+# Start the agent — wallet generates automatically
+./start.sh chat
+  → "Created local wallet: 0xABC...def on base"
+  → "Send USDC to this address to fund your agent."
+```
+
+No API keys needed. The private key is encrypted in the vault.
+
+### First-Time Setup (Coinbase CDP — Optional)
+
+```
+# In config.yaml:
+payments:
+  enabled: true
+  crypto:
+    enabled: true
+    provider: agentkit    # managed custody, gasless, swaps
+
+# Store CDP credentials
+elophanto vault set cdp_api_key_name YOUR_KEY_NAME
+elophanto vault set cdp_api_key_private YOUR_PRIVATE_KEY
+
+# Install AgentKit
+./setup.sh   # auto-detects provider: agentkit and installs
+```
+
+The wallet address is persisted in the vault and visible to the agent.
+
+### Funding & Spending
+
+```
+User sends 100 USDC to 0xABC...def on Base
+    │
+    ▼
+Agent can now spend up to configured limits:
+    - Per-transaction: $100
+    - Daily: $500
+    - Monthly: $5,000
+    │
+    ▼
+User: "What's your balance?"
+Agent: "72.01 USDC on Base (0xABC...def)"
+    │
+    ▼
+User: "Pay 0x123... 50 USDC"
+Agent: "Send 50 USDC to 0x123...? [Approve / Deny]"
+    → User approves via Telegram
+    → Gasless transfer on Base
+    → Agent: "Sent. TX: 0x789... Balance: 22.01 USDC"
+```
+
+### Low Balance Alerts
+
+When the wallet drops below a configurable threshold, the agent notifies the user:
+
+```
+Agent → Telegram: "Low balance: 5.23 USDC remaining on Base.
+        Fund 0xABC...def to continue payments."
+```
+
+### Why Own Wallet (Not User's Wallet)
+
+| | Agent's own wallet | User connects wallet |
+|---|---|---|
+| **Risk** | Limited to funded amount | Full wallet balance exposed |
+| **UX** | Fund once, agent spends autonomously | Approve every transaction on phone |
+| **Safety** | Worst case: lose what's in the wallet | Worst case: lose everything |
+| **Autonomy** | Agent can spend within limits 24/7 | Requires user to be online for WalletConnect |
+
+The agent's wallet is a spending account, not a savings account.
 
 ## Architecture
 
@@ -137,33 +224,39 @@ Direct blockchain transactions for crypto-native services.
 
 | Component | Detail |
 |-----------|--------|
-| **Wallet** | Non-custodial via signing provider (WalletConnect, Fireblocks, or local signer) |
-| **Chains** | Ethereum, Solana, Bitcoin, Polygon, Arbitrum, Base (extensible) |
-| **Tokens** | Native tokens (ETH, SOL, BTC) + ERC-20/SPL tokens (USDC, USDT, DAI) |
-| **Gas** | Auto-estimate, user-configurable priority (slow/normal/fast) |
+| **Wallet** | Local self-custody (default) or Coinbase AgentKit (optional) |
+| **Chains** | Base (default), Ethereum (extensible) |
+| **Tokens** | Native tokens (ETH) + ERC-20 tokens (USDC, USDT, DAI) |
+| **Gas** | Local wallet: user pays gas (< $0.01 on Base). CDP: gasless via paymaster |
+| **Protocols** | x402 for machine-to-machine stablecoin payments (CDP only) |
 
-### Wallet Management
+### Wallet Providers
 
-The agent should **never** store raw private keys. Instead:
+EloPhanto supports two wallet providers, selectable via `config.yaml`:
 
-| Approach | Security | UX |
-|----------|----------|----|
-| **Signing provider API** (Fireblocks, Dfns) | Highest — keys in HSM | API call to sign |
-| **WalletConnect** | High — keys on user's device | Approval on phone wallet |
-| **Local encrypted keystore** | Medium — encrypted on disk | Password-protected, vault-stored |
-| **Hardware wallet bridge** | Highest — keys never leave device | Physical confirmation required |
+| | Local Wallet (default) | Coinbase CDP (optional) |
+|---|---|---|
+| **Provider** | `local` | `agentkit` |
+| **Custody** | Self-custody — private key encrypted in vault, never leaves your machine | Managed — Coinbase holds keys via Developer Platform |
+| **Setup** | Zero config — wallet auto-creates on first use | Requires free CDP API key from portal.cdp.coinbase.com |
+| **Dependencies** | `eth-account` (installed by setup.sh) | `coinbase-agentkit` (install via setup.sh when configured) |
+| **Transfers** | ETH + ERC-20 (USDC, etc.) | ETH + ERC-20 (USDC, etc.) |
+| **DEX swaps** | Not supported | Supported (ETH↔USDC etc.) |
+| **Gas fees** | User pays from ETH balance (< $0.01 on Base) | Gasless on Base via paymaster |
+| **Chains** | Base (default), Base Sepolia, Ethereum | All EVM chains + Solana |
+| **Best for** | Local-first users, simple transfers, full self-custody | Users who need swaps, gasless transactions, or multi-chain |
 
-Recommended default: **Signing provider API** for automated flows, **WalletConnect** for high-value transactions requiring physical confirmation.
+Recommended default: **Local wallet** on **Base** — zero config, self-custody, minimal gas fees. Switch to Coinbase CDP when you need swaps or gasless transactions.
 
-### Token Swaps
+### Token Swaps (Coinbase CDP only)
 
-The agent can swap tokens when needed (e.g., convert ETH to USDC to pay for a service):
+The agent can swap tokens when using the Coinbase CDP provider (e.g., convert ETH to USDC to pay for a service). Not available with the local wallet provider.
 
 ```
 Agent needs to pay $50 in USDC but only has ETH
     │
     ▼
-1. payment_preview: Check ETH/USDC rate on DEX aggregator (1inch, Jupiter)
+1. payment_preview: Check ETH/USDC rate via AgentKit swap action
 2. crypto_swap: Swap ~0.02 ETH → 50 USDC (approval required)
 3. crypto_transfer: Send 50 USDC to recipient (approval required)
 ```
@@ -173,14 +266,11 @@ Agent needs to pay $50 in USDC but only has ETH
 ```
 Supported Chains:
 
-Chain          │ Native Token │ Stablecoins     │ DEX
-───────────────┼──────────────┼─────────────────┼────────────
-Ethereum       │ ETH          │ USDC, USDT, DAI │ Uniswap
-Solana         │ SOL          │ USDC, USDT      │ Jupiter
-Bitcoin        │ BTC          │ —               │ —
-Polygon        │ POL          │ USDC, USDT      │ Uniswap
-Arbitrum       │ ETH          │ USDC, USDT      │ Uniswap
-Base           │ ETH          │ USDC            │ Uniswap
+Chain          │ Native Token │ Stablecoins     │ DEX              │ Gasless
+───────────────┼──────────────┼─────────────────┼──────────────────┼────────
+Base (default) │ ETH          │ USDC            │ Uniswap (CDP)    │ Yes (CDP paymaster)
+Base Sepolia   │ ETH          │ USDC (test)     │ —                │ No
+Ethereum       │ ETH          │ USDC, USDT, DAI │ Uniswap (CDP)    │ No
 ```
 
 Chains are configured in `config.yaml`. The agent selects the optimal chain based on cost (gas fees) and recipient requirements.
@@ -191,12 +281,13 @@ Chains are configured in `config.yaml`. The agent selects the optimal chain base
 
 | Tool | Permission | Purpose |
 |------|-----------|---------|
+| `wallet_status` | SAFE | Show agent wallet address, balances, chain |
 | `payment_balance` | SAFE | Check balances (card, bank, crypto wallets) |
 | `payment_validate` | SAFE | Validate address format, IBAN, card token |
 | `payment_preview` | SAFE | Show fees, exchange rates, total cost — no execution |
 | `payment_process` | CRITICAL | Execute fiat payment (card, bank transfer) |
-| `crypto_transfer` | CRITICAL | Execute on-chain transfer |
-| `crypto_swap` | CRITICAL | Execute token swap on DEX |
+| `crypto_transfer` | CRITICAL | Execute on-chain transfer from agent wallet |
+| `crypto_swap` | CRITICAL | Execute token swap on DEX from agent wallet |
 | `invoice_parse` | MODERATE | Parse invoice from file/email |
 | `invoice_pay` | CRITICAL | Parse + pay invoice (compound action) |
 | `payment_history` | SAFE | Query transaction history and receipts |
@@ -314,16 +405,18 @@ Vault Keys:
   stripe_card_token       → Tokenized card reference
   paypal_client_id        → PayPal API client ID
   paypal_client_secret    → PayPal API secret
-  crypto_signer_api_key   → Signing provider API key
-  crypto_wallet_address   → Public wallet address (not secret, but convenient)
+  cdp_api_key_name        → Coinbase Developer Platform API key name
+  cdp_api_key_private     → Coinbase Developer Platform API private key
+  crypto_wallet_id        → AgentKit wallet ID (created on first use)
   bank_account_iban       → IBAN for SEPA transfers
   plaid_access_token      → Open Banking access token
 ```
 
 **Never stored in vault:**
 - Raw credit card numbers (use tokenized references)
-- Raw private keys (use signing providers)
 - Bank login credentials (use Open Banking APIs)
+
+Note: The local wallet provider stores the private key encrypted in the vault (`local_wallet_private_key`). This is secure — the vault uses Fernet encryption with PBKDF2 key derivation.
 
 ### CLI Setup
 
@@ -331,11 +424,9 @@ Vault Keys:
 # Store Stripe credentials
 elophanto vault set stripe_api_key sk_live_...
 
-# Store crypto signing provider
-elophanto vault set crypto_signer_api_key dfns_...
-
-# Store wallet address
-elophanto vault set crypto_wallet_address 0x...
+# Store Coinbase Developer Platform credentials
+elophanto vault set cdp_api_key_name organizations/...
+elophanto vault set cdp_api_key_private "-----BEGIN EC PRIVATE KEY-----..."
 
 # List payment credentials
 elophanto vault list | grep -E "stripe|paypal|crypto|bank"
@@ -393,7 +484,12 @@ The agent can also query its own payment history via the `payment_history` tool 
 payments:
   enabled: false                      # Opt-in
   default_currency: USD
-  default_provider: stripe            # For card payments
+  default_provider: stripe            # For card/fiat payments
+
+  wallet:
+    auto_create: true                 # Create agent wallet on first enable
+    low_balance_alert: 10.0           # Notify user when balance drops below this (USD)
+    default_token: USDC               # Default token for the agent wallet
 
   limits:
     per_transaction: 100.0            # Max single payment
@@ -409,14 +505,16 @@ payments:
 
   crypto:
     enabled: false
-    default_chain: ethereum
-    signer_provider: ""               # fireblocks, dfns, walletconnect
+    default_chain: base               # Base L2 (low gas fees)
+    provider: local                   # "local" (self-custody) or "agentkit" (Coinbase CDP)
+    rpc_url: ""                       # Override RPC endpoint (empty = chain default)
+    cdp_api_key_name_ref: cdp_api_key_name       # Vault key reference (agentkit only)
+    cdp_api_key_private_ref: cdp_api_key_private  # Vault key reference (agentkit only)
     gas_priority: normal              # slow, normal, fast
     max_gas_percentage: 10            # Reject if gas > 10% of amount
     chains:
-      - ethereum
-      - solana
       - base
+      - ethereum
 
   providers:
     stripe:
@@ -440,11 +538,19 @@ tool_overrides:
 
 ## Status
 
-**Idea Phase** — This document captures the design direction for agent-initiated payments. Implementation has not started. Key prerequisites:
+**Phase 1 Done** — Crypto payments with dual wallet provider support. 7 tools, spending limits, audit trail, chat-based setup.
 
-1. Define which payment provider to integrate first (Stripe recommended for fiat)
-2. Define which signing provider to integrate first for crypto
-3. Set up payment_audit table in database schema
-4. Build payment tools following existing `BaseTool` pattern
-5. Add payment configuration to `config.yaml` and `permissions.yaml`
-6. End-to-end test with a test-mode Stripe key before any real payments
+### Implemented
+
+| Rail | Provider | Status |
+|------|----------|--------|
+| **Crypto (local)** | Local self-custody via `eth-account` | Done — default provider, zero config |
+| **Crypto (CDP)** | Coinbase AgentKit | Done — optional, requires CDP API key |
+| **Fiat** | Stripe | Planned (Phase 2) |
+| **Invoicing** | Parse + pay | Planned (Phase 3) |
+
+### Quick Start
+
+**Local wallet (default):** Enable `payments.enabled: true` and `payments.crypto.enabled: true` in config.yaml (or ask the agent to set it up from chat). Wallet auto-creates on first run.
+
+**Coinbase CDP:** Set `payments.crypto.provider: agentkit`, store CDP credentials in vault, run `./setup.sh` to install AgentKit dependencies.
