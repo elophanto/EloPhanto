@@ -54,7 +54,21 @@ _BANNER = f"""\
 @click.option("--no-cli", is_flag=True, default=False, help="Don't start CLI adapter")
 def gateway_cmd(config_path: str | None, debug: bool, no_cli: bool) -> None:
     """Start the gateway with agent and all enabled channel adapters."""
+    import signal
+
     setup_logging(debug=debug)
+
+    _interrupted_once = False
+
+    def _force_exit(sig: int, frame: Any) -> None:
+        nonlocal _interrupted_once
+        if _interrupted_once:
+            import os
+            os._exit(1)
+        _interrupted_once = True
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, _force_exit)
     asyncio.run(_run_gateway(config_path, no_cli=no_cli))
 
 

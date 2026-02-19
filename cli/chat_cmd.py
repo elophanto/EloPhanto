@@ -428,9 +428,23 @@ def _try_unlock_vault(agent: Any) -> None:
 @click.option("--direct", is_flag=True, default=False, help="Skip gateway, connect directly to agent")
 def chat_cmd(config_path: str | None, debug: bool, direct: bool) -> None:
     """Start an interactive chat session with EloPhanto."""
-    setup_logging(debug=debug)
+    import signal
 
+    setup_logging(debug=debug)
     cfg = load_config(config_path)
+
+    # Force-kill on second Ctrl+C (handles cases where aiogram swallows the first one)
+    _interrupted_once = False
+
+    def _force_exit(sig: int, frame: Any) -> None:
+        nonlocal _interrupted_once
+        if _interrupted_once:
+            import os
+            os._exit(1)
+        _interrupted_once = True
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, _force_exit)
 
     # Use gateway mode if enabled and not overridden
     if cfg.gateway.enabled and not direct:

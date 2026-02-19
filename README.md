@@ -345,6 +345,7 @@ elophanto/
 | 8 | Web UI (FastAPI + React) | Planned |
 | 9 | Polish & Open Source Release | Planned |
 | 10 | Self-Learning Model (Unsloth, HuggingFace, Ollama) | Idea Phase |
+| 11 | Agent Payments (fiat + crypto, spending limits, audit) | Idea Phase |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 

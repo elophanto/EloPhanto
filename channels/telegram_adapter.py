@@ -14,6 +14,7 @@ from typing import Any
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ChatAction, ParseMode
 from aiogram.filters import Command
+from aiogram.utils.backoff import BackoffConfig
 
 from channels.base import ChannelAdapter
 from core.config import TelegramConfig
@@ -21,6 +22,11 @@ from core.protocol import GatewayMessage
 from core.telegram_fmt import split_message, to_plain_text, to_telegram_markdown
 
 logger = logging.getLogger(__name__)
+
+# Cap backoff at 60s and limit consecutive failures before pausing longer.
+_BACKOFF = BackoffConfig(min_delay=1.0, max_delay=60.0, factor=1.5, jitter=0.1)
+_MAX_CONSECUTIVE_ERRORS = 10
+_ERROR_PAUSE_SECONDS = 300  # 5-min pause after too many failures
 
 
 def _escape_md2(text: str) -> str:
@@ -170,11 +176,37 @@ class TelegramChannelAdapter(ChannelAdapter):
         """Connect to gateway and start Telegram polling."""
         await self.connect_gateway()
 
-        # Start gateway listener and Telegram polling concurrently
+        # Start gateway listener and Telegram polling concurrently.
+        # Wrap polling in a resilient loop that pauses after repeated failures
+        # instead of spamming logs indefinitely.
         await asyncio.gather(
             self.gateway_listener(),
-            self._dp.start_polling(self._bot),
+            self._resilient_polling(),
         )
+
+    async def _resilient_polling(self) -> None:
+        """Run polling with a circuit-breaker for sustained outages."""
+        consecutive_errors = 0
+        while self._running:
+            try:
+                await self._dp.start_polling(
+                    self._bot, backoff_config=_BACKOFF,
+                )
+                break  # clean exit
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                consecutive_errors += 1
+                if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+                    logger.warning(
+                        "Telegram polling failed %d times, pausing %ds: %s",
+                        consecutive_errors, _ERROR_PAUSE_SECONDS, e,
+                    )
+                    await asyncio.sleep(_ERROR_PAUSE_SECONDS)
+                    consecutive_errors = 0
+                else:
+                    logger.debug("Telegram polling error (%d): %s", consecutive_errors, e)
+                    await asyncio.sleep(2)
 
     async def stop(self) -> None:
         """Stop polling and disconnect."""
