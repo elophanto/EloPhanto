@@ -219,6 +219,21 @@ class Gateway:
         self._session_clients[session.session_id].add(client.client_id)
 
         content = msg.data.get("content", "")
+        attachments = msg.data.get("attachments")
+
+        # Augment content with file references so the LLM sees them
+        if attachments:
+            file_lines = []
+            for att in attachments:
+                fname = att.get("filename", "unknown")
+                mime = att.get("mime_type", "")
+                path = att.get("local_path", "")
+                size = att.get("size_bytes", 0)
+                file_lines.append(
+                    f"[Attached file: {fname} ({mime}, {size} bytes) at {path}]"
+                )
+            content = content + "\n\n" + "\n".join(file_lines) if content else "\n".join(file_lines)
+
         if not content:
             await client.websocket.send(
                 error_message("Empty message", session.session_id).to_json()

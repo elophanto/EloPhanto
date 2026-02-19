@@ -1,6 +1,6 @@
 # EloPhanto
 
-A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), encrypted credential vault, and the ability to create new capabilities autonomously.
+A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, document & media analysis (PDFs, images, DOCX, XLSX, PPTX, EPUB with OCR and RAG), a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), encrypted credential vault, and the ability to create new capabilities autonomously.
 
 ## Quick Start
 
@@ -59,6 +59,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **Discord bot** — slash commands, DM/mention support, reaction-based approvals (untested)
 - **Slack bot** — app mentions, DM support, thread-based responses (untested)
 - **Skills + EloPhantoHub** — best-practice guides loaded before tasks (27 bundled), with a public skill registry for searching, installing, and updating skills
+- **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 
 ## Architecture
@@ -75,7 +76,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 ├─────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├─────────────────────────────────────────────────┤
-│   Tool System (69+ built-in + plugins)           │  Capabilities
+│   Tool System (72+ built-in + plugins)           │  Capabilities
 ├─────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├─────────────────────────────────────────────────┤
@@ -112,6 +113,7 @@ Slack Adapter ─────┘                   ▼
 | Hub | hub_search, hub_install | 2 |
 | Self-Dev | self_create_plugin, self_modify_source, self_rollback, self_read_source, self_run_tests, self_list_capabilities | 6 |
 | Data | llm_call, vault_lookup, vault_set | 3 |
+| Documents | document_analyze, document_query, document_collections | 3 |
 | Scheduling | schedule_task, schedule_list | 2 |
 
 ## Skills System
@@ -229,6 +231,10 @@ hub:
   enabled: true
   auto_suggest: true
 
+documents:
+  enabled: true
+  ocr_enabled: true
+
 telegram:
   enabled: false
   bot_token_ref: telegram_bot_token
@@ -304,10 +310,11 @@ elophanto/
 │   ├── telegram_adapter.py # Telegram adapter (aiogram)
 │   ├── discord_adapter.py  # Discord adapter (discord.py)
 │   └── slack_adapter.py    # Slack adapter (slack-bolt)
-├── tools/               # 69+ built-in tools
+├── tools/               # 72+ built-in tools
 │   ├── system/          # Shell, filesystem
 │   ├── browser/         # 47 browser tools
 │   ├── knowledge/       # Search, write, index, skills, hub
+│   ├── documents/       # Document analysis, query, collections
 │   ├── self_dev/        # Plugin creation, modification, rollback
 │   ├── scheduling/      # Cron-based task scheduling
 │   └── data/            # LLM calls
@@ -346,6 +353,7 @@ elophanto/
 | 9 | Polish & Open Source Release | Planned |
 | 10 | Self-Learning Model (Unsloth, HuggingFace, Ollama) | Idea Phase |
 | 11 | Agent Payments (fiat + crypto, spending limits, audit) | Idea Phase |
+| 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -359,6 +367,17 @@ EloPhanto was built by **Petr Royce** as part of research into self-learning age
 - React/Next.js skills from [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) by Vercel
 - Supabase skills from [supabase/agent-skills](https://github.com/supabase/agent-skills) by Supabase
 - Next.js/Prisma/shadcn skills from [gocallum/nextjs16-agent-skills](https://github.com/gocallum/nextjs16-agent-skills)
+
+## Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-02-19 | **Document & media analysis** — PDF, DOCX, XLSX, PPTX, EPUB, image extraction with OCR (rapidocr), RAG collections for large documents, 3 new tools (document_analyze, document_query, document_collections), Telegram file/photo intake, structured `data/` storage manager |
+| 2026-02-19 | Fix `/stats`, `/clear`, `/help` commands in gateway CLI mode |
+| 2026-02-19 | Add EloPhanto logo assets |
+| 2026-02-19 | Agent payments spec (idea phase), Telegram resilience fix (circuit-breaker + force-exit) |
+| 2026-02-18 | Self-learning model pipeline spec (idea phase) |
+| 2026-02-18 | Initial commit — EloPhanto v0.1.0 (foundation, knowledge, permissions, browser, self-dev, vault, scheduling, Telegram, skills, gateway, channels, EloPhantoHub) |
 
 ## License
 

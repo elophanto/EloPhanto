@@ -141,18 +141,49 @@ class TelegramChannelAdapter(ChannelAdapter):
         async def handle_message(message: types.Message) -> None:
             if not self._is_authorized(message.from_user.id):
                 return
-            if not message.text:
-                return
 
             user_id = str(message.from_user.id)
             chat_id = message.chat.id
+
+            # Extract text — prefer .text, fall back to .caption for media
+            text = message.text or message.caption or ""
+
+            # Handle file attachments (photos, documents)
+            attachments: list[dict[str, Any]] = []
+            if message.photo:
+                # Telegram sends multiple sizes; take the largest
+                photo = message.photo[-1]
+                att = await self._download_telegram_file(
+                    photo.file_id, f"photo_{photo.file_unique_id}.jpg", user_id,
+                )
+                if att:
+                    attachments.append(att)
+            if message.document:
+                doc = message.document
+                att = await self._download_telegram_file(
+                    doc.file_id, doc.file_name or f"file_{doc.file_unique_id}", user_id,
+                )
+                if att:
+                    if doc.mime_type:
+                        att["mime_type"] = doc.mime_type
+                    if doc.file_size:
+                        att["size_bytes"] = doc.file_size
+                    attachments.append(att)
+
+            # Nothing to send?
+            if not text and not attachments:
+                return
+
+            if attachments and not text:
+                text = "Analyze this file"
 
             await self._bot.send_chat_action(chat_id, ChatAction.TYPING)
 
             try:
                 response = await self.send_chat(
-                    content=message.text,
+                    content=text,
                     user_id=user_id,
+                    attachments=attachments or None,
                 )
 
                 # Track chat mapping
@@ -271,6 +302,41 @@ class TelegramChannelAdapter(ChannelAdapter):
         elif event == "task_error":
             error = msg.data.get("error", "Unknown error")
             await self._bot.send_message(chat_id, f"Error: {error[:300]}")
+
+    async def _download_telegram_file(
+        self, file_id: str, filename: str, user_id: str,
+    ) -> dict[str, Any] | None:
+        """Download a Telegram file to local storage and return attachment dict."""
+        try:
+            tg_file = await self._bot.get_file(file_id)
+            if not tg_file.file_path:
+                return None
+
+            # Use StorageManager if available, otherwise fall back to temp dir
+            if hasattr(self, "_storage") and self._storage:
+                local_path = self._storage.get_upload_path(
+                    session_id=f"telegram_{user_id}", filename=filename,
+                )
+            else:
+                import tempfile
+                from pathlib import Path
+
+                tmp_dir = Path(tempfile.gettempdir()) / "elophanto" / f"telegram_{user_id}"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                local_path = tmp_dir / filename
+
+            await self._bot.download_file(tg_file.file_path, destination=local_path)
+            logger.info("Downloaded Telegram file: %s → %s", filename, local_path)
+
+            return {
+                "filename": filename,
+                "local_path": str(local_path),
+                "mime_type": "application/octet-stream",
+                "size_bytes": tg_file.file_size or 0,
+            }
+        except Exception as e:
+            logger.warning("Failed to download Telegram file %s: %s", filename, e)
+            return None
 
     async def _send_formatted(self, chat_id: int, content: str) -> None:
         """Send content as formatted Telegram message(s)."""

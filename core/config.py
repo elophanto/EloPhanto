@@ -208,6 +208,33 @@ class TelegramConfig:
 
 
 @dataclass
+class StorageConfig:
+    """Data directory and retention configuration."""
+
+    data_dir: str = "data"
+    download_retention_hours: int = 24
+    upload_retention_hours: int = 72
+    cache_max_mb: int = 500
+    max_file_size_mb: int = 100
+
+
+@dataclass
+class DocumentConfig:
+    """Document & media analysis configuration."""
+
+    enabled: bool = True
+    context_threshold_tokens: int = 8000
+    chunk_size_tokens: int = 512
+    chunk_overlap_tokens: int = 100
+    retrieval_top_k: int = 10
+    embedding_model: str = ""  # empty = use knowledge config default
+    vision_model: str = ""  # empty = use LLM router
+    ocr_enabled: bool = True
+    ocr_languages: list[str] = field(default_factory=lambda: ["en"])
+    max_collection_files: int = 50
+
+
+@dataclass
 class Config:
     """Top-level EloPhanto configuration."""
 
@@ -228,6 +255,8 @@ class Config:
     hub: HubConfig = field(default_factory=HubConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     slack: SlackConfig = field(default_factory=SlackConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
+    documents: DocumentConfig = field(default_factory=DocumentConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -461,6 +490,31 @@ def load_config(config_path: Path | str | None = None) -> Config:
         allowed_channels=slack_raw.get("allowed_channels", []),
     )
 
+    # Parse storage section
+    storage_raw = raw.get("storage", {})
+    storage_config = StorageConfig(
+        data_dir=storage_raw.get("data_dir", "data"),
+        download_retention_hours=storage_raw.get("download_retention_hours", 24),
+        upload_retention_hours=storage_raw.get("upload_retention_hours", 72),
+        cache_max_mb=storage_raw.get("cache_max_mb", 500),
+        max_file_size_mb=storage_raw.get("max_file_size_mb", 100),
+    )
+
+    # Parse documents section
+    docs_raw = raw.get("documents", {})
+    documents_config = DocumentConfig(
+        enabled=docs_raw.get("enabled", True),
+        context_threshold_tokens=docs_raw.get("context_threshold_tokens", 8000),
+        chunk_size_tokens=docs_raw.get("chunk_size_tokens", 512),
+        chunk_overlap_tokens=docs_raw.get("chunk_overlap_tokens", 100),
+        retrieval_top_k=docs_raw.get("retrieval_top_k", 10),
+        embedding_model=docs_raw.get("embedding_model", ""),
+        vision_model=docs_raw.get("vision_model", ""),
+        ocr_enabled=docs_raw.get("ocr_enabled", True),
+        ocr_languages=docs_raw.get("ocr_languages", ["en"]),
+        max_collection_files=docs_raw.get("max_collection_files", 50),
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -479,6 +533,8 @@ def load_config(config_path: Path | str | None = None) -> Config:
         hub=hub_config,
         discord=discord_config,
         slack=slack_config,
+        storage=storage_config,
+        documents=documents_config,
         project_root=config_path.parent,
     )
 
