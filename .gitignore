@@ -32,7 +32,7 @@ vault.salt
 logs/
 
 # Database
-data/
+/data/
 *.db
 
 # Node.js bridge plugins
