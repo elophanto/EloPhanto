@@ -35,6 +35,7 @@ class PaymentsManager:
         self._wallet_provider: Any = None
         self._wallet_address: str = ""
         self._chain: str = config.crypto.default_chain
+        self._agent_kit_instance: Any = None
 
     @property
     def wallet_address(self) -> str:
@@ -404,7 +405,7 @@ class PaymentsManager:
 
     def _get_agent_kit(self, provider: Any) -> Any:
         """Get or create AgentKit instance from wallet provider."""
-        if hasattr(self, "_agent_kit_instance"):
+        if self._agent_kit_instance is not None:
             return self._agent_kit_instance
 
         try:
