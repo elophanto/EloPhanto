@@ -107,6 +107,7 @@ class Agent:
         self._document_store: Any = None  # DocumentStore
         self._goal_manager: Any = None  # GoalManager, set during initialize
         self._identity_manager: Any = None  # IdentityManager, set during initialize
+        self._payments_manager: Any = None  # PaymentsManager, set during initialize
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
         self._on_task_complete: Callable[..., Any] | None = None
@@ -343,6 +344,21 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Identity system setup failed: {e}")
 
+        # Initialize payments system
+        if self._config.payments.enabled:
+            _status("Loading payments")
+            try:
+                from core.payments import PaymentsManager
+
+                self._payments_manager = PaymentsManager(
+                    db=self._db, config=self._config.payments, vault=self._vault
+                )
+                await self._payments_manager.initialize()
+                self._inject_payment_deps()
+                logger.info("Payments system ready")
+            except Exception as e:
+                logger.warning(f"Payments system setup failed: {e}")
+
         # Auto-index knowledge on startup
         if self._config.knowledge.auto_index_on_startup:
             _status("Indexing knowledge")
@@ -470,6 +486,22 @@ class Agent:
             if tool and self._identity_manager:
                 tool._identity_manager = self._identity_manager
 
+    def _inject_payment_deps(self) -> None:
+        """Inject payments manager into payment tools."""
+        payment_tools = (
+            "wallet_status",
+            "payment_balance",
+            "payment_validate",
+            "payment_preview",
+            "crypto_transfer",
+            "crypto_swap",
+            "payment_history",
+        )
+        for tool_name in payment_tools:
+            tool = self._registry.get(tool_name)
+            if tool and self._payments_manager:
+                tool._payments_manager = self._payments_manager
+
     def set_approval_callback(self, callback: Callable[[str, str, dict[str, Any]], bool]) -> None:
         """Set the user approval callback (from CLI layer)."""
         self._executor.set_approval_callback(callback)
@@ -594,6 +626,7 @@ class Agent:
             scheduler_enabled=self._config.scheduler.enabled,
             goals_enabled=self._config.goals.enabled,
             identity_enabled=self._config.identity.enabled,
+            payments_enabled=self._config.payments.enabled,
             knowledge_context=knowledge_context,
             available_skills=available_skills,
             goal_context=goal_context,

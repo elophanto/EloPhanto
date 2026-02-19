@@ -63,6 +63,25 @@ Real Chrome automation using the user's profile. Tools cover: navigation, clicki
 | `schedule_task` | moderate | Schedule recurring ("every hour") or one-time ("in 5 minutes") tasks |
 | `schedule_list` | safe | View, enable, disable, or delete scheduled tasks |
 
+## Payment Tools (7 tools, dual wallet provider)
+
+Crypto wallet management with spending limits, audit trail, and approval flow. Two wallet providers:
+
+- **Local wallet (default)** — Self-custody via `eth-account`, zero config, auto-creates on first use. Supports transfers, no swaps.
+- **Coinbase CDP (optional)** — Managed custody via AgentKit, gasless transactions, DEX swaps. Requires CDP API keys.
+
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `wallet_status` | safe | View wallet address, chain, token balances, spending summary |
+| `payment_balance` | safe | Check balance of a specific token (default: USDC) |
+| `payment_validate` | safe | Validate crypto address format (EVM or Solana) |
+| `payment_preview` | safe | Preview fees, exchange rates, spending limits — no execution |
+| `crypto_transfer` | critical | Send tokens from agent wallet to a recipient address |
+| `crypto_swap` | critical | Swap tokens on DEX — requires agentkit provider |
+| `payment_history` | safe | Query transaction history and spending totals |
+
+Spending limits: $100/txn, $500/day, $5,000/month, $200/recipient/day, 10 txn/hour, duplicate detection.
+
 ## Skills (27 loaded)
 
 Best-practice guides loaded before tasks. Categories: Python, TypeScript/Node.js, browser automation, file management, research, Next.js, Supabase, Prisma, shadcn, React, MCP, web app testing, UI/design.
