@@ -225,6 +225,27 @@ _SCHEMA = [
         created_at TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS payment_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        payment_type TEXT NOT NULL,
+        provider TEXT,
+        chain TEXT,
+        status TEXT NOT NULL,
+        session_id TEXT,
+        channel TEXT,
+        task_context TEXT,
+        transaction_ref TEXT,
+        fee_amount REAL,
+        fee_currency TEXT,
+        error TEXT
+    )
+    """,
 ]
 
 

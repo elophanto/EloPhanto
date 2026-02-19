@@ -135,3 +135,20 @@ class ToolRegistry:
         self.register(IdentityStatusTool())
         self.register(IdentityUpdateTool())
         self.register(IdentityReflectTool())
+
+        # Payment tools
+        from tools.payments.balance_tool import PaymentBalanceTool
+        from tools.payments.history_tool import PaymentHistoryTool
+        from tools.payments.preview_tool import PaymentPreviewTool
+        from tools.payments.swap_tool import CryptoSwapTool
+        from tools.payments.transfer_tool import CryptoTransferTool
+        from tools.payments.validate_tool import PaymentValidateTool
+        from tools.payments.wallet_status_tool import WalletStatusTool
+
+        self.register(WalletStatusTool())
+        self.register(PaymentBalanceTool())
+        self.register(PaymentValidateTool())
+        self.register(PaymentPreviewTool())
+        self.register(CryptoTransferTool())
+        self.register(CryptoSwapTool())
+        self.register(PaymentHistoryTool())

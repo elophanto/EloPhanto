@@ -50,3 +50,7 @@ config.yaml
 
 # temp files
 temp/
+
+# Internal docs
+docs/WEBSITE.md
+docs/NAZARE-WALLET.md

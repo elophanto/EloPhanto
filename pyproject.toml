@@ -35,6 +35,12 @@ dev = [
     "ruff>=0.8.0",
     "mypy>=1.13",
 ]
+payments = [
+    "eth-account>=0.13.0",
+]
+payments-cdp = [
+    "coinbase-agentkit>=0.7.4",
+]
 
 [project.scripts]
 elophanto = "cli.main:cli"

@@ -256,6 +256,62 @@ class IdentityConfig:
 
 
 @dataclass
+class PaymentWalletConfig:
+    """Agent wallet management settings."""
+
+    auto_create: bool = True
+    low_balance_alert: float = 10.0
+    default_token: str = "USDC"
+
+
+@dataclass
+class PaymentLimitsConfig:
+    """Spending limits for payments."""
+
+    per_transaction: float = 100.0
+    daily: float = 500.0
+    monthly: float = 5000.0
+    per_merchant_daily: float = 200.0
+
+
+@dataclass
+class PaymentApprovalConfig:
+    """Payment approval thresholds."""
+
+    always_ask_above: float = 10.0
+    confirm_above: float = 100.0
+    cooldown_above: float = 1000.0
+    cooldown_seconds: int = 300
+
+
+@dataclass
+class PaymentCryptoConfig:
+    """Crypto payment settings — local wallet (default) or Coinbase AgentKit."""
+
+    enabled: bool = False
+    default_chain: str = "base"
+    provider: str = "local"  # "local" (self-custody) or "agentkit" (Coinbase CDP)
+    rpc_url: str = ""  # override RPC endpoint; empty = chain default
+    cdp_api_key_name_ref: str = "cdp_api_key_name"
+    cdp_api_key_private_ref: str = "cdp_api_key_private"
+    gas_priority: str = "normal"
+    max_gas_percentage: int = 10
+    chains: list[str] = field(default_factory=lambda: ["base"])
+
+
+@dataclass
+class PaymentsConfig:
+    """Agent payments configuration."""
+
+    enabled: bool = False
+    default_currency: str = "USD"
+    wallet: PaymentWalletConfig = field(default_factory=PaymentWalletConfig)
+    limits: PaymentLimitsConfig = field(default_factory=PaymentLimitsConfig)
+    approval: PaymentApprovalConfig = field(default_factory=PaymentApprovalConfig)
+    crypto: PaymentCryptoConfig = field(default_factory=PaymentCryptoConfig)
+
+
+@dataclass
 class Config:
     """Top-level EloPhanto configuration."""
 
@@ -280,6 +336,7 @@ class Config:
     documents: DocumentConfig = field(default_factory=DocumentConfig)
     goals: GoalsConfig = field(default_factory=GoalsConfig)
     identity: IdentityConfig = field(default_factory=IdentityConfig)
+    payments: PaymentsConfig = field(default_factory=PaymentsConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -561,6 +618,47 @@ def load_config(config_path: Path | str | None = None) -> Config:
         nature_file=identity_raw.get("nature_file", "knowledge/self/nature.md"),
     )
 
+    # Parse payments section
+    pay_raw = raw.get("payments", {})
+    pay_wallet_raw = pay_raw.get("wallet", {})
+    pay_limits_raw = pay_raw.get("limits", {})
+    pay_approval_raw = pay_raw.get("approval", {})
+    pay_crypto_raw = pay_raw.get("crypto", {})
+    payments_config = PaymentsConfig(
+        enabled=pay_raw.get("enabled", False),
+        default_currency=pay_raw.get("default_currency", "USD"),
+        wallet=PaymentWalletConfig(
+            auto_create=pay_wallet_raw.get("auto_create", True),
+            low_balance_alert=pay_wallet_raw.get("low_balance_alert", 10.0),
+            default_token=pay_wallet_raw.get("default_token", "USDC"),
+        ),
+        limits=PaymentLimitsConfig(
+            per_transaction=pay_limits_raw.get("per_transaction", 100.0),
+            daily=pay_limits_raw.get("daily", 500.0),
+            monthly=pay_limits_raw.get("monthly", 5000.0),
+            per_merchant_daily=pay_limits_raw.get("per_merchant_daily", 200.0),
+        ),
+        approval=PaymentApprovalConfig(
+            always_ask_above=pay_approval_raw.get("always_ask_above", 10.0),
+            confirm_above=pay_approval_raw.get("confirm_above", 100.0),
+            cooldown_above=pay_approval_raw.get("cooldown_above", 1000.0),
+            cooldown_seconds=pay_approval_raw.get("cooldown_seconds", 300),
+        ),
+        crypto=PaymentCryptoConfig(
+            enabled=pay_crypto_raw.get("enabled", False),
+            default_chain=pay_crypto_raw.get("default_chain", "base"),
+            provider=pay_crypto_raw.get("provider", "local"),
+            rpc_url=pay_crypto_raw.get("rpc_url", ""),
+            cdp_api_key_name_ref=pay_crypto_raw.get("cdp_api_key_name_ref", "cdp_api_key_name"),
+            cdp_api_key_private_ref=pay_crypto_raw.get(
+                "cdp_api_key_private_ref", "cdp_api_key_private"
+            ),
+            gas_priority=pay_crypto_raw.get("gas_priority", "normal"),
+            max_gas_percentage=pay_crypto_raw.get("max_gas_percentage", 10),
+            chains=pay_crypto_raw.get("chains", ["base"]),
+        ),
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -583,6 +681,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         documents=documents_config,
         goals=goals_config,
         identity=identity_config,
+        payments=payments_config,
         project_root=config_path.parent,
     )
 
