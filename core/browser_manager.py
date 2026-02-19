@@ -139,9 +139,7 @@ def _clean_crash_state(profile_dir: Path, suppress_restore: bool = True) -> None
         data.setdefault("profile", {})["exit_type"] = "Normal"
         data["profile"]["exited_cleanly"] = True
         if suppress_restore:
-            data.setdefault("session", {})[
-                "restore_on_startup"
-            ] = 5  # 5 = open new tab page
+            data.setdefault("session", {})["restore_on_startup"] = 5  # 5 = open new tab page
             data["session"].pop("startup_urls", None)
         prefs_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     except Exception:
@@ -381,9 +379,7 @@ def _prepare_profile_copy(
                 dirs_exist_ok=True,
             )
         else:
-            logger.warning(
-                "Profile directory '%s' not found in %s", profile_directory, src
-            )
+            logger.warning("Profile directory '%s' not found in %s", profile_directory, src)
 
         elapsed = time.time() - t0
         logger.info("Profile copied to %s (%.1fs)", dest, elapsed)
@@ -600,7 +596,7 @@ class BrowserManager:
                     profile = self._active_profile_name or "Default"
                     if source:
                         prefs_file = Path(source) / profile / "Preferences"
-                        prefs_file.write_text(self._prefs_backup, encoding="utf-8")
+                        prefs_file.write_text(self._prefs_backup, encoding="utf-8")  # type: ignore[arg-type]
                         logger.info("Restored original Chrome Preferences")
                 except Exception as e:
                     logger.warning(f"Failed to restore Preferences: {e}")
@@ -609,9 +605,7 @@ class BrowserManager:
     # Tool dispatch — single generic method for all 44 tools
     # ------------------------------------------------------------------
 
-    async def call_tool(
-        self, name: str, args: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def call_tool(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         """Call any browser tool by name.
 
         This is the primary interface — all 44 browser tools are dispatched
@@ -661,9 +655,7 @@ class BrowserManager:
                 )
 
                 # Deterministic hard failure if cookie store collapsed after launch.
-                if source_count >= 100 and 0 <= copy_count < max(
-                    20, source_count // 10
-                ):
+                if source_count >= 100 and 0 <= copy_count < max(20, source_count // 10):
                     return {
                         "success": False,
                         "error": (
@@ -694,8 +686,7 @@ class BrowserManager:
                     return {
                         "success": False,
                         "error": (
-                            f"{error_text} (retry after bridge restart failed: "
-                            f"{retry_error})"
+                            f"{error_text} (retry after bridge restart failed: {retry_error})"
                         ),
                     }
 
