@@ -90,9 +90,7 @@ class Gateway:
         try:
             import websockets
         except ImportError:
-            logger.error(
-                "websockets package not installed. Run: uv add websockets"
-            )
+            logger.error("websockets package not installed. Run: uv add websockets")
             raise
 
         self._server = await websockets.serve(
@@ -151,9 +149,7 @@ class Gateway:
 
         try:
             # Send ready status
-            await websocket.send(
-                status_message("connected", {"client_id": client_id}).to_json()
-            )
+            await websocket.send(status_message("connected", {"client_id": client_id}).to_json())
 
             async for raw in websocket:
                 try:
@@ -161,9 +157,7 @@ class Gateway:
                     await self._route_message(client, msg)
                 except Exception as e:
                     logger.error("Error handling message: %s", e)
-                    await websocket.send(
-                        error_message(str(e)).to_json()
-                    )
+                    await websocket.send(error_message(str(e)).to_json())
         except Exception as e:
             logger.debug("Client %s disconnected: %s", client_id[:8], e)
         finally:
@@ -173,9 +167,7 @@ class Gateway:
                 subs.discard(client_id)
             logger.info("Client disconnected: %s", client_id[:8])
 
-    async def _route_message(
-        self, client: ClientConnection, msg: GatewayMessage
-    ) -> None:
+    async def _route_message(self, client: ClientConnection, msg: GatewayMessage) -> None:
         """Route an incoming message to the appropriate handler."""
         handlers = {
             MessageType.CHAT: self._handle_chat,
@@ -184,7 +176,7 @@ class Gateway:
             MessageType.STATUS: self._handle_status,
         }
 
-        handler = handlers.get(msg.type)
+        handler = handlers.get(msg.type)  # type: ignore[call-overload]
         if handler:
             await handler(client, msg)
         else:
@@ -192,9 +184,7 @@ class Gateway:
                 error_message(f"Unknown message type: {msg.type}").to_json()
             )
 
-    async def _handle_chat(
-        self, client: ClientConnection, msg: GatewayMessage
-    ) -> None:
+    async def _handle_chat(self, client: ClientConnection, msg: GatewayMessage) -> None:
         """Handle a chat message — route to agent with session isolation."""
         channel = msg.channel or client.channel or "unknown"
         user_id = msg.user_id or client.user_id or client.client_id
@@ -229,9 +219,7 @@ class Gateway:
                 mime = att.get("mime_type", "")
                 path = att.get("local_path", "")
                 size = att.get("size_bytes", 0)
-                file_lines.append(
-                    f"[Attached file: {fname} ({mime}, {size} bytes) at {path}]"
-                )
+                file_lines.append(f"[Attached file: {fname} ({mime}, {size} bytes) at {path}]")
             content = content + "\n\n" + "\n".join(file_lines) if content else "\n".join(file_lines)
 
         if not content:
@@ -256,12 +244,8 @@ class Gateway:
             )
 
         # Create approval callback for this session
-        async def session_approval_callback(
-            tool_name: str, description: str, params: dict
-        ) -> bool:
-            return await self._request_approval(
-                session, client, tool_name, description, params
-            )
+        async def session_approval_callback(tool_name: str, description: str, params: dict) -> bool:
+            return await self._request_approval(session, client, tool_name, description, params)
 
         # Run agent with session isolation
         try:
@@ -302,9 +286,7 @@ class Gateway:
 
         except Exception as e:
             logger.error("Agent error for session %s: %s", session.session_id[:8], e)
-            await client.websocket.send(
-                error_message(str(e), session.session_id, msg.id).to_json()
-            )
+            await client.websocket.send(error_message(str(e), session.session_id, msg.id).to_json())
             await self.broadcast(
                 event_message(
                     session.session_id,
@@ -324,18 +306,14 @@ class Gateway:
         params: dict[str, Any],
     ) -> bool:
         """Send approval request to channel and wait for response."""
-        req = approval_request_message(
-            session.session_id, tool_name, description, params
-        )
+        req = approval_request_message(session.session_id, tool_name, description, params)
         self._pending_approvals[req.id] = asyncio.get_event_loop().create_future()
 
         # Send to the requesting client and any other clients on this session
         await self.broadcast(req, session_id=session.session_id)
 
         try:
-            approved = await asyncio.wait_for(
-                self._pending_approvals[req.id], timeout=300
-            )
+            approved = await asyncio.wait_for(self._pending_approvals[req.id], timeout=300)
             return approved
         except TimeoutError:
             logger.warning("Approval timed out for %s", tool_name)
@@ -361,9 +339,7 @@ class Gateway:
         else:
             logger.warning("No pending approval for id %s", request_id[:8])
 
-    async def _handle_command(
-        self, client: ClientConnection, msg: GatewayMessage
-    ) -> None:
+    async def _handle_command(self, client: ClientConnection, msg: GatewayMessage) -> None:
         """Handle slash commands (/status, /tasks, /budget, etc.)."""
         command = msg.data.get("command", "")
         session_id = msg.session_id or client.session_id
@@ -396,15 +372,9 @@ class Gateway:
 
         else:
             await client.websocket.send(
-                error_message(
-                    f"Unknown command: {command}", session_id
-                ).to_json()
+                error_message(f"Unknown command: {command}", session_id).to_json()
             )
 
-    async def _handle_status(
-        self, client: ClientConnection, msg: GatewayMessage
-    ) -> None:
+    async def _handle_status(self, client: ClientConnection, msg: GatewayMessage) -> None:
         """Handle status/heartbeat messages."""
-        await client.websocket.send(
-            status_message("ok", {"client_id": client.client_id}).to_json()
-        )
+        await client.websocket.send(status_message("ok", {"client_id": client.client_id}).to_json())

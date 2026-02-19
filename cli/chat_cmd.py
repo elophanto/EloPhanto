@@ -472,7 +472,7 @@ async def _chat_gateway(cfg: Any) -> None:
 
     try:
         _on_status("Loading tools")
-        await agent.initialize(on_status=_on_status)
+        await agent.initialize(on_status=_on_status)  # type: ignore[arg-type]
     except Exception as e:
         spinner.stop()
         console.print(f"  [bold red]Initialization failed:[/bold red] {e}")
@@ -642,7 +642,7 @@ async def _chat_loop(config_path: str | None) -> None:
 
     try:
         _on_status("Loading tools")
-        await agent.initialize(on_status=_on_status)
+        await agent.initialize(on_status=_on_status)  # type: ignore[arg-type]
     except Exception as e:
         spinner.stop()
         console.print(f"  [bold red]Initialization failed:[/bold red] {e}")
