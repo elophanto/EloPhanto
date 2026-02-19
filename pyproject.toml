@@ -46,9 +46,14 @@ packages = ["core", "tools", "cli", "channels", "knowledge", "plugins", "skills"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["plugins/_template/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "E501",  # Line too long — handled by formatter, not linter
+    "E402",  # Module-level import not at top — deferred imports are intentional
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

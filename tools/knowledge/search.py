@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import struct
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
@@ -212,7 +212,7 @@ class KnowledgeSearchTool(BaseTool):
         """Boost score for recently indexed chunks."""
         try:
             indexed = datetime.fromisoformat(indexed_at)
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             days_old = (now - indexed).days
             return 0.05 * max(0, 1 - days_old / 365)
         except (ValueError, TypeError):

@@ -98,7 +98,7 @@ class ShellExecuteTool(BaseTool):
                     process.communicate(), timeout=timeout
                 )
                 timed_out = False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.communicate()
                 return ToolResult(

@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class PermissionLevel(str, Enum):
+class PermissionLevel(StrEnum):
     SAFE = "safe"
     MODERATE = "moderate"
     DESTRUCTIVE = "destructive"

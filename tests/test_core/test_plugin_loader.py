@@ -6,11 +6,8 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
-from core.plugin_loader import PluginLoader, PluginManifestEntry
-from tools.base import BaseTool, PermissionLevel, ToolResult
-
+from core.plugin_loader import PluginLoader
+from tools.base import BaseTool
 
 # --- Helper: create a valid plugin on disk ---
 

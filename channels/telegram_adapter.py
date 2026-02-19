@@ -119,8 +119,8 @@ class TelegramChannelAdapter(ChannelAdapter):
             if not self._is_authorized(message.from_user.id):
                 return
             # Find pending approval for this user's session
-            user_id = str(message.from_user.id)
-            for req_id, future in list(self._pending_approvals.items()):
+            str(message.from_user.id)
+            for req_id, _future in list(self._pending_approvals.items()):
                 await self.send_approval(req_id, True)
                 await message.answer("Approved.")
                 return
@@ -130,8 +130,8 @@ class TelegramChannelAdapter(ChannelAdapter):
         async def cmd_deny(message: types.Message) -> None:
             if not self._is_authorized(message.from_user.id):
                 return
-            user_id = str(message.from_user.id)
-            for req_id, future in list(self._pending_approvals.items()):
+            str(message.from_user.id)
+            for req_id, _future in list(self._pending_approvals.items()):
                 await self.send_approval(req_id, False)
                 await message.answer("Denied.")
                 return
@@ -194,7 +194,7 @@ class TelegramChannelAdapter(ChannelAdapter):
                 content = response.data.get("content", "No response")
                 await self._send_formatted(chat_id, content)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 await message.answer("Request timed out. Please try again.")
             except Exception as e:
                 logger.error("Telegram message handling failed: %s", e)

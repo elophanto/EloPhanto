@@ -10,14 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.status import Status
-from rich.text import Text
 
 from channels.base import ChannelAdapter
 from core.protocol import GatewayMessage
@@ -85,7 +83,7 @@ class CLIAdapter(ChannelAdapter):
         """Show approval prompt in terminal."""
         tool_name = msg.data.get("tool_name", "?")
         description = msg.data.get("description", "")
-        params = msg.data.get("params", {})
+        msg.data.get("params", {})
 
         console.print()
         console.print(
@@ -108,8 +106,8 @@ class CLIAdapter(ChannelAdapter):
         """Show events as dim notifications."""
         event = msg.data.get("event", "")
         if event == "step_progress":
-            tool = msg.data.get("tool_name", "")
-            step = msg.data.get("step", 0)
+            msg.data.get("tool_name", "")
+            msg.data.get("step", 0)
             # Could update a live status display here
             pass
         elif event == "task_complete":
@@ -197,7 +195,7 @@ class CLIAdapter(ChannelAdapter):
                 )
                 console.print()
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 status.stop()
                 console.print(f"\n  [{_C_WARN}]Request timed out.[/]")
             except Exception as e:

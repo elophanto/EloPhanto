@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -213,7 +214,7 @@ class SelfCreatePluginTool(BaseTool):
             test_result = await self._test(tool_name, plugin_dir, budget)
             if not test_result["passed"]:
                 # Try to fix up to max_retries times
-                for attempt in range(budget.max_retries):
+                for _attempt in range(budget.max_retries):
                     within, reason = budget.check()
                     if not within:
                         break
@@ -464,7 +465,7 @@ class SelfCreatePluginTool(BaseTool):
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.communicate()
             return {"passed": False, "output": "Tests timed out"}
@@ -565,9 +566,9 @@ class SelfCreatePluginTool(BaseTool):
     ) -> None:
         """Git commit the new plugin and update knowledge docs."""
         import asyncio
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now = datetime.now(UTC).strftime("%Y-%m-%d")
 
         # Update capabilities.md
         caps_file = self._project_root / "knowledge" / "system" / "capabilities.md"

@@ -82,7 +82,7 @@ class SelfRunTestsTool(BaseTool):
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(), timeout=timeout
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.communicate()
                 return ToolResult(

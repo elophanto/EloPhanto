@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -250,7 +249,7 @@ class FileListTool(BaseTool):
                             "type": "directory" if item.is_dir() else "file",
                             "size_bytes": stat.st_size if item.is_file() else 0,
                             "modified_at": datetime.fromtimestamp(
-                                stat.st_mtime, tz=timezone.utc
+                                stat.st_mtime, tz=UTC
                             ).isoformat(),
                         }
                     )

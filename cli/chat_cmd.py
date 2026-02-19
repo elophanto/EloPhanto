@@ -14,9 +14,7 @@ import time
 from typing import Any
 
 import click
-from rich.columns import Columns
 from rich.console import Console, Group
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
@@ -160,7 +158,7 @@ def _build_welcome_panel(
     for p in providers:
         prov_parts.append(f"[{_C_SUCCESS}]●[/] {p}")
     if not prov_parts:
-        prov_parts = [f"[red]● none[/]"]
+        prov_parts = ["[red]● none[/]"]
 
     info.add_row("Providers", "  ".join(prov_parts))
     info.add_row("Tools", f"[bold]{tool_count}[/] registered")
@@ -294,8 +292,7 @@ class _LiveProgress:
         detail_str = f" [{_C_DIM}]{detail}[/]" if detail else ""
 
         self._status.update(
-            f"  [{_C_PRIMARY}]Step {step}[/] [{_C_DIM}]│[/] "
-            f"[bold]{tool}[/]{detail_str}"
+            f"  [{_C_PRIMARY}]Step {step}[/] [{_C_DIM}]│[/] [bold]{tool}[/]{detail_str}"
         )
 
         log_line = (
@@ -364,7 +361,7 @@ def approval_callback(tool_name: str, description: str, params: dict[str, Any]) 
             f"[{_C_WARN}]Tool:[/] [bold]{tool_name}[/]\n"
             f"[{_C_WARN}]Action:[/] {description}\n"
             f"{param_display}",
-            title=f"[bold red]⚠ Approval Required[/]",
+            title="[bold red]⚠ Approval Required[/]",
             border_style="red",
             padding=(0, 2),
         )
@@ -393,9 +390,7 @@ def _try_unlock_vault(agent: Any) -> None:
         except VaultError as e:
             console.print(f"  [{_C_WARN}]Vault: {e}[/]")
     else:
-        console.print(
-            f"  [{_C_DIM}]No vault found. Create one to store credentials securely.[/]"
-        )
+        console.print(f"  [{_C_DIM}]No vault found. Create one to store credentials securely.[/]")
         password = Prompt.ask(
             f"  [{_C_DIM}]Set vault password (Enter to skip)[/]",
             password=True,
@@ -425,7 +420,9 @@ def _try_unlock_vault(agent: Any) -> None:
     help="Path to config.yaml",
 )
 @click.option("--debug", is_flag=True, default=False, help="Enable debug logging")
-@click.option("--direct", is_flag=True, default=False, help="Skip gateway, connect directly to agent")
+@click.option(
+    "--direct", is_flag=True, default=False, help="Skip gateway, connect directly to agent"
+)
 def chat_cmd(config_path: str | None, debug: bool, direct: bool) -> None:
     """Start an interactive chat session with EloPhanto."""
     import signal
@@ -440,6 +437,7 @@ def chat_cmd(config_path: str | None, debug: bool, direct: bool) -> None:
         nonlocal _interrupted_once
         if _interrupted_once:
             import os
+
             os._exit(1)
         _interrupted_once = True
         raise KeyboardInterrupt
@@ -478,7 +476,7 @@ async def _chat_gateway(cfg: Any) -> None:
     except Exception as e:
         spinner.stop()
         console.print(f"  [bold red]Initialization failed:[/bold red] {e}")
-        console.print(f"  Run [bold]elophanto init[/bold] to configure providers.")
+        console.print("  Run [bold]elophanto init[/bold] to configure providers.")
         return
     finally:
         spinner.stop()
@@ -507,7 +505,9 @@ async def _chat_gateway(cfg: Any) -> None:
                 from channels.telegram_adapter import TelegramChannelAdapter
 
                 tg = TelegramChannelAdapter(
-                    bot_token=bot_token, config=cfg.telegram, gateway_url=gw_url,
+                    bot_token=bot_token,
+                    config=cfg.telegram,
+                    gateway_url=gw_url,
                 )
                 adapter_instances.append(tg)
                 adapter_tasks.append(asyncio.create_task(tg.start()))
@@ -522,7 +522,9 @@ async def _chat_gateway(cfg: Any) -> None:
                 from channels.discord_adapter import DiscordAdapter
 
                 dc = DiscordAdapter(
-                    bot_token=bot_token, config=cfg.discord, gateway_url=gw_url,
+                    bot_token=bot_token,
+                    config=cfg.discord,
+                    gateway_url=gw_url,
                 )
                 adapter_instances.append(dc)
                 adapter_tasks.append(asyncio.create_task(dc.start()))
@@ -538,8 +540,10 @@ async def _chat_gateway(cfg: Any) -> None:
                 from channels.slack_adapter import SlackAdapter
 
                 sl = SlackAdapter(
-                    bot_token=bot_token, app_token=app_token,
-                    config=cfg.slack, gateway_url=gw_url,
+                    bot_token=bot_token,
+                    app_token=app_token,
+                    config=cfg.slack,
+                    gateway_url=gw_url,
                 )
                 adapter_instances.append(sl)
                 adapter_tasks.append(asyncio.create_task(sl.start()))
@@ -566,7 +570,7 @@ async def _chat_gateway(cfg: Any) -> None:
     info.add_column(style=_C_DIM, justify="right", min_width=14)
     info.add_column()
 
-    prov_parts = [f"[{_C_SUCCESS}]●[/] {p}" for p in providers] or [f"[red]● none[/]"]
+    prov_parts = [f"[{_C_SUCCESS}]●[/] {p}" for p in providers] or ["[red]● none[/]"]
     info.add_row("Providers", "  ".join(prov_parts))
     info.add_row("Tools", f"[bold]{tool_count}[/] registered")
     info.add_row("Skills", f"[bold]{skill_count}[/] loaded")
@@ -642,7 +646,7 @@ async def _chat_loop(config_path: str | None) -> None:
     except Exception as e:
         spinner.stop()
         console.print(f"  [bold red]Initialization failed:[/bold red] {e}")
-        console.print(f"  Run [bold]elophanto init[/bold] to configure providers.")
+        console.print("  Run [bold]elophanto init[/bold] to configure providers.")
         return
     finally:
         spinner.stop()
@@ -661,9 +665,7 @@ async def _chat_loop(config_path: str | None) -> None:
                 asyncio.create_task(telegram_adapter.start())
                 console.print(f"  [{_C_SUCCESS}]Telegram bot started.[/]")
             else:
-                console.print(
-                    f"  [{_C_WARN}]Telegram enabled but no bot token in vault.[/]"
-                )
+                console.print(f"  [{_C_WARN}]Telegram enabled but no bot token in vault.[/]")
         except Exception as e:
             console.print(f"  [{_C_WARN}]Telegram failed: {e}[/]")
             telegram_adapter = None
@@ -679,9 +681,7 @@ async def _chat_loop(config_path: str | None) -> None:
 
     while True:
         try:
-            user_input = await loop.run_in_executor(
-                None, lambda: Prompt.ask(f"  [{_C_USER}]❯[/]")
-            )
+            user_input = await loop.run_in_executor(None, lambda: Prompt.ask(f"  [{_C_USER}]❯[/]"))
         except (EOFError, KeyboardInterrupt):
             break
 
@@ -711,9 +711,11 @@ async def _chat_loop(config_path: str | None) -> None:
             progress = _LiveProgress(console)
             progress.start()
 
-            def _on_step(step: int, tool: str, thought: str, params: dict) -> None:
+            def _on_step(
+                step: int, tool: str, thought: str, params: dict, _p: Any = progress
+            ) -> None:
                 detail = _summarize_params(tool, params)
-                progress.update(step, tool, detail)
+                _p.update(step, tool, detail)
 
             agent._on_step = _on_step
             task_start = time.time()
@@ -781,9 +783,7 @@ async def _chat_loop(config_path: str | None) -> None:
             except Exception:
                 pass
             agent._on_step = None
-            console.print(
-                f"\n  [{_C_WARN}]Task interrupted. Ready for next command.[/]"
-            )
+            console.print(f"\n  [{_C_WARN}]Task interrupted. Ready for next command.[/]")
         except Exception as e:
             try:
                 progress.stop()

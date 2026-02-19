@@ -5,15 +5,19 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 from rich.table import Table
 
+if TYPE_CHECKING:
+    from core.skills import SkillManager
+
 console = Console()
 
 
-def _get_manager() -> "SkillManager":
+def _get_manager() -> SkillManager:
     from core.skills import SkillManager
 
     skills_dir = Path.cwd() / "skills"
@@ -162,9 +166,7 @@ async def _hub_search(query: str) -> None:
         table.add_row(skill.name, skill.description[:60], skill.version, tags)
 
     console.print(table)
-    console.print(
-        "\n[dim]Install with:[/dim] [bold]elophanto skills hub install <name>[/bold]"
-    )
+    console.print("\n[dim]Install with:[/dim] [bold]elophanto skills hub install <name>[/bold]")
 
 
 @hub_group.command("install")
@@ -259,7 +261,7 @@ def hub_list() -> None:
 # ── Git install helper ──────────────────────────────────────
 
 
-def _install_from_git(mgr: "SkillManager", url: str, name: str | None) -> None:
+def _install_from_git(mgr: SkillManager, url: str, name: str | None) -> None:
     """Clone a git repo and install the skill from it."""
     # Handle GitHub URLs with /tree/main/skills/name paths
     parts = url.split("/tree/")
@@ -307,9 +309,7 @@ def _install_from_git(mgr: "SkillManager", url: str, name: str | None) -> None:
                         console.print(f"  [green]Installed: {installed}[/green]")
                         count += 1
                     except FileExistsError:
-                        console.print(
-                            f"  [yellow]Skipped (exists): {entry.name}[/yellow]"
-                        )
+                        console.print(f"  [yellow]Skipped (exists): {entry.name}[/yellow]")
                     except Exception as e:
                         console.print(f"  [red]Failed {entry.name}: {e}[/red]")
 

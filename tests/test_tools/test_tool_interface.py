@@ -5,12 +5,13 @@ Verifies that every built-in tool correctly implements the BaseTool interface.
 
 from __future__ import annotations
 
-import pytest
-
-from core.config import Config, ShellConfig
+from core.config import Config
 from tools.base import BaseTool, PermissionLevel
 from tools.browser.tools import create_browser_tools
 from tools.data.llm import LLMCallTool
+from tools.documents.analyze_tool import DocumentAnalyzeTool
+from tools.documents.collections_tool import DocumentCollectionsTool
+from tools.documents.query_tool import DocumentQueryTool
 from tools.knowledge.index_tool import KnowledgeIndexTool
 from tools.knowledge.search import KnowledgeSearchTool
 from tools.knowledge.writer import KnowledgeWriteTool
@@ -23,9 +24,6 @@ from tools.self_dev.tester import SelfRunTestsTool
 from tools.system.filesystem import FileListTool, FileReadTool, FileWriteTool
 from tools.system.shell import ShellExecuteTool
 from tools.system.vault_tool import VaultLookupTool
-from tools.documents.analyze_tool import DocumentAnalyzeTool
-from tools.documents.query_tool import DocumentQueryTool
-from tools.documents.collections_tool import DocumentCollectionsTool
 
 
 def _make_tools(test_config: Config) -> list[BaseTool]:

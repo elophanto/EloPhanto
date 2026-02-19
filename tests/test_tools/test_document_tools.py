@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
-from tools.base import BaseTool, PermissionLevel, ToolResult
+from tools.base import BaseTool, PermissionLevel
 from tools.documents.analyze_tool import DocumentAnalyzeTool
 from tools.documents.collections_tool import DocumentCollectionsTool
 from tools.documents.query_tool import DocumentQueryTool
-
 
 # ─── Tool Interface Compliance ───
 

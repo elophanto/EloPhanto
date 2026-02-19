@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 from aiogram import Bot, Dispatcher, Router, types
 from aiogram.enums import ParseMode
@@ -316,7 +315,6 @@ class TelegramAdapter:
 
 def escape_for_md2(text: str) -> str:
     """Light escape for pre-formatted text that already has markdown markers."""
-    import re
 
     safe_markers = {"*", "_", "`", "[", "]", "(", ")"}
     result: list[str] = []

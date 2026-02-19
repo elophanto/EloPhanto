@@ -9,9 +9,10 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -91,10 +92,10 @@ class TaskScheduler:
         try:
             CronTrigger.from_crontab(cron_expression)
         except ValueError as e:
-            raise ValueError(f"Invalid cron expression: {e}")
+            raise ValueError(f"Invalid cron expression: {e}") from e
 
         schedule_id = str(uuid.uuid4())[:8]
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         entry = ScheduleEntry(
             id=schedule_id,
@@ -137,7 +138,7 @@ class TaskScheduler:
     ) -> ScheduleEntry:
         """Schedule a one-time task at a specific datetime."""
         schedule_id = str(uuid.uuid4())[:8]
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         entry = ScheduleEntry(
             id=schedule_id,
@@ -197,14 +198,12 @@ class TaskScheduler:
             except Exception:
                 pass
 
-        await self._db.execute_insert(
-            "DELETE FROM scheduled_tasks WHERE id = ?", (schedule_id,)
-        )
+        await self._db.execute_insert("DELETE FROM scheduled_tasks WHERE id = ?", (schedule_id,))
         return True
 
     async def enable_schedule(self, schedule_id: str) -> None:
         """Enable a schedule."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._db.execute_insert(
             "UPDATE scheduled_tasks SET enabled = 1, updated_at = ? WHERE id = ?",
             (now, schedule_id),
@@ -215,7 +214,7 @@ class TaskScheduler:
 
     async def disable_schedule(self, schedule_id: str) -> None:
         """Disable a schedule."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._db.execute_insert(
             "UPDATE scheduled_tasks SET enabled = 0, updated_at = ? WHERE id = ?",
             (now, schedule_id),
@@ -233,16 +232,12 @@ class TaskScheduler:
 
     async def get_schedule(self, schedule_id: str) -> ScheduleEntry | None:
         """Get a single schedule by ID."""
-        rows = await self._db.execute(
-            "SELECT * FROM scheduled_tasks WHERE id = ?", (schedule_id,)
-        )
+        rows = await self._db.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (schedule_id,))
         if not rows:
             return None
         return self._row_to_entry(rows[0])
 
-    async def get_run_history(
-        self, schedule_id: str, limit: int = 10
-    ) -> list[dict[str, Any]]:
+    async def get_run_history(self, schedule_id: str, limit: int = 10) -> list[dict[str, Any]]:
         """Get execution history for a schedule."""
         rows = await self._db.execute(
             """SELECT * FROM schedule_runs
@@ -271,7 +266,7 @@ class TaskScheduler:
         if not schedule or not schedule.enabled:
             return
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         # Record run start
         run_id = await self._db.execute_insert(
@@ -285,7 +280,7 @@ class TaskScheduler:
             content = getattr(result, "content", str(result))
             steps = getattr(result, "steps_taken", 0)
 
-            completed_at = datetime.now(timezone.utc).isoformat()
+            completed_at = datetime.now(UTC).isoformat()
             await self._db.execute_insert(
                 """UPDATE schedule_runs
                    SET completed_at = ?, status = 'completed',
@@ -303,7 +298,7 @@ class TaskScheduler:
             logger.info(f"Scheduled task '{schedule.name}' completed")
 
         except Exception as e:
-            completed_at = datetime.now(timezone.utc).isoformat()
+            completed_at = datetime.now(UTC).isoformat()
             await self._db.execute_insert(
                 """UPDATE schedule_runs
                    SET completed_at = ?, status = 'failed', error = ?
@@ -326,16 +321,12 @@ class TaskScheduler:
             if rows:
                 row = rows[0]
                 if row["retry_count"] >= row["max_retries"]:
-                    logger.error(
-                        f"Schedule '{schedule.name}' exceeded max retries, disabling"
-                    )
+                    logger.error(f"Schedule '{schedule.name}' exceeded max retries, disabling")
                     await self.disable_schedule(schedule_id)
 
     async def _load_from_db(self) -> list[ScheduleEntry]:
         """Load all schedules from the database."""
-        rows = await self._db.execute(
-            "SELECT * FROM scheduled_tasks ORDER BY created_at"
-        )
+        rows = await self._db.execute("SELECT * FROM scheduled_tasks ORDER BY created_at")
         return [self._row_to_entry(row) for row in rows]
 
     @staticmethod
@@ -388,19 +379,19 @@ def parse_delay(text: str) -> datetime | None:
 
     m = re.match(r"in\s+(\d+)\s+minutes?", text_lower)
     if m:
-        return datetime.now(timezone.utc) + timedelta(minutes=int(m.group(1)))
+        return datetime.now(UTC) + timedelta(minutes=int(m.group(1)))
 
     m = re.match(r"in\s+(\d+)\s+hours?", text_lower)
     if m:
-        return datetime.now(timezone.utc) + timedelta(hours=int(m.group(1)))
+        return datetime.now(UTC) + timedelta(hours=int(m.group(1)))
 
     m = re.match(r"in\s+(\d+)\s+seconds?", text_lower)
     if m:
-        return datetime.now(timezone.utc) + timedelta(seconds=int(m.group(1)))
+        return datetime.now(UTC) + timedelta(seconds=int(m.group(1)))
 
     m = re.match(r"in\s+(\d+)\s+days?", text_lower)
     if m:
-        return datetime.now(timezone.utc) + timedelta(days=int(m.group(1)))
+        return datetime.now(UTC) + timedelta(days=int(m.group(1)))
 
     # "at 3pm" / "at 15:30" (today)
     m = re.match(r"at\s+(\d{1,2}):(\d{2})\s*([ap]m)?", text_lower)
@@ -412,8 +403,8 @@ def parse_delay(text: str) -> datetime | None:
             hour += 12
         elif ampm == "am" and hour == 12:
             hour = 0
-        target = datetime.now(timezone.utc).replace(hour=hour, minute=minute, second=0)
-        if target <= datetime.now(timezone.utc):
+        target = datetime.now(UTC).replace(hour=hour, minute=minute, second=0)
+        if target <= datetime.now(UTC):
             target += timedelta(days=1)
         return target
 
@@ -425,8 +416,8 @@ def parse_delay(text: str) -> datetime | None:
             hour += 12
         elif ampm == "am" and hour == 12:
             hour = 0
-        target = datetime.now(timezone.utc).replace(hour=hour, minute=0, second=0)
-        if target <= datetime.now(timezone.utc):
+        target = datetime.now(UTC).replace(hour=hour, minute=0, second=0)
+        if target <= datetime.now(UTC):
             target += timedelta(days=1)
         return target
 
@@ -437,7 +428,7 @@ def parse_delay(text: str) -> datetime | None:
         unit = m.group(2).rstrip("s")
         deltas = {"second": 1, "minute": 60, "hour": 3600, "day": 86400}
         if unit in deltas:
-            return datetime.now(timezone.utc) + timedelta(seconds=amount * deltas[unit])
+            return datetime.now(UTC) + timedelta(seconds=amount * deltas[unit])
 
     return None
 

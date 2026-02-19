@@ -44,14 +44,12 @@ class SlackAdapter(ChannelAdapter):
     async def start(self) -> None:
         """Connect to gateway and start Slack Socket Mode."""
         try:
-            from slack_bolt.async_app import AsyncApp
             from slack_bolt.adapter.socket_mode.async_handler import (
                 AsyncSocketModeHandler,
             )
-        except ImportError:
-            raise RuntimeError(
-                "slack-bolt not installed. Run: pip install slack-bolt"
-            )
+            from slack_bolt.async_app import AsyncApp
+        except ImportError as err:
+            raise RuntimeError("slack-bolt not installed. Run: pip install slack-bolt") from err
 
         await self.connect_gateway()
 
@@ -95,6 +93,7 @@ class SlackAdapter(ChannelAdapter):
         # Strip bot mention
         if "<@" in text:
             import re
+
             text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
         if not text:
@@ -118,7 +117,7 @@ class SlackAdapter(ChannelAdapter):
             for chunk in _split_slack(reply, 3900):
                 await say(text=chunk, thread_ts=thread_ts)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await say(text="Request timed out.", thread_ts=thread_ts)
         except Exception as e:
             logger.error("Slack message handling failed: %s", e)
@@ -133,9 +132,7 @@ class SlackAdapter(ChannelAdapter):
             if content:
                 client = self._app.client
                 for chunk in _split_slack(content, 3900):
-                    await client.chat_postMessage(
-                        channel=channel, text=chunk, thread_ts=thread_ts
-                    )
+                    await client.chat_postMessage(channel=channel, text=chunk, thread_ts=thread_ts)
 
     async def on_approval_request(self, msg: GatewayMessage) -> None:
         """Send approval request as Slack message with reaction-based approval."""
@@ -148,7 +145,7 @@ class SlackAdapter(ChannelAdapter):
         desc = msg.data.get("description", "")
 
         client = self._app.client
-        result = await client.chat_postMessage(
+        await client.chat_postMessage(
             channel=channel,
             text=(
                 f"*Approval needed*\n"

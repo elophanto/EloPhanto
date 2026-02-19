@@ -204,7 +204,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     info.add_column(style=_C_DIM, justify="right", min_width=14)
     info.add_column()
     info.add_row("Gateway", f"[{_C_SUCCESS}]{gw_url}[/]")
-    info.add_row("Providers", " ".join(f"[{_C_SUCCESS}]{p}[/]" for p in providers) or f"[red]none[/]")
+    info.add_row("Providers", " ".join(f"[{_C_SUCCESS}]{p}[/]" for p in providers) or "[red]none[/]")
     info.add_row("Tools", f"[bold]{tool_count}[/]")
     info.add_row("Skills", f"[bold]{skill_count}[/]")
     info.add_row(

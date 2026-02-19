@@ -7,7 +7,6 @@ and git-tagged commits for rollback support.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -162,7 +161,7 @@ class SelfModifySourceTool(BaseTool):
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.communicate()
             return {"passed": False, "output": "Test suite timed out"}
