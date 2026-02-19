@@ -23,6 +23,9 @@ from tools.self_dev.tester import SelfRunTestsTool
 from tools.system.filesystem import FileListTool, FileReadTool, FileWriteTool
 from tools.system.shell import ShellExecuteTool
 from tools.system.vault_tool import VaultLookupTool
+from tools.documents.analyze_tool import DocumentAnalyzeTool
+from tools.documents.query_tool import DocumentQueryTool
+from tools.documents.collections_tool import DocumentCollectionsTool
 
 
 def _make_tools(test_config: Config) -> list[BaseTool]:
@@ -48,6 +51,10 @@ def _make_tools(test_config: Config) -> list[BaseTool]:
         # Scheduling tools (2)
         ScheduleTaskTool(),
         ScheduleListTool(),
+        # Document tools (3)
+        DocumentAnalyzeTool(),
+        DocumentQueryTool(),
+        DocumentCollectionsTool(),
     ]
 
 
@@ -90,7 +97,7 @@ class TestToolInterface:
 
     def test_expected_tool_count(self, test_config: Config) -> None:
         tools = _make_tools(test_config)
-        assert len(tools) == 61  # 6 + 3 + 4 + 46 + 2
+        assert len(tools) == 64  # 6 + 3 + 4 + 46 + 2 + 3
 
     def test_expected_permission_levels(self, test_config: Config) -> None:
         tool_map = {t.name: t for t in _make_tools(test_config)}
@@ -134,3 +141,7 @@ class TestToolInterface:
         # Scheduling
         assert tool_map["schedule_task"].permission_level == PermissionLevel.MODERATE
         assert tool_map["schedule_list"].permission_level == PermissionLevel.SAFE
+        # Documents
+        assert tool_map["document_analyze"].permission_level == PermissionLevel.SAFE
+        assert tool_map["document_query"].permission_level == PermissionLevel.SAFE
+        assert tool_map["document_collections"].permission_level == PermissionLevel.SAFE

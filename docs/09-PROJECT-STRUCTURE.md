@@ -68,6 +68,9 @@ elophanto/
 │   ├── node_bridge.py                  # Generic async JSON-RPC client for Node.js subprocesses
 │   ├── browser_manager.py             # Browser bridge client (thin wrapper over Node.js bridge)
 │   ├── vault.py                        # Encrypted credential vault (Fernet + PBKDF2)
+│   ├── storage.py                      # Structured data/ directory management (uploads, downloads, cache)
+│   ├── document_processor.py           # Document extraction pipeline (PDF, DOCX, OCR, chunking)
+│   ├── document_store.py               # Document collection storage (embeddings, RAG retrieval)
 │   │
 │   └── protected/                      # IMMUTABLE — agent cannot modify these
 │       ├── permissions.py              # Permission engine (ask/auto/full-auto logic)
@@ -116,8 +119,21 @@ elophanto/
 │   │   ├── tester.py                   # Run tests
 │   │   └── pipeline.py                 # Orchestrates the full dev pipeline
 │   │
-│   └── scheduling/                     # Task scheduling tools
-│       └── scheduler.py                # Create/list/manage scheduled tasks
+│   ├── scheduling/                     # Task scheduling tools
+│   │   └── scheduler.py               # Create/list/manage scheduled tasks
+│   │
+│   └── documents/                      # Document & media analysis tools
+│       ├── analyze_tool.py             # Document intake + extraction + analysis
+│       ├── query_tool.py               # RAG query over document collections
+│       └── collections_tool.py         # Manage document collections
+│
+├── data/                               # Structured data storage (gitignored)
+│   ├── downloads/                      # Temporary downloads from channels
+│   ├── documents/
+│   │   ├── uploads/                    # Uploaded document files
+│   │   └── collections/               # RAG collection data
+│   ├── cache/                          # Temporary processing cache
+│   └── exports/                        # Generated export files
 │
 ├── setup.sh                            # One-command install script
 ├── start.sh                            # Quick launcher (activates venv + runs elophanto)
@@ -311,6 +327,43 @@ CREATE TABLE sessions (
     metadata_json TEXT DEFAULT '{}',
     UNIQUE(channel, user_id)
 );
+
+-- Document collections (RAG)
+CREATE TABLE document_collections (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TEXT NOT NULL,
+    file_count INTEGER DEFAULT 0,
+    chunk_count INTEGER DEFAULT 0,
+    metadata_json TEXT DEFAULT '{}'
+);
+
+-- Document files
+CREATE TABLE document_files (
+    id TEXT PRIMARY KEY,
+    collection_id TEXT NOT NULL REFERENCES document_collections(id),
+    filename TEXT NOT NULL,
+    mime_type TEXT,
+    file_path TEXT,
+    size_bytes INTEGER,
+    page_count INTEGER,
+    content_hash TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- Document chunks (for RAG retrieval)
+CREATE TABLE document_chunks (
+    id INTEGER PRIMARY KEY,
+    collection_id TEXT NOT NULL REFERENCES document_collections(id),
+    file_id TEXT NOT NULL REFERENCES document_files(id),
+    chunk_index INTEGER,
+    content TEXT NOT NULL,
+    page_number INTEGER,
+    section TEXT,
+    embedding BLOB,
+    created_at TEXT NOT NULL
+);
 ```
 
 ## Python Dependencies (Core)
@@ -326,6 +379,14 @@ cryptography         # Secret vault encryption
 gitpython            # Programmatic git operations
 click                # CLI framework (or typer)
 websockets           # Async WebSocket server/client (gateway)
+
+# Document analysis
+pymupdf              # PDF text extraction
+python-docx          # DOCX text extraction
+openpyxl             # XLSX text extraction
+python-pptx          # PPTX text extraction
+ebooklib             # EPUB text extraction
+rapidocr-onnxruntime # OCR for images and scanned documents
 
 # Development / QA
 pytest               # Testing framework

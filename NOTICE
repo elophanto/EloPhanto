@@ -1,0 +1,24 @@
+EloPhanto
+Copyright 2026 Petr Royce
+
+This product includes software developed by Petr Royce as part of
+research into self-learning agents.
+
+This product includes or is derived from the following third-party works:
+
+- Browser engine built on eko (https://github.com/FellouAI/eko)
+  Copyright FellouAI — MIT License
+
+- UI skills from ui-skills.com (https://www.ui-skills.com/)
+  Copyright Interface Office
+
+- Skills from anthropics/skills (https://github.com/anthropics/skills)
+  Copyright Anthropic
+
+- React/Next.js skills from vercel-labs/agent-skills (https://github.com/vercel-labs/agent-skills)
+  Copyright Vercel
+
+- Supabase skills from supabase/agent-skills (https://github.com/supabase/agent-skills)
+  Copyright Supabase
+
+- Next.js/Prisma/shadcn skills from gocallum/nextjs16-agent-skills (https://github.com/gocallum/nextjs16-agent-skills)
