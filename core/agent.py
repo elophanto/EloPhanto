@@ -106,6 +106,7 @@ class Agent:
         self._document_processor: Any = None  # DocumentProcessor
         self._document_store: Any = None  # DocumentStore
         self._goal_manager: Any = None  # GoalManager, set during initialize
+        self._identity_manager: Any = None  # IdentityManager, set during initialize
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
         self._on_task_complete: Callable[..., Any] | None = None
@@ -327,6 +328,21 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Goal system setup failed: {e}")
 
+        # Initialize identity system
+        if self._config.identity.enabled:
+            _status("Loading identity")
+            try:
+                from core.identity import IdentityManager
+
+                self._identity_manager = IdentityManager(
+                    db=self._db, router=self._router, config=self._config.identity
+                )
+                await self._identity_manager.load_or_create()
+                self._inject_identity_deps()
+                logger.info("Identity system ready")
+            except Exception as e:
+                logger.warning(f"Identity system setup failed: {e}")
+
         # Auto-index knowledge on startup
         if self._config.knowledge.auto_index_on_startup:
             _status("Indexing knowledge")
@@ -447,6 +463,13 @@ class Agent:
             if tool and self._goal_manager:
                 tool._goal_manager = self._goal_manager
 
+    def _inject_identity_deps(self) -> None:
+        """Inject identity manager into identity tools."""
+        for tool_name in ("identity_status", "identity_update", "identity_reflect"):
+            tool = self._registry.get(tool_name)
+            if tool and self._identity_manager:
+                tool._identity_manager = self._identity_manager
+
     def set_approval_callback(self, callback: Callable[[str, str, dict[str, Any]], bool]) -> None:
         """Set the user approval callback (from CLI layer)."""
         self._executor.set_approval_callback(callback)
@@ -557,6 +580,14 @@ class Agent:
             except Exception:
                 pass
 
+        # Build identity context if available
+        identity_context = ""
+        if self._identity_manager:
+            try:
+                identity_context = await self._identity_manager.build_identity_context()
+            except Exception:
+                pass
+
         system_content = build_system_prompt(
             permission_mode=self._config.permission_mode,
             browser_enabled=self._config.browser.enabled,
@@ -565,6 +596,7 @@ class Agent:
             knowledge_context=knowledge_context,
             available_skills=available_skills,
             goal_context=goal_context,
+            identity_context=identity_context,
         )
 
         # Build conversation for LLM: prior turns + current user message
@@ -612,6 +644,17 @@ class Agent:
 
                 # Store task memory
                 await self._store_task_memory(goal, final_content, "completed", tool_calls_made)
+
+                # Identity reflection after task completion
+                if self._identity_manager:
+                    try:
+                        await self._identity_manager.reflect_on_task(
+                            goal=goal,
+                            outcome=final_content[:200],
+                            tools_used=list(set(tool_calls_made)),
+                        )
+                    except Exception:
+                        pass
 
                 # Persist user+assistant to conversation history for next turn
                 append_turn(goal, final_content)

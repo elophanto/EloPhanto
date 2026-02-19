@@ -1,6 +1,6 @@
 # EloPhanto
 
-A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, document & media analysis (PDFs, images, DOCX, XLSX, PPTX, EPUB with OCR and RAG), a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), encrypted credential vault, and the ability to create new capabilities autonomously.
+A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, document & media analysis (PDFs, images, DOCX, XLSX, PPTX, EPUB with OCR and RAG), a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), an evolving identity that develops through experience, encrypted credential vault, and the ability to create new capabilities autonomously.
 
 ## Quick Start
 
@@ -61,6 +61,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **Skills + EloPhantoHub** — best-practice guides loaded before tasks (27 bundled), with a public skill registry for searching, installing, and updating skills
 - **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans
+- **Evolving identity** — discovers its own identity on first run, evolves personality/values/capabilities through task reflection, maintains a living nature document, tracks credential accounts
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 
 ## Architecture
@@ -77,11 +78,11 @@ Give the agent a task in natural language. It plans which tools to use, executes
 ├─────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├─────────────────────────────────────────────────┤
-│   Tool System (75+ built-in + plugins)           │  Capabilities
+│   Tool System (78+ built-in + plugins)           │  Capabilities
 ├─────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├─────────────────────────────────────────────────┤
-│ Memory │ Knowledge │ Skills │ LLM Router │ Vault │  Foundation
+│ Memory │ Knowledge │ Skills │ Identity │ Vault  │  Foundation
 ├─────────────────────────────────────────────────┤
 │              EloPhantoHub Registry               │  Skill Marketplace
 └─────────────────────────────────────────────────┘
@@ -116,6 +117,7 @@ Slack Adapter ─────┘                   ▼
 | Data | llm_call, vault_lookup, vault_set | 3 |
 | Documents | document_analyze, document_query, document_collections | 3 |
 | Goals | goal_create, goal_status, goal_manage | 3 |
+| Identity | identity_status, identity_update, identity_reflect | 3 |
 | Scheduling | schedule_task, schedule_list | 2 |
 
 ## Skills System
@@ -233,6 +235,11 @@ hub:
   enabled: true
   auto_suggest: true
 
+identity:
+  enabled: true
+  auto_evolve: true
+  reflection_frequency: 10
+
 documents:
   enabled: true
   ocr_enabled: true
@@ -303,6 +310,8 @@ elophanto/
 │   ├── telegram.py      # Telegram bot adapter (legacy direct mode)
 │   ├── browser_manager.py # Chrome control via Node.js bridge
 │   ├── vault.py         # Encrypted credential vault
+│   ├── identity.py      # Evolving agent identity manager
+│   ├── goal_manager.py  # Autonomous goal loop
 │   ├── protected.py     # Protected files system
 │   ├── approval_queue.py # Persistent approval tracking
 │   └── ...
@@ -312,11 +321,13 @@ elophanto/
 │   ├── telegram_adapter.py # Telegram adapter (aiogram)
 │   ├── discord_adapter.py  # Discord adapter (discord.py)
 │   └── slack_adapter.py    # Slack adapter (slack-bolt)
-├── tools/               # 75+ built-in tools
+├── tools/               # 78+ built-in tools
 │   ├── system/          # Shell, filesystem
 │   ├── browser/         # 47 browser tools
 │   ├── knowledge/       # Search, write, index, skills, hub
 │   ├── documents/       # Document analysis, query, collections
+│   ├── goals/           # Goal loop tools
+│   ├── identity/        # Identity status, update, reflection
 │   ├── self_dev/        # Plugin creation, modification, rollback
 │   ├── scheduling/      # Cron-based task scheduling
 │   └── data/            # LLM calls
@@ -330,7 +341,7 @@ elophanto/
 ├── start.sh             # Quick launcher (activates venv)
 ├── config.yaml          # Configuration
 ├── permissions.yaml     # Per-tool permission overrides
-└── docs/                # Full specification (16 docs)
+└── docs/                # Full specification (17 docs)
 ```
 
 ## Implementation Status
@@ -357,6 +368,7 @@ elophanto/
 | 11 | Agent Payments (fiat + crypto, spending limits, audit) | Idea Phase |
 | 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
 | 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval) | Done |
+| 14 | Evolving Identity (first awakening, reflection, nature document, credential tracking) | Done |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -375,6 +387,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-19 | **Evolving identity** — IdentityManager discovers identity on first run via LLM, evolves personality/values/capabilities through task reflection, maintains a living `knowledge/self/nature.md` document, tracks credential accounts in beliefs. 3 new tools (identity_status, identity_update, identity_reflect), 45 new tests. Per-session timestamped log files |
 | 2026-02-19 | **Autonomous goal loop** — GoalManager decomposes complex goals into ordered checkpoints, persists progress across sessions, summarizes context to stay within token limits, self-evaluates and revises plans. 3 new tools (goal_create, goal_status, goal_manage), goals skill, 61 new tests |
 | 2026-02-19 | **Document & media analysis** — PDF, DOCX, XLSX, PPTX, EPUB, image extraction with OCR (rapidocr), RAG collections for large documents, 3 new tools (document_analyze, document_query, document_collections), Telegram file/photo intake, structured `data/` storage manager |
 | 2026-02-19 | Fix `/stats`, `/clear`, `/help` commands in gateway CLI mode |

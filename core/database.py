@@ -194,6 +194,37 @@ _SCHEMA = [
         UNIQUE(goal_id, checkpoint_order)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS identity (
+        id TEXT PRIMARY KEY DEFAULT 'self',
+        creator TEXT NOT NULL DEFAULT 'EloPhanto',
+        display_name TEXT NOT NULL DEFAULT 'EloPhanto',
+        purpose TEXT,
+        values_json TEXT NOT NULL DEFAULT '[]',
+        beliefs_json TEXT NOT NULL DEFAULT '{}',
+        curiosities_json TEXT NOT NULL DEFAULT '[]',
+        boundaries_json TEXT NOT NULL DEFAULT '[]',
+        capabilities_json TEXT NOT NULL DEFAULT '[]',
+        personality_json TEXT NOT NULL DEFAULT '{}',
+        communication_style TEXT NOT NULL DEFAULT '',
+        initial_thoughts TEXT,
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS identity_evolution (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trigger TEXT NOT NULL,
+        field_changed TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        reason TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        created_at TEXT NOT NULL
+    )
+    """,
 ]
 
 
