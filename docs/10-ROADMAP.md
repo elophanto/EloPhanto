@@ -433,6 +433,7 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 8: Web UI | Planned |
 | Phase 9: Polish & Release | Planned |
 | Phase 10: Self-Learning Model | Idea Phase |
+| Phase 11: Agent Payments | Idea Phase |
 
 ## Phase 10: Self-Learning Model (Idea Phase)
 
@@ -454,6 +455,29 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 The fine-tuned EloPhanto model outperforms the base model on agent-specific benchmarks (tool selection, multi-step planning) and runs locally via Ollama as the default model for routine tasks.
 
 See [14-SELF-LEARNING.md](14-SELF-LEARNING.md) for the full specification.
+
+---
+
+## Phase 11: Agent Payments (Idea Phase)
+
+**Goal**: Enable EloPhanto to spend money autonomously — order products, buy hosting, pay invoices, purchase crypto, and more.
+
+### Deliverables
+
+- Payment tool suite: `payment_balance`, `payment_validate`, `payment_preview`, `payment_process`, `crypto_transfer`, `crypto_swap`, `invoice_parse`, `invoice_pay`, `payment_history`
+- Traditional payments via Stripe (card payments, virtual cards, bank transfers)
+- Crypto payments via signing providers (on-chain transfers, DEX swaps, multi-chain)
+- Spending limits (per-transaction, daily, monthly, per-merchant) enforced at tool level
+- Threshold-based approval tiers integrated with existing permission system
+- Vault integration for all payment credentials (API keys, card tokens, wallet addresses)
+- `payment_audit` table for full transaction logging and reporting
+- Configuration in `config.yaml` and `permissions.yaml`
+
+### Exit Criteria
+
+The agent can receive a task like "Buy the cheapest VPS on Hetzner", browse pricing, select a plan, request payment approval via Telegram, process the payment via Stripe, and log the transaction — all with full audit trail.
+
+See [15-PAYMENTS.md](15-PAYMENTS.md) for the full specification.
 
 ---
 
