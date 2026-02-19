@@ -366,10 +366,10 @@ class PaymentsManager:
                 chain=self._chain,
                 rpc_url=rpc_url,
             )
-        except ImportError:
+        except ImportError as err:
             raise PaymentsError(
                 "eth-account not installed. Run ./setup.sh to reinstall dependencies."
-            )
+            ) from err
 
     def _init_cdp_provider(self) -> Any:
         """Initialize Coinbase AgentKit wallet provider."""
@@ -397,10 +397,10 @@ class PaymentsManager:
             )
             return CdpWalletProvider(wallet_config)
 
-        except ImportError:
+        except ImportError as err:
             raise PaymentsError(
                 "coinbase-agentkit not installed. Run: uv pip install coinbase-agentkit"
-            )
+            ) from err
 
     def _get_agent_kit(self, provider: Any) -> Any:
         """Get or create AgentKit instance from wallet provider."""
@@ -412,5 +412,5 @@ class PaymentsManager:
 
             self._agent_kit_instance = AgentKit(AgentKitConfig(wallet_provider=provider))
             return self._agent_kit_instance
-        except ImportError:
-            raise PaymentsError("coinbase-agentkit not installed")
+        except ImportError as err:
+            raise PaymentsError("coinbase-agentkit not installed") from err
