@@ -15,11 +15,9 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import httpx
 
@@ -74,7 +72,7 @@ class HubClient:
         # Check cache freshness
         if cache_path.exists():
             age_hours = (
-                datetime.now(timezone.utc).timestamp() - cache_path.stat().st_mtime
+                datetime.now(UTC).timestamp() - cache_path.stat().st_mtime
             ) / 3600
             if age_hours < self._cache_ttl_hours:
                 self._load_cached_index(cache_path)

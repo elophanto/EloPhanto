@@ -11,7 +11,6 @@ import hashlib
 from collections import deque
 from typing import Any
 
-
 # Tools that change page state — require observation afterward
 STATE_CHANGING_TOOLS = frozenset(
     {

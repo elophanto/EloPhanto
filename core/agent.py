@@ -17,9 +17,13 @@ import asyncio
 import inspect
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from core.session import Session
 
 
 class StatusCallback(Protocol):
@@ -36,10 +40,10 @@ from core.indexer import KnowledgeIndexer
 from core.memory import MemoryManager, WorkingMemory
 from core.planner import build_system_prompt
 from core.plugin_loader import PluginLoader
-from core.skills import SkillManager
 from core.reflector import Reflector
 from core.registry import ToolRegistry
 from core.router import LLMRouter
+from core.skills import SkillManager
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +126,6 @@ class Agent:
         Args:
             on_status: Optional callback invoked with progress messages.
         """
-        import asyncio
 
         def _status(msg: str) -> None:
             if on_status:
@@ -211,9 +214,7 @@ class Agent:
                     self._registry.register(result.tool)
                     logger.info(f"Loaded plugin: {result.name}")
                 elif not result.success:
-                    logger.warning(
-                        f"Failed to load plugin {result.name}: {result.error}"
-                    )
+                    logger.warning(f"Failed to load plugin {result.name}: {result.error}")
 
         # Inject self-dev tool dependencies
         self._inject_self_dev_deps()
@@ -281,11 +282,13 @@ class Agent:
         if self._config.documents.enabled:
             _status("Preparing document analysis")
             try:
-                from core.storage import StorageManager
                 from core.document_processor import DocumentProcessor
                 from core.document_store import DocumentStore
+                from core.storage import StorageManager
 
-                self._storage_manager = StorageManager(self._config.storage, self._config.project_root)
+                self._storage_manager = StorageManager(
+                    self._config.storage, self._config.project_root
+                )
                 await self._storage_manager.initialize()
 
                 self._document_processor = DocumentProcessor(self._config.documents)
@@ -422,9 +425,7 @@ class Agent:
         if collections_tool:
             collections_tool._store = self._document_store
 
-    def set_approval_callback(
-        self, callback: Callable[[str, str, dict[str, Any]], bool]
-    ) -> None:
+    def set_approval_callback(self, callback: Callable[[str, str, dict[str, Any]], bool]) -> None:
         """Set the user approval callback (from CLI layer)."""
         self._executor.set_approval_callback(callback)
 
@@ -435,7 +436,7 @@ class Agent:
     async def run_session(
         self,
         goal: str,
-        session: "Session",
+        session: Session,
         approval_callback: Callable[..., Any] | None = None,
         on_step: Callable[..., Any] | None = None,
     ) -> AgentResponse:
@@ -452,7 +453,6 @@ class Agent:
                 to the correct channel via gateway).
             on_step: Async callback for step progress reporting.
         """
-        from core.session import Session
 
         # Temporarily override callbacks for this session
         prev_approval = self._executor._approval_callback
@@ -536,9 +536,7 @@ class Agent:
         stagnation_reason = ""
         while step < hard_limit:
             if max_time and (_time.monotonic() - start_time) > max_time:
-                stagnation_reason = (
-                    f"time limit reached ({int(_time.monotonic() - start_time)}s)"
-                )
+                stagnation_reason = f"time limit reached ({int(_time.monotonic() - start_time)}s)"
                 logger.info("Time limit reached")
                 break
             if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
@@ -548,9 +546,7 @@ class Agent:
             if len(recent_calls) >= _STAGNATION_WINDOW:
                 unique = set(recent_calls[-_STAGNATION_WINDOW:])
                 if len(unique) == 1:
-                    stagnation_reason = (
-                        f"repeating {next(iter(unique))} {_STAGNATION_WINDOW} times"
-                    )
+                    stagnation_reason = f"repeating {next(iter(unique))} {_STAGNATION_WINDOW} times"
                     logger.info("Stagnation: %s", stagnation_reason)
                     break
             step += 1
@@ -559,8 +555,7 @@ class Agent:
             # === PLAN ===
             try:
                 response = await self._router.complete(
-                    messages=[{"role": "system", "content": system_content}]
-                    + messages,
+                    messages=[{"role": "system", "content": system_content}] + messages,
                     task_type="planning",
                     tools=self._registry.list_tools(),
                     temperature=0.2,
@@ -578,9 +573,7 @@ class Agent:
                 final_content = response.content or "Task complete."
 
                 # Store task memory
-                await self._store_task_memory(
-                    goal, final_content, "completed", tool_calls_made
-                )
+                await self._store_task_memory(goal, final_content, "completed", tool_calls_made)
 
                 # Persist user+assistant to conversation history for next turn
                 append_turn(goal, final_content)
@@ -647,8 +640,7 @@ class Agent:
                         {
                             "error": "User denied this tool execution.",
                             "suggestion": (
-                                "Try a different approach or ask the user "
-                                "for guidance."
+                                "Try a different approach or ask the user for guidance."
                             ),
                         }
                     )
@@ -675,9 +667,7 @@ class Agent:
             f"Task stopped: {reason} after {step} steps. "
             f"You can continue by sending a follow-up message."
         )
-        await self._store_task_memory(
-            goal, "Max steps reached", "incomplete", tool_calls_made
-        )
+        await self._store_task_memory(goal, "Max steps reached", "incomplete", tool_calls_made)
 
         # Persist to conversation history even on max steps
         append_turn(goal, max_steps_msg)
@@ -691,14 +681,10 @@ class Agent:
     def _append_conversation_turn(self, user_msg: str, assistant_msg: str) -> None:
         """Store a user/assistant pair in conversation history for context continuity."""
         self._conversation_history.append({"role": "user", "content": user_msg})
-        self._conversation_history.append(
-            {"role": "assistant", "content": assistant_msg}
-        )
+        self._conversation_history.append({"role": "assistant", "content": assistant_msg})
         # Trim to keep only the last N messages (user+assistant pairs)
         if len(self._conversation_history) > _MAX_CONVERSATION_HISTORY:
-            self._conversation_history = self._conversation_history[
-                -_MAX_CONVERSATION_HISTORY:
-            ]
+            self._conversation_history = self._conversation_history[-_MAX_CONVERSATION_HISTORY:]
 
     async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
         """Execute a task goal for a scheduled task."""

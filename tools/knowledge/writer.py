@@ -6,7 +6,7 @@ automatically handling frontmatter generation and triggering re-indexing.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -85,7 +85,7 @@ class KnowledgeWriteTool(BaseTool):
 
         try:
             # Build frontmatter
-            now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            now = datetime.now(UTC).strftime("%Y-%m-%d")
             frontmatter: dict[str, Any] = {}
 
             # Preserve existing created date if updating

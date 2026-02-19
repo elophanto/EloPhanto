@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from core.protocol import (
@@ -337,7 +337,7 @@ class Gateway:
                 self._pending_approvals[req.id], timeout=300
             )
             return approved
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Approval timed out for %s", tool_name)
             return False
         finally:
@@ -389,7 +389,7 @@ class Gateway:
             await client.websocket.send(
                 response_message(
                     session_id,
-                    f"Active sessions:\n" + "\n".join(lines) if lines else "No active sessions",
+                    "Active sessions:\n" + "\n".join(lines) if lines else "No active sessions",
                     done=True,
                 ).to_json()
             )

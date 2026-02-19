@@ -52,11 +52,7 @@ class NodeBridge:
 
     @property
     def is_alive(self) -> bool:
-        return (
-            self._process is not None
-            and self._process.returncode is None
-            and self._ready
-        )
+        return self._process is not None and self._process.returncode is None and self._ready
 
     async def start(self) -> None:
         """Spawn the Node.js subprocess and wait for the ready signal."""
@@ -72,9 +68,7 @@ class NodeBridge:
             cwd=self._cwd,
             limit=50 * 1024 * 1024,  # 50 MB — screenshots can be large
         )
-        logger.info(
-            "Bridge started (pid=%d, script=%s)", self._process.pid, self._script
-        )
+        logger.info("Bridge started (pid=%d, script=%s)", self._process.pid, self._script)
 
         # Start background reader for stdout
         self._reader_task = asyncio.create_task(self._read_loop())
@@ -85,9 +79,9 @@ class NodeBridge:
         # Wait for the ready signal (id=null, result.ready=true)
         try:
             await asyncio.wait_for(self._wait_ready(), timeout=30)
-        except asyncio.TimeoutError:
+        except TimeoutError as err:
             await self.stop()
-            raise BridgeError("Bridge failed to start within 30 seconds")
+            raise BridgeError("Bridge failed to start within 30 seconds") from err
 
     async def stop(self) -> None:
         """Terminate the Node.js subprocess."""
@@ -99,7 +93,7 @@ class NodeBridge:
             try:
                 self._process.stdin.close()  # type: ignore[union-attr]
                 await asyncio.wait_for(self._process.wait(), timeout=5)
-            except (asyncio.TimeoutError, OSError):
+            except (TimeoutError, OSError):
                 self._process.kill()
                 await self._process.wait()
 
@@ -136,9 +130,9 @@ class NodeBridge:
 
         try:
             return await asyncio.wait_for(future, timeout=self._timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError as err:
             self._pending.pop(msg_id, None)
-            raise BridgeError(f"RPC call '{method}' timed out after {self._timeout}s")
+            raise BridgeError(f"RPC call '{method}' timed out after {self._timeout}s") from err
 
     # ------------------------------------------------------------------
     # Internal

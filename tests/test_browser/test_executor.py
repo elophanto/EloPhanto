@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from core.browser_executor import (
     OBSERVATION_TOOLS,
     STATE_CHANGING_TOOLS,

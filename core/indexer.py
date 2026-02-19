@@ -14,7 +14,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -121,7 +121,7 @@ class KnowledgeIndexer:
 
         scope = frontmatter.get("scope", "system")
         file_mtime = datetime.fromtimestamp(
-            file_path.stat().st_mtime, tz=timezone.utc
+            file_path.stat().st_mtime, tz=UTC
         ).isoformat()
 
         chunks = self._chunk_markdown(body, frontmatter, rel_path, tag_list, scope)
@@ -156,7 +156,7 @@ class KnowledgeIndexer:
                 pass
 
             file_mtime = datetime.fromtimestamp(
-                file_path.stat().st_mtime, tz=timezone.utc
+                file_path.stat().st_mtime, tz=UTC
             ).isoformat()
 
             if rel_path in indexed_times and indexed_times[rel_path] >= file_mtime:
@@ -407,7 +407,7 @@ class KnowledgeIndexer:
         self, chunks: list[Chunk], file_path: str, file_mtime: str
     ) -> None:
         """Delete old chunks for this file, insert new ones with embeddings."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         # Delete existing chunks for this file
         await self._db.execute(

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from core.agent import Agent, _MAX_CONVERSATION_HISTORY
+from core.agent import _MAX_CONVERSATION_HISTORY, Agent
 from core.config import Config
 from core.router import LLMResponse
 

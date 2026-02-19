@@ -9,7 +9,7 @@ by build_system_prompt() based on runtime configuration.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # ---------------------------------------------------------------------------
 # Section: Agent Identity
@@ -463,7 +463,7 @@ def build_system_prompt(
     Returns:
         Complete system prompt string with XML structure.
     """
-    now = datetime.now(timezone.utc).strftime("%A, %B %d, %Y %H:%M UTC")
+    now = datetime.now(UTC).strftime("%A, %B %d, %Y %H:%M UTC")
 
     runtime = (
         f"<runtime_context>\n"

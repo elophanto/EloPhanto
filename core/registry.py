@@ -111,8 +111,8 @@ class ToolRegistry:
 
         # Document analysis tools
         from tools.documents.analyze_tool import DocumentAnalyzeTool
-        from tools.documents.query_tool import DocumentQueryTool
         from tools.documents.collections_tool import DocumentCollectionsTool
+        from tools.documents.query_tool import DocumentQueryTool
 
         self.register(DocumentAnalyzeTool())
         self.register(DocumentQueryTool())

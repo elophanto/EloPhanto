@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import UTC
 from typing import Any
 
 import litellm
@@ -76,7 +77,7 @@ class CostTracker:
         """Persist pending records to the llm_usage table."""
         if not db or not self._pending_records:
             return
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         for record in self._pending_records:
             try:
@@ -92,7 +93,7 @@ class CostTracker:
                         record["output_tokens"],
                         record["cost"],
                         record["task_type"],
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                     ),
                 )
             except Exception:
@@ -345,7 +346,6 @@ class LLMRouter:
         import httpx
 
         results: dict[str, bool] = {}
-        checks: list[tuple[str, Any]] = []
 
         async def _check_ollama() -> tuple[str, bool]:
             ollama_cfg = self._config.llm.providers.get("ollama")

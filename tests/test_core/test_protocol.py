@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from core.protocol import (
     EventType,
     GatewayMessage,
@@ -19,7 +17,6 @@ from core.protocol import (
     response_message,
     status_message,
 )
-
 
 # ─── Enums ───
 

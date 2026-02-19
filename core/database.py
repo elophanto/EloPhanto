@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
-
-import sqlite3
 
 logger = logging.getLogger(__name__)
 

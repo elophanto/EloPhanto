@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from tools.browser.utils import sanitize_content
 
 

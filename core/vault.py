@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +60,7 @@ class Vault:
         creds = vault.get("google.com")
     """
 
-    def __init__(
-        self, base_dir: str | Path, fernet: Fernet, data: dict[str, Any]
-    ) -> None:
+    def __init__(self, base_dir: str | Path, fernet: Fernet, data: dict[str, Any]) -> None:
         self._base = Path(base_dir)
         self._fernet = fernet
         self._data: dict[str, Any] = data
@@ -97,9 +95,7 @@ class Vault:
         enc_path = base / _ENC_FILE
 
         if not salt_path.exists() or not enc_path.exists():
-            raise VaultError(
-                "No vault found. Run `elophanto vault init` to create one."
-            )
+            raise VaultError("No vault found. Run `elophanto vault init` to create one.")
 
         salt = salt_path.read_bytes()
         key = _derive_key(password, salt)
@@ -108,10 +104,10 @@ class Vault:
         try:
             plaintext = fernet.decrypt(enc_path.read_bytes())
             data = json.loads(plaintext.decode("utf-8"))
-        except InvalidToken:
-            raise VaultError("Wrong password.")
+        except InvalidToken as err:
+            raise VaultError("Wrong password.") from err
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise VaultError(f"Vault data is corrupted: {exc}")
+            raise VaultError(f"Vault data is corrupted: {exc}") from exc
 
         return cls(base, fernet, data)
 

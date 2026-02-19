@@ -119,7 +119,7 @@ def _clean_old_files(directory: Path, now: float, max_age_seconds: float) -> int
     if not directory.exists():
         return 0
     count = 0
-    for root, dirs, files in os.walk(directory, topdown=False):
+    for root, _dirs, files in os.walk(directory, topdown=False):
         root_path = Path(root)
         for f in files:
             fp = root_path / f

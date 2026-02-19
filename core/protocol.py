@@ -6,15 +6,14 @@ and channel adapters. Inspired by the JSON-RPC pattern in node_bridge.py.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import asdict, dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
-import json
 
-
-class MessageType(str, Enum):
+class MessageType(StrEnum):
     """All gateway protocol message types."""
 
     # Client → Gateway
@@ -32,7 +31,7 @@ class MessageType(str, Enum):
     ERROR = "error"
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Event subtypes for EVENT messages."""
 
     TASK_COMPLETE = "task_complete"

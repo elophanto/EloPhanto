@@ -3,22 +3,18 @@
 from __future__ import annotations
 
 import json
-import platform
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from core.browser_manager import (
-    BrowserManager,
     _PROFILE_COPY_META,
-    _PROFILE_COPY_DIR,
     _SESSION_FILES,
-    _SKIP_PROFILE_DIRS,
+    BrowserManager,
     _clean_crash_state,
     _prepare_profile_copy,
     _remove_lock_files,
-    _remove_session_files,
     get_chrome_profiles,
     get_default_chrome_user_data_dir,
 )
