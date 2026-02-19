@@ -456,6 +456,33 @@ If the plan needs revision, use goal_manage with action="revise".
 </self_evaluation>
 </goals>"""
 
+_TOOL_IDENTITY = """\
+<identity>
+You have an evolving identity that develops through experience. Your creator is
+always EloPhanto (immutable), but you can evolve your display name, purpose,
+values, personality, communication style, capabilities, and beliefs over time.
+
+<available_tools>
+- identity_status: View your current identity profile — name, purpose, values,
+  capabilities, personality, communication style, version, and evolution history.
+- identity_update: Update a specific identity field (e.g. add a capability,
+  change communication style, store account info in beliefs). Requires a reason.
+- identity_reflect: Trigger self-reflection. Light reflection reviews the last
+  task; deep reflection analyzes recent patterns and updates your nature document.
+</available_tools>
+
+<when_to_use_identity>
+- When you create an account, email, or receive credentials — store them in
+  beliefs via identity_update so you remember your own accounts.
+- When the user tells you something about yourself ("your name is X",
+  "remember that you're good at Y") — update the relevant field.
+- When you discover a new capability through tool use — add it to capabilities.
+- You do NOT need to manually reflect after every task — this happens
+  automatically. Use identity_reflect only when explicitly asked or after
+  significant experiences.
+</when_to_use_identity>
+</identity>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -495,6 +522,7 @@ def build_system_prompt(
     browser_enabled: bool = False,
     scheduler_enabled: bool = False,
     goals_enabled: bool = False,
+    identity_enabled: bool = False,
     knowledge_context: str = "",
     available_skills: str = "",
     goal_context: str = "",
@@ -556,6 +584,9 @@ def build_system_prompt(
 
     if goals_enabled:
         sections.append(_TOOL_GOALS)
+
+    if identity_enabled:
+        sections.append(_TOOL_IDENTITY)
 
     sections.append(_TOOL_CLOSE)
 
