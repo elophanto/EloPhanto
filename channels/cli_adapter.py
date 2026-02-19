@@ -141,6 +141,27 @@ class CLIAdapter(ChannelAdapter):
 
             if stripped.startswith("/"):
                 cmd = stripped.lstrip("/")
+
+                # Handle local-only commands
+                if cmd == "clear":
+                    self._session_id = ""
+                    console.print(f"  [{_C_SUCCESS}]Session cleared.[/]\n")
+                    continue
+
+                if cmd == "stats":
+                    cmd = "status"  # alias to gateway's status command
+
+                if cmd == "help":
+                    console.print(
+                        f"\n  [{_C_ACCENT}]Commands[/]\n"
+                        f"  /clear   — Reset conversation session\n"
+                        f"  /stats   — Show gateway status\n"
+                        f"  /status  — Show gateway status\n"
+                        f"  /help    — This message\n"
+                        f"  exit     — Quit\n"
+                    )
+                    continue
+
                 await self.send_command(
                     cmd, user_id=self._user_id, session_id=self._session_id
                 )
