@@ -120,7 +120,9 @@ class BrowserConfig:
     cdp_port: int = 9222
     cdp_ws_endpoint: str = ""
     user_data_dir: str = ""
-    profile_directory: str = "Default"  # Chrome profile subdir (Default, Profile 1, etc.)
+    profile_directory: str = (
+        "Default"  # Chrome profile subdir (Default, Profile 1, etc.)
+    )
     use_system_chrome: bool = True
     viewport_width: int = 1280
     viewport_height: int = 720
@@ -153,7 +155,9 @@ class HubConfig:
     """EloPhantoHub skill registry configuration."""
 
     enabled: bool = True
-    index_url: str = "https://raw.githubusercontent.com/elophanto/elophantohub/main/index.json"
+    index_url: str = (
+        "https://raw.githubusercontent.com/elophanto/elophantohub/main/index.json"
+    )
     auto_suggest: bool = True
     cache_ttl_hours: int = 6
 
@@ -200,7 +204,9 @@ class TelegramConfig:
     max_message_length: int = 4000
     send_files: bool = True
     send_screenshots: bool = True
-    notifications: TelegramNotificationConfig = field(default_factory=TelegramNotificationConfig)
+    notifications: TelegramNotificationConfig = field(
+        default_factory=TelegramNotificationConfig
+    )
 
 
 @dataclass
@@ -253,6 +259,47 @@ class IdentityConfig:
     reflection_frequency: int = 10
     first_awakening: bool = True
     nature_file: str = "knowledge/self/nature.md"
+
+
+@dataclass
+class SmtpServerConfig:
+    """SMTP outgoing mail server configuration."""
+
+    host: str = ""
+    port: int = 587
+    use_tls: bool = True
+    username_ref: str = "smtp_username"
+    password_ref: str = "smtp_password"
+    from_address: str = ""
+    from_name: str = "EloPhanto Agent"
+
+
+@dataclass
+class ImapServerConfig:
+    """IMAP incoming mail server configuration."""
+
+    host: str = ""
+    port: int = 993
+    use_tls: bool = True
+    username_ref: str = "imap_username"
+    password_ref: str = "imap_password"
+    mailbox: str = "INBOX"
+
+
+@dataclass
+class EmailConfig:
+    """Agent email configuration — AgentMail or SMTP/IMAP."""
+
+    enabled: bool = False
+    provider: str = "agentmail"  # "agentmail" or "smtp"
+    # AgentMail settings
+    api_key_ref: str = "agentmail_api_key"
+    domain: str = "agentmail.to"
+    auto_create_inbox: bool = False
+    inbox_display_name: str = "EloPhanto Agent"
+    # SMTP/IMAP settings (used when provider: smtp)
+    smtp: SmtpServerConfig = field(default_factory=SmtpServerConfig)
+    imap: ImapServerConfig = field(default_factory=ImapServerConfig)
 
 
 @dataclass
@@ -337,6 +384,7 @@ class Config:
     goals: GoalsConfig = field(default_factory=GoalsConfig)
     identity: IdentityConfig = field(default_factory=IdentityConfig)
     payments: PaymentsConfig = field(default_factory=PaymentsConfig)
+    email: EmailConfig = field(default_factory=EmailConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -603,7 +651,9 @@ def load_config(config_path: Path | str | None = None) -> Config:
         max_checkpoint_attempts=goals_raw.get("max_checkpoint_attempts", 3),
         max_goal_attempts=goals_raw.get("max_goal_attempts", 3),
         max_llm_calls_per_goal=goals_raw.get("max_llm_calls_per_goal", 200),
-        max_time_per_checkpoint_seconds=goals_raw.get("max_time_per_checkpoint_seconds", 600),
+        max_time_per_checkpoint_seconds=goals_raw.get(
+            "max_time_per_checkpoint_seconds", 600
+        ),
         context_summary_max_tokens=goals_raw.get("context_summary_max_tokens", 1500),
         auto_continue=goals_raw.get("auto_continue", True),
     )
@@ -649,13 +699,45 @@ def load_config(config_path: Path | str | None = None) -> Config:
             default_chain=pay_crypto_raw.get("default_chain", "base"),
             provider=pay_crypto_raw.get("provider", "local"),
             rpc_url=pay_crypto_raw.get("rpc_url", ""),
-            cdp_api_key_name_ref=pay_crypto_raw.get("cdp_api_key_name_ref", "cdp_api_key_name"),
+            cdp_api_key_name_ref=pay_crypto_raw.get(
+                "cdp_api_key_name_ref", "cdp_api_key_name"
+            ),
             cdp_api_key_private_ref=pay_crypto_raw.get(
                 "cdp_api_key_private_ref", "cdp_api_key_private"
             ),
             gas_priority=pay_crypto_raw.get("gas_priority", "normal"),
             max_gas_percentage=pay_crypto_raw.get("max_gas_percentage", 10),
             chains=pay_crypto_raw.get("chains", ["base"]),
+        ),
+    )
+
+    # Parse email section
+    email_raw = raw.get("email", {})
+    smtp_raw = email_raw.get("smtp", {})
+    imap_raw = email_raw.get("imap", {})
+    email_config = EmailConfig(
+        enabled=email_raw.get("enabled", False),
+        provider=email_raw.get("provider", "agentmail"),
+        api_key_ref=email_raw.get("api_key_ref", "agentmail_api_key"),
+        domain=email_raw.get("domain", "agentmail.to"),
+        auto_create_inbox=email_raw.get("auto_create_inbox", False),
+        inbox_display_name=email_raw.get("inbox_display_name", "EloPhanto Agent"),
+        smtp=SmtpServerConfig(
+            host=smtp_raw.get("host", ""),
+            port=smtp_raw.get("port", 587),
+            use_tls=smtp_raw.get("use_tls", True),
+            username_ref=smtp_raw.get("username_ref", "smtp_username"),
+            password_ref=smtp_raw.get("password_ref", "smtp_password"),
+            from_address=smtp_raw.get("from_address", ""),
+            from_name=smtp_raw.get("from_name", "EloPhanto Agent"),
+        ),
+        imap=ImapServerConfig(
+            host=imap_raw.get("host", ""),
+            port=imap_raw.get("port", 993),
+            use_tls=imap_raw.get("use_tls", True),
+            username_ref=imap_raw.get("username_ref", "imap_username"),
+            password_ref=imap_raw.get("password_ref", "imap_password"),
+            mailbox=imap_raw.get("mailbox", "INBOX"),
         ),
     )
 
@@ -682,6 +764,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         goals=goals_config,
         identity=identity_config,
         payments=payments_config,
+        email=email_config,
         project_root=config_path.parent,
     )
 

@@ -136,6 +136,21 @@ class ToolRegistry:
         self.register(IdentityUpdateTool())
         self.register(IdentityReflectTool())
 
+        # Email tools
+        from tools.email.create_inbox_tool import EmailCreateInboxTool
+        from tools.email.list_tool import EmailListTool
+        from tools.email.read_tool import EmailReadTool
+        from tools.email.reply_tool import EmailReplyTool
+        from tools.email.search_tool import EmailSearchTool
+        from tools.email.send_tool import EmailSendTool
+
+        self.register(EmailCreateInboxTool())
+        self.register(EmailSendTool())
+        self.register(EmailListTool())
+        self.register(EmailReadTool())
+        self.register(EmailReplyTool())
+        self.register(EmailSearchTool())
+
         # Payment tools
         from tools.payments.balance_tool import PaymentBalanceTool
         from tools.payments.history_tool import PaymentHistoryTool
