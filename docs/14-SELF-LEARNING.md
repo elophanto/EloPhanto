@@ -19,48 +19,61 @@ The model is trained on EloPhanto's own interaction data, published to HuggingFa
 ## Pipeline Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                    EloPhanto Self-Learning Loop                   │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐     │
-│   │ Collect  │───►│  Store  │───►│  Train  │───►│ Publish │     │
-│   │  Data    │    │ Dataset │    │ Unsloth │    │   HF    │     │
-│   └────▲─────┘    └─────────┘    └─────────┘    └────┬────┘     │
-│        │                                              │          │
-│        │          ┌─────────┐    ┌─────────┐         │          │
-│        └──────────│  Deploy │◄───│  Pull   │◄────────┘          │
-│                   │  Ollama │    │  Model  │                    │
-│                   └─────────┘    └─────────┘                    │
-│                                                                  │
-└──────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      EloPhanto Self-Learning Loop                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌─────────┐   ┌──────────┐   ┌─────────┐   ┌─────────┐  ┌───────┐  │
+│   │ Collect  │──►│ Collect  │──►│  Store   │──►│  Train  │─►│Publish│  │
+│   │  Data    │   │   API    │   │ Dataset  │   │ HF Jobs │  │  HF   │  │
+│   └────▲─────┘   └──────────┘   └─────────┘   └─────────┘  └───┬───┘  │
+│        │         elophanto.com   HF Datasets                    │      │
+│        │                                                        │      │
+│        │          ┌─────────┐    ┌─────────┐                    │      │
+│        └──────────│  Deploy │◄───│  Pull   │◄───────────────────┘      │
+│                   │  Ollama │    │  Model  │                           │
+│                   └─────────┘    └─────────┘                           │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ```
 Detailed Flow:
 
-Agent Interactions ──► Dataset Collector ──► Central Dataset Repo
+Agent Interactions ──► Local Sanitizer ──► elophanto.com/api/collect
+                                           (validate, dedup, batch)
+                                                     │
+                                            (periodic push)
+                                                     │
+                                                     ▼
+                                            HuggingFace Dataset Repo
+                                            (EloPhanto/dataset)
                                                      │
                                             (size threshold met)
                                                      │
                                                      ▼
-                                            Unsloth Fine-Tuning
-                                            (QLoRA on base model)
+                                            HF Jobs + Unsloth
+                                            (QLoRA on managed GPU)
                                                      │
                                                      ▼
-                                            HuggingFace Upload
-                                            (0xroyce/EloPhanto-Base-Model)
+                                            HuggingFace Model Repo
+                                            (EloPhanto/base-model)
                                                      │
-                                                     ▼
-                                            Ollama Model Pull
-                                            (elophanto:latest)
-                                                     │
-                                                     ▼
-                                            Agent uses new model
-                                            (better performance)
-                                                     │
-                                                     ▼
-                                            More interactions ──► Loop
+                                           ┌─────────┴──────────┐
+                                           ▼                    ▼
+                                    safetensors/LoRA       GGUF export
+                                    (for HF inference)  (for Ollama deploy)
+                                                            │
+                                                            ▼
+                                                    Ollama Model Pull
+                                                    (elophanto:latest)
+                                                            │
+                                                            ▼
+                                                    Agent uses new model
+                                                    (better performance)
+                                                            │
+                                                            ▼
+                                                    More interactions ──► Loop
 ```
 
 ## Dataset System
@@ -76,6 +89,91 @@ The agent captures training data from its own interactions:
 | Conversations | `core/session.py` | User message → agent response pairs |
 | Reflections | `core/reflector.py` | What worked, what failed, lessons learned |
 | Code generation | `tools/self_dev/` | Task description → generated code → test results |
+
+### Collection Pipeline
+
+Data flows from individual agents to the central dataset via a collection API on **elophanto.com**:
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Agent Instance  │     │  Agent Instance  │     │  Agent Instance  │
+│  (user machine)  │     │  (user machine)  │     │  (user machine)  │
+└────────┬─────────┘     └────────┬─────────┘     └────────┬─────────┘
+         │                        │                        │
+         │  1. Local sanitization │                        │
+         │  2. Quality filtering  │                        │
+         │  3. Opt-in consent     │                        │
+         │                        │                        │
+         ▼                        ▼                        ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                  elophanto.com/api/collect                        │
+│                                                                  │
+│  • Validate & verify sanitization (reject if secrets detected)   │
+│  • Deduplicate across all agents (embedding similarity)          │
+│  • Batch into staging buffer                                     │
+│  • Monitor dataset size threshold                                │
+│  • Rate limit per agent (prevent abuse)                          │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+                    (batch threshold met)
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│               HuggingFace Datasets (EloPhanto/dataset)           │
+│                                                                  │
+│  • Versioned JSONL files pushed periodically                     │
+│  • Dataset card auto-updated with stats                          │
+│  • Triggers training when retrain_threshold reached              │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Agent-side flow** (runs locally):
+
+1. After each successful task, the agent serializes the interaction into the training format
+2. Local sanitizer strips credentials, PII, secrets, and browser data
+3. Quality filter drops trivial/failed/too-short interactions
+4. If `self_learning.collect_data: true` and user has opted in, the agent POSTs the sanitized example to the collection API
+5. Examples are batched locally and uploaded periodically (not per-interaction) to minimize network overhead
+
+**Server-side flow** (elophanto.com):
+
+1. Receives sanitized examples via `POST /api/collect`
+2. Runs a second-pass validation (regex secret scan, length checks, format validation)
+3. Rejects any example that fails validation — agent is notified
+4. Deduplicates against existing dataset (embedding similarity > 0.95)
+5. Stores accepted examples in a staging buffer
+6. Periodically (e.g. daily) pushes new batches to the HuggingFace dataset repo
+7. When the dataset crosses the retrain threshold, triggers a training job via `hf jobs`
+
+**API contract**:
+
+```
+POST /api/collect
+Authorization: Bearer <agent_api_key>
+Content-Type: application/json
+
+{
+  "agent_version": "0.1.0",
+  "examples": [
+    {
+      "id": "task-uuid",
+      "conversations": [...],
+      "metadata": {...}
+    }
+  ]
+}
+
+Response: 200 OK
+{
+  "accepted": 3,
+  "rejected": 1,
+  "reasons": ["secret_detected_in_example_2"],
+  "dataset_size": 4523,
+  "next_training_at": 5000
+}
+```
+
+Agents authenticate with a per-installation API key (stored in vault as `elophanto_collect_key`). This is separate from the HuggingFace token — users don't need HF accounts to contribute data.
 
 ### Data Format
 
@@ -119,11 +217,10 @@ Each training example is a conversation in the standard chat format:
 
 ### Central Dataset Repository
 
-The dataset lives in a dedicated repository for versioning and accessibility:
+The dataset lives on HuggingFace Datasets for direct integration with the training pipeline (HF Jobs loads it natively via `load_dataset()`):
 
 ```
-Repository: github.com/0xroyce/elophanto-dataset
-    (or HuggingFace Datasets: huggingface.co/datasets/0xroyce/elophanto-dataset)
+Repository: huggingface.co/datasets/EloPhanto/dataset
 
 elophanto-dataset/
 ├── README.md                    # Dataset card
@@ -175,41 +272,89 @@ Start with a strong open-source instruct model suitable for agent tasks. Unsloth
 
 | Candidate | Size | Why |
 |-----------|------|-----|
-| **Qwen3-Coder** | 30B-A3B | Latest coding model, MoE (only 3B active), fits consumer GPU |
-| **Qwen3** | 4B / 8B / 14B | Strong reasoning + tool use, 2x faster with Unsloth |
-| **DeepSeek-R1 Distill** | 7B / 14B | Reasoning-focused, chain-of-thought for planning |
-| **Llama 4 Scout** | 17B-16E | Meta's latest MoE, strong general-purpose |
-| **Gemma 3** | 4B / 12B | Fast, good at structured output, 3x faster with Flex-Attention |
-| **GLM-4.7** | varies | Already used as EloPhanto's primary model via Z.ai |
-| **gpt-oss** | 20B | OpenAI's open model, fits in 12.8GB VRAM |
+| **Qwen3-4B-Instruct** | 4B | Best fine-tuning results at small scale — matches 120B+ teacher after tuning, runs on consumer GPU. Top pick for starting small. |
+| **Qwen3-Coder-30B-A3B** | 30B (3B active) | State-of-the-art agentic coding model, MoE architecture, strong on tool use and browser-use tasks. Available on Ollama. |
+| **GLM-4.7-Flash** | 30B (3B active) | MoE, 200K context, strong at coding/tool use/agentic tasks. Already in EloPhanto's ecosystem via Z.ai. Available on Ollama. |
+| **Qwen3** | 8B / 14B | Dense models, strong reasoning + tool use, 2x faster with Unsloth. Good middle ground. |
+| **DeepSeek-V3.2** | varies | Frontier reasoning + agentic workloads, strong tool-use. |
+| **SmolLM3** | 3B | Apache 2, 128K context (YaRN), detailed training configs for easy fine-tuning. Lightweight option. |
+| **Gemma 3** | 4B / 12B | Good at structured output, well-suited for classification and specialized fine-tuning. |
 
-The sweet spot depends on hardware: MoE models like Qwen3-30B-A3B only activate 3B parameters per token (fits ~17.5GB VRAM), while dense 7B-14B models offer simplicity. Unsloth supports all models that work in transformers.
+**Recommended starting point**: **Qwen3-4B-Instruct** — small enough for cheap HF Jobs training (~$0.60/hr on T4), proven fine-tuning results, and deployable on any consumer hardware via Ollama. Scale up to Qwen3-Coder-30B-A3B or GLM-4.7-Flash once the pipeline is validated and dataset is larger.
+
+MoE models (Qwen3-Coder, GLM-4.7-Flash) only activate ~3B parameters per token despite having 30B total, making them efficient for both training and local inference. Unsloth supports all models that work in transformers.
 
 ### Unsloth Fine-Tuning
 
 [Unsloth](https://github.com/unslothai/unsloth) provides 2x faster fine-tuning with 70% less VRAM via optimized kernels. Supports QLoRA, GRPO (reinforcement learning), vision models, and MoE architectures (12x faster MoE training).
 
+The training script runs as a [HuggingFace Job](https://huggingface.co/blog/unsloth-jobs) — a UV script with inline dependencies submitted via the `hf` CLI:
+
 ```python
-# Training configuration (conceptual)
-training_config = {
-    "base_model": "unsloth/Qwen3-8B-Instruct",
-    "method": "QLoRA",
-    "lora_r": 16,
-    "lora_alpha": 32,
-    "lora_dropout": 0.05,
-    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
-    "max_seq_length": 8192,
-    "per_device_train_batch_size": 4,
-    "gradient_accumulation_steps": 4,
-    "num_train_epochs": 3,
-    "learning_rate": 2e-4,
-    "warmup_ratio": 0.03,
-    "lr_scheduler_type": "cosine",
-    "bf16": True,
-    "dataset_text_field": "text",
-    "packing": True,
-}
+# /// script
+# dependencies = ["unsloth", "trl>=0.12.0", "datasets", "trackio"]
+# ///
+
+from unsloth import FastLanguageModel
+from trl import SFTTrainer, SFTConfig
+from datasets import load_dataset
+
+# Load base model with QLoRA (4-bit)
+model, tokenizer = FastLanguageModel.from_pretrained(
+    "unsloth/Qwen3-4B-Instruct",
+    load_in_4bit=True,
+    max_seq_length=8192,
+)
+
+# Apply LoRA adapters
+model = FastLanguageModel.get_peft_model(
+    model,
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0,
+    target_modules=[
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+    ],
+)
+
+# Load EloPhanto interaction dataset from HuggingFace
+dataset = load_dataset("EloPhanto/dataset", split="train")
+
+# Train
+trainer = SFTTrainer(
+    model=model,
+    tokenizer=tokenizer,
+    train_dataset=dataset,
+    args=SFTConfig(
+        output_dir="./output",
+        push_to_hub=True,
+        hub_model_id="EloPhanto/base-model",
+        per_device_train_batch_size=4,
+        gradient_accumulation_steps=4,
+        num_train_epochs=3,
+        learning_rate=2e-4,
+        warmup_ratio=0.03,
+        lr_scheduler_type="cosine",
+        bf16=True,
+        packing=True,
+        report_to="trackio",
+    ),
+)
+
+trainer.train()
+
+# Push safetensors + LoRA adapters to HuggingFace Hub
+trainer.push_to_hub()
+
+# Export GGUF for Ollama deployment
+model.save_pretrained_gguf(
+    "output-gguf",
+    tokenizer,
+    quantization_method="q4_k_m",
+    push_to_hub=True,
+    hub_model_id="EloPhanto/base-model-gguf",
+)
 ```
 
 ### Training Triggers
@@ -225,23 +370,45 @@ Retraining is triggered when conditions are met:
 
 ### Training Infrastructure
 
-Training runs centrally on **[PrimeIntellect](https://www.primeintellect.ai/)** GPU servers — not on users' machines. This ensures:
+Training runs on **[HuggingFace Jobs](https://huggingface.co/docs/hub/jobs)** with **[Unsloth](https://github.com/unslothai/unsloth)** — fully managed cloud GPUs, no infrastructure to provision. This provides:
 
-- **Consistent environment** — Same hardware and software stack for every training run
-- **Scalability** — Access to high-end GPU clusters for larger models
-- **Reproducibility** — Central logs, checkpoints, and artifacts
+- **Consistent environment** — Managed GPU instances with reproducible dependencies
+- **Native HF integration** — Reads datasets via `load_dataset()`, pushes models via `push_to_hub()`
+- **Real-time monitoring** — Loss curves and metrics via [Trackio](https://huggingface.co/docs/trackio)
+- **Cost-effective** — ~$1-4 per training run for 1-8B models (A10G GPUs)
 - **No user burden** — Users contribute data, not compute
 
-The pipeline is triggered centrally when dataset thresholds are met. Users receive the trained model via HuggingFace/Ollama — they never need to run training themselves.
+| Model Size | Recommended GPU | Cost/Hour |
+|------------|-----------------|-----------|
+| < 1B params | `t4-small` | ~$0.40 |
+| 1-3B params | `t4-medium` | ~$0.60 |
+| 3-7B params | `a10g-small` | ~$1.00 |
+| 7-13B params | `a10g-large` | ~$3.00 |
+
+Training is triggered via the `hf` CLI when dataset thresholds are met. Users receive the trained model via HuggingFace/Ollama — they never need to run training themselves.
+
+```bash
+# Submit a training job
+hf jobs uv run scripts/train.py \
+    --flavor a10g-small \
+    --secrets HF_TOKEN \
+    --timeout 4h \
+    --dataset EloPhanto/dataset \
+    --output-repo EloPhanto/base-model \
+    --num-epochs 3 \
+    --eval-split 0.1
+```
 
 ## Model Registry
 
 ### HuggingFace Repository
 
-Published to: **https://huggingface.co/0xroyce/EloPhanto-Base-Model**
+Two repos are published per training run:
+
+**Weights + LoRA adapters**: **https://huggingface.co/EloPhanto/base-model**
 
 ```
-0xroyce/EloPhanto-Base-Model/
+EloPhanto/base-model/
 ├── README.md              # Model card (auto-generated)
 ├── config.json            # Model configuration
 ├── tokenizer.json         # Tokenizer
@@ -249,6 +416,17 @@ Published to: **https://huggingface.co/0xroyce/EloPhanto-Base-Model**
 ├── adapter_config.json    # LoRA adapter config
 └── training_metadata.json # Training details
 ```
+
+**GGUF for Ollama**: **https://huggingface.co/EloPhanto/base-model-gguf**
+
+```
+EloPhanto/base-model-gguf/
+├── README.md                          # Model card
+├── elophanto-base-q4_k_m.gguf        # Quantized GGUF (primary)
+└── elophanto-base-q8_0.gguf          # Higher quality GGUF (optional)
+```
+
+The GGUF export is handled in the training script itself via `model.save_pretrained_gguf()`, so both repos are updated atomically by the same HF Job.
 
 ### Versioning Scheme
 
@@ -311,7 +489,7 @@ When a new model version is published:
 ```
 Primary:    elophanto:latest (custom fine-tuned model)
 Fallback 1: elophanto:v{previous} (previous version)
-Fallback 2: qwen2.5-coder:7b (base model via Ollama)
+Fallback 2: qwen3-coder:30b-a3b (base model via Ollama, MoE, best agentic coding)
 Fallback 3: Z.ai / OpenRouter (cloud API)
 ```
 
@@ -328,9 +506,9 @@ If the new model shows regression (lower task success rate over N tasks), automa
  │   Agent runs tasks, interactions are captured   │
  │                    │                            │
  │                    ▼                            │
- │   2. FILTER & STORE                             │
- │   Quality filtering, privacy sanitization       │
- │   Push to central dataset repo                  │
+ │   2. FILTER & UPLOAD                             │
+ │   Local sanitization + quality filtering         │
+ │   POST to elophanto.com/api/collect              │
  │                    │                            │
  │                    ▼                            │
  │   3. EVALUATE TRIGGER                           │
@@ -338,7 +516,7 @@ If the new model shows regression (lower task success rate over N tasks), automa
  │                    │                            │
  │                    ▼                            │
  │   4. TRAIN                                      │
- │   Unsloth QLoRA fine-tuning on full dataset     │
+ │   HF Jobs + Unsloth QLoRA on managed GPU        │
  │                    │                            │
  │                    ▼                            │
  │   5. BENCHMARK                                  │
@@ -393,8 +571,17 @@ A new version is only deployed if it matches or exceeds the previous version on 
 self_learning:
   enabled: false                    # Opt-in
   collect_data: true                # Capture interactions for training
-  dataset_repo: "github.com/0xroyce/elophanto-dataset"
-  model_repo: "huggingface.co/0xroyce/EloPhanto-Base-Model"
+  collect_api: "https://elophanto.com/api/collect"
+  collect_key_ref: elophanto_collect_key  # Vault key for collection API auth
+  batch_size: 10                    # Upload every N examples (not per-interaction)
+  dataset_repo: "EloPhanto/dataset"              # HuggingFace Datasets repo
+  model_repo: "EloPhanto/base-model"             # HuggingFace model repo
+  gguf_repo: "EloPhanto/base-model-gguf"         # GGUF export repo
+  hf_token_ref: hf_token           # Vault key for HuggingFace write token
+  training:
+    gpu_flavor: a10g-small          # HF Jobs GPU tier
+    timeout_hours: 4                # Max training job duration
+    base_model: "unsloth/Qwen3-4B-Instruct"
   auto_retrain: false               # Trigger training automatically
   retrain_threshold: 5000           # Min new examples before retraining
   privacy:
@@ -406,10 +593,15 @@ self_learning:
 
 ## Status
 
-**Idea Phase** — This document captures the research direction for EloPhanto's self-learning capability. Implementation has not started. Key prerequisites:
+**Idea Phase** — This document captures the research direction for EloPhanto's self-learning capability. Implementation has not started.
+
+Training infrastructure is solved: [HuggingFace Jobs + Unsloth](https://huggingface.co/blog/unsloth-jobs) provides managed GPU training with native dataset/model Hub integration at ~$1-4 per run.
+
+Key prerequisites:
 
 1. Accumulate sufficient interaction data from real agent usage
-2. Set up HuggingFace repository at `0xroyce/EloPhanto-Base-Model`
-3. Set up dataset repository
-4. Validate Unsloth training pipeline on a small dataset
-5. Define benchmark suite for evaluation
+2. Set up HuggingFace dataset repo at `EloPhanto/dataset`
+3. Set up HuggingFace model repos at `EloPhanto/base-model` and `EloPhanto/base-model-gguf`
+4. Write the training script (UV script with inline deps for HF Jobs)
+5. Validate end-to-end: dataset upload -> HF Job -> model push -> GGUF export -> Ollama pull
+6. Define benchmark suite for evaluation
