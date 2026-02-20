@@ -491,6 +491,7 @@ async def _chat_gateway(cfg: Any) -> None:
         max_sessions=cfg.gateway.max_sessions,
     )
     await gateway.start()
+    agent._gateway = gateway  # Enable scheduled task notifications
     gw_url = gateway.url
 
     # Start background channel adapters (Telegram, Discord, Slack)

@@ -59,9 +59,11 @@ class TaskScheduler:
         self,
         db: Database,
         task_executor: Callable[[str], Coroutine[Any, Any, Any]],
+        result_notifier: Callable[[str, str, str], Coroutine[Any, Any, None]] | None = None,
     ) -> None:
         self._db = db
         self._task_executor = task_executor
+        self._result_notifier = result_notifier
         self._scheduler = AsyncIOScheduler()
         self._active_jobs: dict[str, str] = {}
 
@@ -297,6 +299,13 @@ class TaskScheduler:
             )
             logger.info(f"Scheduled task '{schedule.name}' completed")
 
+            # Notify connected channels
+            if self._result_notifier:
+                try:
+                    await self._result_notifier(schedule.name, "completed", content[:1000])
+                except Exception:
+                    logger.debug("Schedule notification failed", exc_info=True)
+
         except Exception as e:
             completed_at = datetime.now(UTC).isoformat()
             await self._db.execute_insert(
@@ -312,6 +321,13 @@ class TaskScheduler:
                    WHERE id = ?""",
                 (completed_at, completed_at, schedule_id),
             )
+
+            # Notify connected channels of failure
+            if self._result_notifier:
+                try:
+                    await self._result_notifier(schedule.name, "failed", str(e)[:500])
+                except Exception:
+                    logger.debug("Schedule failure notification failed", exc_info=True)
 
             # Check retry limit
             rows = await self._db.execute(

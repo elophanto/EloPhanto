@@ -88,8 +88,7 @@ class CLIAdapter(ChannelAdapter):
         console.print()
         console.print(
             Panel(
-                f"[{_C_WARN}]Tool:[/] [bold]{tool_name}[/]\n"
-                f"[{_C_WARN}]Action:[/] {description}",
+                f"[{_C_WARN}]Tool:[/] [bold]{tool_name}[/]\n[{_C_WARN}]Action:[/] {description}",
                 title="[bold red]Approval Required[/]",
                 border_style="red",
                 padding=(0, 2),
@@ -105,10 +104,17 @@ class CLIAdapter(ChannelAdapter):
     async def on_event(self, msg: GatewayMessage) -> None:
         """Show events as dim notifications."""
         event = msg.data.get("event", "")
-        if event == "step_progress":
-            msg.data.get("tool_name", "")
-            msg.data.get("step", 0)
-            # Could update a live status display here
+        if event == "notification":
+            ntype = msg.data.get("notification_type", "")
+            if ntype == "scheduled_result":
+                task_name = msg.data.get("task_name", "")
+                status = msg.data.get("status", "")
+                result = msg.data.get("result", "")
+                icon = "\u2705" if status == "completed" else "\u26a0\ufe0f"
+                console.print(f"\n  [{_C_DIM}]{icon} Scheduled: {task_name}[/]")
+                if result:
+                    console.print(f"  [{_C_DIM}]{result[:300]}[/]\n")
+        elif event == "step_progress":
             pass
         elif event == "task_complete":
             goal = msg.data.get("goal", "")
@@ -119,9 +125,7 @@ class CLIAdapter(ChannelAdapter):
         loop = asyncio.get_event_loop()
 
         console.print(f"\n  [{_C_DIM}]Connected to gateway at {self._gateway_url}[/]")
-        console.print(
-            f"  [{_C_DIM}]Type a message, /clear to reset, or exit to quit.[/]\n"
-        )
+        console.print(f"  [{_C_DIM}]Type a message, /clear to reset, or exit to quit.[/]\n")
 
         while self._running:
             try:
@@ -160,16 +164,12 @@ class CLIAdapter(ChannelAdapter):
                     )
                     continue
 
-                await self.send_command(
-                    cmd, user_id=self._user_id, session_id=self._session_id
-                )
+                await self.send_command(cmd, user_id=self._user_id, session_id=self._session_id)
                 continue
 
             # Send chat message and wait for response
             console.print()
-            status = Status(
-                f"  [{_C_DIM}]Thinking...[/]", console=console, spinner="dots"
-            )
+            status = Status(f"  [{_C_DIM}]Thinking...[/]", console=console, spinner="dots")
             status.start()
 
             try:
