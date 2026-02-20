@@ -26,6 +26,7 @@ dependencies = [
     "python-pptx>=0.6.23",
     "ebooklib>=0.18",
     "charset-normalizer>=3.3.0",
+    "agentmail>=0.1.0",
 ]
 
 [project.optional-dependencies]

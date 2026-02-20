@@ -246,6 +246,25 @@ _SCHEMA = [
         error TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS email_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        inbox_id TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        recipient TEXT,
+        sender TEXT,
+        subject TEXT,
+        message_id TEXT,
+        thread_id TEXT,
+        status TEXT NOT NULL,
+        session_id TEXT,
+        channel TEXT,
+        task_context TEXT,
+        error TEXT
+    )
+    """,
 ]
 
 
@@ -293,7 +312,9 @@ class Database:
             logger.info("sqlite-vec extension loaded")
         except Exception as e:
             self._vec_available = False
-            logger.warning(f"sqlite-vec not available, falling back to keyword search: {e}")
+            logger.warning(
+                f"sqlite-vec not available, falling back to keyword search: {e}"
+            )
 
     async def create_vec_table(self, dimensions: int) -> None:
         """Create the vec_chunks virtual table with the detected embedding dimensions."""
@@ -342,7 +363,9 @@ class Database:
 
         return await asyncio.to_thread(_exec)
 
-    async def execute_insert(self, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> int:
+    async def execute_insert(
+        self, sql: str, params: tuple[Any, ...] | list[Any] = ()
+    ) -> int:
         """Execute an INSERT and return the last row id."""
 
         def _exec() -> int:

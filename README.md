@@ -1,6 +1,6 @@
 # EloPhanto
 
-A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, document & media analysis (PDFs, images, DOCX, XLSX, PPTX, EPUB with OCR and RAG), a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), an evolving identity that develops through experience, crypto payments with spending limits and audit trail, encrypted credential vault, and the ability to create new capabilities autonomously.
+A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, document & media analysis (PDFs, images, DOCX, XLSX, PPTX, EPUB with OCR and RAG), a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), an evolving identity that develops through experience, agent email with dual provider support (AgentMail cloud inboxes or your own SMTP/IMAP server), crypto payments with spending limits and audit trail, encrypted credential vault, and the ability to create new capabilities autonomously.
 
 ## Quick Start
 
@@ -62,6 +62,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans
 - **Evolving identity** — discovers its own identity on first run, evolves personality/values/capabilities through task reflection, maintains a living nature document, tracks credential accounts
+- **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Create inboxes, send/receive/search/reply to emails programmatically, identity integration, service signup verification flows, audit logging
 - **Crypto payments** — agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config) or Coinbase AgentKit (managed custody, gasless, DEX swaps). USDC/ETH transfers, spending limits ($100/txn, $500/day, $5K/month), full audit trail, preview-before-execute protocol
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 
@@ -79,11 +80,11 @@ Give the agent a task in natural language. It plans which tools to use, executes
 ├─────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├─────────────────────────────────────────────────┤
-│   Tool System (85+ built-in + plugins)           │  Capabilities
+│   Tool System (90+ built-in + plugins)           │  Capabilities
 ├─────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├─────────────────────────────────────────────────┤
-│ Memory │ Knowledge │ Skills │ Identity │Payments│  Foundation
+│ Memory│Knowledge│Skills│Identity│Email│Payments│  Foundation
 ├─────────────────────────────────────────────────┤
 │              EloPhantoHub Registry               │  Skill Marketplace
 └─────────────────────────────────────────────────┘
@@ -119,12 +120,13 @@ Slack Adapter ─────┘                   ▼
 | Documents | document_analyze, document_query, document_collections | 3 |
 | Goals | goal_create, goal_status, goal_manage | 3 |
 | Identity | identity_status, identity_update, identity_reflect | 3 |
+| Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search | 6 |
 | Payments | wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 7 |
 | Scheduling | schedule_task, schedule_list | 2 |
 
 ## Skills System
 
-Skills are best-practice guides (`SKILL.md` files) that the agent reads before starting specific task types. 27 skills ship bundled, covering:
+Skills are best-practice guides (`SKILL.md` files) that the agent reads before starting specific task types. 28 skills ship bundled, covering:
 
 | Category | Skills |
 |----------|--------|
@@ -242,6 +244,27 @@ identity:
   auto_evolve: true
   reflection_frequency: 10
 
+email:
+  enabled: true
+  provider: agentmail          # "agentmail" (cloud API) or "smtp" (your own server)
+  api_key_ref: agentmail_api_key
+  domain: agentmail.to
+  smtp:                        # Used when provider: smtp
+    host: ''
+    port: 587
+    use_tls: true
+    username_ref: smtp_username
+    password_ref: smtp_password
+    from_address: ''
+    from_name: EloPhanto Agent
+  imap:
+    host: ''
+    port: 993
+    use_tls: true
+    username_ref: imap_username
+    password_ref: imap_password
+    mailbox: INBOX
+
 payments:
   enabled: false
   crypto:
@@ -331,12 +354,13 @@ elophanto/
 │   ├── telegram_adapter.py # Telegram adapter (aiogram)
 │   ├── discord_adapter.py  # Discord adapter (discord.py)
 │   └── slack_adapter.py    # Slack adapter (slack-bolt)
-├── tools/               # 85+ built-in tools
+├── tools/               # 90+ built-in tools
 │   ├── system/          # Shell, filesystem
 │   ├── browser/         # 47 browser tools
 │   ├── knowledge/       # Search, write, index, skills, hub
 │   ├── documents/       # Document analysis, query, collections
 │   ├── goals/           # Goal loop tools
+│   ├── email/           # Agent email (AgentMail + SMTP/IMAP, send, receive, search)
 │   ├── identity/        # Identity status, update, reflection
 │   ├── payments/        # Crypto wallet, transfers, swaps, audit
 │   ├── self_dev/        # Plugin creation, modification, rollback
@@ -352,7 +376,7 @@ elophanto/
 ├── start.sh             # Quick launcher (activates venv)
 ├── config.yaml          # Configuration
 ├── permissions.yaml     # Per-tool permission overrides
-└── docs/                # Full specification (17 docs)
+└── docs/                # Full specification (18 docs)
 ```
 
 ## Implementation Status
@@ -380,6 +404,7 @@ elophanto/
 | 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
 | 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval) | Done |
 | 14 | Evolving Identity (first awakening, reflection, nature document, credential tracking) | Done |
+| 15 | Agent Email (dual provider: AgentMail cloud + SMTP/IMAP, send/receive/search, identity integration, skill, audit) | Done |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -393,6 +418,8 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 - React/Next.js skills from [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) by Vercel
 - Supabase skills from [supabase/agent-skills](https://github.com/supabase/agent-skills) by Supabase
 - Next.js/Prisma/shadcn skills from [gocallum/nextjs16-agent-skills](https://github.com/gocallum/nextjs16-agent-skills)
+- Agent email powered by [AgentMail](https://agentmail.to) — API-native email for AI agents (cloud provider)
+- SMTP/IMAP email via Python stdlib — zero-dependency self-hosted provider
 - Local wallet powered by [eth-account](https://github.com/ethereum/eth-account) by the Ethereum Foundation
 - Managed wallet provider by [Coinbase AgentKit](https://github.com/coinbase/agentkit) by Coinbase
 
@@ -400,6 +427,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-20 | **Agent email** — Own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). 6 tools (email_create_inbox, email_send, email_list, email_read, email_reply, email_search), email-agent skill with verification flow patterns, identity integration (inbox stored in beliefs), audit logging via email_log table. Chat-based setup — agent asks for provider choice and credentials |
 | 2026-02-19 | **Crypto payments** — Agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config, eth-account) and Coinbase AgentKit (optional, managed custody, gasless, DEX swaps). 7 payment tools (wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history), spending limits ($100/txn, $500/day, $5K/month), full audit trail, preview-before-execute protocol, chat-based setup |
 | 2026-02-19 | **Evolving identity** — IdentityManager discovers identity on first run via LLM, evolves personality/values/capabilities through task reflection, maintains a living `knowledge/self/nature.md` document, tracks credential accounts in beliefs. 3 new tools (identity_status, identity_update, identity_reflect), 45 new tests. Per-session timestamped log files |
 | 2026-02-19 | **Autonomous goal loop** — GoalManager decomposes complex goals into ordered checkpoints, persists progress across sessions, summarizes context to stay within token limits, self-evaluates and revises plans. 3 new tools (goal_create, goal_status, goal_manage), goals skill, 61 new tests |

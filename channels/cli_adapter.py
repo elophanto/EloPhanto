@@ -45,6 +45,7 @@ class CLIAdapter(ChannelAdapter):
         self._session_id = ""
         self._user_id = "cli-user"
         self._listener_task: asyncio.Task | None = None
+        self._status: Status | None = None
 
     async def start(self) -> None:
         """Connect to gateway and enter REPL loop."""
@@ -115,7 +116,11 @@ class CLIAdapter(ChannelAdapter):
                 if result:
                     console.print(f"  [{_C_DIM}]{result[:300]}[/]\n")
         elif event == "step_progress":
-            pass
+            tool_name = msg.data.get("tool_name", "")
+            step = msg.data.get("step", "")
+            if self._status and tool_name:
+                label = tool_name.replace("_", " ").title()
+                self._status.update(f"  [{_C_DIM}]Step {step} · {label}...[/]")
         elif event == "task_complete":
             goal = msg.data.get("goal", "")
             console.print(f"  [{_C_DIM}]Task completed: {goal[:60]}[/]")
@@ -125,7 +130,9 @@ class CLIAdapter(ChannelAdapter):
         loop = asyncio.get_event_loop()
 
         console.print(f"\n  [{_C_DIM}]Connected to gateway at {self._gateway_url}[/]")
-        console.print(f"  [{_C_DIM}]Type a message, /clear to reset, or exit to quit.[/]\n")
+        console.print(
+            f"  [{_C_DIM}]Type a message, /clear to reset, or exit to quit.[/]\n"
+        )
 
         while self._running:
             try:
@@ -164,13 +171,17 @@ class CLIAdapter(ChannelAdapter):
                     )
                     continue
 
-                await self.send_command(cmd, user_id=self._user_id, session_id=self._session_id)
+                await self.send_command(
+                    cmd, user_id=self._user_id, session_id=self._session_id
+                )
                 continue
 
             # Send chat message and wait for response
             console.print()
-            status = Status(f"  [{_C_DIM}]Thinking...[/]", console=console, spinner="dots")
-            status.start()
+            self._status = Status(
+                f"  [{_C_DIM}]Thinking...[/]", console=console, spinner="dots"
+            )
+            self._status.start()
 
             try:
                 response = await self.send_chat(
@@ -178,7 +189,8 @@ class CLIAdapter(ChannelAdapter):
                     user_id=self._user_id,
                     session_id=self._session_id,
                 )
-                status.stop()
+                self._status.stop()
+                self._status = None
 
                 # Track session for future messages
                 if response.session_id:
@@ -196,8 +208,12 @@ class CLIAdapter(ChannelAdapter):
                 console.print()
 
             except TimeoutError:
-                status.stop()
+                if self._status:
+                    self._status.stop()
+                    self._status = None
                 console.print(f"\n  [{_C_WARN}]Request timed out.[/]")
             except Exception as e:
-                status.stop()
+                if self._status:
+                    self._status.stop()
+                    self._status = None
                 console.print(f"\n  [bold red]Error:[/] {e}")

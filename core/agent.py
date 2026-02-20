@@ -108,6 +108,7 @@ class Agent:
         self._goal_manager: Any = None  # GoalManager, set during initialize
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
+        self._email_config: Any = None  # EmailConfig, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
@@ -218,7 +219,9 @@ class Agent:
                     self._registry.register(result.tool)
                     logger.info(f"Loaded plugin: {result.name}")
                 elif not result.success:
-                    logger.warning(f"Failed to load plugin {result.name}: {result.error}")
+                    logger.warning(
+                        f"Failed to load plugin {result.name}: {result.error}"
+                    )
 
         # Inject self-dev tool dependencies
         self._inject_self_dev_deps()
@@ -360,6 +363,16 @@ class Agent:
                 logger.info("Payments system ready")
             except Exception as e:
                 logger.warning(f"Payments system setup failed: {e}")
+
+        # Initialize email system
+        if self._config.email.enabled:
+            _status("Loading email")
+            try:
+                self._email_config = self._config.email
+                self._inject_email_deps()
+                logger.info("Email system ready")
+            except Exception as e:
+                logger.warning(f"Email system setup failed: {e}")
 
         # Auto-index knowledge on startup
         if self._config.knowledge.auto_index_on_startup:
@@ -504,7 +517,30 @@ class Agent:
             if tool and self._payments_manager:
                 tool._payments_manager = self._payments_manager
 
-    def set_approval_callback(self, callback: Callable[[str, str, dict[str, Any]], bool]) -> None:
+    def _inject_email_deps(self) -> None:
+        """Inject email config, vault, db, and identity into email tools."""
+        email_tools = (
+            "email_create_inbox",
+            "email_send",
+            "email_list",
+            "email_read",
+            "email_reply",
+            "email_search",
+        )
+        for tool_name in email_tools:
+            tool = self._registry.get(tool_name)
+            if tool:
+                tool._config = self._email_config
+                if self._vault:
+                    tool._vault = self._vault
+                if hasattr(tool, "_db"):
+                    tool._db = self._db
+                if hasattr(tool, "_identity_manager") and self._identity_manager:
+                    tool._identity_manager = self._identity_manager
+
+    def set_approval_callback(
+        self, callback: Callable[[str, str, dict[str, Any]], bool]
+    ) -> None:
         """Set the user approval callback (from CLI layer)."""
         self._executor.set_approval_callback(callback)
 
@@ -606,7 +642,9 @@ class Agent:
         if self._goal_manager:
             try:
                 # Try to find active goal (session-scoped or global)
-                active_goal = await self._goal_manager.list_goals(status="active", limit=1)
+                active_goal = await self._goal_manager.list_goals(
+                    status="active", limit=1
+                )
                 if active_goal:
                     goal_context = await self._goal_manager.build_goal_context(
                         active_goal[0].goal_id
@@ -629,6 +667,7 @@ class Agent:
             goals_enabled=self._config.goals.enabled,
             identity_enabled=self._config.identity.enabled,
             payments_enabled=self._config.payments.enabled,
+            email_enabled=self._config.email.enabled,
             knowledge_context=knowledge_context,
             available_skills=available_skills,
             goal_context=goal_context,
@@ -642,7 +681,9 @@ class Agent:
         stagnation_reason = ""
         while step < hard_limit:
             if max_time and (_time.monotonic() - start_time) > max_time:
-                stagnation_reason = f"time limit reached ({int(_time.monotonic() - start_time)}s)"
+                stagnation_reason = (
+                    f"time limit reached ({int(_time.monotonic() - start_time)}s)"
+                )
                 logger.info("Time limit reached")
                 break
             if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
@@ -652,7 +693,9 @@ class Agent:
             if len(recent_calls) >= _STAGNATION_WINDOW:
                 unique = set(recent_calls[-_STAGNATION_WINDOW:])
                 if len(unique) == 1:
-                    stagnation_reason = f"repeating {next(iter(unique))} {_STAGNATION_WINDOW} times"
+                    stagnation_reason = (
+                        f"repeating {next(iter(unique))} {_STAGNATION_WINDOW} times"
+                    )
                     logger.info("Stagnation: %s", stagnation_reason)
                     break
             step += 1
@@ -679,7 +722,9 @@ class Agent:
                 final_content = response.content or "Task complete."
 
                 # Store task memory
-                await self._store_task_memory(goal, final_content, "completed", tool_calls_made)
+                await self._store_task_memory(
+                    goal, final_content, "completed", tool_calls_made
+                )
 
                 # Identity reflection after task completion
                 if self._identity_manager:
@@ -733,7 +778,9 @@ class Agent:
 
                 if self._on_step:
                     try:
-                        result = self._on_step(step, func_name, response.content or "", _params)
+                        result = self._on_step(
+                            step, func_name, response.content or "", _params
+                        )
                         if inspect.isawaitable(result):
                             await result
                     except Exception:
@@ -784,7 +831,9 @@ class Agent:
             f"Task stopped: {reason} after {step} steps. "
             f"You can continue by sending a follow-up message."
         )
-        await self._store_task_memory(goal, "Max steps reached", "incomplete", tool_calls_made)
+        await self._store_task_memory(
+            goal, "Max steps reached", "incomplete", tool_calls_made
+        )
 
         # Persist to conversation history even on max steps
         append_turn(goal, max_steps_msg)
@@ -798,16 +847,22 @@ class Agent:
     def _append_conversation_turn(self, user_msg: str, assistant_msg: str) -> None:
         """Store a user/assistant pair in conversation history for context continuity."""
         self._conversation_history.append({"role": "user", "content": user_msg})
-        self._conversation_history.append({"role": "assistant", "content": assistant_msg})
+        self._conversation_history.append(
+            {"role": "assistant", "content": assistant_msg}
+        )
         # Trim to keep only the last N messages (user+assistant pairs)
         if len(self._conversation_history) > _MAX_CONVERSATION_HISTORY:
-            self._conversation_history = self._conversation_history[-_MAX_CONVERSATION_HISTORY:]
+            self._conversation_history = self._conversation_history[
+                -_MAX_CONVERSATION_HISTORY:
+            ]
 
     async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
         """Execute a task goal for a scheduled task."""
         return await self.run(goal)
 
-    async def _notify_scheduled_result(self, task_name: str, status: str, result: str) -> None:
+    async def _notify_scheduled_result(
+        self, task_name: str, status: str, result: str
+    ) -> None:
         """Push scheduled task result to connected channels.
 
         Gateway mode: broadcast NOTIFICATION event to all connected clients.
