@@ -108,6 +108,7 @@ class Agent:
         self._goal_manager: Any = None  # GoalManager, set during initialize
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
+        self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
         self._on_task_complete: Callable[..., Any] | None = None
@@ -251,6 +252,7 @@ class Agent:
                 self._scheduler = TaskScheduler(
                     db=self._db,
                     task_executor=self._execute_scheduled_task,
+                    result_notifier=self._notify_scheduled_result,
                 )
                 await self._scheduler.start()
             except Exception as e:
@@ -804,6 +806,28 @@ class Agent:
     async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
         """Execute a task goal for a scheduled task."""
         return await self.run(goal)
+
+    async def _notify_scheduled_result(self, task_name: str, status: str, result: str) -> None:
+        """Push scheduled task result to connected channels.
+
+        Gateway mode: broadcast NOTIFICATION event to all connected clients.
+        """
+        if self._gateway:
+            from core.protocol import EventType, event_message
+
+            await self._gateway.broadcast(
+                event_message(
+                    "",
+                    EventType.NOTIFICATION,
+                    {
+                        "notification_type": "scheduled_result",
+                        "task_name": task_name,
+                        "status": status,
+                        "result": result,
+                    },
+                ),
+                session_id=None,  # broadcast to ALL clients
+            )
 
     async def _auto_retrieve(self, query: str) -> None:
         """Fetch relevant knowledge chunks and recent task memory for the query."""
