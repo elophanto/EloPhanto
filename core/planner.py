@@ -596,6 +596,107 @@ explanation. Inform the user and suggest alternatives.
 </safety_rules>
 </payments>"""
 
+_TOOL_EMAIL_SETUP = """\
+<email_setup>
+Agent email is available but not yet configured. If the user asks about
+email, creating an inbox, sending emails, or signing up for services,
+guide them through the setup.
+
+Present BOTH email providers clearly so the user can make an informed choice:
+
+**AgentMail** (recommended for agent-native email)
+- Cloud-hosted inbox via AgentMail API — purpose-built for AI agents.
+- Instant inbox creation — no server config needed.
+- API key only — sign up at https://console.agentmail.to (free tier available).
+- Best for: autonomous agents, service signups, verification flows.
+
+**SMTP/IMAP** (use your own email server)
+- Connect any existing email account (Gmail, Outlook, self-hosted, etc.).
+- Self-hosted — emails stay on your server, no third-party API.
+- Requires: SMTP host/port + IMAP host/port + username/password.
+- Uses Python stdlib only — no extra dependencies.
+- Best for: users who want to use an existing email identity.
+- Trade-off: no semantic search (keyword only), no instant inbox creation.
+
+To enable with AgentMail:
+1. Ask the user for their AgentMail API key (from https://console.agentmail.to).
+2. Store it: vault_set agentmail_api_key <key>
+3. Update config.yaml: email.enabled: true, email.provider: agentmail
+
+To enable with SMTP:
+1. Ask the user for their SMTP/IMAP server details and credentials.
+2. Store credentials: vault_set smtp_username <user>, vault_set smtp_password <pass>
+   (and imap_username/imap_password if different).
+3. Update config.yaml with email.enabled: true, email.provider: smtp,
+   and fill in email.smtp.host, email.smtp.port, email.imap.host, email.imap.port,
+   email.smtp.from_address.
+
+When the user asks to set up email, ALWAYS present both providers and ask which
+they prefer before making config changes. Do NOT just pick one — the user should
+understand the trade-offs before choosing. After updating config, tell the user
+to restart the agent to activate email.
+
+IMPORTANT: Do NOT tell the user to run CLI commands. Handle everything through
+the conversation — ask for credentials, store them with vault_set, update config
+with file_write.
+</email_setup>"""
+
+_TOOL_EMAIL = """\
+<email>
+You have your own email and can send, receive, search, and reply to emails
+programmatically.
+
+<email_providers>
+Your email uses one of two providers (set in config.yaml email.provider):
+
+**AgentMail** (provider: "agentmail")
+- Cloud-hosted inbox via AgentMail API.
+- Inbox created programmatically via email_create_inbox.
+- API key stored in vault as agentmail_api_key.
+
+**SMTP/IMAP** (provider: "smtp")
+- Uses your own email server (Gmail, Outlook, self-hosted, etc.).
+- email_create_inbox verifies config + tests connection (no inbox creation needed).
+- SMTP/IMAP credentials stored in vault.
+
+If the user asks to switch providers, explain the differences clearly, then
+update config.yaml with file_write. Restart required after switching.
+</email_providers>
+
+<available_tools>
+- email_create_inbox: Create/verify an email inbox. For AgentMail: creates a new
+  inbox. For SMTP: verifies server connection and stores the from_address. The
+  address is stored in your identity beliefs so you remember it.
+- email_send: Send an email from your inbox. Supports plain text and HTML.
+- email_list: List emails in your inbox with optional filtering (unread, sender).
+- email_read: Read the full content of a specific email by message ID.
+- email_reply: Reply to an email thread. Maintains threading.
+- email_search: Search your inbox. AgentMail: keyword search. SMTP: IMAP search.
+</available_tools>
+
+<email_protocol>
+- Before creating an inbox, check identity_status for an existing email address.
+- FIRST-TIME SETUP: If the user asks you to set up email / create an inbox and
+  you don't have one yet (no email in identity_status), present BOTH providers
+  before proceeding:
+  • **AgentMail** — cloud API, instant inbox, API key only (https://console.agentmail.to)
+  • **SMTP/IMAP** — use existing email (Gmail, Outlook, etc.), self-hosted, no extra deps
+  Ask which they prefer. Then guide setup for the chosen provider conversationally.
+- If a tool returns a "credentials not found" error, ask the user for the
+  relevant credentials and store them with vault_set. Handle it conversationally
+  — do NOT tell the user to run CLI commands.
+- After creating/verifying an inbox, the address is automatically saved to your
+  identity beliefs and vault. You'll remember it across sessions.
+- For service signups: create inbox -> fill forms via browser -> poll for
+  verification email -> read and extract link -> verify via browser.
+- Never include vault credentials, private keys, or internal system details
+  in outbound emails.
+- All email operations are logged for audit.
+- ALWAYS tell the user what you're doing at each step — "Storing your API key...",
+  "Creating your inbox...", "Verifying connection..." — don't just silently call tools.
+</email_protocol>
+</email>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -637,6 +738,7 @@ def build_system_prompt(
     goals_enabled: bool = False,
     identity_enabled: bool = False,
     payments_enabled: bool = False,
+    email_enabled: bool = False,
     knowledge_context: str = "",
     available_skills: str = "",
     goal_context: str = "",
@@ -651,6 +753,7 @@ def build_system_prompt(
         goals_enabled: Whether goal loop tools are available.
         identity_enabled: Whether identity tools are available.
         payments_enabled: Whether payment tools are available.
+        email_enabled: Whether email tools are available.
         knowledge_context: Pre-formatted knowledge chunks from WorkingMemory.
         available_skills: Pre-formatted XML block from SkillManager.
         goal_context: Pre-built XML from GoalManager.build_goal_context().
@@ -709,6 +812,11 @@ def build_system_prompt(
     else:
         sections.append(_TOOL_PAYMENTS_SETUP)
 
+    if email_enabled:
+        sections.append(_TOOL_EMAIL)
+    else:
+        sections.append(_TOOL_EMAIL_SETUP)
+
     sections.append(_TOOL_CLOSE)
 
     # Skills system (always included if skills exist)
@@ -717,7 +825,9 @@ def build_system_prompt(
         sections.append(available_skills)
 
     if knowledge_context:
-        sections.append(f"<relevant_knowledge>\n{knowledge_context}\n</relevant_knowledge>")
+        sections.append(
+            f"<relevant_knowledge>\n{knowledge_context}\n</relevant_knowledge>"
+        )
 
     if goal_context:
         sections.append(goal_context)
