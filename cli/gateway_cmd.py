@@ -132,6 +132,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     )
 
     await gateway.start()
+    agent._gateway = gateway  # Enable scheduled task notifications
 
     # Track adapter tasks and instances for clean shutdown
     adapter_tasks: list[asyncio.Task] = []

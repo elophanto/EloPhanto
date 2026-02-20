@@ -154,14 +154,18 @@ class TelegramChannelAdapter(ChannelAdapter):
                 # Telegram sends multiple sizes; take the largest
                 photo = message.photo[-1]
                 att = await self._download_telegram_file(
-                    photo.file_id, f"photo_{photo.file_unique_id}.jpg", user_id,
+                    photo.file_id,
+                    f"photo_{photo.file_unique_id}.jpg",
+                    user_id,
                 )
                 if att:
                     attachments.append(att)
             if message.document:
                 doc = message.document
                 att = await self._download_telegram_file(
-                    doc.file_id, doc.file_name or f"file_{doc.file_unique_id}", user_id,
+                    doc.file_id,
+                    doc.file_name or f"file_{doc.file_unique_id}",
+                    user_id,
                 )
                 if att:
                     if doc.mime_type:
@@ -221,7 +225,8 @@ class TelegramChannelAdapter(ChannelAdapter):
         while self._running:
             try:
                 await self._dp.start_polling(
-                    self._bot, backoff_config=_BACKOFF,
+                    self._bot,
+                    backoff_config=_BACKOFF,
                 )
                 break  # clean exit
             except asyncio.CancelledError:
@@ -231,7 +236,9 @@ class TelegramChannelAdapter(ChannelAdapter):
                 if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
                     logger.warning(
                         "Telegram polling failed %d times, pausing %ds: %s",
-                        consecutive_errors, _ERROR_PAUSE_SECONDS, e,
+                        consecutive_errors,
+                        _ERROR_PAUSE_SECONDS,
+                        e,
                     )
                     await asyncio.sleep(_ERROR_PAUSE_SECONDS)
                     consecutive_errors = 0
@@ -281,14 +288,29 @@ class TelegramChannelAdapter(ChannelAdapter):
             f"/approve — Allow\n"
             f"/deny — Block"
         )
-        await self._bot.send_message(
-            chat_id, text, parse_mode=ParseMode.MARKDOWN_V2
-        )
+        await self._bot.send_message(chat_id, text, parse_mode=ParseMode.MARKDOWN_V2)
 
     async def on_event(self, msg: GatewayMessage) -> None:
         """Forward events as Telegram notifications."""
         event = msg.data.get("event", "")
         session_id = msg.session_id
+
+        # Handle broadcast notifications (no session_id needed)
+        if event == "notification":
+            ntype = msg.data.get("notification_type", "")
+            if ntype == "scheduled_result":
+                task_name = msg.data.get("task_name", "")
+                status = msg.data.get("status", "")
+                result = msg.data.get("result", "")
+                icon = "\u2705" if status == "completed" else "\u26a0\ufe0f"
+                text = f"{icon} Scheduled: {task_name}\n\n{result[:500]}"
+                for uid in self._allowed_users:
+                    try:
+                        await self._bot.send_message(uid, text)
+                    except Exception as e:
+                        logger.warning("Failed to notify user %s: %s", uid, e)
+            return
+
         chat_id = self._session_chats.get(session_id)
 
         if not chat_id:
@@ -296,15 +318,16 @@ class TelegramChannelAdapter(ChannelAdapter):
 
         if event == "task_complete":
             goal = msg.data.get("goal", "")
-            await self._bot.send_message(
-                chat_id, f"Task complete: {goal[:200]}"
-            )
+            await self._bot.send_message(chat_id, f"Task complete: {goal[:200]}")
         elif event == "task_error":
             error = msg.data.get("error", "Unknown error")
             await self._bot.send_message(chat_id, f"Error: {error[:300]}")
 
     async def _download_telegram_file(
-        self, file_id: str, filename: str, user_id: str,
+        self,
+        file_id: str,
+        filename: str,
+        user_id: str,
     ) -> dict[str, Any] | None:
         """Download a Telegram file to local storage and return attachment dict."""
         try:
@@ -315,7 +338,8 @@ class TelegramChannelAdapter(ChannelAdapter):
             # Use StorageManager if available, otherwise fall back to temp dir
             if hasattr(self, "_storage") and self._storage:
                 local_path = self._storage.get_upload_path(
-                    session_id=f"telegram_{user_id}", filename=filename,
+                    session_id=f"telegram_{user_id}",
+                    filename=filename,
                 )
             else:
                 import tempfile
@@ -345,9 +369,7 @@ class TelegramChannelAdapter(ChannelAdapter):
 
         for chunk in chunks:
             try:
-                await self._bot.send_message(
-                    chat_id, chunk, parse_mode=ParseMode.MARKDOWN_V2
-                )
+                await self._bot.send_message(chat_id, chunk, parse_mode=ParseMode.MARKDOWN_V2)
             except Exception:
                 plain = to_plain_text(content)
                 for pc in split_message(plain, self._tg_config.max_message_length):
