@@ -399,7 +399,7 @@ elophanto/
 | 7.9 | EloPhantoHub (skill registry, search, install, update) | Done |
 | 8 | Web UI (FastAPI + React) | Planned |
 | 9 | Polish & Open Source Release | Done |
-| 10 | Self-Learning Model (Unsloth, HuggingFace, Ollama) | Idea Phase |
+| 10 | Self-Learning Model (HF Jobs + Unsloth, HuggingFace, Ollama) | Idea Phase |
 | 11 | Agent Payments (crypto wallet, spending limits, audit trail) | Done |
 | 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
 | 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval) | Done |
