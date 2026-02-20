@@ -18,6 +18,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Type alias for IMAP connections
+type _ImapConn = imaplib.IMAP4 | imaplib.IMAP4_SSL
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -29,21 +32,23 @@ def _get_smtp_connection(
 ) -> smtplib.SMTP | smtplib.SMTP_SSL:
     """Create and authenticate an SMTP connection."""
     if use_tls and port == 465:
-        conn = smtplib.SMTP_SSL(host, port, timeout=30)
-    else:
-        conn = smtplib.SMTP(host, port, timeout=30)
-        conn.ehlo()
-        if use_tls:
-            conn.starttls(context=ssl.create_default_context())
-            conn.ehlo()
-    conn.login(username, password)
-    return conn
+        ssl_conn = smtplib.SMTP_SSL(host, port, timeout=30)
+        ssl_conn.login(username, password)
+        return ssl_conn
+    plain_conn = smtplib.SMTP(host, port, timeout=30)
+    plain_conn.ehlo()
+    if use_tls:
+        plain_conn.starttls(context=ssl.create_default_context())
+        plain_conn.ehlo()
+    plain_conn.login(username, password)
+    return plain_conn
 
 
 def _get_imap_connection(
     host: str, port: int, username: str, password: str, use_tls: bool
-) -> imaplib.IMAP4 | imaplib.IMAP4_SSL:
+) -> _ImapConn:
     """Create and authenticate an IMAP connection."""
+    conn: _ImapConn
     if use_tls:
         conn = imaplib.IMAP4_SSL(host, port)
     else:
@@ -75,17 +80,17 @@ def _get_text_body(msg: email_lib.message.Message) -> tuple[str, str]:
             ct = part.get_content_type()
             if ct == "text/plain" and not text_body:
                 payload = part.get_payload(decode=True)
-                if payload:
+                if isinstance(payload, bytes):
                     charset = part.get_content_charset() or "utf-8"
                     text_body = payload.decode(charset, errors="replace")
             elif ct == "text/html" and not html_body:
                 payload = part.get_payload(decode=True)
-                if payload:
+                if isinstance(payload, bytes):
                     charset = part.get_content_charset() or "utf-8"
                     html_body = payload.decode(charset, errors="replace")
     else:
         payload = msg.get_payload(decode=True)
-        if payload:
+        if isinstance(payload, bytes):
             charset = msg.get_content_charset() or "utf-8"
             content = payload.decode(charset, errors="replace")
             if msg.get_content_type() == "text/html":
@@ -97,7 +102,7 @@ def _get_text_body(msg: email_lib.message.Message) -> tuple[str, str]:
 
 def _get_attachments(msg: email_lib.message.Message) -> list[dict[str, Any]]:
     """Extract attachment metadata from a message."""
-    attachments = []
+    attachments: list[dict[str, Any]] = []
     if not msg.is_multipart():
         return attachments
     for part in msg.walk():
@@ -237,9 +242,9 @@ def list_messages(
 
         # Build search criteria
         if unread_only:
-            _, data = conn.uid("search", None, "UNSEEN")
+            _, data = conn.uid("search", None, "UNSEEN")  # type: ignore[arg-type]
         else:
-            _, data = conn.uid("search", None, "ALL")
+            _, data = conn.uid("search", None, "ALL")  # type: ignore[arg-type]
 
         uids = data[0].split() if data[0] else []
         # Newest first
@@ -283,21 +288,23 @@ def read_message(
 
         # Determine search strategy
         if message_id.startswith("uid:"):
-            uid = message_id[4:].encode()
-            _, msg_data = conn.uid("fetch", uid, "(RFC822)")
+            uid_str = message_id[4:]
+            _, msg_data = conn.uid("fetch", uid_str, "(RFC822)")
         else:
             # Search by Message-ID header
             search_id = message_id.strip("<>")
-            _, data = conn.uid("search", None, f'HEADER Message-ID "<{search_id}>"')
+            search_criteria = f'HEADER Message-ID "<{search_id}>"'
+            _, data = conn.uid("search", None, search_criteria)  # type: ignore[arg-type]
             uids = data[0].split() if data[0] else []
             if not uids:
                 # Fallback: try without angle brackets
-                _, data = conn.uid("search", None, f'HEADER Message-ID "{message_id}"')
+                search_criteria = f'HEADER Message-ID "{message_id}"'
+                _, data = conn.uid("search", None, search_criteria)  # type: ignore[arg-type]
                 uids = data[0].split() if data[0] else []
             if not uids:
                 return {"error": f"Message not found: {message_id}"}
-            uid = uids[0]
-            _, msg_data = conn.uid("fetch", uid, "(RFC822)")
+            uid_str = uids[0].decode() if isinstance(uids[0], bytes) else uids[0]
+            _, msg_data = conn.uid("fetch", uid_str, "(RFC822)")
 
         if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
             return {"error": f"Failed to fetch message: {message_id}"}
@@ -346,11 +353,12 @@ def search_messages(
 
         # Try IMAP TEXT search first (searches full message)
         try:
-            _, data = conn.uid("search", None, f'TEXT "{query}"')
+            text_criteria = f'TEXT "{query}"'
+            _, data = conn.uid("search", None, text_criteria)  # type: ignore[arg-type]
             uids = data[0].split() if data[0] else []
         except Exception:
             # Server doesn't support TEXT search — fall back to ALL + client-side
-            _, data = conn.uid("search", None, "ALL")
+            _, data = conn.uid("search", None, "ALL")  # type: ignore[arg-type]
             uids = data[0].split() if data[0] else []
 
         # Newest first, cap at reasonable fetch size

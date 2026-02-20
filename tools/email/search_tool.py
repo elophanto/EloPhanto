@@ -120,7 +120,7 @@ class EmailSearchTool(BaseTool):
                         }
                     )
 
-            results.sort(key=lambda x: x["relevance_score"], reverse=True)
+            results.sort(key=lambda x: x.get("relevance_score") or 0, reverse=True)
             results = results[:limit]
 
             return ToolResult(
