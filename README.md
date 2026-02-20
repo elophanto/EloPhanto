@@ -407,7 +407,7 @@ elophanto/
 | 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval) | Done |
 | 14 | Evolving Identity (first awakening, reflection, nature document, credential tracking) | Done |
 | 15 | Agent Email (dual provider: AgentMail cloud + SMTP/IMAP, send/receive/search, identity integration, skill, audit) | Done |
-| 16 | PhantoHub Supply Chain Security (7-layer defense, publisher tiers, CI scanning, checksums, content policy) | Spec |
+| 16 | EloPhantoHub Supply Chain Security (7-layer defense, publisher tiers, CI scanning, checksums, content policy) | Spec |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -430,7 +430,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
-| 2026-02-20 | **PhantoHub supply chain security** — 7-layer defense-in-depth spec for skill marketplace security: publisher verification with tier system (New → Verified → Trusted → Official), automated CI scanning (malicious patterns, prompt injection, obfuscation), human review for new publishers, SHA-256 integrity checksums, content security policy (blocked/warning patterns enforced at load time), runtime protection (permission system, skill origin tagging), incident response with revocation broadcast |
+| 2026-02-20 | **EloPhantoHub supply chain security** — 7-layer defense-in-depth spec for skill marketplace security: publisher verification with tier system (New → Verified → Trusted → Official), automated CI scanning (malicious patterns, prompt injection, obfuscation), human review for new publishers, SHA-256 integrity checksums, content security policy (blocked/warning patterns enforced at load time), runtime protection (permission system, skill origin tagging), incident response with revocation broadcast |
 | 2026-02-20 | **Agent email** — Own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). 6 tools (email_create_inbox, email_send, email_list, email_read, email_reply, email_search), email-agent skill with verification flow patterns, identity integration (inbox stored in beliefs), audit logging via email_log table. Chat-based setup — agent asks for provider choice and credentials |
 | 2026-02-19 | **Crypto payments** — Agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config, eth-account) and Coinbase AgentKit (optional, managed custody, gasless, DEX swaps). 7 payment tools (wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history), spending limits ($100/txn, $500/day, $5K/month), full audit trail, preview-before-execute protocol, chat-based setup |
 | 2026-02-19 | **Evolving identity** — IdentityManager discovers identity on first run via LLM, evolves personality/values/capabilities through task reflection, maintains a living `knowledge/self/nature.md` document, tracks credential accounts in beliefs. 3 new tools (identity_status, identity_update, identity_reflect), 45 new tests. Per-session timestamped log files |
