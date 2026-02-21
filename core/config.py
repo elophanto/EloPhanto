@@ -34,11 +34,13 @@ class RoutingConfig:
     """Per-task-type routing preferences."""
 
     preferred_provider: str = ""
+    models: dict[str, str] = field(default_factory=dict)  # provider -> model
+    local_only: bool = False
+    # Legacy fields — still parsed for backward compat with old configs
     preferred_model: str = ""
     fallback_provider: str = ""
     fallback_model: str = ""
     local_fallback: str = ""
-    local_only: bool = False
 
 
 @dataclass
@@ -416,14 +418,34 @@ def _parse_provider(name: str, data: dict[str, Any]) -> ProviderConfig:
 
 
 def _parse_routing(data: dict[str, Any]) -> RoutingConfig:
-    """Parse a routing config section."""
+    """Parse a routing config section.
+
+    Supports both new ``models`` map format and legacy flat fields.
+    Legacy configs (preferred_model / fallback_model / local_fallback)
+    are auto-migrated into the ``models`` dict on load.
+    """
+    models: dict[str, str] = dict(data.get("models") or {})
+
+    # Migrate legacy flat fields into models map
+    if not models:
+        prov = data.get("preferred_provider", "")
+        if prov and data.get("preferred_model"):
+            models[prov] = data["preferred_model"]
+        fb_prov = data.get("fallback_provider", "")
+        if fb_prov and data.get("fallback_model"):
+            models[fb_prov] = data["fallback_model"]
+        if data.get("local_fallback"):
+            models["ollama"] = data["local_fallback"]
+
     return RoutingConfig(
         preferred_provider=data.get("preferred_provider", ""),
+        models=models,
+        local_only=data.get("local_only", False),
+        # Legacy fields kept for backward compat
         preferred_model=data.get("preferred_model", ""),
         fallback_provider=data.get("fallback_provider", ""),
         fallback_model=data.get("fallback_model", ""),
         local_fallback=data.get("local_fallback", ""),
-        local_only=data.get("local_only", False),
     )
 
 

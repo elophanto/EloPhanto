@@ -218,36 +218,32 @@ llm:
   routing:
     planning:
       preferred_provider: openrouter
-      preferred_model: "anthropic/claude-sonnet-4-20250514"
-      local_fallback: "qwen2.5:32b"
+      models:                                  # provider → model map
+        openrouter: "anthropic/claude-sonnet-4.6"
+        zai: "glm-5"
+        ollama: "qwen2.5:32b"
     coding:
       preferred_provider: zai
-      preferred_model: "glm-4.7"
-      fallback_provider: openrouter
-      fallback_model: "anthropic/claude-sonnet-4-20250514"
-      local_fallback: "qwen2.5-coder:32b"
-    review:
-      # Cross-architecture: if coding used Z.ai, review uses OpenRouter (or vice versa)
-      strategy: "cross_provider"
-      providers: ["openrouter", "zai"]
       models:
-        openrouter: "openai/gpt-4o"
         zai: "glm-4.7"
-      local_fallback: "llama3.1:70b"
+        openrouter: "qwen/qwen3.5-plus-02-15"
+        ollama: "qwen2.5-coder:32b"
     analysis:
-      preferred_provider: zai
-      preferred_model: "glm-4.7-flash"
-      fallback_provider: openrouter
-      fallback_model: "anthropic/claude-sonnet-4-20250514"
-      local_fallback: "qwen2.5:14b"
+      preferred_provider: openrouter
+      models:
+        openrouter: "google/gemini-3.1-pro-preview"
+        zai: "glm-4.7-flash"
+        ollama: "qwen2.5:14b"
     simple:
-      preferred_provider: zai
-      preferred_model: "glm-4.7-flash"
-      fallback_provider: openrouter
-      fallback_model: "openai/gpt-4o-mini"
-      local_fallback: "llama3.2:3b"
+      preferred_provider: openrouter
+      models:
+        openrouter: "minimax/minimax-m2.5"
+        zai: "glm-4.7-flash"
+        ollama: "llama3.2:3b"
     embedding:
-      preferred_model: "nomic-embed-text"
+      preferred_provider: ollama
+      models:
+        ollama: "nomic-embed-text"
       local_only: true
 
   budget:

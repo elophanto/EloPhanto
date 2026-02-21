@@ -280,11 +280,15 @@ def _edit_providers(config: dict) -> None:
 
 
 def _edit_models(config: dict) -> None:
-    """Edit model selection per task type."""
+    """Edit model selection per task type.
+
+    Asks for a model per active provider per task, producing a ``models``
+    map (provider → model) instead of a single preferred_model.
+    """
     console.print("[bold]Model Selection[/bold]")
     console.print(
         "  [dim]Choose which model to use for each task type.\n"
-        "  Enter the full model name (e.g. google/gemini-2.0-flash-001, "
+        "  Enter the full model name (e.g. anthropic/claude-sonnet-4.6, "
         "glm-4.7, qwen2.5:7b).[/dim]"
     )
 
@@ -302,71 +306,96 @@ def _edit_models(config: dict) -> None:
     console.print()
 
     routing = config.setdefault("llm", {}).setdefault("routing", {})
+    priority = config.get("llm", {}).get("provider_priority", [])
+
+    # Cloud providers that need interactive model selection
+    cloud_providers = ["openrouter", "zai"]
+
+    # Default models per (provider, task)
+    defaults: dict[str, dict[str, str]] = {
+        "openrouter": {
+            "planning": "anthropic/claude-sonnet-4.6",
+            "coding": "qwen/qwen3.5-plus-02-15",
+            "analysis": "google/gemini-3.1-pro-preview",
+            "simple": "minimax/minimax-m2.5",
+        },
+        "zai": {
+            "planning": "glm-5",
+            "coding": "glm-4.7",
+            "analysis": "glm-4.7-flash",
+            "simple": "glm-4.7-flash",
+        },
+    }
 
     task_types = [
-        (
-            "planning",
-            "Planning",
-            "reasoning, goal decomposition — strongest model",
-            "google/gemini-2.5-pro-preview",
-            "glm-5",
-        ),
-        (
-            "coding",
-            "Coding",
-            "writing code, plugins — strong coding model",
-            "google/gemini-2.5-flash-preview",
-            "glm-4.7",
-        ),
-        (
-            "analysis",
-            "Analysis",
-            "summarization, text processing — balanced",
-            "google/gemini-2.0-flash-001",
-            "glm-4.7-flash",
-        ),
-        (
-            "simple",
-            "Simple",
-            "formatting, classification — cheapest/fastest",
-            "google/gemini-2.0-flash-001",
-            "glm-4.7-flash",
-        ),
+        ("planning", "Planning", "reasoning, goal decomposition — strongest model"),
+        ("coding", "Coding", "writing code, plugins — strong coding model"),
+        ("analysis", "Analysis", "summarization, text processing — balanced"),
+        ("simple", "Simple", "formatting, classification — cheapest/fastest"),
     ]
 
-    for task_key, label, desc, default_or, default_zai in task_types:
+    for task_key, label, desc in task_types:
         console.print(f"  [bold]{label}[/bold] ({desc})")
 
-        # Use current value as default if set
-        current = routing.get(task_key, {}).get("preferred_model", "")
-        if current:
-            default_model = current
-        elif active.get("openrouter"):
-            default_model = default_or
-        elif active.get("zai"):
-            default_model = default_zai
-        elif active.get("ollama") and ollama_models:
-            default_model = _best_ollama(ollama_models, task_key)
-        else:
+        # Read existing models map (or legacy preferred_model)
+        existing = routing.get(task_key, {})
+        existing_models: dict[str, str] = existing.get("models", {})
+
+        models_map: dict[str, str] = {}
+
+        # Ask for each active cloud provider
+        for prov in cloud_providers:
+            if not active.get(prov):
+                continue
+            # Current value from models map or legacy field
+            current = existing_models.get(prov, "")
+            if not current and prov == existing.get("preferred_provider"):
+                current = existing.get("preferred_model", "")
+            if not current and prov == existing.get("fallback_provider"):
+                current = existing.get("fallback_model", "")
+            default = current or defaults.get(prov, {}).get(task_key, "")
+            if not default:
+                continue
+            model = Prompt.ask(f"    {prov} model", default=default)
+            models_map[prov] = model
+
+        # Auto-detect best ollama model
+        if active.get("ollama") and ollama_models:
+            current_ollama = existing_models.get(
+                "ollama", existing.get("local_fallback", "")
+            )
+            fallback = current_ollama or _best_ollama(ollama_models, task_key)
+            if fallback:
+                models_map["ollama"] = fallback
+                console.print(f"    [dim]ollama fallback: {fallback}[/dim]")
+
+        if not models_map:
             continue
 
-        model = Prompt.ask(f"    Model for {task_key}", default=default_model)
-        provider = _infer_provider(model, active, or_models, ollama_models)
+        # Determine preferred provider: first in priority that has a model
+        preferred = ""
+        for prov in priority:
+            if prov in models_map:
+                preferred = prov
+                break
+        if not preferred:
+            preferred = next(iter(models_map))
 
         routing[task_key] = {
-            "preferred_provider": provider,
-            "preferred_model": model,
+            "preferred_provider": preferred,
+            "models": models_map,
         }
 
-        # Local fallback
-        if provider in ("openrouter", "zai") and active.get("ollama") and ollama_models:
-            fallback = _best_ollama(ollama_models, task_key)
-            if fallback:
-                routing[task_key]["local_fallback"] = fallback
+        console.print(
+            f"    [dim]→ preferred: {models_map[preferred]} via {preferred}[/dim]"
+        )
 
-        console.print(f"    [dim]→ {model} via {provider}[/dim]")
-
-    routing["embedding"] = {"preferred_model": "nomic-embed-text", "local_only": True}
+    # Embedding — always local
+    routing["embedding"] = {
+        "preferred_provider": "ollama",
+        "models": {"ollama": "nomic-embed-text"},
+        "local_only": True,
+    }
 
 
 def _edit_permissions(config: dict) -> None:

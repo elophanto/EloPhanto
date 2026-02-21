@@ -1,0 +1,239 @@
+# EloPhanto — Full demo config
+# Copy to config.yaml and fill in your API keys / tokens.
+
+agent:
+  name: EloPhanto
+  permission_mode: full_auto
+
+llm:
+  providers:
+    zai:
+      api_key: "YOUR_ZAI_KEY"
+      enabled: true
+      coding_plan: true
+      base_url_coding: "https://api.z.ai/api/coding/paas/v4"
+      base_url_paygo: "https://api.z.ai/api/paas/v4"
+      default_model: "glm-4.7"
+      fast_model: "glm-4.7-flash"
+
+    openrouter:
+      api_key: "YOUR_OPENROUTER_KEY"
+      enabled: true
+      base_url: "https://openrouter.ai/api/v1"
+
+    ollama:
+      enabled: true
+      base_url: "http://localhost:11434"
+
+  provider_priority:
+    - zai
+    - openrouter
+    - ollama
+
+  # Per-task model routing — each task type maps provider → model.
+  # The router tries preferred_provider first, then walks provider_priority.
+  routing:
+    planning:
+      preferred_provider: openrouter
+      models:
+        openrouter: "anthropic/claude-sonnet-4.6"        # strongest reasoning
+        zai: "glm-5"
+        ollama: "qwen2.5:14b"
+
+    coding:
+      preferred_provider: openrouter
+      models:
+        openrouter: "qwen/qwen3.5-plus-02-15"           # strong coding model
+        zai: "glm-4.7"
+        ollama: "qwen2.5-coder:7b"
+
+    analysis:
+      preferred_provider: openrouter
+      models:
+        openrouter: "google/gemini-3.1-pro-preview"      # balanced, good at summarization
+        zai: "glm-4.7-flash"
+        ollama: "qwen2.5:7b"
+
+    simple:
+      preferred_provider: openrouter
+      models:
+        openrouter: "minimax/minimax-m2.5"               # cheapest for formatting
+        zai: "glm-4.7-flash"
+        ollama: "qwen2.5:3b"
+
+    embedding:
+      preferred_provider: ollama
+      models:
+        ollama: "nomic-embed-text"
+      local_only: true
+
+  budget:
+    daily_limit_usd: 10.0
+    per_task_limit_usd: 2.0
+
+shell:
+  timeout: 30
+  blacklist_patterns:
+    - "rm -rf /"
+    - "rm -rf /*"
+    - "mkfs"
+    - "dd if="
+    - "> /dev/sda"
+    - "chmod -R 777 /"
+    - ":(){ :|:& };:"
+    - "DROP DATABASE"
+    - "TRUNCATE"
+  safe_commands:
+    - ls
+    - cat
+    - pwd
+    - which
+    - echo
+    - grep
+    - find
+    - wc
+    - head
+    - tail
+    - df
+    - du
+    - ps
+    - uname
+
+browser:
+  enabled: true
+  mode: fresh
+  headless: true
+  cdp_port: 9222
+  cdp_ws_endpoint: ""
+  user_data_dir: ""                     # set to your Chrome profile path
+  use_system_chrome: true
+  viewport_width: 1280
+  viewport_height: 720
+  profile_directory: ""                 # e.g. "Profile 1"
+
+scheduler:
+  enabled: true
+  max_concurrent_tasks: 1
+  default_max_retries: 3
+  task_timeout_seconds: 600
+
+gateway:
+  enabled: true
+  host: "127.0.0.1"
+  port: 18789
+  auth_token_ref: ""
+  max_sessions: 50
+  session_timeout_hours: 24
+
+recovery:
+  enabled: true
+  auto_enter_on_provider_failure: true
+  auto_enter_timeout_minutes: 5
+  health_check_interval_seconds: 60
+
+hub:
+  enabled: true
+  index_url: "https://raw.githubusercontent.com/elophanto/elophantohub/main/index.json"
+  auto_suggest: true
+  cache_ttl_hours: 6
+
+self_dev:
+  max_llm_calls: 50
+  max_time_seconds: 1800
+  max_retries: 3
+  test_timeout: 60
+
+goals:
+  enabled: true
+  max_checkpoints: 20
+  max_checkpoint_attempts: 3
+  max_goal_attempts: 3
+  max_llm_calls_per_goal: 200
+  max_time_per_checkpoint_seconds: 600
+  context_summary_max_tokens: 1500
+  auto_continue: true
+
+plugins:
+  plugins_dir: plugins
+  auto_load: true
+
+# --- Channels ---
+
+telegram:
+  enabled: true
+  bot_token_ref: "telegram_bot_token"   # stored in secrets
+  allowed_users: []                     # empty = allow all
+  mode: polling
+  max_message_length: 4000
+  send_files: true
+  send_screenshots: true
+  notifications:
+    task_complete: true
+    approval_needed: true
+    scheduled_results: true
+    errors: true
+    daily_summary: false
+    daily_summary_time: "20:00"
+
+discord:
+  enabled: false
+  bot_token_ref: "discord_bot_token"
+  allowed_guilds: []
+
+slack:
+  enabled: false
+  bot_token_ref: "slack_bot_token"
+  app_token_ref: "slack_app_token"
+  allowed_channels: []
+
+# --- Payments ---
+
+payments:
+  enabled: true
+  default_currency: USD
+  wallet:
+    auto_create: true
+    low_balance_alert: 10.0
+    default_token: USDC
+  limits:
+    per_transaction: 100.0
+    daily: 500.0
+    monthly: 5000.0
+    per_merchant_daily: 200.0
+  approval:
+    always_ask_above: 10.0
+    confirm_above: 100.0
+    cooldown_above: 1000.0
+    cooldown_seconds: 300
+  crypto:
+    enabled: true
+    default_chain: base
+    provider: local
+    rpc_url: ""
+    cdp_api_key_name_ref: "cdp_api_key_name"
+    cdp_api_key_private_ref: "cdp_api_key_private"
+
+# --- Email ---
+
+email:
+  enabled: true
+  provider: agentmail
+  api_key_ref: "agentmail_api_key"
+  domain: "agentmail.to"
+  auto_create_inbox: false
+  inbox_display_name: "EloPhanto Agent"
+  smtp:
+    host: ""
+    port: 587
+    use_tls: true
+    username_ref: "smtp_username"
+    password_ref: "smtp_password"
+    from_address: ""
+    from_name: "EloPhanto Agent"
+  imap:
+    host: ""
+    port: 993
+    use_tls: true
+    username_ref: "imap_username"
+    password_ref: "imap_password"
+    mailbox: INBOX
