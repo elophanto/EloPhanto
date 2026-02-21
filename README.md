@@ -1,6 +1,8 @@
 # EloPhanto
 
-A self-evolving AI agent that runs locally as your personal AI operating system. Full system access, real Chrome browser control, 47+ browser tools, document & media analysis (PDFs, images, DOCX, XLSX, PPTX, EPUB with OCR and RAG), a skills framework with EloPhantoHub registry, multi-channel gateway (CLI, Telegram, Discord, Slack), an evolving identity that develops through experience, agent email with dual provider support (AgentMail cloud inboxes or your own SMTP/IMAP server), crypto payments with spending limits and audit trail, encrypted credential vault, and the ability to create new capabilities autonomously.
+A self-evolving, self-building AI agent. It runs locally as your personal AI operating system — and when it encounters something it can't do, it builds the tool for it. Full self-development pipeline with testing, code review, and deployment. Creates its own skills from experience. Modifies its own source code with automatic rollback.
+
+Also: full system access, real Chrome browser control (47+ tools), document & media analysis, skills framework with EloPhantoHub marketplace, multi-channel gateway (CLI, Telegram, Discord, Slack), evolving identity, agent email, crypto payments, encrypted vault, and more.
 
 ## Quick Start
 
@@ -46,24 +48,30 @@ Give the agent a task in natural language. It plans which tools to use, executes
 
 ## What It Can Do
 
-- **File operations** — read, write, list, delete, move files and directories
-- **Shell commands** — execute any command with safety blacklists and approval controls
+### Self-Building
+
+- **Self-development** — when the agent encounters a task it lacks tools for, it builds one: research → design → implement → test → review → deploy. Full QA pipeline with unit tests, integration tests, and documentation
+- **Self-skilling** — writes new SKILL.md files from experience, teaching itself best practices for future tasks
+- **Core self-modification** — can modify its own source code with impact analysis, test verification, and automatic rollback
+- **Skills + EloPhantoHub** — 28 bundled best-practice skills loaded before tasks, plus a public skill registry for searching, installing, and sharing skills
+
+### Everything Else
+
 - **Browser automation** — control a real Chrome browser with 47 tools (navigate, click, type, screenshot, extract data, manage tabs, inspect DOM, read console/network logs)
+- **Multi-channel gateway** — WebSocket control plane with channel adapters for CLI, Telegram, Discord, and Slack, all with isolated sessions
+- **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans
+- **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
+- **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Send/receive/search/reply, identity integration, service signup verification flows
+- **Crypto payments** — agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config) or Coinbase AgentKit (managed custody, gasless, DEX swaps). USDC/ETH transfers, spending limits, full audit trail
+- **Evolving identity** — discovers its own identity on first run, evolves personality/values/capabilities through task reflection, maintains a living nature document
 - **Knowledge base** — persistent markdown knowledge with semantic search via embeddings
 - **Memory** — remembers past tasks across sessions, learns from experience
-- **Self-development** — creates new tools through a full pipeline: research, design, implement, test, review, deploy
-- **Core self-modification** — can modify its own source code with impact analysis, test verification, and automatic rollback
 - **Scheduling** — cron-based recurring tasks with natural language schedules
-- **Multi-channel gateway** — WebSocket control plane with channel adapters for CLI, Telegram, Discord, and Slack, all with isolated sessions
+- **File operations** — read, write, list, delete, move files and directories
+- **Shell commands** — execute any command with safety blacklists and approval controls
 - **Telegram bot** — full conversational interface from your phone with approval flow, notifications, and slash commands
 - **Discord bot** — slash commands, DM/mention support, reaction-based approvals (untested)
 - **Slack bot** — app mentions, DM support, thread-based responses (untested)
-- **Skills + EloPhantoHub** — best-practice guides loaded before tasks (27 bundled), with a public skill registry for searching, installing, and updating skills
-- **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
-- **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans
-- **Evolving identity** — discovers its own identity on first run, evolves personality/values/capabilities through task reflection, maintains a living nature document, tracks credential accounts
-- **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Create inboxes, send/receive/search/reply to emails programmatically, identity integration, service signup verification flows, audit logging
-- **Crypto payments** — agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config) or Coinbase AgentKit (managed custody, gasless, DEX swaps). USDC/ETH transfers, spending limits ($100/txn, $500/day, $5K/month), full audit trail, preview-before-execute protocol
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 
 ## Architecture
