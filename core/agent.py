@@ -387,6 +387,12 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Knowledge indexing failed: {e}")
 
+        # Census heartbeat (non-blocking, fire-and-forget)
+        from core.census import send_heartbeat
+
+        data_dir = self._config.project_root / self._config.storage.data_dir
+        asyncio.create_task(send_heartbeat(data_dir))
+
     def _inject_knowledge_deps(self) -> None:
         """Inject database, embedder, and indexer into knowledge tools."""
         search_tool = self._registry.get("knowledge_search")

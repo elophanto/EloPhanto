@@ -35,6 +35,7 @@
 | 18 | [Agent Email](18-EMAIL.md) | Dual provider (AgentMail + SMTP/IMAP), send/receive/search, audit logging |
 | 19 | [Skill Security](19-SKILL-SECURITY.md) | 7-layer defense-in-depth for EloPhantoHub marketplace |
 | 20 | [Hosted Platform](20-HOSTED-PLATFORM.md) | Desktop app (Tauri) + cloud instances (Fly.io), hybrid distribution |
+| 21 | [Agent Census](21-AGENT-CENSUS.md) | Anonymous startup heartbeat, machine fingerprint, ecosystem statistics |
 
 ---
 
