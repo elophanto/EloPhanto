@@ -378,7 +378,7 @@ elophanto/
 ├── start.sh             # Quick launcher (activates venv)
 ├── config.yaml          # Configuration
 ├── permissions.yaml     # Per-tool permission overrides
-└── docs/                # Full specification (19 docs)
+└── docs/                # Full specification (20 docs)
 ```
 
 ## Implementation Status
@@ -408,6 +408,7 @@ elophanto/
 | 14 | Evolving Identity (first awakening, reflection, nature document, credential tracking) | Done |
 | 15 | Agent Email (dual provider: AgentMail cloud + SMTP/IMAP, send/receive/search, identity integration, skill, audit) | Done |
 | 16 | EloPhantoHub Supply Chain Security (7-layer defense, publisher tiers, CI scanning, checksums, content policy) | P0 Done |
+| 17 | Hosted Platform & Desktop App (Tauri desktop, Fly.io cloud instances, web dashboard, Stripe billing) | Spec |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -430,6 +431,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-21 | **Hosted platform spec** — Hybrid distribution: Tauri desktop app (free, local-first) + Fly.io cloud instances (pro, always-on) at elophanto.com. Per-user container isolation, Supabase auth, Stripe billing, shared web dashboard, wake-on-request for hibernated instances, data portability between local and cloud |
 | 2026-02-21 | **EloPhantoHub security P0 implemented** — Content security policy with 16 blocked patterns + 5 warning patterns enforced at skill load time (`core/skills.py`), SHA-256 checksum verification on hub install (`core/hub.py`), skill revocation detection + quarantine to `_revoked/`, runtime safety guidance in system prompt (`core/planner.py`), skill origin tagging (source/tier/warnings in XML), enhanced `installed.json` with backward compat, 24 security tests |
 | 2026-02-20 | **EloPhantoHub supply chain security spec** — 7-layer defense-in-depth design for skill marketplace security: publisher verification with tier system (New → Verified → Trusted → Official), automated CI scanning (malicious patterns, prompt injection, obfuscation), human review for new publishers, SHA-256 integrity checksums, content security policy (blocked/warning patterns enforced at load time), runtime protection (permission system, skill origin tagging), incident response with revocation broadcast |
 | 2026-02-20 | **Agent email** — Own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). 6 tools (email_create_inbox, email_send, email_list, email_read, email_reply, email_search), email-agent skill with verification flow patterns, identity integration (inbox stored in beliefs), audit logging via email_log table. Chat-based setup — agent asks for provider choice and credentials |
