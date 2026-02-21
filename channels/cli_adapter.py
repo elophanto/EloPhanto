@@ -163,11 +163,15 @@ class CLIAdapter(ChannelAdapter):
                 if cmd == "help":
                     console.print(
                         f"\n  [{_C_ACCENT}]Commands[/]\n"
-                        f"  /clear   — Reset conversation session\n"
-                        f"  /stats   — Show gateway status\n"
-                        f"  /status  — Show gateway status\n"
-                        f"  /help    — This message\n"
-                        f"  exit     — Quit\n"
+                        f"  /clear      — Reset conversation session\n"
+                        f"  /status     — Show gateway status\n"
+                        f"  /health     — Provider health report\n"
+                        f"  /config     — Read/update config\n"
+                        f"  /provider   — Enable/disable providers\n"
+                        f"  /restart    — Re-initialize agent\n"
+                        f"  /recovery   — Enter/exit recovery mode\n"
+                        f"  /help       — This message\n"
+                        f"  exit        — Quit\n"
                     )
                     continue
 

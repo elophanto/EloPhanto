@@ -287,6 +287,18 @@ class ImapServerConfig:
 
 
 @dataclass
+class RecoveryConfig:
+    """Recovery mode configuration."""
+
+    enabled: bool = True
+    auto_enter_on_provider_failure: bool = True
+    auto_enter_timeout_minutes: int = 5
+    auto_exit_on_recovery: bool = True
+    health_check_interval_seconds: int = 60
+    inactivity_timeout_minutes: int = 30
+
+
+@dataclass
 class EmailConfig:
     """Agent email configuration — AgentMail or SMTP/IMAP."""
 
@@ -385,6 +397,7 @@ class Config:
     identity: IdentityConfig = field(default_factory=IdentityConfig)
     payments: PaymentsConfig = field(default_factory=PaymentsConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
+    recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -741,6 +754,21 @@ def load_config(config_path: Path | str | None = None) -> Config:
         ),
     )
 
+    # Parse recovery section
+    recovery_raw = raw.get("recovery", {})
+    recovery_config = RecoveryConfig(
+        enabled=recovery_raw.get("enabled", True),
+        auto_enter_on_provider_failure=recovery_raw.get(
+            "auto_enter_on_provider_failure", True
+        ),
+        auto_enter_timeout_minutes=recovery_raw.get("auto_enter_timeout_minutes", 5),
+        auto_exit_on_recovery=recovery_raw.get("auto_exit_on_recovery", True),
+        health_check_interval_seconds=recovery_raw.get(
+            "health_check_interval_seconds", 60
+        ),
+        inactivity_timeout_minutes=recovery_raw.get("inactivity_timeout_minutes", 30),
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -765,6 +793,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         identity=identity_config,
         payments=payments_config,
         email=email_config,
+        recovery=recovery_config,
         project_root=config_path.parent,
     )
 
