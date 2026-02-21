@@ -246,7 +246,7 @@ class LLMRouter:
             provider = self._infer_provider(model_override)
             return provider, model_override
 
-        # 2. Per-task-type config
+        # 2. Preferred provider from per-task routing
         routing = self._config.llm.routing.get(task_type)
         if routing and routing.preferred_provider:
             provider_name = routing.preferred_provider
@@ -257,23 +257,11 @@ class LLMRouter:
                 and self._is_healthy(provider_name)
                 and provider_name not in exclude
             ):
-                return provider_name, routing.preferred_model
+                model = self._resolve_model(provider_name, task_type)
+                if model:
+                    return provider_name, model
 
-            # Try fallback from routing config
-            if routing.fallback_provider:
-                fb_cfg = self._config.llm.providers.get(routing.fallback_provider)
-                if (
-                    fb_cfg
-                    and fb_cfg.enabled
-                    and self._is_healthy(routing.fallback_provider)
-                    and routing.fallback_provider not in exclude
-                ):
-                    return (
-                        routing.fallback_provider,
-                        routing.fallback_model or routing.preferred_model,
-                    )
-
-        # 3. Walk provider priority
+        # 3. Walk provider priority — look up per-provider model
         for provider_name in self._config.llm.provider_priority:
             if provider_name in exclude:
                 continue
@@ -283,7 +271,7 @@ class LLMRouter:
                 and provider_cfg.enabled
                 and self._is_healthy(provider_name)
             ):
-                model = self._default_model_for_provider(provider_name, task_type)
+                model = self._resolve_model(provider_name, task_type)
                 if model:
                     return provider_name, model
 
@@ -299,28 +287,33 @@ class LLMRouter:
             return "zai"
         return "ollama"
 
-    def _default_model_for_provider(self, provider: str, task_type: str) -> str | None:
-        """Get a default model for a provider based on task type."""
-        # Check routing config for local_fallback
+    def _resolve_model(self, provider: str, task_type: str) -> str | None:
+        """Resolve the model for a provider + task type.
+
+        Checks (in order):
+        1. ``routing.models[provider]`` — per-provider model map
+        2. Legacy routing fields (preferred_model, fallback_model, local_fallback)
+        3. Provider-level defaults (e.g. zai.default_model)
+        """
         routing = self._config.llm.routing.get(task_type)
 
-        if provider == "ollama":
-            if routing and routing.local_fallback:
-                return routing.local_fallback
-            return None
+        # 1. Per-provider models map (new format)
+        if routing and routing.models.get(provider):
+            return routing.models[provider]
 
+        # 2. Legacy flat fields
+        if routing:
+            if provider == routing.preferred_provider and routing.preferred_model:
+                return routing.preferred_model
+            if provider == routing.fallback_provider and routing.fallback_model:
+                return routing.fallback_model
+            if provider == "ollama" and routing.local_fallback:
+                return routing.local_fallback
+
+        # 3. Provider-level defaults
         if provider == "zai":
             zai_cfg = self._config.llm.providers.get("zai")
-            if not zai_cfg:
-                return None
-            if task_type in ("coding", "analysis", "simple"):
-                return zai_cfg.default_model or "glm-4.7"
-            return zai_cfg.default_model
-
-        if provider == "openrouter":
-            if routing and routing.preferred_model:
-                return routing.preferred_model
-            return "anthropic/claude-sonnet-4-20250514"
+            return zai_cfg.default_model if zai_cfg else None
 
         return None
 

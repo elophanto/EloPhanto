@@ -35,8 +35,7 @@ def test_config(tmp_path: Path) -> Config:
             routing={
                 "planning": RoutingConfig(
                     preferred_provider="ollama",
-                    preferred_model="qwen2.5:7b",
-                    local_fallback="qwen2.5:7b",
+                    models={"ollama": "qwen2.5:7b"},
                 ),
             },
             budget=BudgetConfig(daily_limit_usd=10.0, per_task_limit_usd=2.0),
