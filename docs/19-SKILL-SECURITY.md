@@ -1,6 +1,6 @@
 # EloPhanto — Skill & Hub Supply Chain Security
 
-> **Status: Spec** — Defense layers to prevent malicious skills from compromising agents or users.
+> **Status: P0 Implemented** — Defense layers to prevent malicious skills from compromising agents or users. P0 items (Layers 4, 5, 6, 7) are live in `core/skills.py`, `core/hub.py`, and `core/planner.py` with 24 tests.
 
 ## Why This Matters
 
@@ -456,22 +456,22 @@ After a malicious skill is found:
 
 ## Implementation Priority
 
-| Priority | Item | Layer |
-|----------|------|-------|
-| **P0** | Content security policy (blocked/warning patterns) in `core/skills.py` | 5 |
-| **P0** | System prompt guidance for skill-originated instructions | 6 |
-| **P0** | SHA-256 checksums in `index.json` + agent verification | 4 |
-| **P1** | `scan_skill.py` scanner + CI workflow for elophantohub PRs | 2 |
-| **P1** | Publisher tier system + account age check | 1 |
-| **P1** | Typosquat detection | 2 |
-| **P1** | Skill revocation flow | 7 |
-| **P2** | Human review requirement for new publishers | 3 |
-| **P2** | User notification on first skill load | 6 |
-| **P2** | Report command + website report button | 7 |
-| **P3** | Publisher profiles on website | 1 |
-| **P3** | Skill audit log (who installed what, when) | 7 |
+| Priority | Item | Layer | Status |
+|----------|------|-------|--------|
+| **P0** | Content security policy (blocked/warning patterns) in `core/skills.py` | 5 | **Done** |
+| **P0** | System prompt guidance for skill-originated instructions | 6 | **Done** |
+| **P0** | SHA-256 checksums in `index.json` + agent verification | 4 | **Done** |
+| **P0** | Skill revocation detection + quarantine | 7 | **Done** |
+| **P1** | `scan_skill.py` scanner + CI workflow for elophantohub PRs | 2 | |
+| **P1** | Publisher tier system + account age check | 1 | |
+| **P1** | Typosquat detection | 2 | |
+| **P2** | Human review requirement for new publishers | 3 | |
+| **P2** | User notification on first skill load | 6 | |
+| **P2** | Report command + website report button | 7 | |
+| **P3** | Publisher profiles on website | 1 | |
+| **P3** | Skill audit log (who installed what, when) | 7 | |
 
-P0 items can be implemented immediately with no infrastructure changes — they're code additions to existing files (`core/skills.py`, `core/hub.py`, `core/planner.py`).
+P0 items are implemented in `core/skills.py`, `core/hub.py`, and `core/planner.py` with 24 tests in `tests/test_core/test_skill_security.py`.
 
 ---
 
