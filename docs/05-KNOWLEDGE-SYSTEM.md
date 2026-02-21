@@ -9,7 +9,7 @@ All knowledge in EloPhanto is stored as markdown. Markdown is chosen because:
 - LLMs understand markdown natively and produce high-quality markdown output
 - It requires no special tooling — any text editor works
 - It is version-controllable with git
-- It is the same format used by Claude's knowledge system and OpenClaw, providing familiar patterns
+- It is the same format used by Claude's knowledge system, providing familiar patterns
 
 ## Directory Structure
 

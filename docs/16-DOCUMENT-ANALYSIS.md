@@ -1,6 +1,6 @@
 # EloPhanto — Document & Media Analysis
 
-> **Status**: Idea Phase
+> **Status**: Done
 
 ## Overview
 

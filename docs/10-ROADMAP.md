@@ -281,7 +281,7 @@ The user can open Telegram on their phone, send "What's my agent doing?", and re
 - `skill_read` and `skill_list` tools for agent use
 - Skills listed in system prompt under `<available_skills>` XML block
 - `elophanto skills` CLI: install, list, read, remove
-- Git-based skill installation from external repos (compatible with ui-skills.com, OpenClaw skills)
+- Git-based skill installation from external repos (compatible with ui-skills.com, anthropics/skills)
 - Agent can create new skills via self-development
 - Template skill in `skills/_template/`
 

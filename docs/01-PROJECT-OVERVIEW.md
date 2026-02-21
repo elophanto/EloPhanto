@@ -12,7 +12,7 @@ It is not a chatbot. It is not an assistant wrapper. It is a persistent, self-aw
 - **Self-evolving**: When EloPhanto encounters a task it lacks tools for, it designs, implements, tests, and deploys a new plugin — then documents what it built.
 - **Self-aware**: EloPhanto maintains markdown documentation of its own architecture, capabilities, and changelog. It reads these files on startup to understand itself.
 - **Full system access**: Shell, filesystem, real browser (with user's sessions), email, calendar — anything the user can do, EloPhanto can do.
-- **Open source**: MIT licensed. No telemetry. No central server. No vendor lock-in.
+- **Open source**: Apache 2.0 licensed. No telemetry. No central server. No vendor lock-in.
 - **Secure by design**: Encrypted credential vault. Immutable permission core. Tiered approval system.
 
 ## What Makes It Different
@@ -33,6 +33,6 @@ Most AI agents are sandboxed tools that call APIs. EloPhanto is different in thr
 
 - **Name**: EloPhanto
 - **Domain**: elophanto.com
-- **License**: MIT
+- **License**: Apache 2.0
 - **Language**: Python (agent core) + TypeScript (Node.js browser bridge, optional web UI)
 - **Repository**: To be created on GitHub

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Skills are best-practice guides that teach the agent HOW to do specific types of work well. Each skill is a `SKILL.md` file containing triggers, step-by-step instructions, and examples. The agent reads relevant skills before starting a task, following the same pattern used by Claude's computer-use skills and OpenClaw's workspace skills.
+Skills are best-practice guides that teach the agent HOW to do specific types of work well. Each skill is a `SKILL.md` file containing triggers, step-by-step instructions, and examples. The agent reads relevant skills before starting a task, following the same pattern used by Claude's computer-use skills.
 
 Skills are not tools — they don't execute code. They are prompt-injected knowledge that improves the agent's output quality for specific task categories.
 
@@ -110,7 +110,7 @@ The skills system is compatible with any repository that uses the `SKILL.md` con
 
 - [ui-skills.com](https://www.ui-skills.com/) — UI/frontend design skills
 - Any GitHub repo with `skills/<name>/SKILL.md` structure
-- OpenClaw-compatible skill directories
+- Any repo using the `SKILL.md` convention
 
 ### From EloPhantoHub (Skill Registry)
 
