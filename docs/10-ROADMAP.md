@@ -435,6 +435,7 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 10: Self-Learning Model | Idea Phase |
 | Phase 11: Agent Payments | Idea Phase |
 | Phase 12: Document & Media Analysis | Done |
+| Phase 18: Agent Census | **Done** — Anonymous startup heartbeat, machine fingerprint, ecosystem stats |
 
 ## Phase 10: Self-Learning Model (Idea Phase)
 
