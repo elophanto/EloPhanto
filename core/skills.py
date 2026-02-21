@@ -22,6 +22,43 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Content Security Policy — blocked and warning patterns (Layer 5)
+# ---------------------------------------------------------------------------
+
+SKILL_BLOCKED_PATTERNS: list[tuple[str, str]] = [
+    # Download-and-execute
+    (r"curl\s.*\|\s*(bash|sh|zsh)", "download-and-execute via curl pipe"),
+    (r"wget\s.*\|\s*(bash|sh|zsh)", "download-and-execute via wget pipe"),
+    (r"curl\s.*-o\s+\S+\s*&&\s*(bash|sh|chmod)", "download-and-execute via curl file"),
+    # Reverse shells
+    (r"bash\s+-i\s+>&\s*/dev/tcp", "reverse shell via /dev/tcp"),
+    (r"nc\s+-[elp].*\s+-e\s*/bin", "reverse shell via netcat"),
+    (r"python.*socket.*connect.*exec", "reverse shell via Python socket"),
+    # Credential theft
+    (r"cat\s+~/?\.(ssh|aws|gnupg|kube)", "credential file access"),
+    (r"tar\s.*~/?\.(ssh|aws|gnupg)", "credential directory archive"),
+    (r"scp\s.*~/?\.(ssh|aws)", "credential exfiltration via scp"),
+    # Prompt injection
+    (r"ignore\s+(all\s+)?previous\s+instructions", "prompt injection attempt"),
+    (r"disregard\s+(all\s+)?(prior|above)\s+instructions", "prompt injection attempt"),
+    (r"you\s+are\s+now\s+(a\s+)?new\s+ai", "prompt injection / role override"),
+    # Obfuscation
+    (r"base64\s+-d", "base64 decode obfuscation"),
+    (r"eval\s*\(\s*(atob|Buffer\.from)", "eval with decode obfuscation"),
+    (r"\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}", "hex-encoded payload"),
+    # Destructive
+    (r"rm\s+-rf\s+/(?!\w)", "destructive root deletion"),
+]
+
+SKILL_WARNING_PATTERNS: list[tuple[str, str]] = [
+    (r"https?://\S+", "contains external URL"),
+    (r"pip\s+install\s+", "requests pip package installation"),
+    (r"npm\s+install\s+", "requests npm package installation"),
+    (r"chmod\s+\+x\s+", "modifies file permissions"),
+    (r"sudo\s+", "requests elevated privileges"),
+]
+
 
 @dataclass
 class Skill:
@@ -32,6 +69,10 @@ class Skill:
     description: str = ""
     triggers: list[str] = field(default_factory=list)
     content: str = ""
+    source: str = "local"  # "local", "hub", or "external"
+    author_tier: str = ""  # publisher tier from hub
+    warnings: list[str] = field(default_factory=list)
+    checksum_verified: bool = False
 
     @property
     def location(self) -> str:
@@ -92,6 +133,8 @@ class SkillManager:
 
             try:
                 skill = self._parse_skill(entry.name, skill_file)
+                if skill is None:
+                    continue  # Blocked by content security policy
                 self._skills[skill.name] = skill
             except Exception as e:
                 logger.warning(f"Failed to parse skill {entry.name}: {e}")
@@ -148,7 +191,11 @@ class SkillManager:
 
         lines = ["<available_skills>"]
         for skill in self._skills.values():
-            lines.append("<skill>")
+            warn_attr = ",".join(skill.warnings) if skill.warnings else "none"
+            lines.append(
+                f'<skill source="{skill.source}" tier="{skill.author_tier or "local"}"'
+                f' warnings="{warn_attr}">'
+            )
             lines.append(f"<name>{skill.name}</name>")
             lines.append(f"<description>{skill.description}</description>")
             lines.append(f"<location>{skill.location}</location>")
@@ -175,6 +222,9 @@ class SkillManager:
         shutil.copytree(source, dest)
 
         skill = self._parse_skill(skill_name, dest / "SKILL.md")
+        if skill is None:
+            shutil.rmtree(dest)
+            raise ValueError(f"Skill '{skill_name}' blocked by content security policy")
         self._skills[skill_name] = skill
         logger.info(f"Installed skill: {skill_name}")
         return skill_name
@@ -194,9 +244,43 @@ class SkillManager:
         logger.info(f"Removed skill: {name}")
         return True
 
-    def _parse_skill(self, name: str, skill_file: Path) -> Skill:
-        """Parse a SKILL.md file to extract metadata."""
+    @staticmethod
+    def _check_skill_safety(name: str, content: str) -> tuple[bool, list[str]]:
+        """Scan skill content for blocked and warning patterns.
+
+        Returns (safe, messages) where safe=False means the skill is blocked.
+        """
+        content_lower = content.lower()
+
+        # Check blocked patterns
+        for pattern, reason in SKILL_BLOCKED_PATTERNS:
+            if re.search(pattern, content_lower):
+                return False, [f"BLOCKED: {reason} (pattern: {pattern})"]
+
+        # Check warning patterns
+        warnings: list[str] = []
+        for pattern, reason in SKILL_WARNING_PATTERNS:
+            if re.search(pattern, content_lower):
+                warnings.append(reason)
+
+        return True, warnings
+
+    def _parse_skill(self, name: str, skill_file: Path) -> Skill | None:
+        """Parse a SKILL.md file to extract metadata.
+
+        Returns None if the skill is blocked by content security policy.
+        """
         content = skill_file.read_text(encoding="utf-8")
+
+        # Content security scan
+        safe, messages = self._check_skill_safety(name, content)
+        if not safe:
+            logger.error(
+                "Skill '%s' blocked by content security policy: %s",
+                name,
+                messages[0],
+            )
+            return None
 
         description = ""
         triggers: list[str] = []
@@ -220,10 +304,28 @@ class SkillManager:
                 if line:
                     triggers.append(line)
 
+        # Determine source from metadata.json if present
+        source = "local"
+        author_tier = ""
+        metadata_file = skill_file.parent / "metadata.json"
+        if metadata_file.exists():
+            try:
+                import json
+
+                meta = json.loads(metadata_file.read_text(encoding="utf-8"))
+                if meta.get("source") == "elophantohub":
+                    source = "hub"
+                author_tier = meta.get("author_tier", "")
+            except Exception:
+                pass
+
         return Skill(
             name=name,
             path=skill_file.parent,
             description=description,
             triggers=triggers,
             content=content,
+            source=source,
+            author_tier=author_tier,
+            warnings=messages,
         )
