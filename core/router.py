@@ -104,14 +104,35 @@ class CostTracker:
 class LLMRouter:
     """Routes LLM calls to the appropriate provider and model."""
 
+    # Seconds before a failed provider is retried
+    HEALTH_RECOVERY_SECONDS = 60
+
     def __init__(self, config: Config) -> None:
         self._config = config
         self._cost_tracker = CostTracker()
         self._provider_health: dict[str, bool] = {}
+        self._provider_failed_at: dict[str, float] = {}
 
     @property
     def cost_tracker(self) -> CostTracker:
         return self._cost_tracker
+
+    def _mark_unhealthy(self, provider: str) -> None:
+        """Mark a provider as unhealthy with a recovery timer."""
+        self._provider_health[provider] = False
+        self._provider_failed_at[provider] = time.time()
+
+    def _is_healthy(self, provider: str) -> bool:
+        """Check if a provider is healthy, recovering after cooldown."""
+        if self._provider_health.get(provider, True):
+            return True
+        # Auto-recover after cooldown
+        failed_at = self._provider_failed_at.get(provider, 0)
+        if time.time() - failed_at >= self.HEALTH_RECOVERY_SECONDS:
+            logger.info(f"Provider {provider} health recovered after cooldown")
+            self._provider_health[provider] = True
+            return True
+        return False
 
     async def complete(
         self,
@@ -122,7 +143,11 @@ class LLMRouter:
         temperature: float = 0.7,
         max_tokens: int | None = None,
     ) -> LLMResponse:
-        """Route an LLM call to the appropriate provider."""
+        """Route an LLM call to the appropriate provider.
+
+        On failure, marks the provider unhealthy and retries with the
+        next available provider in the priority list.
+        """
         if not self._cost_tracker.within_budget(
             self._config.llm.budget.daily_limit_usd,
             self._config.llm.budget.per_task_limit_usd,
@@ -132,20 +157,51 @@ class LLMRouter:
                 f"Task: ${self._cost_tracker.task_total:.2f}"
             )
 
-        provider, model = self._select_provider_and_model(task_type, model_override)
-        logger.info(f"Routing to {provider}/{model} for task_type={task_type}")
+        # Collect all providers to try (primary + fallbacks)
+        tried: set[str] = set()
+        last_error: Exception | None = None
 
-        if provider == "zai":
-            return await self._call_zai(messages, model, tools, temperature, max_tokens)
-        else:
-            return await self._call_litellm(
-                messages, model, provider, tools, temperature, max_tokens
-            )
+        while True:
+            try:
+                provider, model = self._select_provider_and_model(
+                    task_type, model_override, exclude=tried
+                )
+            except RuntimeError:
+                # No more providers to try
+                if last_error:
+                    raise RuntimeError(
+                        f"All LLM providers failed. Last error: {last_error}"
+                    ) from last_error
+                raise
+
+            tried.add(provider)
+            logger.info(f"Routing to {provider}/{model} for task_type={task_type}")
+
+            try:
+                if provider == "zai":
+                    return await self._call_zai(
+                        messages, model, tools, temperature, max_tokens
+                    )
+                else:
+                    return await self._call_litellm(
+                        messages, model, provider, tools, temperature, max_tokens
+                    )
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Provider {provider}/{model} failed, trying next: {e}")
+                # If model_override was given, don't try other providers
+                if model_override:
+                    raise
 
     def _select_provider_and_model(
-        self, task_type: str, model_override: str | None
+        self,
+        task_type: str,
+        model_override: str | None,
+        exclude: set[str] | None = None,
     ) -> tuple[str, str]:
         """Select the best provider and model for the given task type."""
+        exclude = exclude or set()
+
         # 1. Explicit override
         if model_override:
             provider = self._infer_provider(model_override)
@@ -159,7 +215,8 @@ class LLMRouter:
             if (
                 provider_cfg
                 and provider_cfg.enabled
-                and self._provider_health.get(provider_name, True)
+                and self._is_healthy(provider_name)
+                and provider_name not in exclude
             ):
                 return provider_name, routing.preferred_model
 
@@ -169,7 +226,8 @@ class LLMRouter:
                 if (
                     fb_cfg
                     and fb_cfg.enabled
-                    and self._provider_health.get(routing.fallback_provider, True)
+                    and self._is_healthy(routing.fallback_provider)
+                    and routing.fallback_provider not in exclude
                 ):
                     return (
                         routing.fallback_provider,
@@ -178,11 +236,13 @@ class LLMRouter:
 
         # 3. Walk provider priority
         for provider_name in self._config.llm.provider_priority:
+            if provider_name in exclude:
+                continue
             provider_cfg = self._config.llm.providers.get(provider_name)
             if (
                 provider_cfg
                 and provider_cfg.enabled
-                and self._provider_health.get(provider_name, True)
+                and self._is_healthy(provider_name)
             ):
                 model = self._default_model_for_provider(provider_name, task_type)
                 if model:
@@ -262,7 +322,7 @@ class LLMRouter:
             response = await litellm.acompletion(**kwargs)
         except Exception as e:
             logger.error(f"litellm call failed ({provider}/{model}): {e}")
-            self._provider_health[provider] = False
+            self._mark_unhealthy(provider)
             raise
 
         choice = response.choices[0]
@@ -330,7 +390,7 @@ class LLMRouter:
             return response
         except Exception as e:
             logger.error(f"Z.ai call failed ({model}): {e}")
-            self._provider_health["zai"] = False
+            self._mark_unhealthy("zai")
             raise
 
     async def health_check(self) -> dict[str, bool]:
@@ -411,7 +471,7 @@ class LLMRouter:
         # even if health check failed (could be transient)
         for name, healthy in results.items():
             if name == "ollama" and not healthy:
-                self._provider_health[name] = False
+                self._mark_unhealthy(name)
             # Cloud providers: don't mark unhealthy from startup check
 
         logger.info(f"Provider health: {results}")
