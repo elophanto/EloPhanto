@@ -6,6 +6,7 @@ based on task type, user configuration, and provider availability.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -106,6 +107,9 @@ class LLMRouter:
 
     # Seconds before a failed provider is retried
     HEALTH_RECOVERY_SECONDS = 60
+    # Retry config for transient failures
+    MAX_RETRIES = 3
+    RETRY_DELAYS = [2, 5, 10]  # seconds between retries
 
     def __init__(self, config: Config) -> None:
         self._config = config
@@ -134,6 +138,43 @@ class LLMRouter:
             return True
         return False
 
+    async def _call_with_retries(
+        self,
+        provider: str,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int | None,
+    ) -> LLMResponse:
+        """Call a provider with retries on transient failures."""
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                if provider == "zai":
+                    return await self._call_zai(
+                        messages, model, tools, temperature, max_tokens
+                    )
+                else:
+                    return await self._call_litellm(
+                        messages, model, provider, tools, temperature, max_tokens
+                    )
+            except Exception as e:
+                delay = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)]
+                if attempt < self.MAX_RETRIES - 1:
+                    logger.warning(
+                        f"{provider}/{model} attempt {attempt + 1}/{self.MAX_RETRIES} "
+                        f"failed: {e}. Retrying in {delay}s..."
+                    )
+                    # Reset health so retry doesn't skip this provider
+                    self._provider_health.pop(provider, None)
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        f"{provider}/{model} failed after {self.MAX_RETRIES} attempts: {e}"
+                    )
+                    raise
+        raise RuntimeError("Unreachable")  # pragma: no cover
+
     async def complete(
         self,
         messages: list[dict[str, Any]],
@@ -145,8 +186,9 @@ class LLMRouter:
     ) -> LLMResponse:
         """Route an LLM call to the appropriate provider.
 
-        On failure, marks the provider unhealthy and retries with the
-        next available provider in the priority list.
+        Each provider is retried up to MAX_RETRIES times for transient
+        failures. If all retries fail, tries the next provider in the
+        priority list.
         """
         if not self._cost_tracker.within_budget(
             self._config.llm.budget.daily_limit_usd,
@@ -178,17 +220,14 @@ class LLMRouter:
             logger.info(f"Routing to {provider}/{model} for task_type={task_type}")
 
             try:
-                if provider == "zai":
-                    return await self._call_zai(
-                        messages, model, tools, temperature, max_tokens
-                    )
-                else:
-                    return await self._call_litellm(
-                        messages, model, provider, tools, temperature, max_tokens
-                    )
+                return await self._call_with_retries(
+                    provider, model, messages, tools, temperature, max_tokens
+                )
             except Exception as e:
                 last_error = e
-                logger.warning(f"Provider {provider}/{model} failed, trying next: {e}")
+                logger.warning(
+                    f"Provider {provider}/{model} exhausted retries, trying next: {e}"
+                )
                 # If model_override was given, don't try other providers
                 if model_override:
                     raise
@@ -401,8 +440,6 @@ class LLMRouter:
         Cloud providers (Z.ai, OpenRouter) get a warning but remain eligible
         for routing — transient health check failures should not block them.
         """
-        import asyncio
-
         import httpx
 
         results: dict[str, bool] = {}
