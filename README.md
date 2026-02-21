@@ -417,6 +417,7 @@ elophanto/
 | 15 | Agent Email (dual provider: AgentMail cloud + SMTP/IMAP, send/receive/search, identity integration, skill, audit) | Done |
 | 16 | EloPhantoHub Supply Chain Security (7-layer defense, publisher tiers, CI scanning, checksums, content policy) | P0 Done |
 | 17 | Hosted Platform & Desktop App (Tauri desktop, Fly.io cloud instances, web dashboard, Stripe billing) | Spec |
+| 18 | Agent Census (anonymous startup heartbeat, machine fingerprint, ecosystem stats) | Done |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -439,6 +440,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-21 | **Agent Census** — Anonymous startup heartbeat for ecosystem statistics. SHA-256 machine fingerprint (survives reinstall), fire-and-forget with 3s timeout, zero PII. Payload: agent_id + version + platform + python version. `core/census.py` module, integrated in `Agent.initialize()`, 15 tests |
 | 2026-02-21 | **Hosted platform spec** — Hybrid distribution: Tauri desktop app (free, local-first) + Fly.io cloud instances (pro, always-on) at elophanto.com. Per-user container isolation, Supabase auth, Stripe billing, shared web dashboard, wake-on-request for hibernated instances, data portability between local and cloud |
 | 2026-02-21 | **EloPhantoHub security P0 implemented** — Content security policy with 16 blocked patterns + 5 warning patterns enforced at skill load time (`core/skills.py`), SHA-256 checksum verification on hub install (`core/hub.py`), skill revocation detection + quarantine to `_revoked/`, runtime safety guidance in system prompt (`core/planner.py`), skill origin tagging (source/tier/warnings in XML), enhanced `installed.json` with backward compat, 24 security tests |
 | 2026-02-20 | **EloPhantoHub supply chain security spec** — 7-layer defense-in-depth design for skill marketplace security: publisher verification with tier system (New → Verified → Trusted → Official), automated CI scanning (malicious patterns, prompt injection, obfuscation), human review for new publishers, SHA-256 integrity checksums, content security policy (blocked/warning patterns enforced at load time), runtime protection (permission system, skill origin tagging), incident response with revocation broadcast |
