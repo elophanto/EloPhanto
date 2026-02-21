@@ -10,13 +10,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from core.census import (
-    CENSUS_URL,
     _SALT,
+    CENSUS_URL,
     _build_payload,
     get_agent_fingerprint,
     send_heartbeat,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fingerprint tests
@@ -176,7 +175,7 @@ class TestHeartbeat:
         with patch("core.census.CENSUS_URL", "http://127.0.0.1:1"):
             try:
                 await asyncio.wait_for(send_heartbeat(data_dir), timeout=5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pytest.fail("send_heartbeat hung past 5s — timeout not working")
 
     @pytest.mark.asyncio
