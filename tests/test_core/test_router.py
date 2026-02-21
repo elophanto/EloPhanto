@@ -124,7 +124,7 @@ class TestRouterSelection:
     def test_unhealthy_provider_skipped(self) -> None:
         config = self._make_config()
         router = LLMRouter(config)
-        router._provider_health["openrouter"] = False
+        router._mark_unhealthy("openrouter")
 
         # Planning prefers openrouter, but it's unhealthy
         provider, model = router._select_provider_and_model("planning", None)
