@@ -32,6 +32,7 @@ from core.protocol import (
     response_message,
     status_message,
 )
+from core.recovery import RecoveryHandler
 from core.session import Session, SessionManager
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,14 @@ class Gateway:
         # Map session_id → set of client_ids subscribed to that session
         self._session_clients: dict[str, set[str]] = {}
 
+        # Recovery handler — pure Python, no LLM
+        router = getattr(agent, "_router", None)
+        config = getattr(agent, "_config", None)
+        self._recovery = (
+            RecoveryHandler(config, router, agent) if config and router else None
+        )
+        self._health_monitor_task: asyncio.Task[None] | None = None
+
     @property
     def url(self) -> str:
         return f"ws://{self._host}:{self._port}"
@@ -100,8 +109,15 @@ class Gateway:
         )
         logger.info("Gateway started on %s", self.url)
 
+        # Start periodic health monitoring for auto-recovery
+        if self._recovery:
+            self._health_monitor_task = asyncio.create_task(self._health_monitor_loop())
+
     async def stop(self) -> None:
         """Gracefully shut down the gateway."""
+        if self._health_monitor_task:
+            self._health_monitor_task.cancel()
+            self._health_monitor_task = None
         if self._server:
             self._server.close()
             await self._server.wait_closed()
@@ -149,7 +165,9 @@ class Gateway:
 
         try:
             # Send ready status
-            await websocket.send(status_message("connected", {"client_id": client_id}).to_json())
+            await websocket.send(
+                status_message("connected", {"client_id": client_id}).to_json()
+            )
 
             async for raw in websocket:
                 try:
@@ -167,7 +185,9 @@ class Gateway:
                 subs.discard(client_id)
             logger.info("Client disconnected: %s", client_id[:8])
 
-    async def _route_message(self, client: ClientConnection, msg: GatewayMessage) -> None:
+    async def _route_message(
+        self, client: ClientConnection, msg: GatewayMessage
+    ) -> None:
         """Route an incoming message to the appropriate handler."""
         handlers = {
             MessageType.CHAT: self._handle_chat,
@@ -186,6 +206,19 @@ class Gateway:
 
     async def _handle_chat(self, client: ClientConnection, msg: GatewayMessage) -> None:
         """Handle a chat message — route to agent with session isolation."""
+        # In recovery mode, block chat (LLM is unavailable) and show help
+        if self._recovery and self._recovery.recovery_mode:
+            session_id = msg.session_id or client.session_id or ""
+            await client.websocket.send(
+                response_message(
+                    session_id,
+                    "Agent is in recovery mode (LLM unavailable).\n"
+                    "Use /health for diagnostics or /recovery off to exit.",
+                    done=True,
+                ).to_json()
+            )
+            return
+
         channel = msg.channel or client.channel or "unknown"
         user_id = msg.user_id or client.user_id or client.client_id
 
@@ -219,8 +252,14 @@ class Gateway:
                 mime = att.get("mime_type", "")
                 path = att.get("local_path", "")
                 size = att.get("size_bytes", 0)
-                file_lines.append(f"[Attached file: {fname} ({mime}, {size} bytes) at {path}]")
-            content = content + "\n\n" + "\n".join(file_lines) if content else "\n".join(file_lines)
+                file_lines.append(
+                    f"[Attached file: {fname} ({mime}, {size} bytes) at {path}]"
+                )
+            content = (
+                content + "\n\n" + "\n".join(file_lines)
+                if content
+                else "\n".join(file_lines)
+            )
 
         if not content:
             await client.websocket.send(
@@ -229,7 +268,9 @@ class Gateway:
             return
 
         # Notify: step progress
-        async def on_step(step: int, tool_name: str, thought: str, params: dict) -> None:
+        async def on_step(
+            step: int, tool_name: str, thought: str, params: dict
+        ) -> None:
             await self.broadcast(
                 event_message(
                     session.session_id,
@@ -244,8 +285,12 @@ class Gateway:
             )
 
         # Create approval callback for this session
-        async def session_approval_callback(tool_name: str, description: str, params: dict) -> bool:
-            return await self._request_approval(session, client, tool_name, description, params)
+        async def session_approval_callback(
+            tool_name: str, description: str, params: dict
+        ) -> bool:
+            return await self._request_approval(
+                session, client, tool_name, description, params
+            )
 
         # Run agent with session isolation
         try:
@@ -286,7 +331,9 @@ class Gateway:
 
         except Exception as e:
             logger.error("Agent error for session %s: %s", session.session_id[:8], e)
-            await client.websocket.send(error_message(str(e), session.session_id, msg.id).to_json())
+            await client.websocket.send(
+                error_message(str(e), session.session_id, msg.id).to_json()
+            )
             await self.broadcast(
                 event_message(
                     session.session_id,
@@ -306,14 +353,18 @@ class Gateway:
         params: dict[str, Any],
     ) -> bool:
         """Send approval request to channel and wait for response."""
-        req = approval_request_message(session.session_id, tool_name, description, params)
+        req = approval_request_message(
+            session.session_id, tool_name, description, params
+        )
         self._pending_approvals[req.id] = asyncio.get_event_loop().create_future()
 
         # Send to the requesting client and any other clients on this session
         await self.broadcast(req, session_id=session.session_id)
 
         try:
-            approved = await asyncio.wait_for(self._pending_approvals[req.id], timeout=300)
+            approved = await asyncio.wait_for(
+                self._pending_approvals[req.id], timeout=300
+            )
             return approved
         except TimeoutError:
             logger.warning("Approval timed out for %s", tool_name)
@@ -339,10 +390,13 @@ class Gateway:
         else:
             logger.warning("No pending approval for id %s", request_id[:8])
 
-    async def _handle_command(self, client: ClientConnection, msg: GatewayMessage) -> None:
-        """Handle slash commands (/status, /tasks, /budget, etc.)."""
+    async def _handle_command(
+        self, client: ClientConnection, msg: GatewayMessage
+    ) -> None:
+        """Handle slash commands — including recovery commands (no LLM)."""
         command = msg.data.get("command", "")
         session_id = msg.session_id or client.session_id
+        user_id = msg.user_id or client.user_id
 
         if command == "status":
             active = await self._sessions.list_active(limit=5)
@@ -365,16 +419,59 @@ class Gateway:
             await client.websocket.send(
                 response_message(
                     session_id,
-                    "Active sessions:\n" + "\n".join(lines) if lines else "No active sessions",
+                    (
+                        "Active sessions:\n" + "\n".join(lines)
+                        if lines
+                        else "No active sessions"
+                    ),
                     done=True,
                 ).to_json()
             )
 
         else:
+            # Try recovery handler — pure Python, no LLM
+            if self._recovery:
+                result = await self._recovery.handle(command, user_id=user_id)
+                if result is not None:
+                    await client.websocket.send(
+                        response_message(session_id, result, done=True).to_json()
+                    )
+                    return
+
             await client.websocket.send(
                 error_message(f"Unknown command: {command}", session_id).to_json()
             )
 
-    async def _handle_status(self, client: ClientConnection, msg: GatewayMessage) -> None:
+    async def _handle_status(
+        self, client: ClientConnection, msg: GatewayMessage
+    ) -> None:
         """Handle status/heartbeat messages."""
-        await client.websocket.send(status_message("ok", {"client_id": client.client_id}).to_json())
+        await client.websocket.send(
+            status_message("ok", {"client_id": client.client_id}).to_json()
+        )
+
+    async def _health_monitor_loop(self) -> None:
+        """Periodically check provider health; auto-enter recovery if all down."""
+        config = getattr(self._agent, "_config", None)
+        interval = 60
+        if config and hasattr(config, "recovery"):
+            interval = config.recovery.health_check_interval_seconds
+
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                if self._recovery:
+                    notification = self._recovery.check_auto_recovery()
+                    if notification:
+                        # Broadcast to all connected clients
+                        await self.broadcast(
+                            event_message(
+                                "",
+                                EventType.NOTIFICATION,
+                                {"content": notification},
+                            )
+                        )
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.debug("Health monitor tick error", exc_info=True)

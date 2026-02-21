@@ -100,6 +100,11 @@ class TelegramChannelAdapter(ChannelAdapter):
                 _escape_md2(
                     "*Commands*\n\n"
                     "/status — Agent status\n"
+                    "/health — Provider health report\n"
+                    "/config — Read/update config\n"
+                    "/provider — Enable/disable providers\n"
+                    "/restart — Re-initialize agent\n"
+                    "/recovery — Enter/exit recovery mode\n"
                     "/approve — Approve pending action\n"
                     "/deny — Deny pending action\n"
                     "/help — This message"
@@ -136,6 +141,18 @@ class TelegramChannelAdapter(ChannelAdapter):
                 await message.answer("Denied.")
                 return
             await message.answer("No pending approvals.")
+
+        # Recovery commands — forwarded to gateway (pure Python, no LLM)
+        _RECOVERY_COMMANDS = ("health", "config", "provider", "restart", "recovery")
+
+        @self._dp.message(Command(*_RECOVERY_COMMANDS))
+        async def cmd_recovery(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            user_id = str(message.from_user.id)
+            # Forward full command text: "/health recheck" → "health recheck"
+            text = (message.text or "").lstrip("/")
+            await self.send_command(text, user_id=user_id)
 
         @self._dp.message()
         async def handle_message(message: types.Message) -> None:
@@ -243,7 +260,9 @@ class TelegramChannelAdapter(ChannelAdapter):
                     await asyncio.sleep(_ERROR_PAUSE_SECONDS)
                     consecutive_errors = 0
                 else:
-                    logger.debug("Telegram polling error (%d): %s", consecutive_errors, e)
+                    logger.debug(
+                        "Telegram polling error (%d): %s", consecutive_errors, e
+                    )
                     await asyncio.sleep(2)
 
     async def stop(self) -> None:
@@ -345,7 +364,9 @@ class TelegramChannelAdapter(ChannelAdapter):
                 import tempfile
                 from pathlib import Path
 
-                tmp_dir = Path(tempfile.gettempdir()) / "elophanto" / f"telegram_{user_id}"
+                tmp_dir = (
+                    Path(tempfile.gettempdir()) / "elophanto" / f"telegram_{user_id}"
+                )
                 tmp_dir.mkdir(parents=True, exist_ok=True)
                 local_path = tmp_dir / filename
 
@@ -369,7 +390,9 @@ class TelegramChannelAdapter(ChannelAdapter):
 
         for chunk in chunks:
             try:
-                await self._bot.send_message(chat_id, chunk, parse_mode=ParseMode.MARKDOWN_V2)
+                await self._bot.send_message(
+                    chat_id, chunk, parse_mode=ParseMode.MARKDOWN_V2
+                )
             except Exception:
                 plain = to_plain_text(content)
                 for pc in split_message(plain, self._tg_config.max_message_length):

@@ -36,6 +36,7 @@
 | 19 | [Skill Security](19-SKILL-SECURITY.md) | 7-layer defense-in-depth for EloPhantoHub marketplace |
 | 20 | [Hosted Platform](20-HOSTED-PLATFORM.md) | Desktop app (Tauri) + cloud instances (Fly.io), hybrid distribution |
 | 21 | [Agent Census](21-AGENT-CENSUS.md) | Anonymous startup heartbeat, machine fingerprint, ecosystem statistics |
+| 22 | [Recovery Mode](22-RECOVERY-MODE.md) | Remote recovery without LLM: health checks, config reload, restart triggers |
 
 ---
 
