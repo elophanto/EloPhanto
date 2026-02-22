@@ -11,7 +11,8 @@ Supports 4 connection modes:
 1. fresh    — Launch a clean Chrome instance (default)
 2. cdp_port — Connect to existing Chrome via CDP port (preserves sessions)
 3. cdp_ws   — Connect to existing Chrome via WebSocket endpoint
-4. profile  — Launch a second Chrome with your profile (cookies/sessions preserved)
+4. profile  — Use your Chrome profile with cookies/sessions preserved.
+               If Chrome is already running, copies profile and launches separately.
 """
 
 from __future__ import annotations
@@ -95,6 +96,44 @@ def get_chrome_profiles() -> list[dict[str, str]]:
 
 
 _PROFILE_COPY_DIR = Path(tempfile.gettempdir()) / "elophanto-chrome-profile"
+
+# Default CDP port for auto-fallback when Chrome is already running
+_DEFAULT_CDP_PORT = 9222
+
+
+def _is_chrome_running() -> bool:
+    """Check if a Chrome process is currently running."""
+    import subprocess
+
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            result = subprocess.run(
+                ["pgrep", "-x", "Google Chrome"],
+                capture_output=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        elif system == "Linux":
+            result = subprocess.run(
+                ["pgrep", "-f", "chrome"],
+                capture_output=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        elif system == "Windows":
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq chrome.exe"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return "chrome.exe" in result.stdout.lower()
+    except Exception:
+        pass
+    return False
+
+
 _PROFILE_COPY_META = ".elophanto_profile_meta.json"
 
 _LOCK_NAMES = frozenset(
@@ -139,7 +178,9 @@ def _clean_crash_state(profile_dir: Path, suppress_restore: bool = True) -> None
         data.setdefault("profile", {})["exit_type"] = "Normal"
         data["profile"]["exited_cleanly"] = True
         if suppress_restore:
-            data.setdefault("session", {})["restore_on_startup"] = 5  # 5 = open new tab page
+            data.setdefault("session", {})[
+                "restore_on_startup"
+            ] = 5  # 5 = open new tab page
             data["session"].pop("startup_urls", None)
         prefs_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     except Exception:
@@ -372,14 +413,26 @@ def _prepare_profile_copy(
                     return [c for c in contents if c in _SKIP_PROFILE_DIRS]
                 return []
 
-            shutil.copytree(
-                str(src_profile),
-                str(dst_default),
-                ignore=_ignore_caches,
-                dirs_exist_ok=True,
-            )
+            try:
+                shutil.copytree(
+                    str(src_profile),
+                    str(dst_default),
+                    ignore=_ignore_caches,
+                    dirs_exist_ok=True,
+                )
+            except shutil.Error as e:
+                # copytree raises Error with list of (src, dst, reason) for
+                # files it couldn't copy (e.g. locked by running Chrome).
+                # The rest of the profile was still copied successfully.
+                skipped = len(e.args[0]) if e.args else 0
+                logger.info(
+                    "Profile copy completed with %d skipped files (locked by Chrome)",
+                    skipped,
+                )
         else:
-            logger.warning("Profile directory '%s' not found in %s", profile_directory, src)
+            logger.warning(
+                "Profile directory '%s' not found in %s", profile_directory, src
+            )
 
         elapsed = time.time() - t0
         logger.info("Profile copied to %s (%.1fs)", dest, elapsed)
@@ -528,6 +581,7 @@ class BrowserManager:
                 _remove_session_files(profile_dir)
 
                 config["userDataDir"] = source
+                config["profileDirectory"] = self._profile_directory
                 config["copyProfile"] = False
                 self._active_profile_path = source
                 self._active_profile_name = self._profile_directory
@@ -545,22 +599,67 @@ class BrowserManager:
                 self._active_source_path = None
         elif self._mode == "profile":
             source = self._user_data_dir or get_default_chrome_user_data_dir()
-            if source:
-                profile_path, effective_profile = _prepare_launch_profile(
-                    source, self._profile_directory
+            if source and _is_chrome_running():
+                # Chrome is running — can't use the original profile directly.
+                # Copy the profile to a temp directory and launch a separate instance.
+                logger.info(
+                    "Chrome is already running — copying profile to launch separate instance",
                 )
-                config["userDataDir"] = profile_path
+                copy_path = _prepare_profile_copy(source, self._profile_directory)
+                # The copy places selected profile as "Default" inside copy_path
+                config["userDataDir"] = copy_path
+                config["profileDirectory"] = "Default"
                 config["copyProfile"] = False
-                self._active_profile_path = profile_path
-                self._active_profile_name = effective_profile
+                self._active_profile_path = copy_path
+                self._active_profile_name = self._profile_directory
                 self._active_source_path = source
                 logger.info(
-                    "Prepared browser profile '%s' at %s",
-                    effective_profile,
-                    profile_path,
+                    "Using copied Chrome profile '%s' at %s (Chrome running — safe copy)",
+                    self._profile_directory,
+                    copy_path,
+                )
+            elif source:
+                # Chrome is not running — use the original profile directly.
+                source_root = Path(source)
+                profile_dir = source_root / self._profile_directory
+                if not profile_dir.exists():
+                    logger.warning(
+                        "Profile directory '%s' not found in %s, falling back to Default",
+                        self._profile_directory,
+                        source,
+                    )
+                    self._profile_directory = "Default"
+                    profile_dir = source_root / self._profile_directory
+
+                # Back up Preferences so we can restore after close
+                prefs_file = profile_dir / "Preferences"
+                self._prefs_backup = None
+                if prefs_file.exists():
+                    try:
+                        self._prefs_backup = prefs_file.read_text(encoding="utf-8")
+                    except Exception:
+                        pass
+
+                # Clean stale locks from previous crashes (Chrome is NOT running)
+                _remove_lock_files(source_root)
+                _remove_lock_files(profile_dir)
+                _clean_crash_state(profile_dir, suppress_restore=True)
+                _remove_session_files(profile_dir)
+
+                config["userDataDir"] = source
+                config["profileDirectory"] = self._profile_directory
+                config["copyProfile"] = False
+                self._active_profile_path = source
+                self._active_profile_name = self._profile_directory
+                self._active_source_path = source
+                logger.info(
+                    "Using Chrome profile '%s' at %s (Chrome not running — direct access)",
+                    self._profile_directory,
+                    source,
                 )
             else:
-                config["copyProfile"] = True
+                logger.warning("No Chrome profile found, falling back to fresh mode")
+                config["copyProfile"] = False
                 self._active_profile_path = None
                 self._active_profile_name = None
                 self._active_source_path = None
@@ -590,7 +689,9 @@ class BrowserManager:
             self._initialized = False
 
             # Restore original Preferences so the user's Chrome opens normally
-            if self._mode == "direct" and getattr(self, "_prefs_backup", None):
+            if self._mode in ("direct", "profile") and getattr(
+                self, "_prefs_backup", None
+            ):
                 try:
                     source = self._active_source_path
                     profile = self._active_profile_name or "Default"
@@ -605,7 +706,9 @@ class BrowserManager:
     # Tool dispatch — single generic method for all 44 tools
     # ------------------------------------------------------------------
 
-    async def call_tool(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def call_tool(
+        self, name: str, args: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Call any browser tool by name.
 
         This is the primary interface — all 44 browser tools are dispatched
@@ -655,7 +758,9 @@ class BrowserManager:
                 )
 
                 # Deterministic hard failure if cookie store collapsed after launch.
-                if source_count >= 100 and 0 <= copy_count < max(20, source_count // 10):
+                if source_count >= 100 and 0 <= copy_count < max(
+                    20, source_count // 10
+                ):
                     return {
                         "success": False,
                         "error": (

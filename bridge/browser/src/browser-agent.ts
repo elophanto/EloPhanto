@@ -60,6 +60,7 @@ export interface AwareBrowserConfig {
   cdpPort?: number;
   userDataDir?: string;
   copyProfile?: boolean;
+  profileDirectory?: string;
   viewport?: { width: number; height: number };
   useSystemChrome?: boolean;
 }
@@ -263,12 +264,17 @@ export class AwareBrowserAgent {
     // Mode 3: User data directory (persistent Chrome profile)
     // Launches Chrome with your actual profile — cookies, extensions, sessions preserved
     else if (this.config.userDataDir) {
-      console.log(`[Browser] Launching Chrome with user profile: ${this.config.userDataDir}`);
+      const profileDir = this.config.profileDirectory || 'Default';
+      console.log(`[Browser] Launching Chrome with profile '${profileDir}' from: ${this.config.userDataDir}`);
+      const args = this.getChromiumArgs();
+      if (profileDir !== 'Default') {
+        args.push(`--profile-directory=${profileDir}`);
+      }
       this.context = await chromium.launchPersistentContext(this.config.userDataDir, {
         headless: this.config.headless,
         channel,
         viewport,
-        args: this.getChromiumArgs(),
+        args,
       });
       this.browser = null;
     }
