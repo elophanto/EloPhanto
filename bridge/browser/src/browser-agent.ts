@@ -270,11 +270,17 @@ export class AwareBrowserAgent {
       if (profileDir !== 'Default') {
         args.push(`--profile-directory=${profileDir}`);
       }
+      // On macOS, Chrome encrypts cookies with a key stored in the system
+      // Keychain. Playwright adds --use-mock-keychain by default which
+      // bypasses the real Keychain, making copied-profile cookies unreadable.
+      // Remove it so Chrome can decrypt cookies using the real Keychain.
+      const isMac = os.platform() === 'darwin';
       this.context = await chromium.launchPersistentContext(this.config.userDataDir, {
         headless: this.config.headless,
         channel,
         viewport,
         args,
+        ...(isMac ? { ignoreDefaultArgs: ['--use-mock-keychain'] } : {}),
       });
       this.browser = null;
     }
