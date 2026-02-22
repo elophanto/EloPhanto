@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -285,6 +286,7 @@ class Database:
         self._db_path = Path(db_path)
         self._conn: sqlite3.Connection | None = None
         self._vec_available: bool = False
+        self._write_lock = threading.Lock()
 
     @property
     def vec_available(self) -> bool:
@@ -333,14 +335,15 @@ class Database:
 
         def _create() -> None:
             assert self._conn is not None
-            # Drop and recreate if dimensions changed
-            self._conn.execute("DROP TABLE IF EXISTS vec_chunks")
-            self._conn.execute(
-                f"CREATE VIRTUAL TABLE vec_chunks USING vec0("
-                f"chunk_id INTEGER PRIMARY KEY, "
-                f"embedding float[{dimensions}])"
-            )
-            self._conn.commit()
+            with self._write_lock:
+                # Drop and recreate if dimensions changed
+                self._conn.execute("DROP TABLE IF EXISTS vec_chunks")
+                self._conn.execute(
+                    f"CREATE VIRTUAL TABLE vec_chunks USING vec0("
+                    f"chunk_id INTEGER PRIMARY KEY, "
+                    f"embedding float[{dimensions}])"
+                )
+                self._conn.commit()
 
         await asyncio.to_thread(_create)
 
@@ -351,13 +354,14 @@ class Database:
 
         def _create() -> None:
             assert self._conn is not None
-            self._conn.execute("DROP TABLE IF EXISTS document_chunks_vec")
-            self._conn.execute(
-                f"CREATE VIRTUAL TABLE document_chunks_vec USING vec0("
-                f"chunk_id TEXT PRIMARY KEY, "
-                f"embedding float[{dimensions}])"
-            )
-            self._conn.commit()
+            with self._write_lock:
+                self._conn.execute("DROP TABLE IF EXISTS document_chunks_vec")
+                self._conn.execute(
+                    f"CREATE VIRTUAL TABLE document_chunks_vec USING vec0("
+                    f"chunk_id TEXT PRIMARY KEY, "
+                    f"embedding float[{dimensions}])"
+                )
+                self._conn.commit()
 
         await asyncio.to_thread(_create)
 
@@ -380,9 +384,10 @@ class Database:
 
         def _exec() -> int:
             assert self._conn is not None
-            cursor = self._conn.execute(sql, params)
-            self._conn.commit()
-            return cursor.lastrowid or 0
+            with self._write_lock:
+                cursor = self._conn.execute(sql, params)
+                self._conn.commit()
+                return cursor.lastrowid or 0
 
         return await asyncio.to_thread(_exec)
 
@@ -391,8 +396,9 @@ class Database:
 
         def _exec() -> None:
             assert self._conn is not None
-            self._conn.executemany(sql, params_list)
-            self._conn.commit()
+            with self._write_lock:
+                self._conn.executemany(sql, params_list)
+                self._conn.commit()
 
         await asyncio.to_thread(_exec)
 
@@ -401,7 +407,8 @@ class Database:
 
         def _exec() -> None:
             assert self._conn is not None
-            self._conn.executescript(sql)
+            with self._write_lock:
+                self._conn.executescript(sql)
 
         await asyncio.to_thread(_exec)
 
