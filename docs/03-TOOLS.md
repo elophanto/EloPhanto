@@ -299,6 +299,22 @@ Reverts a previous self-modification or plugin creation commit.
 - **Output**: For `list`: `commits` (array of revertible commits), `count` (integer). For `revert`: `reverted_commit` (string), `reverted_message` (string), `tests_passed` (boolean)
 - **Safety**: Only allows reverting commits tagged with `[self-modify]` or `[self-create-plugin]` prefixes. Runs test suite after rollback.
 
+### MCP Tools
+
+#### `mcp_manage`
+
+Manages MCP (Model Context Protocol) tool server configuration. The agent uses this to install the SDK, add/remove servers, and test connections — all through conversation.
+
+- **Permission**: `moderate`
+- **Input**: `action` (enum: `list`, `add`, `remove`, `test`, `install`), `name` (string, required for add/remove/test), `transport` (enum: `stdio`, `http`, default `stdio`), `command` (string, for stdio), `args` (array of strings, for stdio), `url` (string, for HTTP), `env` (object, environment variables — supports `vault:key_name`), `headers` (object, HTTP headers — supports `vault:key_name`), `permission_level` (enum: `safe`, `moderate`, `destructive`, default `moderate`), `enabled` (boolean, default true)
+- **Output**: `output` (string — human-readable result)
+- **Actions**:
+  - `list` — Show all configured servers, MCP enabled status, and SDK install status
+  - `add` — Add or update a server in config.yaml (requires `name`, plus `command` for stdio or `url` for HTTP)
+  - `remove` — Remove a server from config.yaml (requires `name`)
+  - `test` — Connect to server(s), discover tools, display results (requires MCP SDK)
+  - `install` — Install the MCP SDK (`mcp[cli]>=1.0.0`) via pip
+
 ### Scheduling Tools
 
 #### `schedule_task`

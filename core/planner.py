@@ -718,6 +718,51 @@ update config.yaml with file_write. Restart required after switching.
 </email_protocol>
 </email>"""
 
+_TOOL_MCP_SETUP = """\
+<mcp_setup>
+MCP (Model Context Protocol) lets you connect to external tool servers — filesystem,
+GitHub, databases, search, and hundreds more from mcpservers.org. Each MCP server
+exposes tools that become part of your toolkit, just like built-in tools.
+
+MCP is not yet configured. If the user asks about connecting to external tools,
+MCP servers, or mentions specific servers (GitHub, filesystem, Brave, databases),
+guide them through setup using the mcp_manage tool:
+
+1. **Install SDK** (if not installed): mcp_manage action=install
+2. **Add a server**: mcp_manage action=add name=<name> transport=stdio command=npx args=["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+3. **Test it**: mcp_manage action=test name=<name>
+
+Common MCP servers:
+- **Filesystem**: command=npx, args=["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+- **GitHub**: command=npx, args=["-y", "@modelcontextprotocol/server-github"], env={"GITHUB_PERSONAL_ACCESS_TOKEN": "vault:github_token"}
+- **Brave Search**: command=npx, args=["-y", "@modelcontextprotocol/server-brave-search"], env={"BRAVE_API_KEY": "vault:brave_key"}
+- **PostgreSQL**: command=npx, args=["-y", "@modelcontextprotocol/server-postgres", "postgresql://..."]
+
+For env vars with secrets, store them with vault_set first, then reference as "vault:key_name".
+After adding servers, tell the user to restart the agent so MCP tools become available.
+
+IMPORTANT: Handle everything through the conversation using mcp_manage and vault_set.
+Do NOT tell the user to run CLI commands.
+</mcp_setup>"""
+
+_TOOL_MCP = """\
+<mcp>
+You are connected to external MCP tool servers. MCP tools appear in your toolkit
+with the prefix mcp_<server>_<tool> (e.g. mcp_github_create_issue).
+
+Use MCP tools just like any other tool — they go through the same permission system.
+Each MCP tool's description starts with [MCP:server_name] to show its origin.
+
+You can manage MCP servers with the mcp_manage tool:
+- mcp_manage action=list — show configured servers and connection status
+- mcp_manage action=add name=<name> ... — add a new server
+- mcp_manage action=remove name=<name> — remove a server
+- mcp_manage action=test name=<name> — test a connection and show available tools
+
+Changes require an agent restart to take effect. If a user asks to add or remove
+a server, use mcp_manage and then tell them to restart.
+</mcp>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -772,6 +817,7 @@ def build_system_prompt(
     identity_enabled: bool = False,
     payments_enabled: bool = False,
     email_enabled: bool = False,
+    mcp_enabled: bool = False,
     knowledge_context: str = "",
     available_skills: str = "",
     goal_context: str = "",
@@ -849,6 +895,11 @@ def build_system_prompt(
         sections.append(_TOOL_EMAIL)
     else:
         sections.append(_TOOL_EMAIL_SETUP)
+
+    if mcp_enabled:
+        sections.append(_TOOL_MCP)
+    else:
+        sections.append(_TOOL_MCP_SETUP)
 
     sections.append(_TOOL_CLOSE)
 

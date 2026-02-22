@@ -42,6 +42,9 @@ payments = [
 payments-cdp = [
     "coinbase-agentkit>=0.7.4",
 ]
+mcp = [
+    "mcp[cli]>=1.0.0",
+]
 
 [project.scripts]
 elophanto = "cli.main:cli"

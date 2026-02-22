@@ -57,6 +57,7 @@ class ToolRegistry:
         from tools.knowledge.search import KnowledgeSearchTool
         from tools.knowledge.skill_tool import SkillListTool, SkillReadTool
         from tools.knowledge.writer import KnowledgeWriteTool
+        from tools.mcp_manage import MCPManageTool
         from tools.scheduling.list_tool import ScheduleListTool
         from tools.scheduling.schedule_tool import ScheduleTaskTool
         from tools.self_dev.capabilities import SelfListCapabilitiesTool
@@ -108,6 +109,9 @@ class ToolRegistry:
         # Scheduling tools
         self.register(ScheduleTaskTool())
         self.register(ScheduleListTool())
+
+        # MCP management tool (always available — lets agent manage MCP config)
+        self.register(MCPManageTool())
 
         # Document analysis tools
         from tools.documents.analyze_tool import DocumentAnalyzeTool

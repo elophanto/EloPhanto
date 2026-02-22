@@ -17,6 +17,7 @@ import asyncio
 import inspect
 import json
 import logging
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -163,6 +164,7 @@ class Agent:
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
         self._email_config: Any = None  # EmailConfig, set during initialize
+        self._mcp_manager: Any = None  # MCPClientManager, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
@@ -430,6 +432,61 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Email system setup failed: {e}")
 
+        # Initialize MCP client (connect to external MCP servers)
+        if self._config.mcp.enabled:
+            _mcp_available = False
+            try:
+                import mcp as _mcp_mod  # noqa: F401
+
+                _mcp_available = True
+            except ImportError:
+                _status("Installing MCP SDK")
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        sys.executable,
+                        "-m",
+                        "pip",
+                        "install",
+                        "mcp[cli]>=1.0.0",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    await asyncio.wait_for(proc.communicate(), timeout=120)
+                    if proc.returncode == 0:
+                        _mcp_available = True
+                        logger.info("MCP SDK installed automatically")
+                    else:
+                        logger.warning(
+                            "MCP SDK auto-install failed (exit %d). "
+                            "Run manually: uv pip install -e '.[mcp]'",
+                            proc.returncode,
+                        )
+                except Exception as e:
+                    logger.warning("MCP SDK auto-install failed: %s", e)
+
+            if _mcp_available:
+                _status("Connecting to MCP servers")
+                try:
+                    from core.mcp_client import MCPClientManager
+
+                    self._mcp_manager = MCPClientManager(vault=self._vault)
+                    mcp_results = await self._mcp_manager.connect_all(
+                        self._config.mcp.servers
+                    )
+                    mcp_tools = await self._mcp_manager.discover_and_create_tools()
+                    for tool in mcp_tools:
+                        self._registry.register(tool)
+                    connected = [n for n, ok in mcp_results.items() if ok]
+                    if connected:
+                        logger.info(
+                            "MCP: %d tools from %d servers (%s)",
+                            len(mcp_tools),
+                            len(connected),
+                            ", ".join(connected),
+                        )
+                except Exception as e:
+                    logger.warning("MCP client initialization failed: %s", e)
+
         # Auto-index knowledge on startup
         if self._config.knowledge.auto_index_on_startup:
             _status("Indexing knowledge")
@@ -448,6 +505,29 @@ class Agent:
 
         data_dir = self._config.project_root / self._config.storage.data_dir
         asyncio.create_task(send_heartbeat(data_dir))
+
+    async def shutdown(self) -> None:
+        """Clean up all subsystems gracefully."""
+        if self._mcp_manager:
+            try:
+                await self._mcp_manager.shutdown()
+            except Exception as e:
+                logger.debug("MCP shutdown error: %s", e)
+        if self._browser_manager:
+            try:
+                await self._browser_manager.close()
+            except Exception as e:
+                logger.debug("Browser shutdown error: %s", e)
+        if self._scheduler:
+            try:
+                self._scheduler.shutdown(wait=False)
+            except Exception as e:
+                logger.debug("Scheduler shutdown error: %s", e)
+        if self._db:
+            try:
+                await self._db.close()
+            except Exception as e:
+                logger.debug("DB close error: %s", e)
 
     def _inject_knowledge_deps(self) -> None:
         """Inject database, embedder, and indexer into knowledge tools."""
@@ -740,6 +820,7 @@ class Agent:
             identity_enabled=self._config.identity.enabled,
             payments_enabled=self._config.payments.enabled,
             email_enabled=self._config.email.enabled,
+            mcp_enabled=bool(self._mcp_manager and self._mcp_manager.connected_servers),
             knowledge_context=knowledge_context,
             available_skills=available_skills,
             goal_context=goal_context,
