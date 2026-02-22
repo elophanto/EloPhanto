@@ -165,6 +165,7 @@ class Agent:
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
         self._email_config: Any = None  # EmailConfig, set during initialize
         self._mcp_manager: Any = None  # MCPClientManager, set during initialize
+        self._dataset_builder: Any = None  # DatasetBuilder, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
@@ -506,6 +507,20 @@ class Agent:
         data_dir = self._config.project_root / self._config.storage.data_dir
         asyncio.create_task(send_heartbeat(data_dir))
 
+        # Self-learning dataset collection (opt-in)
+        if self._config.self_learning.enabled:
+            try:
+                from core.dataset_builder import DatasetBuilder
+
+                self._dataset_builder = DatasetBuilder(
+                    db=self._db,
+                    config=self._config.self_learning,
+                    data_dir=data_dir,
+                )
+                logger.info("Dataset collection ready")
+            except Exception as e:
+                logger.debug("Dataset collection setup failed: %s", e)
+
     async def shutdown(self) -> None:
         """Clean up all subsystems gracefully."""
         if self._mcp_manager:
@@ -523,6 +538,11 @@ class Agent:
                 self._scheduler.shutdown(wait=False)
             except Exception as e:
                 logger.debug("Scheduler shutdown error: %s", e)
+        if self._dataset_builder:
+            try:
+                await self._dataset_builder.flush()
+            except Exception as e:
+                logger.debug("Dataset collection flush error: %s", e)
         if self._db:
             try:
                 await self._db.close()
@@ -762,6 +782,7 @@ class Agent:
         hard_limit = self._config.max_steps or 500
         max_time = self._config.max_time_seconds
         start_time = _time.monotonic()
+        last_model_used = "unknown"
 
         # Stagnation detection: stop when the agent is stuck, not on a clock.
         consecutive_errors = 0
@@ -877,6 +898,7 @@ class Agent:
                 response.provider,
                 response.model_used,
             )
+            last_model_used = response.model_used
 
             # Check if LLM responded with text (no tool calls) = task complete
             if not response.tool_calls:
@@ -897,6 +919,18 @@ class Agent:
                         )
                     except Exception:
                         pass
+
+                # Dataset collection (non-blocking, fire-and-forget)
+                if self._dataset_builder:
+                    asyncio.create_task(
+                        self._dataset_builder.record_task(
+                            messages=messages,
+                            tool_calls_made=tool_calls_made,
+                            success=True,
+                            duration_seconds=_time.monotonic() - start_time,
+                            model_used=response.model_used,
+                        )
+                    )
 
                 # Persist user+assistant to conversation history for next turn
                 append_turn(goal, final_content)
@@ -1002,6 +1036,18 @@ class Agent:
         await self._store_task_memory(
             goal, "Max steps reached", "incomplete", tool_calls_made
         )
+
+        # Dataset collection for incomplete tasks
+        if self._dataset_builder:
+            asyncio.create_task(
+                self._dataset_builder.record_task(
+                    messages=messages,
+                    tool_calls_made=tool_calls_made,
+                    success=False,
+                    duration_seconds=_time.monotonic() - start_time,
+                    model_used=last_model_used,
+                )
+            )
 
         # Persist to conversation history even on max steps
         append_turn(goal, max_steps_msg)

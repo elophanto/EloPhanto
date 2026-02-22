@@ -265,6 +265,16 @@ _SCHEMA = [
         error TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS collect_examples (
+        id TEXT PRIMARY KEY,
+        conversations_json TEXT NOT NULL,
+        metadata_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        uploaded_at TEXT
+    )
+    """,
 ]
 
 

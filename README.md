@@ -291,6 +291,12 @@ mcp:
   enabled: false
   servers: {}                # See docs/23-MCP.md for server config examples
 
+self_learning:
+  enabled: false             # Opt-in: collect task data for model training
+  batch_size: 10
+  min_turns: 2
+  success_only: false
+
 documents:
   enabled: true
   ocr_enabled: true
@@ -423,7 +429,7 @@ elophanto/
 | 7.9 | EloPhantoHub (skill registry, search, install, update) | Done |
 | 8 | Web UI (FastAPI + React) | Planned |
 | 9 | Polish & Open Source Release | Done |
-| 10 | Self-Learning Model (HF Jobs + Unsloth, HuggingFace, Ollama) | Idea Phase |
+| 10 | Self-Learning Model (HF Jobs + Unsloth, HuggingFace, Ollama) | Dataset Builder Done |
 | 11 | Agent Payments (crypto wallet, spending limits, audit trail) | Done |
 | 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
 | 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval) | Done |
@@ -455,6 +461,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-22 | **Self-learning dataset builder** — Agent-side data collection pipeline for training. Captures task interactions, sanitizes locally (14 secret patterns, PII, browser data), enriches with training signals (user sentiment, denial/error detection, turn count), buffers in local SQLite, uploads in batches to elophanto.com collection API. Auto-registration via census fingerprint, key recovery on conflict. Server-side: collect endpoint, daily cron pushes to HuggingFace Datasets as JSONL. Collects both successes and failures for DPO/RLHF training. 42 tests |
 | 2026-02-22 | **MCP integration** — Native MCP client support: connect to any MCP server and its tools appear alongside built-in tools. Dual transport (stdio + Streamable HTTP), vault-referenced secrets, per-server permissions. Agent self-management via `mcp_manage` tool (install SDK, add/remove/test servers through conversation). `elophanto mcp` CLI commands (list, add, remove, test). Init wizard step 8 with presets (filesystem, GitHub, Brave Search). Auto-install SDK on startup. System prompt integration. Welcome panel shows `mcp (N)` with connected server count |
 | 2026-02-21 | **Agent Census** — Anonymous startup heartbeat for ecosystem statistics. SHA-256 machine fingerprint (survives reinstall), fire-and-forget with 3s timeout, zero PII. Payload: agent_id + version + platform + python version. `core/census.py` module, integrated in `Agent.initialize()`, 15 tests |
 | 2026-02-21 | **Hosted platform spec** — Hybrid distribution: Tauri desktop app (free, local-first) + Fly.io cloud instances (pro, always-on) at elophanto.com. Per-user container isolation, Supabase auth, Stripe billing, shared web dashboard, wake-on-request for hibernated instances, data portability between local and cloud |

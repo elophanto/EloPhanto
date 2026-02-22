@@ -432,11 +432,11 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 7.9: EloPhantoHub | **Done** — Skill registry, search, install, update, agent auto-discovery |
 | Phase 8: Web UI | Planned |
 | Phase 9: Polish & Release | Planned |
-| Phase 10: Self-Learning Model | Idea Phase |
+| Phase 10: Self-Learning Model | **Dataset Builder Done** — Training pipeline in idea phase |
 | Phase 11: Agent Payments | **Phase 1 Done** — Crypto wallet (local + Coinbase AgentKit), 7 tools, spending limits, audit trail |
 | Phase 12: Document & Media Analysis | **Done** — PDF, DOCX, XLSX, PPTX, EPUB, OCR, vision analysis, RAG |
 | Phase 13: Autonomous Goal Loop | **Done** — Multi-phase goals, checkpoints, progress tracking, self-evaluation |
-| Phase 14: Self-Learning Model | Idea Phase — Dataset collection, Unsloth fine-tuning pipeline spec |
+| Phase 14: Self-Learning Model | **Dataset Builder Done** — Agent-side collection pipeline (sanitizer, quality filter, signal extraction, batch upload, auto-registration). Training pipeline in idea phase |
 | Phase 15: Identity System | **Done** — Evolving identity, beliefs, personality, reflection, social profiles |
 | Phase 16: Email | **Done** — Dual provider (AgentMail + SMTP/IMAP), 6 tools, audit logging |
 | Phase 17: Skill Security | **Done** — 7-layer defense-in-depth for EloPhantoHub marketplace |
@@ -445,16 +445,18 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 20: Hosted Platform | Spec — Tauri desktop app + Fly.io cloud instances |
 | Phase 21: MCP Integration | **Done** — MCP client, auto-install, mcp_manage tool, CLI commands, init wizard, agent self-management |
 
-## Phase 10: Self-Learning Model (Idea Phase)
+## Phase 10: Self-Learning Model (Dataset Builder Done)
 
 **Goal**: Train a custom EloPhanto base model that improves over time from its own interaction data.
 
 ### Deliverables
 
-- Automated dataset collector capturing planning traces, tool calls, conversations, and reflections
-- Central dataset repository (GitHub/HuggingFace) with quality filtering and privacy sanitization
+- ~~Automated dataset collector capturing planning traces, tool calls, conversations, and reflections~~ **Done** — `core/dataset_builder.py` with sanitizer, quality filter, signal extraction, batch upload
+- ~~Central dataset repository (GitHub/HuggingFace) with quality filtering and privacy sanitization~~ **Server done** — Supabase buffer + daily cron push to HuggingFace
+- ~~Agent auto-registration and API key management~~ **Done** — census fingerprint, `/v1/auth/register`, `/v1/auth/recover`
+- ~~Enriched metadata for training weighting~~ **Done** — user sentiment, denial/error detection, turn count
 - Unsloth QLoRA fine-tuning pipeline on an open-source base model (7B-14B range)
-- Model published to HuggingFace (`0xroyce/EloPhanto-Base-Model`) with versioning
+- Model published to HuggingFace (`EloPhanto/base-model`) with versioning
 - Ollama integration for local deployment with auto-pull of new versions
 - Benchmark suite: tool accuracy, plan quality, code generation, reflection quality
 - Continuous improvement loop: collect → train → publish → deploy → monitor → repeat
