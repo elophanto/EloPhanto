@@ -143,6 +143,9 @@ def _build_welcome_panel(
         features.append(f"[{_C_SUCCESS}]browser[/]")
     if agent._scheduler:
         features.append(f"[{_C_SUCCESS}]scheduler[/]")
+    if agent._mcp_manager and agent._mcp_manager.connected_servers:
+        n = len(agent._mcp_manager.connected_servers)
+        features.append(f"[{_C_SUCCESS}]mcp ({n})[/]")
     if telegram_running:
         features.append(f"[{_C_SUCCESS}]telegram[/]")
     elif cfg.telegram.enabled:
@@ -390,7 +393,9 @@ def _try_unlock_vault(agent: Any) -> None:
         except VaultError as e:
             console.print(f"  [{_C_WARN}]Vault: {e}[/]")
     else:
-        console.print(f"  [{_C_DIM}]No vault found. Create one to store credentials securely.[/]")
+        console.print(
+            f"  [{_C_DIM}]No vault found. Create one to store credentials securely.[/]"
+        )
         password = Prompt.ask(
             f"  [{_C_DIM}]Set vault password (Enter to skip)[/]",
             password=True,
@@ -421,7 +426,10 @@ def _try_unlock_vault(agent: Any) -> None:
 )
 @click.option("--debug", is_flag=True, default=False, help="Enable debug logging")
 @click.option(
-    "--direct", is_flag=True, default=False, help="Skip gateway, connect directly to agent"
+    "--direct",
+    is_flag=True,
+    default=False,
+    help="Skip gateway, connect directly to agent",
 )
 def chat_cmd(config_path: str | None, debug: bool, direct: bool) -> None:
     """Start an interactive chat session with EloPhanto."""
@@ -565,6 +573,9 @@ async def _chat_gateway(cfg: Any) -> None:
         features.append(f"[{_C_SUCCESS}]browser[/]")
     if agent._scheduler:
         features.append(f"[{_C_SUCCESS}]scheduler[/]")
+    if agent._mcp_manager and agent._mcp_manager.connected_servers:
+        n = len(agent._mcp_manager.connected_servers)
+        features.append(f"[{_C_SUCCESS}]mcp ({n})[/]")
     features.append(f"[{_C_SUCCESS}]vault[/]")
 
     info = Table.grid(padding=(0, 2))
@@ -620,6 +631,13 @@ async def _chat_gateway(cfg: Any) -> None:
         except (asyncio.CancelledError, Exception):
             pass
     await gateway.stop()
+
+    # Shut down agent (MCP connections, browser, scheduler, DB)
+    try:
+        await agent.shutdown()
+    except Exception:
+        pass
+
     console.print(f"  [{_C_DIM}]Goodbye.[/]")
 
 
@@ -666,7 +684,9 @@ async def _chat_loop(config_path: str | None) -> None:
                 asyncio.create_task(telegram_adapter.start())
                 console.print(f"  [{_C_SUCCESS}]Telegram bot started.[/]")
             else:
-                console.print(f"  [{_C_WARN}]Telegram enabled but no bot token in vault.[/]")
+                console.print(
+                    f"  [{_C_WARN}]Telegram enabled but no bot token in vault.[/]"
+                )
         except Exception as e:
             console.print(f"  [{_C_WARN}]Telegram failed: {e}[/]")
             telegram_adapter = None
@@ -682,7 +702,9 @@ async def _chat_loop(config_path: str | None) -> None:
 
     while True:
         try:
-            user_input = await loop.run_in_executor(None, lambda: Prompt.ask(f"  [{_C_USER}]❯[/]"))
+            user_input = await loop.run_in_executor(
+                None, lambda: Prompt.ask(f"  [{_C_USER}]❯[/]")
+            )
         except (EOFError, KeyboardInterrupt):
             break
 
@@ -784,7 +806,9 @@ async def _chat_loop(config_path: str | None) -> None:
             except Exception:
                 pass
             agent._on_step = None
-            console.print(f"\n  [{_C_WARN}]Task interrupted. Ready for next command.[/]")
+            console.print(
+                f"\n  [{_C_WARN}]Task interrupted. Ready for next command.[/]"
+            )
         except Exception as e:
             try:
                 progress.stop()
@@ -800,6 +824,12 @@ async def _chat_loop(config_path: str | None) -> None:
             await telegram_adapter.stop()
         except Exception:
             pass
+
+    # Shut down agent (MCP connections, browser, scheduler, DB)
+    try:
+        await agent.shutdown()
+    except Exception:
+        pass
 
     console.print()
     stats.update_from_tracker(agent._router.cost_tracker)

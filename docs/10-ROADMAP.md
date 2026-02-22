@@ -443,6 +443,7 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 18: Agent Census | **Done** — Anonymous startup heartbeat, machine fingerprint, ecosystem stats |
 | Phase 19: Recovery Mode | **Done** — Remote recovery without LLM, health checks, config reload |
 | Phase 20: Hosted Platform | Spec — Tauri desktop app + Fly.io cloud instances |
+| Phase 21: MCP Integration | **Done** — MCP client, auto-install, mcp_manage tool, CLI commands, init wizard, agent self-management |
 
 ## Phase 10: Self-Learning Model (Idea Phase)
 
@@ -514,6 +515,32 @@ See [15-PAYMENTS.md](15-PAYMENTS.md) for the full specification.
 The user can send a 100-page PDF via Telegram, ask "What are the key findings in chapter 3?", and get an accurate answer with page citations. They can then send two more PDFs and ask cross-document comparison questions.
 
 See [16-DOCUMENT-ANALYSIS.md](16-DOCUMENT-ANALYSIS.md) for the full specification.
+
+---
+
+## Phase 21: MCP Integration (Done)
+
+**Goal**: Native MCP client support — connect to any MCP server and use its tools alongside built-in tools.
+
+### Deliverables
+
+- MCP client manager (`core/mcp_client.py`) — concurrent connections, tool discovery, JSON-RPC 2.0
+- MCP tool adapter (`tools/mcp_adapter.py`) — wraps MCP tools as `BaseTool` with namespacing (`mcp_{server}_{tool}`)
+- Dual transport: stdio (local subprocess) and Streamable HTTP (remote)
+- Vault-referenced secrets in env vars and HTTP headers
+- Per-server permission levels (safe/moderate/destructive)
+- `mcp_manage` agent tool — list, add, remove, test servers, install SDK through conversation
+- `elophanto mcp` CLI commands — list, add, remove, test
+- Init wizard step 8 with presets (filesystem, GitHub, Brave Search)
+- Auto-install SDK on agent startup if enabled but missing
+- System prompt integration (setup guidance when unconfigured, tool awareness when configured)
+- Welcome panel shows `mcp (N)` with connected server count
+
+### Exit Criteria
+
+The user can say "connect me to the filesystem MCP server" and the agent installs the SDK, adds the server config, tests the connection, and discovers all tools — all through conversation.
+
+See [23-MCP.md](23-MCP.md) for the full specification.
 
 ---
 

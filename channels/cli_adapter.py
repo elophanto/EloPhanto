@@ -148,8 +148,14 @@ class CLIAdapter(ChannelAdapter):
             if not user_input.strip():
                 continue
 
-            if stripped.startswith("/"):
-                cmd = stripped.lstrip("/")
+            # Slash commands: /clear, /status, etc.
+            # Skip paths like /Users/... or /tmp/... (contain "/" after first char)
+            if (
+                stripped.startswith("/")
+                and "/" not in stripped[1:]
+                and " " not in stripped
+            ):
+                cmd = stripped[1:]
 
                 # Handle local-only commands
                 if cmd == "clear":

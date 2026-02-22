@@ -81,7 +81,9 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     cfg = load_config(config_path)
 
     if not cfg.gateway.enabled:
-        console.print(f"  [{_C_WARN}]Gateway disabled in config. Set gateway.enabled: true[/]")
+        console.print(
+            f"  [{_C_WARN}]Gateway disabled in config. Set gateway.enabled: true[/]"
+        )
         return
 
     console.print(_BANNER)
@@ -208,13 +210,15 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     info.add_column()
     info.add_row("Gateway", f"[{_C_SUCCESS}]{gw_url}[/]")
     info.add_row(
-        "Providers", " ".join(f"[{_C_SUCCESS}]{p}[/]" for p in providers) or "[red]none[/]"
+        "Providers",
+        " ".join(f"[{_C_SUCCESS}]{p}[/]" for p in providers) or "[red]none[/]",
     )
     info.add_row("Tools", f"[bold]{tool_count}[/]")
     info.add_row("Skills", f"[bold]{skill_count}[/]")
     info.add_row(
         "Channels",
-        " ".join(f"[{_C_SUCCESS}]{a}[/]" for a in adapters_started) or f"[{_C_DIM}]none[/]",
+        " ".join(f"[{_C_SUCCESS}]{a}[/]" for a in adapters_started)
+        or f"[{_C_DIM}]none[/]",
     )
     info.add_row("Mode", f"[{_C_ACCENT}]{cfg.permission_mode}[/]")
 
@@ -258,4 +262,11 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
         except (asyncio.CancelledError, Exception):
             pass
     await gateway.stop()
+
+    # Shut down agent (MCP connections, browser, scheduler, DB)
+    try:
+        await agent.shutdown()
+    except Exception:
+        pass
+
     console.print(f"  [{_C_DIM}]Goodbye.[/]")

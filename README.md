@@ -2,7 +2,7 @@
 
 A self-evolving, self-building AI agent. It runs locally as your personal AI operating system — and when it encounters something it can't do, it builds the tool for it. Full self-development pipeline with testing, code review, and deployment. Creates its own skills from experience. Modifies its own source code with automatic rollback.
 
-Also: full system access, real Chrome browser control (47+ tools), document & media analysis, skills framework with EloPhantoHub marketplace, multi-channel gateway (CLI, Telegram, Discord, Slack), evolving identity, agent email, crypto payments, encrypted vault, and more.
+Also: full system access, real Chrome browser control (47+ tools), MCP tool servers (connect any MCP server — filesystem, GitHub, databases, and more), document & media analysis, skills framework with EloPhantoHub marketplace, multi-channel gateway (CLI, Telegram, Discord, Slack), evolving identity, agent email, crypto payments, encrypted vault, and more.
 
 ## Quick Start
 
@@ -57,6 +57,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 
 ### Everything Else
 
+- **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack, and more) and its tools appear alongside built-in tools. Agent manages setup through conversation — installs SDK, adds servers, tests connections. Also: `elophanto mcp` CLI and init wizard presets
 - **Browser automation** — control a real Chrome browser with 47 tools (navigate, click, type, screenshot, extract data, manage tabs, inspect DOM, read console/network logs)
 - **Multi-channel gateway** — WebSocket control plane with channel adapters for CLI, Telegram, Discord, and Slack, all with isolated sessions
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans
@@ -88,7 +89,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 ├─────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├─────────────────────────────────────────────────┤
-│   Tool System (90+ built-in + plugins)           │  Capabilities
+│   Tool System (95+ built-in + MCP + plugins)      │  Capabilities
 ├─────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├─────────────────────────────────────────────────┤
@@ -130,6 +131,7 @@ Slack Adapter ─────┘                   ▼
 | Identity | identity_status, identity_update, identity_reflect | 3 |
 | Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search | 6 |
 | Payments | wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 7 |
+| MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
 | Scheduling | schedule_task, schedule_list | 2 |
 
 ## Skills System
@@ -285,6 +287,10 @@ payments:
     default_chain: base
     provider: local           # "local" (self-custody) or "agentkit" (Coinbase CDP)
 
+mcp:
+  enabled: false
+  servers: {}                # See docs/23-MCP.md for server config examples
+
 documents:
   enabled: true
   ocr_enabled: true
@@ -321,6 +327,9 @@ slack:
 ./start.sh skills install SRC  # Install skills from git repo
 ./start.sh skills hub search Q # Search EloPhantoHub
 ./start.sh skills hub install N # Install from EloPhantoHub
+./start.sh mcp list            # List MCP servers
+./start.sh mcp add NAME       # Add an MCP server
+./start.sh mcp test            # Test MCP connections
 ./start.sh rollback            # Revert a self-modification
 ./start.sh telegram            # Start Telegram bot (direct mode)
 ```
@@ -354,6 +363,7 @@ elophanto/
 │   ├── skills.py        # Skills discovery and trigger matching
 │   ├── telegram.py      # Telegram bot adapter (legacy direct mode)
 │   ├── browser_manager.py # Chrome control via Node.js bridge
+│   ├── mcp_client.py    # MCP client manager + server connections
 │   ├── vault.py         # Encrypted credential vault
 │   ├── identity.py      # Evolving agent identity manager
 │   ├── payments/        # Crypto payments (manager, limits, audit)
@@ -367,7 +377,7 @@ elophanto/
 │   ├── telegram_adapter.py # Telegram adapter (aiogram)
 │   ├── discord_adapter.py  # Discord adapter (discord.py)
 │   └── slack_adapter.py    # Slack adapter (slack-bolt)
-├── tools/               # 90+ built-in tools
+├── tools/               # 95+ built-in tools
 │   ├── system/          # Shell, filesystem
 │   ├── browser/         # 47 browser tools
 │   ├── knowledge/       # Search, write, index, skills, hub
@@ -378,7 +388,8 @@ elophanto/
 │   ├── payments/        # Crypto wallet, transfers, swaps, audit
 │   ├── self_dev/        # Plugin creation, modification, rollback
 │   ├── scheduling/      # Cron-based task scheduling
-│   └── data/            # LLM calls
+│   ├── data/            # LLM calls
+│   └── mcp_manage.py    # MCP server management
 ├── skills/              # Best-practice guides (27 SKILL.md files)
 ├── plugins/             # Agent-created tools
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
@@ -421,6 +432,7 @@ elophanto/
 | 16 | EloPhantoHub Supply Chain Security (7-layer defense, publisher tiers, CI scanning, checksums, content policy) | P0 Done |
 | 17 | Hosted Platform & Desktop App (Tauri desktop, Fly.io cloud instances, web dashboard, Stripe billing) | Spec |
 | 18 | Agent Census (anonymous startup heartbeat, machine fingerprint, ecosystem stats) | Done |
+| 19 | MCP Integration (MCP client, auto-install, mcp_manage tool, CLI, init wizard, agent self-management) | Done |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -443,6 +455,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-22 | **MCP integration** — Native MCP client support: connect to any MCP server and its tools appear alongside built-in tools. Dual transport (stdio + Streamable HTTP), vault-referenced secrets, per-server permissions. Agent self-management via `mcp_manage` tool (install SDK, add/remove/test servers through conversation). `elophanto mcp` CLI commands (list, add, remove, test). Init wizard step 8 with presets (filesystem, GitHub, Brave Search). Auto-install SDK on startup. System prompt integration. Welcome panel shows `mcp (N)` with connected server count |
 | 2026-02-21 | **Agent Census** — Anonymous startup heartbeat for ecosystem statistics. SHA-256 machine fingerprint (survives reinstall), fire-and-forget with 3s timeout, zero PII. Payload: agent_id + version + platform + python version. `core/census.py` module, integrated in `Agent.initialize()`, 15 tests |
 | 2026-02-21 | **Hosted platform spec** — Hybrid distribution: Tauri desktop app (free, local-first) + Fly.io cloud instances (pro, always-on) at elophanto.com. Per-user container isolation, Supabase auth, Stripe billing, shared web dashboard, wake-on-request for hibernated instances, data portability between local and cloud |
 | 2026-02-21 | **EloPhantoHub security P0 implemented** — Content security policy with 16 blocked patterns + 5 warning patterns enforced at skill load time (`core/skills.py`), SHA-256 checksum verification on hub install (`core/hub.py`), skill revocation detection + quarantine to `_revoked/`, runtime safety guidance in system prompt (`core/planner.py`), skill origin tagging (source/tier/warnings in XML), enhanced `installed.json` with backward compat, 24 security tests |

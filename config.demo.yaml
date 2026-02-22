@@ -157,6 +157,25 @@ plugins:
   plugins_dir: plugins
   auto_load: true
 
+# --- MCP (Model Context Protocol) ---
+# Connect to external MCP servers — their tools appear alongside built-in tools.
+# Browse servers at https://mcpservers.org/
+# Install SDK first: uv pip install "mcp[cli]"
+
+mcp:
+  enabled: false
+  servers: {}
+  # Example servers:
+  #   filesystem:
+  #     command: npx
+  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/docs"]
+  #   github:
+  #     command: npx
+  #     args: ["-y", "@modelcontextprotocol/server-github"]
+  #     env:
+  #       GITHUB_PERSONAL_ACCESS_TOKEN: "vault:github_token"
+  #     permission_level: destructive
+
 # --- Channels ---
 
 telegram:

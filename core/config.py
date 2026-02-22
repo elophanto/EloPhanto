@@ -373,6 +373,35 @@ class PaymentsConfig:
 
 
 @dataclass
+class MCPServerConfig:
+    """Configuration for a single MCP server."""
+
+    name: str = ""  # Populated from dict key
+    transport: str = "stdio"  # "stdio" or "http" (auto-detected)
+    # stdio transport
+    command: str = ""
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)  # Supports "vault:key"
+    cwd: str = ""
+    # http transport
+    url: str = ""
+    headers: dict[str, str] = field(default_factory=dict)  # Supports "vault:key"
+    # common
+    enabled: bool = True
+    permission_level: str = "moderate"
+    timeout_seconds: int = 30
+    startup_timeout_seconds: int = 30
+
+
+@dataclass
+class MCPConfig:
+    """MCP client configuration."""
+
+    enabled: bool = False
+    servers: dict[str, MCPServerConfig] = field(default_factory=dict)
+
+
+@dataclass
 class Config:
     """Top-level EloPhanto configuration."""
 
@@ -400,6 +429,7 @@ class Config:
     payments: PaymentsConfig = field(default_factory=PaymentsConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
+    mcp: MCPConfig = field(default_factory=MCPConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -791,6 +821,33 @@ def load_config(config_path: Path | str | None = None) -> Config:
         inactivity_timeout_minutes=recovery_raw.get("inactivity_timeout_minutes", 30),
     )
 
+    # Parse MCP section
+    mcp_raw = raw.get("mcp", {})
+    mcp_servers: dict[str, MCPServerConfig] = {}
+    for srv_name, srv_data in (mcp_raw.get("servers") or {}).items():
+        srv_data = srv_data or {}
+        transport = srv_data.get("transport", "")
+        if not transport:
+            transport = "http" if srv_data.get("url") else "stdio"
+        mcp_servers[srv_name] = MCPServerConfig(
+            name=srv_name,
+            transport=transport,
+            command=srv_data.get("command", ""),
+            args=srv_data.get("args", []),
+            env=srv_data.get("env", {}),
+            cwd=srv_data.get("cwd", ""),
+            url=srv_data.get("url", ""),
+            headers=srv_data.get("headers", {}),
+            enabled=srv_data.get("enabled", True),
+            permission_level=srv_data.get("permission_level", "moderate"),
+            timeout_seconds=srv_data.get("timeout_seconds", 30),
+            startup_timeout_seconds=srv_data.get("startup_timeout_seconds", 30),
+        )
+    mcp_config = MCPConfig(
+        enabled=mcp_raw.get("enabled", False),
+        servers=mcp_servers,
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -816,6 +873,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         payments=payments_config,
         email=email_config,
         recovery=recovery_config,
+        mcp=mcp_config,
         project_root=config_path.parent,
     )
 

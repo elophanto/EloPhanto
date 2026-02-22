@@ -28,6 +28,7 @@ _SECTIONS = {
     "permissions": "Permission mode",
     "browser": "Web browsing settings",
     "scheduler": "Background scheduling",
+    "mcp": "MCP tool servers",
 }
 
 
@@ -96,6 +97,7 @@ def edit_cmd(ctx: click.Context, section: str | None) -> None:
         "permissions": _edit_permissions,
         "browser": _edit_browser,
         "scheduler": _edit_scheduler,
+        "mcp": _edit_mcp,
     }
     editors[section](config)
 
@@ -531,6 +533,159 @@ def _edit_scheduler(config: dict) -> None:
         console.print("  [dim]Disabled.[/dim]")
 
 
+# ── Common MCP server presets ────────────────────────────────────────────────
+
+_MCP_PRESETS: dict[str, dict] = {
+    "filesystem": {
+        "description": "Read/write/search local files",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+        "path_prompt": "Directory to expose",
+    },
+    "github": {
+        "description": "Issues, PRs, repos, code search",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": ""},
+        "env_prompt": {"GITHUB_PERSONAL_ACCESS_TOKEN": "GitHub token (or vault:name)"},
+    },
+    "brave-search": {
+        "description": "Web search via Brave",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+        "env": {"BRAVE_API_KEY": ""},
+        "env_prompt": {"BRAVE_API_KEY": "Brave API key (or vault:name)"},
+    },
+}
+
+
+def _edit_mcp(config: dict) -> None:
+    """Edit MCP tool server settings."""
+    console.print("[bold]MCP Tool Servers[/bold]")
+    console.print(
+        "  [dim]Connect to external MCP servers (filesystem, GitHub, databases,\n"
+        "  search, and hundreds more from mcpservers.org).[/dim]"
+    )
+
+    mcp_cfg = config.setdefault("mcp", {})
+    servers = mcp_cfg.setdefault("servers", {})
+    current_enabled = mcp_cfg.get("enabled", False)
+
+    mcp_enabled = Confirm.ask("  Enable MCP tool servers?", default=current_enabled)
+    mcp_cfg["enabled"] = mcp_enabled
+
+    if not mcp_enabled:
+        console.print("  [dim]Disabled.[/dim]")
+        return
+
+    # Show existing servers if any
+    if servers:
+        console.print(f"  [dim]Currently configured: {', '.join(servers.keys())}[/dim]")
+
+    # Offer to add servers
+    if Confirm.ask("  Add an MCP server?", default=not servers):
+        _add_mcp_server_interactive(servers)
+
+        # Loop to add more
+        while Confirm.ask("  Add another server?", default=False):
+            _add_mcp_server_interactive(servers)
+
+    server_count = len(servers)
+    if server_count:
+        console.print(f"  [green]MCP enabled with {server_count} server(s).[/green]")
+    else:
+        console.print(
+            "  [yellow]MCP enabled but no servers configured.[/yellow]\n"
+            "  [dim]Add servers later with: elophanto mcp add <name>[/dim]"
+        )
+
+
+def _add_mcp_server_interactive(servers: dict) -> None:
+    """Interactively add an MCP server to the servers dict."""
+    # Show presets
+    console.print()
+    console.print("  [bold]Common servers:[/bold]")
+    preset_names = list(_MCP_PRESETS.keys())
+    for i, name in enumerate(preset_names, 1):
+        desc = _MCP_PRESETS[name]["description"]
+        console.print(f"    [bold]{i}[/bold]. {name:16s} — {desc}")
+    console.print(
+        f"    [bold]{len(preset_names) + 1}[/bold]. {'custom':16s} — Enter details manually"
+    )
+
+    choice = Prompt.ask(
+        "  Choose",
+        choices=[str(i) for i in range(1, len(preset_names) + 2)],
+        default="1",
+    )
+    choice_idx = int(choice) - 1
+
+    if choice_idx < len(preset_names):
+        # Preset selected
+        preset_name = preset_names[choice_idx]
+        preset = _MCP_PRESETS[preset_name]
+
+        name = Prompt.ask("  Server name", default=preset_name)
+        server_cfg: dict = {
+            "command": preset["command"],
+            "args": list(preset["args"]),
+        }
+
+        # Custom path for filesystem
+        if "path_prompt" in preset:
+            path = Prompt.ask(f"  {preset['path_prompt']}", default=preset["args"][-1])
+            server_cfg["args"][-1] = path
+
+        # Env vars
+        if "env_prompt" in preset:
+            env: dict[str, str] = {}
+            for env_key, prompt_text in preset["env_prompt"].items():
+                value = Prompt.ask(f"  {prompt_text}", default="")
+                if value:
+                    env[env_key] = value
+            if env:
+                server_cfg["env"] = env
+
+        servers[name] = server_cfg
+        console.print(f"  [green]Added '{name}'[/green]")
+
+    else:
+        # Custom server
+        name = Prompt.ask("  Server name")
+        transport = Prompt.ask(
+            "  Transport",
+            choices=["stdio", "http"],
+            default="stdio",
+        )
+
+        server_cfg = {}
+        if transport == "stdio":
+            command = Prompt.ask("  Command (e.g. npx, uvx, python)")
+            args_raw = Prompt.ask("  Args (space-separated)", default="")
+            server_cfg["command"] = command
+            if args_raw.strip():
+                server_cfg["args"] = args_raw.strip().split()
+        else:
+            url = Prompt.ask("  Server URL")
+            server_cfg["url"] = url
+            auth = Prompt.ask(
+                "  Authorization header (or vault:name, blank to skip)", default=""
+            )
+            if auth:
+                server_cfg["headers"] = {"Authorization": auth}
+
+        perm = Prompt.ask(
+            "  Permission level",
+            choices=["safe", "moderate", "destructive"],
+            default="moderate",
+        )
+        if perm != "moderate":
+            server_cfg["permission_level"] = perm
+
+        servers[name] = server_cfg
+        console.print(f"  [green]Added '{name}' ({transport})[/green]")
+
+
 # ── Full Wizard ──────────────────────────────────────────────────────────────
 
 
@@ -592,6 +747,10 @@ def _run_full_wizard(config_dir: str) -> None:
     _edit_scheduler(config)
 
     console.print()
+    console.print("[bold]8. MCP Tool Servers[/bold]")
+    _edit_mcp(config)
+
+    console.print()
 
     # Ensure defaults for sections not prompted
     config.setdefault("plugins", {"plugins_dir": "plugins", "auto_load": True})
@@ -618,6 +777,7 @@ def _run_full_wizard(config_dir: str) -> None:
             "embedding_fallback": "mxbai-embed-large",
         },
     )
+    config.setdefault("mcp", {"enabled": False, "servers": {}})
 
     # Write config
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -646,6 +806,11 @@ def _run_full_wizard(config_dir: str) -> None:
         features_status.append("Scheduler: [green]enabled[/green]")
     else:
         features_status.append("Scheduler: [dim]disabled[/dim]")
+    mcp_servers = config.get("mcp", {}).get("servers", {})
+    if config.get("mcp", {}).get("enabled") and mcp_servers:
+        features_status.append(f"MCP: [green]{len(mcp_servers)} server(s)[/green]")
+    else:
+        features_status.append("MCP: [dim]disabled[/dim]")
     features_str = " | ".join(features_status)
 
     mode = config.get("agent", {}).get("permission_mode", "ask_always")
@@ -944,5 +1109,9 @@ def _default_config() -> dict:
             "embedding_openrouter_model": "qwen/qwen3-embedding-8b",
             "embedding_model": "nomic-embed-text",
             "embedding_fallback": "mxbai-embed-large",
+        },
+        "mcp": {
+            "enabled": False,
+            "servers": {},
         },
     }

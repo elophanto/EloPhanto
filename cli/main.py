@@ -10,6 +10,7 @@ import click
 from cli.chat_cmd import chat_cmd
 from cli.gateway_cmd import gateway_cmd
 from cli.init_cmd import init_cmd
+from cli.mcp_cmd import mcp_cmd
 from cli.rollback_cmd import rollback_cmd
 from cli.schedule_cmd import schedule_cmd
 from cli.skills_cmd import skills_cmd
@@ -31,6 +32,7 @@ cli.add_command(vault_cmd, "vault")
 cli.add_command(rollback_cmd, "rollback")
 cli.add_command(telegram_cmd, "telegram")
 cli.add_command(skills_cmd, "skills")
+cli.add_command(mcp_cmd, "mcp")
 
 
 if __name__ == "__main__":

@@ -50,7 +50,8 @@ echo ""
 echo "  → Installing dependencies..."
 uv sync 2>/dev/null
 uv pip install -e '.[payments]' 2>/dev/null
-echo "  ✓ Dependencies installed (includes crypto wallet support)"
+uv pip install -e '.[mcp]' 2>/dev/null
+echo "  ✓ Dependencies installed (includes crypto wallet + MCP support)"
 
 # Install Coinbase AgentKit if configured
 if grep -q "provider: agentkit" config.yaml 2>/dev/null; then
@@ -84,5 +85,5 @@ echo "    elophanto init               # first-time configuration"
 echo "    elophanto chat               # start chatting"
 echo ""
 echo "  Optional extras:"
-echo "    uv pip install -e '.[payments-cdp]'  # Coinbase AgentKit (managed custody, gasless, swaps)"
+echo "    uv pip install -e '.[payments-cdp]'   # Coinbase AgentKit (managed custody, gasless, swaps)"
 echo ""
