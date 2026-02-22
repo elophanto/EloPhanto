@@ -65,9 +65,9 @@ The agent operates in a continuous cycle for every task.
 
 **Execute**: The agent calls tools one at a time, observing the result of each step before deciding the next action. Tool calls go through the permission system before execution.
 
-**Reflect**: After each step (and after task completion), the agent evaluates what happened. Did the tool return what was expected? Is the task progressing? Should the approach change? This is an explicit LLM call, not just implicit in the next planning step.
+**Reflect**: After each step, the agent evaluates what happened. Did the tool return what was expected? Is the task progressing? Should the approach change? This is an explicit LLM call, not just implicit in the next planning step.
 
-**Remember**: Completed tasks are summarized and stored in long-term memory. Failures are documented with what went wrong and why. This memory is searchable and influences future planning.
+**Remember**: Completed tasks are summarized and stored in long-term memory. Failures are documented with what went wrong and why. This memory is searchable and influences future planning. Post-task housekeeping (memory storage, identity reflection, dataset collection) runs as fire-and-forget background tasks — the user receives the response immediately without waiting for these to complete.
 
 The loop supports nesting — if a tool call triggers a sub-task (e.g., self-development), that sub-task runs its own plan/execute/reflect cycle within the parent task.
 

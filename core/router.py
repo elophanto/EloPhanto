@@ -158,21 +158,31 @@ class LLMRouter:
     ) -> LLMResponse:
         """Call a provider with retries on transient failures."""
         for attempt in range(self.MAX_RETRIES):
+            _attempt_start = time.monotonic()
             try:
                 if provider == "zai":
-                    return await self._call_zai(
+                    result = await self._call_zai(
                         messages, model, tools, temperature, max_tokens
                     )
                 else:
-                    return await self._call_litellm(
+                    result = await self._call_litellm(
                         messages, model, provider, tools, temperature, max_tokens
                     )
+                logger.info(
+                    "[TIMING] %s/%s attempt %d: %.2fs",
+                    provider,
+                    model,
+                    attempt + 1,
+                    time.monotonic() - _attempt_start,
+                )
+                return result
             except Exception as e:
                 delay = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)]
                 if attempt < self.MAX_RETRIES - 1:
                     logger.warning(
-                        f"{provider}/{model} attempt {attempt + 1}/{self.MAX_RETRIES} "
-                        f"failed: {e}. Retrying in {delay}s..."
+                        f"[TIMING] {provider}/{model} attempt {attempt + 1}/{self.MAX_RETRIES} "
+                        f"failed after {time.monotonic() - _attempt_start:.2f}s: {e}. "
+                        f"Retrying in {delay}s..."
                     )
                     # Reset health so retry doesn't skip this provider
                     self._provider_health.pop(provider, None)
@@ -226,17 +236,31 @@ class LLMRouter:
                 raise
 
             tried.add(provider)
-            logger.info(f"Routing to {provider}/{model} for task_type={task_type}")
+            _route_start = time.monotonic()
+            logger.info(
+                f"[TIMING] routing to {provider}/{model} for task_type={task_type}"
+            )
 
             try:
-                return await self._call_with_retries(
+                result = await self._call_with_retries(
                     provider, model, messages, tools, temperature, max_tokens
                 )
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    f"Provider {provider}/{model} exhausted retries, trying next: {e}"
+                logger.info(
+                    "[TIMING] %s/%s responded in %.2fs",
+                    provider,
+                    model,
+                    time.monotonic() - _route_start,
                 )
+                return result
+            except Exception as e:
+                logger.warning(
+                    "[TIMING] %s/%s failed after %.2fs, trying next: %s",
+                    provider,
+                    model,
+                    time.monotonic() - _route_start,
+                    e,
+                )
+                last_error = e
                 # If model_override was given, don't try other providers
                 if model_override:
                     raise

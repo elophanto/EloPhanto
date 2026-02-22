@@ -122,7 +122,7 @@ class IdentityManager:
 
 ### Reflection Process
 
-After task completion, `reflect_on_task()` makes a cheap LLM call:
+After task completion, `reflect_on_task()` runs as a **fire-and-forget background task** — the user receives the response immediately. It makes a lightweight LLM call:
 
 ```
 System: You are reviewing a completed task to see if you learned anything
@@ -323,7 +323,7 @@ identity:
 | Component | What changes |
 |-----------|-------------|
 | `core/planner.py` | Add `identity_context` param to `build_system_prompt()`; dynamic `_IDENTITY` |
-| `core/agent.py` | Init IdentityManager in `initialize()`; inject deps; call `reflect_on_task()` after each run; build identity context before prompt |
+| `core/agent.py` | Init IdentityManager in `initialize()`; inject deps; fire-and-forget `reflect_on_task()` after each run (non-blocking); build identity context before prompt |
 | `core/database.py` | 2 new DDL strings (identity, identity_evolution) |
 | `core/config.py` | `IdentityConfig` dataclass; add to `Config` |
 | `core/registry.py` | Register 3 identity tools |
