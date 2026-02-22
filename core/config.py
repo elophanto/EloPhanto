@@ -75,10 +75,10 @@ class KnowledgeConfig:
     """Knowledge base configuration."""
 
     knowledge_dir: str = "knowledge"
-    embedding_provider: str = "ollama"  # "ollama" or "openrouter"
+    embedding_provider: str = "auto"  # "auto", "openrouter", or "ollama"
     embedding_model: str = "nomic-embed-text"
     embedding_fallback: str = "mxbai-embed-large"
-    embedding_openrouter_model: str = "google/gemini-embedding-001"
+    embedding_openrouter_model: str = "qwen/qwen3-embedding-8b"
     embedding_dimensions: int = 768
     chunk_max_tokens: int = 1000
     chunk_min_tokens: int = 50
@@ -532,11 +532,11 @@ def load_config(config_path: Path | str | None = None) -> Config:
     knowledge_raw = raw.get("knowledge", {})
     knowledge_config = KnowledgeConfig(
         knowledge_dir=knowledge_raw.get("knowledge_dir", "knowledge"),
-        embedding_provider=knowledge_raw.get("embedding_provider", "ollama"),
+        embedding_provider=knowledge_raw.get("embedding_provider", "auto"),
         embedding_model=knowledge_raw.get("embedding_model", "nomic-embed-text"),
         embedding_fallback=knowledge_raw.get("embedding_fallback", "mxbai-embed-large"),
         embedding_openrouter_model=knowledge_raw.get(
-            "embedding_openrouter_model", "google/gemini-embedding-001"
+            "embedding_openrouter_model", "qwen/qwen3-embedding-8b"
         ),
         embedding_dimensions=knowledge_raw.get("embedding_dimensions", 768),
         chunk_max_tokens=knowledge_raw.get("chunk_max_tokens", 1000),

@@ -64,7 +64,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Send/receive/search/reply, identity integration, service signup verification flows
 - **Crypto payments** — agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config) or Coinbase AgentKit (managed custody, gasless, DEX swaps). USDC/ETH transfers, spending limits, full audit trail
 - **Evolving identity** — discovers its own identity on first run, evolves personality/values/capabilities through task reflection, maintains a living nature document
-- **Knowledge base** — persistent markdown knowledge with semantic search via embeddings
+- **Knowledge base** — persistent markdown knowledge with semantic search via embeddings (auto-selects OpenRouter for fast cloud embeddings, Ollama as local fallback)
 - **Memory** — remembers past tasks across sessions, learns from experience
 - **Scheduling** — cron-based recurring tasks with natural language schedules
 - **File operations** — read, write, list, delete, move files and directories
@@ -244,6 +244,9 @@ gateway:
   enabled: true
   host: "127.0.0.1"
   port: 18789
+
+knowledge:
+  embedding_provider: auto    # auto | openrouter | ollama
 
 hub:
   enabled: true

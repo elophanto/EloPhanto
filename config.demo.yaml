@@ -61,12 +61,6 @@ llm:
         zai: "glm-4.7-flash"
         ollama: "qwen2.5:3b"
 
-    embedding:
-      preferred_provider: ollama
-      models:
-        ollama: "nomic-embed-text"
-      local_only: true
-
   budget:
     daily_limit_usd: 10.0
     per_task_limit_usd: 2.0
@@ -152,6 +146,12 @@ goals:
   max_time_per_checkpoint_seconds: 600
   context_summary_max_tokens: 1500
   auto_continue: true
+
+knowledge:
+  embedding_provider: auto          # auto (OpenRouter if configured, else Ollama), openrouter, ollama
+  embedding_openrouter_model: "qwen/qwen3-embedding-8b"
+  embedding_model: "nomic-embed-text"   # Ollama model
+  embedding_fallback: "mxbai-embed-large" # Ollama fallback
 
 plugins:
   plugins_dir: plugins

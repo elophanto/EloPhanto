@@ -23,7 +23,7 @@ Python (EloPhanto)                        Node.js (bridge/browser/)
 **Key components:**
 
 - **`core/node_bridge.py`** — Generic async JSON-RPC client that spawns and communicates with a Node.js subprocess
-- **`core/browser_manager.py`** — Thin bridge client (~450 lines) that maps Python method calls to JSON-RPC
+- **`core/browser_manager.py`** — Bridge client (~800 lines) with profile management, Chrome detection, and cookie handling
 - **`bridge/browser/src/server.ts`** — JSON-RPC server wrapping `AwareBrowserAgent`
 - **`bridge/browser/src/browser-agent.ts`** — Full browser automation engine (Playwright, stealth plugin, element stamping, event dispatch)
 
@@ -40,8 +40,8 @@ Error:    {"id": 1, "error": {"message": "...", "code": -1}}
 |------|--------------|----------|
 | **Fresh** | `fresh` | Launch a clean Chrome instance (default) |
 | **CDP Port** | `cdp_port` | Connect to a running Chrome with `--remote-debugging-port` |
-| **CDP WebSocket** | `cdp_ws` | Connect via a specific WebSocket endpoint |
-| **Profile** | `profile` | Launch Chrome with your user data directory (preserves cookies, sessions, extensions) |
+| **CDP WebSocket** | `cdp_ws` | Connect via a specific WebSocket endpoint (e.g. from a remote browser) |
+| **Profile** | `profile` | Use your Chrome profile — direct access when Chrome is closed, safe copy when Chrome is running |
 
 ### Fresh Mode (default)
 
@@ -80,24 +80,36 @@ browser:
 
 ### Profile Mode
 
-Launches a **second** Chrome instance using a copy of your Chrome profile.
-Your existing Chrome stays open and untouched.
+Uses your real Chrome profile with all cookies and sessions preserved.
+Automatically adapts depending on whether Chrome is already running.
 
 ```yaml
 browser:
   enabled: true
   mode: profile
   user_data_dir: ""  # Empty = auto-detect default Chrome profile
-  profile_directory: Default  # Or "Profile 1", "Profile 2", etc.
+  profile_directory: Profile 1  # Or "Default", "Profile 2", etc.
 ```
 
-**How it works:**
-1. Python copies the selected Chrome profile to a temp directory (`/tmp/elophanto-chrome-profile`), skipping cache directories to reduce copy time
-2. Lock files are removed, crash state is cleaned, and session restore files are deleted so Chrome starts cleanly
-3. The copy is reused on subsequent runs for fast startup — if the copy's cookies become stale (e.g. Chrome re-encrypted them), a fresh copy is made automatically
-4. Chrome is launched via Playwright's `launchPersistentContext` with system Chrome (`channel: 'chrome'`) and anti-detection flags
+**How it works — two paths depending on Chrome state:**
 
-The first launch may take 10-20 seconds for large profiles. Subsequent launches reuse the copy and start in under a second.
+**Chrome is NOT running** (optimal path):
+1. Uses the original Chrome profile directory directly — no copy needed
+2. Backs up Preferences so the user's Chrome opens normally afterward
+3. Cleans stale lock files, crash state, and session restore files
+4. Launches via Playwright's `launchPersistentContext` with the real profile
+5. On close, restores the original Preferences file
+
+**Chrome IS running** (safe copy path):
+1. Detects Chrome is running via `pgrep` (macOS/Linux) or `tasklist` (Windows)
+2. Copies the selected profile to `/tmp/elophanto-chrome-profile`, skipping cache directories (Service Worker, Cache, Code Cache, GPUCache, etc.) to reduce copy time
+3. Files locked by Chrome are skipped gracefully — the rest of the profile copies fine
+4. Lock files are removed, crash state is cleaned, session restore files deleted
+5. Launches a **separate** Chrome instance with the copy — your existing Chrome stays open and untouched
+6. On macOS, removes Playwright's default `--use-mock-keychain` flag so Chrome can access the real macOS Keychain and decrypt cookies from the copied profile
+
+The copy is reused on subsequent runs for fast startup. If the profile source or directory changes, a fresh copy is made automatically.
+The first copy may take 10-30 seconds for large profiles. Subsequent launches reuse the copy and start in under a second.
 
 When `user_data_dir` is empty, the default Chrome path is auto-detected:
 - macOS: `~/Library/Application Support/Google/Chrome`

@@ -390,12 +390,8 @@ def _edit_models(config: dict) -> None:
             f"    [dim]→ preferred: {models_map[preferred]} via {preferred}[/dim]"
         )
 
-    # Embedding — always local
-    routing["embedding"] = {
-        "preferred_provider": "ollama",
-        "models": {"ollama": "nomic-embed-text"},
-        "local_only": True,
-    }
+    # Embedding is handled by knowledge.embedding_provider (auto/openrouter/ollama),
+    # not by LLM routing. No routing entry needed.
 
 
 def _edit_permissions(config: dict) -> None:
@@ -612,6 +608,15 @@ def _run_full_wizard(config_dir: str) -> None:
     config.setdefault("llm", {}).setdefault(
         "budget",
         {"daily_limit_usd": 10.0, "per_task_limit_usd": 2.0},
+    )
+    config.setdefault(
+        "knowledge",
+        {
+            "embedding_provider": "auto",
+            "embedding_openrouter_model": "qwen/qwen3-embedding-8b",
+            "embedding_model": "nomic-embed-text",
+            "embedding_fallback": "mxbai-embed-large",
+        },
     )
 
     # Write config
@@ -933,5 +938,11 @@ def _default_config() -> dict:
             "max_concurrent_tasks": 1,
             "default_max_retries": 3,
             "task_timeout_seconds": 600,
+        },
+        "knowledge": {
+            "embedding_provider": "auto",
+            "embedding_openrouter_model": "qwen/qwen3-embedding-8b",
+            "embedding_model": "nomic-embed-text",
+            "embedding_fallback": "mxbai-embed-large",
         },
     }
