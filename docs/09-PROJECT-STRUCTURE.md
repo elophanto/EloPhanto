@@ -72,6 +72,8 @@ elophanto/
 │   ├── storage.py                      # Structured data/ directory management (uploads, downloads, cache)
 │   ├── document_processor.py           # Document extraction pipeline (PDF, DOCX, OCR, chunking)
 │   ├── document_store.py               # Document collection storage (embeddings, RAG retrieval)
+│   ├── census.py                       # Anonymous agent census (machine fingerprint, startup heartbeat)
+│   ├── dataset_builder.py              # Self-learning data collection (sanitizer, quality filter, batch upload)
 │   │
 │   └── protected/                      # IMMUTABLE — agent cannot modify these
 │       ├── permissions.py              # Permission engine (ask/auto/full-auto logic)

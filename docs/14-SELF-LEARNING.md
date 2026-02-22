@@ -1,12 +1,32 @@
 # EloPhanto — Self-Learning Model Pipeline
 
-> **Status: Idea Phase** — This document describes a planned research direction, not yet implemented.
+> **Status: Dataset Builder Done** — The agent-side data collection pipeline is fully implemented. Training pipeline remains in idea phase.
 
 ## Overview
 
 EloPhanto currently relies on external LLM providers (Z.ai, OpenRouter) and local generic models (Ollama). The next step is training a **custom EloPhanto base model** — fine-tuned specifically for agent tasks: tool selection, multi-step planning, code generation, and self-reflection.
 
 The model is trained on EloPhanto's own interaction data, published to HuggingFace, deployed locally via Ollama, and continuously improved as new data accumulates. Each training cycle produces a better model that understands EloPhanto's tool system, permission model, and task patterns.
+
+### What's Implemented
+
+The **dataset builder** — the agent-side collection pipeline — is fully operational:
+
+- `core/dataset_builder.py` — `DataSanitizer`, `QualityFilter`, `DatasetBuilder` classes
+- 14 regex patterns strip secrets locally before data ever leaves the machine (defense in depth)
+- PII removal (paths, emails), browser data exclusion, large content truncation
+- Quality filtering with configurable thresholds (min turns, success/failure collection)
+- Signal extraction: user sentiment (positive/negative/neutral), denial detection, error detection
+- Local SQLite buffer with batch upload to the collection API
+- Auto-registration via census fingerprint, key recovery on 409 conflict
+- Fire-and-forget pattern — all collection code is exception-safe, never blocks the agent
+
+### What's Not Implemented Yet
+
+- Training pipeline (Unsloth + HF Jobs)
+- Model publishing to HuggingFace
+- Ollama deployment and auto-pull
+- Benchmark suite
 
 ### Why a Custom Model
 
@@ -127,13 +147,18 @@ Data flows from individual agents to the central dataset via a collection API on
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Agent-side flow** (runs locally):
+**Agent-side flow** (runs locally, implemented in `core/dataset_builder.py`):
 
-1. After each successful task, the agent serializes the interaction into the training format
-2. Local sanitizer strips credentials, PII, secrets, and browser data
-3. Quality filter drops trivial/failed/too-short interactions
-4. If `self_learning.collect_data: true` and user has opted in, the agent POSTs the sanitized example to the collection API
-5. Examples are batched locally and uploaded periodically (not per-interaction) to minimize network overhead
+1. After each task (successful or failed), the agent passes the interaction to `DatasetBuilder.record_task()`
+2. `QualityFilter` checks minimum turn count (default 2) — single-message interactions are skipped
+3. `DataSanitizer` strips credentials (14 regex patterns), PII (paths, emails), vault references, browser tool calls/results, and truncates large tool outputs
+4. `_extract_signals()` analyzes raw messages for training-relevant signals: user sentiment, denial detection, error detection, turn count
+5. Sanitized conversations + enriched metadata are buffered in local SQLite (`collect_examples` table)
+6. When the buffer reaches `batch_size` (default 10), `DatasetBuilder` uploads to `POST /v1/collect` with Bearer auth
+7. Auto-registration: on first upload, the agent registers via `/v1/auth/register` using its census fingerprint, stores the API key in `data/.collect_key`
+8. On 409 (already registered but key file lost), tries `/v1/auth/recover` to retrieve the existing key
+9. On 401 (key invalid), clears cached key and re-registers next time
+10. On agent shutdown, `flush()` uploads any remaining buffered examples
 
 **Server-side flow** (elophanto.com):
 
@@ -205,12 +230,17 @@ Each training example is a conversation in the standard chat format:
     }
   ],
   "metadata": {
-    "task_type": "file_analysis",
+    "task_type": "planning",
     "tools_used": ["shell_execute"],
     "success": true,
     "duration_seconds": 4.2,
     "model_used": "glm-4.7",
-    "timestamp": "2026-02-18T10:30:00Z"
+    "timestamp": "2026-02-18T10:30:00Z",
+    "turn_count": 5,
+    "has_tool_use": true,
+    "has_denials": false,
+    "has_errors": false,
+    "user_sentiment": "positive"
   }
 }
 ```
@@ -242,27 +272,49 @@ elophanto-dataset/
 
 ### Quality Filtering
 
-Not all interactions produce good training data. Filter criteria:
+Not all interactions produce good training data. The agent-side `QualityFilter` applies configurable criteria before buffering:
+
+| Filter | Default | Purpose |
+|--------|---------|---------|
+| **Min turns** | 2 | Exclude trivial single-message interactions |
+| **Success only** | `false` | Collect both successes and failures — failures are negative examples for DPO/RLHF |
+| **Tool use required** | `false` | Pure text conversations (user feedback, corrections) are collected for sentiment data |
+
+The server side applies additional filters:
 
 | Filter | Purpose |
 |--------|---------|
-| **Success only** | Only include tasks that completed successfully |
-| **Min turns** | Exclude trivial single-turn interactions |
-| **No errors** | Exclude conversations with unrecovered errors |
-| **Tool accuracy** | Only include when the right tool was selected |
-| **Deduplication** | Remove near-identical conversations (embedding similarity > 0.95) |
-| **Length bounds** | Drop extremely short or excessively long examples |
+| **Secret scan** | Reject examples with detected credentials (14 regex patterns) |
+| **Deduplication** | Remove near-identical conversations (embedding similarity > 0.95 via pgvector) |
+| **Length bounds** | Reject extremely short or excessively long examples |
+
+### Signal Extraction
+
+Each collected example is enriched with training-relevant signals (extracted by `_extract_signals()` in `core/dataset_builder.py`):
+
+| Signal | Source | Use in Training |
+|--------|--------|-----------------|
+| `user_sentiment` | User messages ("thanks", "wrong", "doesn't work") | Weight positive examples higher, use negative for alignment |
+| `has_denials` | Tool outputs ("permission denied", "unauthorized") | Teach the model to handle permission failures |
+| `has_errors` | Tool/assistant messages ("error", "traceback", "failed") | Negative examples for error recovery training |
+| `turn_count` | User + assistant message count | Complexity indicator for curriculum learning |
+| `has_tool_use` | Whether any tools were called | Distinguish tool-use vs. pure-text examples |
 
 ### Privacy & Security
 
-Training data must be sanitized before storage:
+Training data is sanitized **locally on the agent** before being sent to the collection API (defense in depth — the server re-scans too):
 
-- **Strip credentials** — Remove vault references, API keys, tokens
-- **Strip PII** — Remove usernames, emails, file paths with personal info
-- **Strip secrets** — Remove anything matching secret patterns (regex-based)
-- **Redact file contents** — Replace sensitive file contents with placeholders
-- **No browser data** — Exclude screenshots, cookies, session data
-- **Configurable opt-out** — Users can disable data collection entirely
+| Layer | What | How |
+|-------|------|-----|
+| **Credentials** | API keys, tokens, passwords, private keys | 14 regex patterns matching GitHub PATs, OpenAI keys, AWS keys, HF tokens, Slack tokens, Bearer JWTs, EloPhanto keys, and more |
+| **Vault references** | `vault:xxx` patterns | Replaced with `[VAULT_REF]` |
+| **PII — paths** | `/Users/username/...`, `/home/username/...` | Replaced with `/REDACTED_PATH` |
+| **PII — emails** | Email addresses | Replaced with `[EMAIL]` |
+| **File contents** | Large tool outputs (>2000 chars) | Truncated with `[...truncated]` |
+| **Browser data** | All `browser_*` tool calls and their responses | Entirely dropped from the conversation |
+| **Configurable opt-out** | Users can disable collection entirely | `self_learning.enabled: false` (default) |
+
+The same 14 secret patterns are implemented on both sides (`core/dataset_builder.py` and `elophanto.com/lib/collect.ts`) so secrets are caught even if one layer misses them.
 
 ## Training Pipeline
 
@@ -567,41 +619,73 @@ A new version is only deployed if it matches or exceeds the previous version on 
 ## Configuration
 
 ```yaml
-# config.yaml (future)
+# config.yaml
 self_learning:
-  enabled: false                    # Opt-in
-  collect_data: true                # Capture interactions for training
-  collect_api: "https://elophanto.com/api/collect"
-  collect_key_ref: elophanto_collect_key  # Vault key for collection API auth
-  batch_size: 10                    # Upload every N examples (not per-interaction)
-  dataset_repo: "EloPhanto/dataset"              # HuggingFace Datasets repo
-  model_repo: "EloPhanto/base-model"             # HuggingFace model repo
-  gguf_repo: "EloPhanto/base-model-gguf"         # GGUF export repo
-  hf_token_ref: hf_token           # Vault key for HuggingFace write token
-  training:
-    gpu_flavor: a10g-small          # HF Jobs GPU tier
-    timeout_hours: 4                # Max training job duration
-    base_model: "unsloth/Qwen3-4B-Instruct"
-  auto_retrain: false               # Trigger training automatically
-  retrain_threshold: 5000           # Min new examples before retraining
+  enabled: false                    # Opt-in (disabled by default)
+  collect_endpoint: "https://api.elophanto.com/v1/collect"
+  register_endpoint: "https://api.elophanto.com/v1/auth/register"
+  batch_size: 10                    # Upload every N buffered examples
+  min_turns: 2                      # Minimum user+assistant turns to collect
+  success_only: false               # Collect failures too (negative examples)
   privacy:
-    strip_credentials: true
-    strip_pii: true
-    strip_file_contents: true
-    exclude_browser_data: true
+    strip_credentials: true         # 14 regex patterns for API keys, tokens, etc.
+    strip_pii: true                 # Paths (/Users/xxx), emails
+    strip_file_contents: true       # Truncate large tool outputs to 2000 chars
+    exclude_browser_data: true      # Drop browser_* tool calls and results
 ```
 
-## Status
+API key management is automatic — the agent registers with the collection API on first upload using its census fingerprint (`sha256:xxx`), stores the key in `data/.collect_key`, and recovers via `/v1/auth/recover` if the key file is lost. No user configuration needed beyond setting `enabled: true`.
 
-**Idea Phase** — This document captures the research direction for EloPhanto's self-learning capability. Implementation has not started.
+### Future: Training Configuration (Not Yet Implemented)
+
+```yaml
+# config.yaml (future additions)
+self_learning:
+  # ... existing fields above ...
+  dataset_repo: "EloPhanto/dataset"
+  model_repo: "EloPhanto/base-model"
+  gguf_repo: "EloPhanto/base-model-gguf"
+  hf_token_ref: hf_token
+  training:
+    gpu_flavor: a10g-small
+    timeout_hours: 4
+    base_model: "unsloth/Qwen3-4B-Instruct"
+  auto_retrain: false
+  retrain_threshold: 5000
+```
+
+## Implementation Status
+
+### Done: Dataset Builder
+
+The agent-side data collection pipeline is fully implemented and tested:
+
+| Component | File | Status |
+|-----------|------|--------|
+| Config | `core/config.py` — `SelfLearningConfig`, `SelfLearningPrivacyConfig` | Done |
+| Local buffer | `core/database.py` — `collect_examples` table | Done |
+| Sanitizer | `core/dataset_builder.py` — `DataSanitizer` (14 secret patterns, PII, browser data) | Done |
+| Quality filter | `core/dataset_builder.py` — `QualityFilter` (min turns, success/failure) | Done |
+| Signal extraction | `core/dataset_builder.py` — `_extract_signals()` (sentiment, denials, errors) | Done |
+| Builder | `core/dataset_builder.py` — `DatasetBuilder` (buffer, upload, register, recover, flush) | Done |
+| Agent integration | `core/agent.py` — hooks into task completion + shutdown | Done |
+| Server: collect | `elophanto.com/app/api/collect/route.ts` | Done |
+| Server: register | `elophanto.com/app/api/auth/register/route.ts` | Done |
+| Server: recover | `elophanto.com/app/api/auth/recover/route.ts` | Done |
+| Server: status | `elophanto.com/app/api/collect/status/route.ts` | Done |
+| Server: HF push | `elophanto.com/app/api/cron/push-dataset/route.ts` (daily cron) | Done |
+| Tests | `tests/test_core/test_dataset_builder.py` — 42 tests | Done |
+
+### Remaining: Training Pipeline
 
 Training infrastructure is solved: [HuggingFace Jobs + Unsloth](https://huggingface.co/blog/unsloth-jobs) provides managed GPU training with native dataset/model Hub integration at ~$1-4 per run.
 
-Key prerequisites:
+Remaining prerequisites:
 
-1. Accumulate sufficient interaction data from real agent usage
-2. Set up HuggingFace dataset repo at `EloPhanto/dataset`
-3. Set up HuggingFace model repos at `EloPhanto/base-model` and `EloPhanto/base-model-gguf`
-4. Write the training script (UV script with inline deps for HF Jobs)
-5. Validate end-to-end: dataset upload -> HF Job -> model push -> GGUF export -> Ollama pull
-6. Define benchmark suite for evaluation
+1. ~~Build agent-side dataset collection~~ **Done**
+2. Accumulate sufficient interaction data from real agent usage (in progress — collecting now)
+3. Set up HuggingFace dataset repo at `EloPhanto/dataset`
+4. Set up HuggingFace model repos at `EloPhanto/base-model` and `EloPhanto/base-model-gguf`
+5. Write the training script (UV script with inline deps for HF Jobs)
+6. Validate end-to-end: dataset upload -> HF Job -> model push -> GGUF export -> Ollama pull
+7. Define benchmark suite for evaluation

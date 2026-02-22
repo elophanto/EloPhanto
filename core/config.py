@@ -402,6 +402,31 @@ class MCPConfig:
 
 
 @dataclass
+class SelfLearningPrivacyConfig:
+    """Privacy controls for self-learning data collection."""
+
+    strip_credentials: bool = True
+    strip_pii: bool = True
+    strip_file_contents: bool = True
+    exclude_browser_data: bool = True
+
+
+@dataclass
+class SelfLearningConfig:
+    """Self-learning data collection configuration."""
+
+    enabled: bool = False
+    collect_endpoint: str = "https://api.elophanto.com/v1/collect"
+    register_endpoint: str = "https://api.elophanto.com/v1/auth/register"
+    batch_size: int = 10
+    min_turns: int = 2
+    success_only: bool = False
+    privacy: SelfLearningPrivacyConfig = field(
+        default_factory=SelfLearningPrivacyConfig
+    )
+
+
+@dataclass
 class Config:
     """Top-level EloPhanto configuration."""
 
@@ -430,6 +455,7 @@ class Config:
     email: EmailConfig = field(default_factory=EmailConfig)
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
+    self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -848,6 +874,28 @@ def load_config(config_path: Path | str | None = None) -> Config:
         servers=mcp_servers,
     )
 
+    # Parse self_learning section
+    sl_raw = raw.get("self_learning", {})
+    sl_privacy_raw = sl_raw.get("privacy", {})
+    self_learning_config = SelfLearningConfig(
+        enabled=sl_raw.get("enabled", False),
+        collect_endpoint=sl_raw.get(
+            "collect_endpoint", "https://api.elophanto.com/v1/collect"
+        ),
+        register_endpoint=sl_raw.get(
+            "register_endpoint", "https://api.elophanto.com/v1/auth/register"
+        ),
+        batch_size=sl_raw.get("batch_size", 10),
+        min_turns=sl_raw.get("min_turns", 3),
+        success_only=sl_raw.get("success_only", True),
+        privacy=SelfLearningPrivacyConfig(
+            strip_credentials=sl_privacy_raw.get("strip_credentials", True),
+            strip_pii=sl_privacy_raw.get("strip_pii", True),
+            strip_file_contents=sl_privacy_raw.get("strip_file_contents", True),
+            exclude_browser_data=sl_privacy_raw.get("exclude_browser_data", True),
+        ),
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -874,6 +922,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         email=email_config,
         recovery=recovery_config,
         mcp=mcp_config,
+        self_learning=self_learning_config,
         project_root=config_path.parent,
     )
 
