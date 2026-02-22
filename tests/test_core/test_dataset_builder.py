@@ -28,7 +28,7 @@ def config() -> SelfLearningConfig:
         collect_endpoint="https://api.example.com/v1/collect",
         register_endpoint="https://api.example.com/v1/auth/register",
         batch_size=3,
-        min_turns=2,
+        min_turns=3,
         success_only=False,
     )
 
@@ -303,17 +303,19 @@ class TestQualityFilter:
         assert not qf.should_collect(msgs, ["shell_execute"], success=False)
 
     def test_reject_single_turn(self, quality_filter: QualityFilter) -> None:
-        """Single message is below min_turns=2."""
+        """Single message is below min_turns."""
         msgs = [{"role": "user", "content": "hi"}]
         assert not quality_filter.should_collect(msgs, ["shell_execute"], success=True)
 
-    def test_accept_without_tool_calls(self, quality_filter: QualityFilter) -> None:
-        """Pure text conversations are now collected for sentiment data."""
+    def test_reject_without_tool_calls(self, quality_filter: QualityFilter) -> None:
+        """Conversations without tool use don't demonstrate agent behavior."""
         msgs = [
             {"role": "user", "content": "what is 2+2?"},
             {"role": "assistant", "content": "4"},
+            {"role": "user", "content": "thanks"},
+            {"role": "assistant", "content": "welcome"},
         ]
-        assert quality_filter.should_collect(msgs, [], success=True)
+        assert not quality_filter.should_collect(msgs, [], success=True)
 
     def test_accept_valid_interaction(self, quality_filter: QualityFilter) -> None:
         msgs = [
@@ -324,13 +326,17 @@ class TestQualityFilter:
         ]
         assert quality_filter.should_collect(msgs, ["shell_execute"], success=True)
 
-    def test_accept_two_turn_conversation(self, quality_filter: QualityFilter) -> None:
-        """min_turns=2 means a single user+assistant exchange is enough."""
+    def test_reject_no_tools_even_with_many_turns(
+        self, quality_filter: QualityFilter
+    ) -> None:
+        """Even long conversations are rejected if no tools were used."""
         msgs = [
             {"role": "user", "content": "thanks that worked perfectly"},
             {"role": "assistant", "content": "glad to help"},
+            {"role": "user", "content": "one more thing"},
+            {"role": "assistant", "content": "sure"},
         ]
-        assert quality_filter.should_collect(msgs, [], success=True)
+        assert not quality_filter.should_collect(msgs, [], success=True)
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +436,7 @@ class TestDatasetBuilder:
     async def test_record_task_skips_when_filtered(
         self, builder: DatasetBuilder, mock_db: MagicMock
     ) -> None:
-        """Single turn (below min_turns=2) should be skipped."""
+        """Single turn with no tool calls should be skipped."""
         msgs = [
             {"role": "user", "content": "hi"},
         ]
@@ -664,13 +670,15 @@ class TestDatasetBuilder:
         assert metadata["has_tool_use"] is True
 
     @pytest.mark.asyncio
-    async def test_collects_pure_text_conversation(
+    async def test_rejects_pure_text_conversation(
         self, builder: DatasetBuilder, mock_db: MagicMock
     ) -> None:
-        """Pure text conversations without tool use should now be collected."""
+        """Conversations without tool use are filtered out — they don't teach agent behavior."""
         msgs = [
             {"role": "user", "content": "thanks that was perfect!"},
             {"role": "assistant", "content": "glad to help"},
+            {"role": "user", "content": "one more thing"},
+            {"role": "assistant", "content": "sure"},
         ]
         await builder.record_task(
             messages=msgs,
@@ -679,9 +687,4 @@ class TestDatasetBuilder:
             duration_seconds=1.0,
             model_used="test-model",
         )
-        mock_db.execute_insert.assert_called()
-        call_args = mock_db.execute_insert.call_args[0]
-        metadata_json = call_args[1][2]
-        metadata = json.loads(metadata_json)
-        assert metadata["has_tool_use"] is False
-        assert metadata["user_sentiment"] == "positive"
+        mock_db.execute_insert.assert_not_called()
