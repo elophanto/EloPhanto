@@ -108,27 +108,27 @@ def _is_chrome_running() -> bool:
     system = platform.system()
     try:
         if system == "Darwin":
-            result = subprocess.run(
+            rc = subprocess.run(
                 ["pgrep", "-x", "Google Chrome"],
                 capture_output=True,
                 timeout=5,
-            )
-            return result.returncode == 0
+            ).returncode
+            return rc == 0
         elif system == "Linux":
-            result = subprocess.run(
+            rc = subprocess.run(
                 ["pgrep", "-f", "chrome"],
                 capture_output=True,
                 timeout=5,
-            )
-            return result.returncode == 0
+            ).returncode
+            return rc == 0
         elif system == "Windows":
-            result = subprocess.run(
+            out = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq chrome.exe"],
                 capture_output=True,
                 text=True,
                 timeout=5,
-            )
-            return "chrome.exe" in result.stdout.lower()
+            ).stdout
+            return "chrome.exe" in out.lower()
     except Exception:
         pass
     return False
