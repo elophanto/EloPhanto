@@ -29,7 +29,7 @@ class OllamaEmbedder:
 
     def __init__(self, base_url: str = "http://localhost:11434") -> None:
         self._base_url = base_url.rstrip("/")
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=8.0)
 
     async def embed(
         self, text: str, model: str = "nomic-embed-text"
@@ -100,7 +100,7 @@ class OpenRouterEmbedder:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._default_model = default_model
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=8.0)
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -142,7 +142,7 @@ class OpenRouterEmbedder:
             f"{self._base_url}/embeddings",
             headers=self._headers(),
             json={"model": model, "input": texts},
-            timeout=60.0,
+            timeout=15.0,
         )
 
         if response.status_code != 200:

@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 import sys
+import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -213,10 +214,23 @@ class Agent:
         except Exception as e:
             logger.warning(f"Database initialization failed: {e}")
 
-        # --- Parallel block: embedding detection + health check ---
+        # --- LLM health check (blocking — fast pings) ---
         _status("Checking LLM providers")
+        _hc_start = _time.monotonic()
+        health = await self._router.health_check()
+        self._provider_health = health
+        enabled = [k for k, v in health.items() if v]
+        if not enabled:
+            logger.warning("No LLM providers are reachable!")
+        else:
+            logger.info(
+                "[TIMING] health check: %.2fs | active: %s",
+                _time.monotonic() - _hc_start,
+                ", ".join(enabled),
+            )
 
-        async def _detect_embeddings() -> tuple[str | None, int | None]:
+        # --- Embedding detection (background — not on critical path) ---
+        async def _detect_embeddings_bg() -> None:
             from core.embeddings import OpenRouterEmbedder
 
             try:
@@ -231,36 +245,23 @@ class Agent:
                     primary=primary_model,
                     fallback=fallback_model,
                 )
-                return model, dims
+                if model and dims:
+                    self._indexer.set_embedding_model(model)
+                    try:
+                        await self._db.create_vec_table(dims)
+                    except Exception as e:
+                        logger.warning(f"Failed to create vec table: {e}")
+                    # Also create document vec table if documents subsystem is active
+                    if self._document_store:
+                        try:
+                            await self._db.create_document_vec_table(dims)
+                        except Exception:
+                            pass
+                    logger.info(f"Embedding model ready: {model} ({dims}d)")
             except Exception as e:
-                logger.warning(f"Embedding model not available: {e}")
-                return None, None
+                logger.info(f"Embeddings not available: {e}")
 
-        async def _run_health_check() -> dict[str, bool]:
-            return await self._router.health_check()
-
-        (embed_model, embed_dims), health = await asyncio.gather(
-            _detect_embeddings(),
-            _run_health_check(),
-        )
-
-        # Apply embedding results
-        if embed_model and embed_dims:
-            self._indexer.set_embedding_model(embed_model)
-            try:
-                await self._db.create_vec_table(embed_dims)
-            except Exception as e:
-                logger.warning(f"Failed to create vec table: {e}")
-
-        # Store health results for the caller
-        self._provider_health = health
-        enabled = [k for k, v in health.items() if v]
-        if not enabled:
-            logger.warning("No LLM providers are reachable!")
-        else:
-            logger.info(f"Active LLM providers: {', '.join(enabled)}")
-
-        # --- End parallel block ---
+        asyncio.create_task(_detect_embeddings_bg())
 
         # Inject dependencies into knowledge tools
         self._inject_knowledge_deps()
@@ -367,12 +368,8 @@ class Agent:
                     config=self._config.documents,
                 )
 
-                # Create document vector table if embeddings available
-                if embed_model and embed_dims:
-                    try:
-                        await self._db.create_document_vec_table(embed_dims)
-                    except Exception as e:
-                        logger.debug(f"Document vec table: {e}")
+                # Document vec table is created lazily when embeddings are detected
+                # (background task in _detect_embeddings_bg)
 
                 self._inject_document_deps()
                 logger.info("Document analysis ready")
@@ -467,6 +464,7 @@ class Agent:
 
             if _mcp_available:
                 _status("Connecting to MCP servers")
+                _mcp_start = _time.monotonic()
                 try:
                     from core.mcp_client import MCPClientManager
 
@@ -478,15 +476,18 @@ class Agent:
                     for tool in mcp_tools:
                         self._registry.register(tool)
                     connected = [n for n, ok in mcp_results.items() if ok]
-                    if connected:
-                        logger.info(
-                            "MCP: %d tools from %d servers (%s)",
-                            len(mcp_tools),
-                            len(connected),
-                            ", ".join(connected),
-                        )
+                    logger.info(
+                        "[TIMING] MCP connect: %.2fs | %d tools from %s",
+                        _time.monotonic() - _mcp_start,
+                        len(mcp_tools),
+                        ", ".join(connected) if connected else "none",
+                    )
                 except Exception as e:
-                    logger.warning("MCP client initialization failed: %s", e)
+                    logger.warning(
+                        "[TIMING] MCP failed after %.2fs: %s",
+                        _time.monotonic() - _mcp_start,
+                        e,
+                    )
 
         # Auto-index knowledge on startup
         if self._config.knowledge.auto_index_on_startup:
@@ -772,10 +773,9 @@ class Agent:
         append_turn: Callable[[str, str], None],
     ) -> AgentResponse:
         """Core plan-execute-reflect loop, parameterized on history source."""
+        logger.info("[TIMING] _run_with_history entered for: %s", goal[:80])
         self._router.cost_tracker.reset_task()
         self._working_memory.clear()
-
-        import time as _time
 
         tool_calls_made: list[str] = []
         step = 0
@@ -790,46 +790,43 @@ class Agent:
         _STAGNATION_WINDOW = 8
         _MAX_CONSECUTIVE_ERRORS = 5
 
-        # Gather all pre-loop context in parallel for speed
+        # --- Pre-loop context (non-blocking) ---
+        # Knowledge retrieval is fire-and-forget: results populate working
+        # memory for the *next* turn.  The LLM can call knowledge_search
+        # explicitly when it needs context — no reason to block here.
         _ctx_start = _time.monotonic()
 
-        async def _retrieve_knowledge() -> None:
+        async def _background_retrieve() -> None:
             try:
                 await self._auto_retrieve(goal)
             except Exception:
                 pass
 
-        async def _get_goal_context() -> str:
+        asyncio.create_task(_background_retrieve())
+
+        # Goal + identity context are fast local DB reads — worth keeping.
+        goal_context = ""
+        identity_context = ""
+        try:
             if self._goal_manager:
-                try:
-                    active_goal = await self._goal_manager.list_goals(
-                        status="active", limit=1
+                active = await self._goal_manager.list_goals(status="active", limit=1)
+                if active:
+                    goal_context = await self._goal_manager.build_goal_context(
+                        active[0].goal_id
                     )
-                    if active_goal:
-                        return await self._goal_manager.build_goal_context(
-                            active_goal[0].goal_id
-                        )
-                except Exception:
-                    pass
-            return ""
+        except Exception:
+            pass
 
-        async def _get_identity_context() -> str:
+        try:
             if self._identity_manager:
-                try:
-                    return await self._identity_manager.build_identity_context()
-                except Exception:
-                    pass
-            return ""
+                identity_context = await self._identity_manager.build_identity_context()
+        except Exception:
+            pass
 
-        _, goal_context, identity_context = await asyncio.gather(
-            _retrieve_knowledge(), _get_goal_context(), _get_identity_context()
-        )
-
-        logger.info(
-            "Pre-loop context gathered in %.1fs", _time.monotonic() - _ctx_start
-        )
+        logger.info("[TIMING] pre-loop context: %.2fs", _time.monotonic() - _ctx_start)
 
         # Build system prompt with XML-structured sections, skills, and knowledge
+        _prompt_start = _time.monotonic()
         knowledge_context = self._working_memory.format_context()
         available_skills = self._skill_manager.format_available_skills()
 
@@ -851,6 +848,15 @@ class Agent:
         # Build conversation for LLM: prior turns + current user message
         messages: list[dict[str, Any]] = list(conversation_history)
         messages.append({"role": "user", "content": goal})
+
+        _tools = self._registry.list_tools()
+        logger.info(
+            "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d | messages=%d",
+            _time.monotonic() - _prompt_start,
+            len(system_content),
+            len(_tools),
+            len(messages),
+        )
 
         stagnation_reason = ""
         while step < hard_limit:
@@ -877,11 +883,12 @@ class Agent:
 
             # === PLAN ===
             _llm_start = _time.monotonic()
+            logger.info("[TIMING] LLM call starting (step %d)...", step)
             try:
                 response = await self._router.complete(
                     messages=[{"role": "system", "content": system_content}] + messages,
                     task_type="planning",
-                    tools=self._registry.list_tools(),
+                    tools=_tools,
                     temperature=0.2,
                 )
             except Exception as e:
@@ -904,21 +911,22 @@ class Agent:
             if not response.tool_calls:
                 final_content = response.content or "Task complete."
 
-                # Store task memory
-                await self._store_task_memory(
-                    goal, final_content, "completed", tool_calls_made
+                # Post-task housekeeping — fire-and-forget so the user
+                # gets the response immediately.
+                asyncio.create_task(
+                    self._store_task_memory(
+                        goal, final_content, "completed", tool_calls_made
+                    )
                 )
 
-                # Identity reflection after task completion
                 if self._identity_manager:
-                    try:
-                        await self._identity_manager.reflect_on_task(
+                    asyncio.create_task(
+                        self._identity_manager.reflect_on_task(
                             goal=goal,
                             outcome=final_content[:200],
                             tools_used=list(set(tool_calls_made)),
                         )
-                    except Exception:
-                        pass
+                    )
 
                 # Dataset collection (non-blocking, fire-and-forget)
                 if self._dataset_builder:
@@ -1033,8 +1041,10 @@ class Agent:
             f"Task stopped: {reason} after {step} steps. "
             f"You can continue by sending a follow-up message."
         )
-        await self._store_task_memory(
-            goal, "Max steps reached", "incomplete", tool_calls_made
+        asyncio.create_task(
+            self._store_task_memory(
+                goal, "Max steps reached", "incomplete", tool_calls_made
+            )
         )
 
         # Dataset collection for incomplete tasks

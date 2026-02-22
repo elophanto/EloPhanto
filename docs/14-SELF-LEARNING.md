@@ -149,7 +149,7 @@ Data flows from individual agents to the central dataset via a collection API on
 
 **Agent-side flow** (runs locally, implemented in `core/dataset_builder.py`):
 
-1. After each task (successful or failed), the agent passes the interaction to `DatasetBuilder.record_task()`
+1. After each task (successful or failed), the agent fires off `DatasetBuilder.record_task()` as a **non-blocking background task** — the user receives the response immediately
 2. `QualityFilter` checks minimum turn count (default 2) — single-message interactions are skipped
 3. `DataSanitizer` strips credentials (14 regex patterns), PII (paths, emails), vault references, browser tool calls/results, and truncates large tool outputs
 4. `_extract_signals()` analyzes raw messages for training-relevant signals: user sentiment, denial detection, error detection, turn count
