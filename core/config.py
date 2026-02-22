@@ -419,7 +419,7 @@ class SelfLearningConfig:
     collect_endpoint: str = "https://api.elophanto.com/v1/collect"
     register_endpoint: str = "https://api.elophanto.com/v1/auth/register"
     batch_size: int = 10
-    min_turns: int = 2
+    min_turns: int = 3
     success_only: bool = False
     privacy: SelfLearningPrivacyConfig = field(
         default_factory=SelfLearningPrivacyConfig

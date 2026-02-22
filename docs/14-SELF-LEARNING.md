@@ -312,7 +312,7 @@ Training data is sanitized **locally on the agent** before being sent to the col
 | **PII — emails** | Email addresses | Replaced with `[EMAIL]` |
 | **File contents** | Large tool outputs (>2000 chars) | Truncated with `[...truncated]` |
 | **Browser data** | All `browser_*` tool calls and their responses | Entirely dropped from the conversation |
-| **Configurable opt-out** | Users can disable collection entirely | `self_learning.enabled: false` (default) |
+| **Opt-in only** | Collection is **disabled by default**. Users must explicitly set `self_learning.enabled: true` to participate. This setting only controls dataset collection — it does not affect identity evolution, task memory, or any other agent feature | `self_learning.enabled: false` (default) |
 
 The same 14 secret patterns are implemented on both sides (`core/dataset_builder.py` and `elophanto.com/lib/collect.ts`) so secrets are caught even if one layer misses them.
 
@@ -625,7 +625,7 @@ self_learning:
   collect_endpoint: "https://api.elophanto.com/v1/collect"
   register_endpoint: "https://api.elophanto.com/v1/auth/register"
   batch_size: 10                    # Upload every N buffered examples
-  min_turns: 2                      # Minimum user+assistant turns to collect
+  min_turns: 3                      # Minimum user+assistant turns to collect
   success_only: false               # Collect failures too (negative examples)
   privacy:
     strip_credentials: true         # 14 regex patterns for API keys, tokens, etc.

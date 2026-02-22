@@ -179,6 +179,11 @@ class QualityFilter:
         if self._config.success_only and not success:
             return False
 
+        # Must have at least one tool call — conversations without tool use
+        # don't demonstrate agent behavior (planning, tool selection, execution)
+        if not tool_calls_made:
+            return False
+
         # Count user + assistant messages (not system/tool)
         conversation_turns = sum(
             1 for m in messages if m.get("role") in ("user", "assistant")
