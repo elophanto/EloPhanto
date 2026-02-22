@@ -418,24 +418,31 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase | Status |
 |---|---|
 | Phase 0: Foundation | **Done** |
-| Phase 1: Knowledge & Memory | **Done** — includes cross-session task memory recall |
-| Phase 2: Permission System | **Done** — includes permissions.yaml, protected files, approval queue persistence |
-| Phase 3: Browser Bridge | **Done** — 47 tools via Node.js Playwright bridge |
-| Phase 4: Self-Development Pipeline | **Done** — includes git integration, auto-doc updates |
-| Phase 5: Core Self-Modification | **Done** — includes rollback tool and CLI command |
-| Phase 6: Security Hardening | **Done** — includes vault, log redaction, protected files |
-| Phase 7: Scheduling & Automation | **Done** — includes one-time and recurring scheduling |
+| Phase 1: Knowledge & Memory | **Done** — cross-session task memory recall, sqlite-vec embeddings |
+| Phase 2: Permission System | **Done** — permissions.yaml, protected files, approval queue persistence |
+| Phase 3: Browser Bridge | **Done** — 46 tools, 4 connection modes, profile copy with cookie decryption, anti-detection |
+| Phase 4: Self-Development Pipeline | **Done** — git integration, auto-doc updates |
+| Phase 5: Core Self-Modification | **Done** — rollback tool and CLI command |
+| Phase 6: Security Hardening | **Done** — vault, log redaction, protected files |
+| Phase 7: Scheduling & Automation | **Done** — one-time and recurring scheduling |
 | Phase 7.5: Telegram Interface | **Done** — aiogram adapter with commands and notifications |
-| Phase 7.6: Skills System | **Done** — 27 skills, CLI installer, trigger matching |
+| Phase 7.6: Skills System | **Done** — 28 skills, CLI installer, trigger matching |
 | Phase 7.7: Gateway Architecture | **Done** — WebSocket control plane, session isolation, protocol |
 | Phase 7.8: Channel Adapters | **Done** — CLI, Telegram, Discord, Slack via gateway |
 | Phase 7.9: EloPhantoHub | **Done** — Skill registry, search, install, update, agent auto-discovery |
 | Phase 8: Web UI | Planned |
 | Phase 9: Polish & Release | Planned |
 | Phase 10: Self-Learning Model | Idea Phase |
-| Phase 11: Agent Payments | Idea Phase |
-| Phase 12: Document & Media Analysis | Done |
+| Phase 11: Agent Payments | **Phase 1 Done** — Crypto wallet (local + Coinbase AgentKit), 7 tools, spending limits, audit trail |
+| Phase 12: Document & Media Analysis | **Done** — PDF, DOCX, XLSX, PPTX, EPUB, OCR, vision analysis, RAG |
+| Phase 13: Autonomous Goal Loop | **Done** — Multi-phase goals, checkpoints, progress tracking, self-evaluation |
+| Phase 14: Self-Learning Model | Idea Phase — Dataset collection, Unsloth fine-tuning pipeline spec |
+| Phase 15: Identity System | **Done** — Evolving identity, beliefs, personality, reflection, social profiles |
+| Phase 16: Email | **Done** — Dual provider (AgentMail + SMTP/IMAP), 6 tools, audit logging |
+| Phase 17: Skill Security | **Done** — 7-layer defense-in-depth for EloPhantoHub marketplace |
 | Phase 18: Agent Census | **Done** — Anonymous startup heartbeat, machine fingerprint, ecosystem stats |
+| Phase 19: Recovery Mode | **Done** — Remote recovery without LLM, health checks, config reload |
+| Phase 20: Hosted Platform | Spec — Tauri desktop app + Fly.io cloud instances |
 
 ## Phase 10: Self-Learning Model (Idea Phase)
 

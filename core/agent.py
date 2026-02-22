@@ -50,6 +50,60 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONVERSATION_HISTORY = 20  # Max messages to carry across turns
 
+# Tools that are read-only and safe to execute concurrently via asyncio.gather().
+# Mutating tools (file_write, shell_execute, browser_*, etc.) form sequential barriers.
+_PARALLEL_SAFE_TOOLS = frozenset(
+    {
+        "file_read",
+        "file_list",
+        "knowledge_search",
+        "llm_call",
+        "skill_read",
+        "skill_list",
+        "self_list_capabilities",
+        "self_read_source",
+        "vault_lookup",
+        "hub_search",
+        "document_query",
+        "document_collections",
+        "identity_status",
+        "goal_status",
+        "payment_balance",
+        "wallet_status",
+        "payment_history",
+        "payment_validate",
+        "email_list",
+        "email_read",
+        "email_search",
+        "schedule_list",
+    }
+)
+
+
+def _group_tool_calls(tool_calls: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Group tool calls into parallelizable batches.
+
+    Consecutive parallel-safe tools form one group.
+    Any non-safe tool gets its own single-item group (sequential barrier).
+    """
+    groups: list[list[dict[str, Any]]] = []
+    current_safe: list[dict[str, Any]] = []
+
+    for tc in tool_calls:
+        name = tc.get("function", {}).get("name", "")
+        if name in _PARALLEL_SAFE_TOOLS:
+            current_safe.append(tc)
+        else:
+            if current_safe:
+                groups.append(current_safe)
+                current_safe = []
+            groups.append([tc])  # Sequential barrier
+
+    if current_safe:
+        groups.append(current_safe)
+
+    return groups if groups else [[tc] for tc in tool_calls]
+
 
 @dataclass
 class AgentResponse:
@@ -160,9 +214,11 @@ class Agent:
         _status("Checking LLM providers")
 
         async def _detect_embeddings() -> tuple[str | None, int | None]:
+            from core.embeddings import OpenRouterEmbedder
+
             try:
                 kc = self._config.knowledge
-                if kc.embedding_provider == "openrouter":
+                if isinstance(self._embedder, OpenRouterEmbedder):
                     primary_model = kc.embedding_openrouter_model
                     fallback_model = None
                 else:
@@ -633,38 +689,48 @@ class Agent:
         _STAGNATION_WINDOW = 8
         _MAX_CONSECUTIVE_ERRORS = 5
 
-        # Auto-retrieve relevant knowledge
-        try:
-            await self._auto_retrieve(goal)
-        except Exception:
-            pass  # Non-fatal
+        # Gather all pre-loop context in parallel for speed
+        _ctx_start = _time.monotonic()
+
+        async def _retrieve_knowledge() -> None:
+            try:
+                await self._auto_retrieve(goal)
+            except Exception:
+                pass
+
+        async def _get_goal_context() -> str:
+            if self._goal_manager:
+                try:
+                    active_goal = await self._goal_manager.list_goals(
+                        status="active", limit=1
+                    )
+                    if active_goal:
+                        return await self._goal_manager.build_goal_context(
+                            active_goal[0].goal_id
+                        )
+                except Exception:
+                    pass
+            return ""
+
+        async def _get_identity_context() -> str:
+            if self._identity_manager:
+                try:
+                    return await self._identity_manager.build_identity_context()
+                except Exception:
+                    pass
+            return ""
+
+        _, goal_context, identity_context = await asyncio.gather(
+            _retrieve_knowledge(), _get_goal_context(), _get_identity_context()
+        )
+
+        logger.info(
+            "Pre-loop context gathered in %.1fs", _time.monotonic() - _ctx_start
+        )
 
         # Build system prompt with XML-structured sections, skills, and knowledge
         knowledge_context = self._working_memory.format_context()
         available_skills = self._skill_manager.format_available_skills()
-
-        # Check for active goal context
-        goal_context = ""
-        if self._goal_manager:
-            try:
-                # Try to find active goal (session-scoped or global)
-                active_goal = await self._goal_manager.list_goals(
-                    status="active", limit=1
-                )
-                if active_goal:
-                    goal_context = await self._goal_manager.build_goal_context(
-                        active_goal[0].goal_id
-                    )
-            except Exception:
-                pass
-
-        # Build identity context if available
-        identity_context = ""
-        if self._identity_manager:
-            try:
-                identity_context = await self._identity_manager.build_identity_context()
-            except Exception:
-                pass
 
         system_content = build_system_prompt(
             permission_mode=self._config.permission_mode,
@@ -708,6 +774,7 @@ class Agent:
             logger.info("Step %d", step)
 
             # === PLAN ===
+            _llm_start = _time.monotonic()
             try:
                 response = await self._router.complete(
                     messages=[{"role": "system", "content": system_content}] + messages,
@@ -722,6 +789,13 @@ class Agent:
                     steps_taken=step,
                     tool_calls_made=tool_calls_made,
                 )
+            logger.info(
+                "LLM call step %d: %.1fs (%s/%s)",
+                step,
+                _time.monotonic() - _llm_start,
+                response.provider,
+                response.model_used,
+            )
 
             # Check if LLM responded with text (no tool calls) = task complete
             if not response.tool_calls:
@@ -769,65 +843,72 @@ class Agent:
             }
             messages.append(assistant_msg)
 
-            # === EXECUTE each tool call ===
-            for tool_call in response.tool_calls:
-                func_name = tool_call["function"]["name"]
-                tool_calls_made.append(func_name)
-                recent_calls.append(func_name)
+            # === EXECUTE tool calls (parallel where safe) ===
+            groups = _group_tool_calls(response.tool_calls)
 
-                # Parse params for progress display
-                try:
-                    _raw = tool_call["function"].get("arguments", "{}")
-                    _params = json.loads(_raw) if isinstance(_raw, str) else _raw
-                except Exception:
-                    _params = {}
-
-                if self._on_step:
+            for group in groups:
+                # Fire progress callbacks for all tools in the group
+                for tc in group:
+                    func_name = tc["function"]["name"]
+                    tool_calls_made.append(func_name)
+                    recent_calls.append(func_name)
                     try:
-                        result = self._on_step(
-                            step, func_name, response.content or "", _params
-                        )
-                        if inspect.isawaitable(result):
-                            await result
+                        _raw = tc["function"].get("arguments", "{}")
+                        _params = json.loads(_raw) if isinstance(_raw, str) else _raw
                     except Exception:
-                        pass
+                        _params = {}
+                    if self._on_step:
+                        try:
+                            result = self._on_step(
+                                step, func_name, response.content or "", _params
+                            )
+                            if inspect.isawaitable(result):
+                                await result
+                        except Exception:
+                            pass
 
-                exec_result = await self._executor.execute(tool_call)
-
-                # === REFLECT ===
-                reflection = self._reflector.reflect(exec_result)
-                logger.info(f"Reflection: {reflection.summary}")
-
-                # Track consecutive errors for stagnation detection
-                if exec_result.error or exec_result.denied:
-                    consecutive_errors += 1
+                # Execute: parallel for safe groups, sequential for single/unsafe
+                if len(group) > 1:
+                    exec_results = await asyncio.gather(
+                        *(self._executor.execute(tc) for tc in group)
+                    )
                 else:
-                    consecutive_errors = 0
+                    exec_results = [await self._executor.execute(group[0])]
 
-                # Build tool result message for conversation history
-                if exec_result.denied:
-                    tool_content = json.dumps(
+                # Process results in original order
+                for tc, exec_result in zip(group, exec_results, strict=True):
+                    reflection = self._reflector.reflect(exec_result)
+                    logger.info(f"Reflection: {reflection.summary}")
+
+                    if exec_result.error or exec_result.denied:
+                        consecutive_errors += 1
+                    else:
+                        consecutive_errors = 0
+
+                    if exec_result.denied:
+                        tool_content = json.dumps(
+                            {
+                                "error": "User denied this tool execution.",
+                                "suggestion": (
+                                    "Try a different approach or ask the user"
+                                    " for guidance."
+                                ),
+                            }
+                        )
+                    elif exec_result.error:
+                        tool_content = json.dumps({"error": exec_result.error})
+                    elif exec_result.result:
+                        tool_content = json.dumps(exec_result.result.to_dict())
+                    else:
+                        tool_content = json.dumps({"error": "No result returned"})
+
+                    messages.append(
                         {
-                            "error": "User denied this tool execution.",
-                            "suggestion": (
-                                "Try a different approach or ask the user for guidance."
-                            ),
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": tool_content,
                         }
                     )
-                elif exec_result.error:
-                    tool_content = json.dumps({"error": exec_result.error})
-                elif exec_result.result:
-                    tool_content = json.dumps(exec_result.result.to_dict())
-                else:
-                    tool_content = json.dumps({"error": "No result returned"})
-
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call["id"],
-                        "content": tool_content,
-                    }
-                )
 
         if stagnation_reason:
             reason = stagnation_reason
@@ -891,43 +972,54 @@ class Agent:
             )
 
     async def _auto_retrieve(self, query: str) -> None:
-        """Fetch relevant knowledge chunks and recent task memory for the query."""
-        # Search knowledge base (markdown files)
-        search_tool = self._registry.get("knowledge_search")
-        if search_tool and hasattr(search_tool, "_db") and search_tool._db:
-            try:
-                result = await search_tool.execute({"query": query, "limit": 3})
-                if result.success and result.data.get("results"):
-                    self._working_memory.add_chunks(result.data["results"])
-            except Exception:
-                pass
+        """Fetch relevant knowledge chunks and recent task memory for the query.
 
-        # Search task memory (past sessions)
-        try:
-            memories = await self._memory_manager.search_memory(query, limit=3)
-            if not memories:
-                memories = await self._memory_manager.get_recent_tasks(limit=5)
-            if memories:
-                memory_chunks = []
-                for mem in memories:
-                    tools = ", ".join(mem.get("tools_used", [])[:5])
-                    content = (
-                        f"Task: {mem['goal']}\n"
-                        f"Outcome: {mem['outcome']}\n"
-                        f"Summary: {mem['summary'][:300]}\n"
-                        f"Tools used: {tools}\n"
-                        f"When: {mem.get('created_at', 'unknown')}"
-                    )
-                    memory_chunks.append(
-                        {
-                            "source": "task_memory",
-                            "heading": f"Past task: {mem['goal'][:60]}",
-                            "content": content,
-                        }
-                    )
-                self._working_memory.add_chunks(memory_chunks)
-        except Exception:
-            pass
+        Runs knowledge search and memory search in parallel for speed.
+        """
+
+        async def _search_knowledge() -> list[dict[str, Any]]:
+            search_tool = self._registry.get("knowledge_search")
+            if search_tool and hasattr(search_tool, "_db") and search_tool._db:
+                try:
+                    result = await search_tool.execute({"query": query, "limit": 3})
+                    if result.success and result.data.get("results"):
+                        return result.data["results"]
+                except Exception:
+                    pass
+            return []
+
+        async def _search_memory() -> list[dict[str, Any]]:
+            try:
+                memories = await self._memory_manager.search_memory(query, limit=3)
+                if not memories:
+                    memories = await self._memory_manager.get_recent_tasks(limit=5)
+                return memories or []
+            except Exception:
+                return []
+
+        chunks, memories = await asyncio.gather(_search_knowledge(), _search_memory())
+
+        if chunks:
+            self._working_memory.add_chunks(chunks)
+        if memories:
+            memory_chunks = []
+            for mem in memories:
+                tools = ", ".join(mem.get("tools_used", [])[:5])
+                content = (
+                    f"Task: {mem['goal']}\n"
+                    f"Outcome: {mem['outcome']}\n"
+                    f"Summary: {mem['summary'][:300]}\n"
+                    f"Tools used: {tools}\n"
+                    f"When: {mem.get('created_at', 'unknown')}"
+                )
+                memory_chunks.append(
+                    {
+                        "source": "task_memory",
+                        "heading": f"Past task: {mem['goal'][:60]}",
+                        "content": content,
+                    }
+                )
+            self._working_memory.add_chunks(memory_chunks)
 
     async def _store_task_memory(
         self,

@@ -87,11 +87,22 @@ Each chunk retains metadata: source file path, heading hierarchy (breadcrumb), f
 
 ### Embedding
 
-Chunks are embedded using a local model via Ollama. Recommended models:
+Chunks are embedded via the configured provider. The default is `auto`, which selects the fastest available:
 
-- **Primary**: `nomic-embed-text` — good quality, fast, small footprint
-- **Alternative**: `mxbai-embed-large` — higher quality, larger model
-- **Fallback**: If no local model is available, use OpenRouter with a cheap embedding model
+1. **OpenRouter** (cloud, default if API key configured) — `qwen/qwen3-embedding-8b`, fast, cheap ($0.01/M tokens), #1 MTEB multilingual, 32K context
+2. **Ollama** (local fallback) — `nomic-embed-text` (primary) or `mxbai-embed-large` (fallback), free but requires local GPU
+
+The provider is configured in `config.yaml`:
+
+```yaml
+knowledge:
+  embedding_provider: auto  # auto | openrouter | ollama
+  embedding_openrouter_model: qwen/qwen3-embedding-8b
+  embedding_model: nomic-embed-text       # Ollama model
+  embedding_fallback: mxbai-embed-large   # Ollama fallback
+```
+
+When `auto` is set (default), the agent uses OpenRouter if an API key is configured, otherwise falls back to Ollama. Switching providers triggers automatic reindexing since embedding dimensions may differ.
 
 Embeddings are stored in SQLite using the `sqlite-vec` extension, alongside the chunk text and metadata.
 

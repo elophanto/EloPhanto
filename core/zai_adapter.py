@@ -43,6 +43,8 @@ class ZaiAdapter:
         self._base_url = (
             zai_cfg.base_url_coding if zai_cfg.coding_plan else zai_cfg.base_url_paygo
         )
+        # Persistent HTTP client — reuses TCP connections across calls
+        self._client = httpx.AsyncClient(timeout=120.0)
 
     async def complete(
         self,
@@ -73,21 +75,18 @@ class ZaiAdapter:
         if tools:
             payload["tools"] = tools
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self._base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
+        response = await self._client.post(
+            f"{self._base_url}/chat/completions",
+            headers=headers,
+            json=payload,
+        )
 
-            if response.status_code != 200:
-                error_body = response.text
-                logger.error(f"Z.ai API error {response.status_code}: {error_body}")
-                raise RuntimeError(
-                    f"Z.ai API error {response.status_code}: {error_body}"
-                )
+        if response.status_code != 200:
+            error_body = response.text
+            logger.error(f"Z.ai API error {response.status_code}: {error_body}")
+            raise RuntimeError(f"Z.ai API error {response.status_code}: {error_body}")
 
-            data = response.json()
+        data = response.json()
 
         choice = data["choices"][0]
         message = choice["message"]
@@ -145,18 +144,18 @@ class ZaiAdapter:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.post(
-                    f"{self._base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
+            response = await self._client.post(
+                f"{self._base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=5.0,
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    f"Z.ai health check got status {response.status_code}: "
+                    f"{response.text[:200]}"
                 )
-                if response.status_code != 200:
-                    logger.warning(
-                        f"Z.ai health check got status {response.status_code}: "
-                        f"{response.text[:200]}"
-                    )
-                return response.status_code == 200
+            return response.status_code == 200
         except Exception as e:
             logger.warning(f"Z.ai health check failed: {type(e).__name__}: {e}")
             return False

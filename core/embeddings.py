@@ -29,29 +29,29 @@ class OllamaEmbedder:
 
     def __init__(self, base_url: str = "http://localhost:11434") -> None:
         self._base_url = base_url.rstrip("/")
+        self._client = httpx.AsyncClient(timeout=30.0)
 
     async def embed(
         self, text: str, model: str = "nomic-embed-text"
     ) -> EmbeddingResult:
         """Embed a single text string."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self._base_url}/api/embeddings",
-                json={"model": model, "prompt": text},
+        response = await self._client.post(
+            f"{self._base_url}/api/embeddings",
+            json={"model": model, "prompt": text},
+        )
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Ollama embedding failed ({response.status_code}): {response.text[:200]}"
             )
 
-            if response.status_code != 200:
-                raise RuntimeError(
-                    f"Ollama embedding failed ({response.status_code}): {response.text[:200]}"
-                )
-
-            data: dict[str, Any] = response.json()
-            vector = data["embedding"]
-            return EmbeddingResult(
-                vector=vector,
-                model=model,
-                dimensions=len(vector),
-            )
+        data: dict[str, Any] = response.json()
+        vector = data["embedding"]
+        return EmbeddingResult(
+            vector=vector,
+            model=model,
+            dimensions=len(vector),
+        )
 
     async def embed_batch(
         self, texts: list[str], model: str = "nomic-embed-text"
@@ -95,11 +95,12 @@ class OpenRouterEmbedder:
         self,
         api_key: str,
         base_url: str = "https://openrouter.ai/api/v1",
-        default_model: str = "google/gemini-embedding-001",
+        default_model: str = "qwen/qwen3-embedding-8b",
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._default_model = default_model
+        self._client = httpx.AsyncClient(timeout=30.0)
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -112,54 +113,53 @@ class OpenRouterEmbedder:
     async def embed(self, text: str, model: str | None = None) -> EmbeddingResult:
         """Embed a single text string via OpenRouter."""
         model = model or self._default_model
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self._base_url}/embeddings",
-                headers=self._headers(),
-                json={"model": model, "input": text},
+        response = await self._client.post(
+            f"{self._base_url}/embeddings",
+            headers=self._headers(),
+            json={"model": model, "input": text},
+        )
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"OpenRouter embedding failed ({response.status_code}): "
+                f"{response.text[:200]}"
             )
 
-            if response.status_code != 200:
-                raise RuntimeError(
-                    f"OpenRouter embedding failed ({response.status_code}): "
-                    f"{response.text[:200]}"
-                )
-
-            data: dict[str, Any] = response.json()
-            vector = data["data"][0]["embedding"]
-            return EmbeddingResult(
-                vector=vector,
-                model=model,
-                dimensions=len(vector),
-            )
+        data: dict[str, Any] = response.json()
+        vector = data["data"][0]["embedding"]
+        return EmbeddingResult(
+            vector=vector,
+            model=model,
+            dimensions=len(vector),
+        )
 
     async def embed_batch(
         self, texts: list[str], model: str | None = None
     ) -> list[EmbeddingResult]:
         """Embed multiple texts. Uses batch input when possible."""
         model = model or self._default_model
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{self._base_url}/embeddings",
-                headers=self._headers(),
-                json={"model": model, "input": texts},
+        response = await self._client.post(
+            f"{self._base_url}/embeddings",
+            headers=self._headers(),
+            json={"model": model, "input": texts},
+            timeout=60.0,
+        )
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"OpenRouter embedding failed ({response.status_code}): "
+                f"{response.text[:200]}"
             )
 
-            if response.status_code != 200:
-                raise RuntimeError(
-                    f"OpenRouter embedding failed ({response.status_code}): "
-                    f"{response.text[:200]}"
-                )
-
-            data: dict[str, Any] = response.json()
-            return [
-                EmbeddingResult(
-                    vector=item["embedding"],
-                    model=model,
-                    dimensions=len(item["embedding"]),
-                )
-                for item in data["data"]
-            ]
+        data: dict[str, Any] = response.json()
+        return [
+            EmbeddingResult(
+                vector=item["embedding"],
+                model=model,
+                dimensions=len(item["embedding"]),
+            )
+            for item in data["data"]
+        ]
 
     async def detect_model(
         self, primary: str | None = None, fallback: str | None = None
@@ -189,33 +189,57 @@ class OpenRouterEmbedder:
         )
 
 
+def _create_openrouter_embedder(config: Any) -> OpenRouterEmbedder | None:
+    """Try to create an OpenRouter embedder. Returns None if not configured."""
+    or_cfg = config.llm.providers.get("openrouter")
+    if not or_cfg or not or_cfg.api_key or not or_cfg.enabled:
+        return None
+    base_url = or_cfg.base_url or "https://openrouter.ai/api/v1"
+    return OpenRouterEmbedder(
+        api_key=or_cfg.api_key,
+        base_url=base_url,
+        default_model=config.knowledge.embedding_openrouter_model,
+    )
+
+
+def _create_ollama_embedder(config: Any) -> OllamaEmbedder:
+    """Create an Ollama embedder (always available as local fallback)."""
+    ollama_cfg = config.llm.providers.get("ollama")
+    ollama_url = ollama_cfg.base_url if ollama_cfg else "http://localhost:11434"
+    return OllamaEmbedder(base_url=ollama_url)
+
+
 def create_embedder(config: Any) -> OllamaEmbedder | OpenRouterEmbedder:
     """Factory: create the right embedder based on config.
+
+    Default priority: OpenRouter (fast cloud) → Ollama (local fallback).
+    The ``embedding_provider`` config can override to force a specific provider.
 
     Args:
         config: The full Config object.
 
     Returns:
-        An embedder instance (OllamaEmbedder or OpenRouterEmbedder).
+        An embedder instance (OpenRouterEmbedder or OllamaEmbedder).
     """
     provider = config.knowledge.embedding_provider
 
     if provider == "openrouter":
-        or_cfg = config.llm.providers.get("openrouter")
-        if not or_cfg or not or_cfg.api_key:
-            raise RuntimeError(
-                "OpenRouter embedding requires an API key. "
-                "Set it in config.yaml under llm.providers.openrouter.api_key "
-                "or via OPENROUTER_API_KEY env var."
-            )
-        base_url = or_cfg.base_url or "https://openrouter.ai/api/v1"
-        return OpenRouterEmbedder(
-            api_key=or_cfg.api_key,
-            base_url=base_url,
-            default_model=config.knowledge.embedding_openrouter_model,
+        embedder = _create_openrouter_embedder(config)
+        if embedder:
+            return embedder
+        logger.warning(
+            "OpenRouter embedding requested but no API key configured, "
+            "falling back to Ollama"
         )
+        return _create_ollama_embedder(config)
 
-    # Default: Ollama
-    ollama_cfg = config.llm.providers.get("ollama")
-    ollama_url = ollama_cfg.base_url if ollama_cfg else "http://localhost:11434"
-    return OllamaEmbedder(base_url=ollama_url)
+    if provider == "ollama":
+        return _create_ollama_embedder(config)
+
+    # "auto" (default): prefer OpenRouter if configured, else Ollama
+    embedder = _create_openrouter_embedder(config)
+    if embedder:
+        logger.info("Using OpenRouter for embeddings (fast cloud)")
+        return embedder
+    logger.info("Using Ollama for embeddings (local)")
+    return _create_ollama_embedder(config)

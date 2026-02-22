@@ -130,9 +130,10 @@ Formatting, classification, extraction, template filling. Low complexity.
 
 Converting text chunks to vectors for the knowledge system.
 
-- **Local** (strongly preferred): `nomic-embed-text` or `mxbai-embed-large` via Ollama
-- **Cloud fallback**: OpenAI embeddings via OpenRouter
-- **Note**: Z.ai does NOT offer an embeddings API. Embeddings are always handled by Ollama or OpenRouter.
+- **Cloud** (default): `qwen/qwen3-embedding-8b` via OpenRouter — fast, cheap ($0.01/M tokens), #1 MTEB multilingual, 32K context
+- **Local fallback**: `nomic-embed-text` or `mxbai-embed-large` via Ollama — free, private, works offline
+- **Note**: Z.ai does NOT offer an embeddings API. Embeddings are handled by OpenRouter or Ollama.
+- **Auto mode** (default): Uses OpenRouter if an API key is configured, otherwise falls back to Ollama. Configurable via `knowledge.embedding_provider` in `config.yaml`.
 
 ## Routing Logic
 
@@ -148,7 +149,7 @@ The router uses this decision process:
    → coding/review: prefer Z.ai GLM-4.7 (if enabled and Coding Plan active)
    → planning: prefer strongest cloud model (OpenRouter)
    → simple: prefer cheapest option (local > Z.ai Flash > OpenRouter mini)
-   → embedding: local only (Ollama)
+   → embedding: handled separately (OpenRouter or Ollama, see knowledge config)
 5. Check provider priority order
    → For each provider in priority order:
      - Is the provider enabled and reachable?
@@ -240,11 +241,6 @@ llm:
         openrouter: "minimax/minimax-m2.5"
         zai: "glm-4.7-flash"
         ollama: "llama3.2:3b"
-    embedding:
-      preferred_provider: ollama
-      models:
-        ollama: "nomic-embed-text"
-      local_only: true
 
   budget:
     daily_limit_usd: 10.00

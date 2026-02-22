@@ -25,7 +25,9 @@ _DATE_FMT = "%Y-%m-%d %H:%M:%S"
 _configured = False
 
 _REDACT_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"(api[_-]?key|token|secret|password|passwd|authorization)\s*[:=]\s*\S+", re.I),
+    re.compile(
+        r"(api[_-]?key|token|secret|password|passwd|authorization)\s*[:=]\s*\S+", re.I
+    ),
     re.compile(r"(sk-[a-zA-Z0-9]{20,})"),
     re.compile(r"(ghp_[a-zA-Z0-9]{36,})"),
     re.compile(r"([a-f0-9]{32,}\.[a-zA-Z0-9]{16,})"),
@@ -44,7 +46,9 @@ class RedactingFilter(logging.Filter):
                 record.msg = pattern.sub(_REDACTED, record.msg)
         if record.args:
             new_args: list[object] = []
-            for arg in record.args if isinstance(record.args, tuple) else (record.args,):
+            for arg in (
+                record.args if isinstance(record.args, tuple) else (record.args,)
+            ):
                 if isinstance(arg, str):
                     for pattern in _REDACT_PATTERNS:
                         arg = pattern.sub(_REDACTED, arg)
@@ -56,7 +60,11 @@ class RedactingFilter(logging.Filter):
 def _cleanup_old_logs() -> None:
     """Remove oldest log files when count exceeds _MAX_LOG_FILES."""
     log_files = sorted(
-        (f for f in _LOG_DIR.iterdir() if f.name.startswith("elophanto_") and f.suffix == ".log"),
+        (
+            f
+            for f in _LOG_DIR.iterdir()
+            if f.name.startswith("elophanto_") and f.suffix == ".log"
+        ),
         key=lambda f: f.stat().st_mtime,
     )
     while len(log_files) > _MAX_LOG_FILES:
@@ -111,5 +119,21 @@ def setup_logging(*, debug: bool = False) -> None:
     ch.setFormatter(fmt)
     ch.addFilter(redact_filter)
     root.addHandler(ch)
+
+    # Silence noisy third-party loggers — they flood the console with
+    # raw HTTP traffic, connection pool details, and internal debug info.
+    # Their DEBUG output still goes to the log file via the file handler.
+    for noisy in (
+        "LiteLLM",
+        "LiteLLM Router",
+        "LiteLLM Proxy",
+        "litellm",
+        "httpx",
+        "httpcore",
+        "hpack",
+        "markdown_it",
+        "openai",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     _cleanup_old_logs()

@@ -19,8 +19,15 @@ from core.config import Config
 
 logger = logging.getLogger(__name__)
 
-# Suppress litellm's verbose logging
+# Suppress litellm's verbose logging — all three are needed:
+# suppress_debug_info: hides the startup "Give Feedback" banner
+# set_verbose: prevents litellm from adding its own DEBUG StreamHandler
+# Logger levels: prevent DEBUG messages from flowing up to root handlers
 litellm.suppress_debug_info = True
+litellm.set_verbose = False
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+logging.getLogger("LiteLLM Router").setLevel(logging.WARNING)
+logging.getLogger("LiteLLM Proxy").setLevel(logging.WARNING)
 
 
 @dataclass
@@ -116,6 +123,8 @@ class LLMRouter:
         self._cost_tracker = CostTracker()
         self._provider_health: dict[str, bool] = {}
         self._provider_failed_at: dict[str, float] = {}
+        # Lazy singleton — avoids re-creating HTTP client per call
+        self._zai_adapter: Any = None
 
     @property
     def cost_tracker(self) -> CostTracker:
@@ -396,6 +405,14 @@ class LLMRouter:
             tool_calls=tool_calls,
         )
 
+    def _get_zai_adapter(self) -> Any:
+        """Get or create the shared ZaiAdapter instance."""
+        if self._zai_adapter is None:
+            from core.zai_adapter import ZaiAdapter
+
+            self._zai_adapter = ZaiAdapter(self._config)
+        return self._zai_adapter
+
     async def _call_zai(
         self,
         messages: list[dict[str, Any]],
@@ -405,9 +422,7 @@ class LLMRouter:
         max_tokens: int | None,
     ) -> LLMResponse:
         """Call via Z.ai custom adapter."""
-        from core.zai_adapter import ZaiAdapter
-
-        adapter = ZaiAdapter(self._config)
+        adapter = self._get_zai_adapter()
         try:
             response = await adapter.complete(
                 messages, model, tools, temperature, max_tokens
@@ -469,9 +484,7 @@ class LLMRouter:
             if not (zai_cfg and zai_cfg.enabled and zai_cfg.api_key):
                 return ("zai", False)
             try:
-                from core.zai_adapter import ZaiAdapter
-
-                adapter = ZaiAdapter(self._config)
+                adapter = self._get_zai_adapter()
                 healthy = await adapter.health_check()
                 if not healthy:
                     logger.warning("Z.ai health check returned non-200")
