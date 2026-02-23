@@ -59,7 +59,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack, and more) and its tools appear alongside built-in tools. Agent manages setup through conversation — installs SDK, adds servers, tests connections. Also: `elophanto mcp` CLI and init wizard presets
 - **Browser automation** — control a real Chrome browser with 47 tools (navigate, click, type, screenshot, extract data, manage tabs, inspect DOM, read console/network logs)
-- **Multi-channel gateway** — WebSocket control plane with channel adapters for CLI, Telegram, Discord, and Slack, all with isolated sessions
+- **Multi-channel gateway** — WebSocket control plane with channel adapters for CLI, Telegram, Discord, and Slack. Unified sessions by default: all channels share one conversation so you can chat from CLI and Telegram interchangeably
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans. Background execution: goals run autonomously checkpoint-by-checkpoint, pause on user interaction, auto-resume on restart
 - **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
 - **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Send/receive/search/reply, identity integration, service signup verification flows
@@ -83,7 +83,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 ├─────────────────────────────────────────────────┤
 │         WebSocket Gateway (ws://:18789)          │  Control Plane
 ├─────────────────────────────────────────────────┤
-│         Session Manager (per-user isolation)     │  Session Layer
+│     Session Manager (unified or per-channel)     │  Session Layer
 ├─────────────────────────────────────────────────┤
 │            Permission System                     │  Safety & Control
 ├─────────────────────────────────────────────────┤
@@ -103,7 +103,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 
 All channels connect through a WebSocket gateway, providing:
 
-- **Session isolation** — each user/channel gets independent conversation history
+- **Unified sessions** — all channels share one conversation by default (configurable per-channel isolation)
 - **Unified approval routing** — approve from any connected channel
 - **Event broadcasting** — task completions, errors, and notifications pushed to all channels
 - **Backward compatible** — direct mode (no gateway) still works for CLI and Telegram
@@ -202,7 +202,7 @@ elophanto gateway            # Gateway + CLI + all enabled channels
 elophanto gateway --no-cli   # Headless mode (Telegram/Discord/Slack only)
 ```
 
-Each channel connects to the gateway via WebSocket. Sessions are isolated per user per channel.
+Each channel connects to the gateway via WebSocket. By default, all channels share one unified session — chat from CLI, continue from Telegram. Set `unified_sessions: false` for per-channel isolation.
 
 ### Direct Mode
 
@@ -246,6 +246,7 @@ gateway:
   enabled: true
   host: "127.0.0.1"
   port: 18789
+  unified_sessions: true    # All channels share one conversation
 
 knowledge:
   embedding_provider: auto    # auto | openrouter | ollama
@@ -464,6 +465,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-23 | **Unified cross-channel sessions** — All channels (CLI, Telegram, Discord, Slack) now share one conversation by default (`gateway.unified_sessions: true`). Chat from Telegram, see it in CLI, and vice versa. Cross-channel message forwarding shows what was said on other channels. Responses broadcast to all connected channels. Set `unified_sessions: false` for per-channel isolation |
 | 2026-02-23 | **Autonomous background goal execution** — Goals now execute checkpoint-by-checkpoint in the background without waiting for user messages. `GoalRunner` class (`core/goal_runner.py`) uses `asyncio.create_task()` per checkpoint via `agent.run()`. Safety limits: 2h total time, $5 cost budget, LLM call cap. Conversation history isolated per checkpoint. Progress events broadcast to all channels (CLI, Telegram, Discord, Slack). User message auto-pauses goal. Auto-resume on agent restart. 12 new tests |
 | 2026-02-23 | **Ctrl+C request cancellation** — Pressing Ctrl+C during agent processing now cancels the current request and returns to the prompt instead of killing the terminal. Gateway spawns chat handling as cancellable tasks, CLI sends cancel command on interrupt. Also added `/stop` command. Double Ctrl+C within 1 second force-exits (safety valve). Goal lifecycle events displayed in CLI (started, checkpoint complete, completed, paused, resumed) |
 | 2026-02-22 | **Response speed fix** — Eliminated 25-40 second delay on every response caused by post-task housekeeping (identity reflection, task memory, dataset collection) blocking the reply. All post-task work now runs as fire-and-forget background tasks via `asyncio.create_task()`. Embedding detection moved to non-blocking startup. Response time dropped from 30+ seconds to ~4 seconds |

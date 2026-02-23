@@ -330,6 +330,18 @@ class TelegramChannelAdapter(ChannelAdapter):
                         logger.warning("Failed to notify user %s: %s", uid, e)
             return
 
+        # Cross-channel user messages — route to all allowed users
+        if event == "user_message":
+            ch = msg.data.get("channel", "?")
+            content = msg.data.get("content", "")
+            if content:
+                for uid in self._allowed_users:
+                    try:
+                        await self._bot.send_message(uid, f"({ch}) {content[:400]}")
+                    except Exception:
+                        pass
+            return
+
         chat_id = self._session_chats.get(session_id)
 
         if not chat_id:

@@ -301,7 +301,7 @@ The user can run `elophanto skills install https://github.com/ibelick/ui-skills`
 
 ## Phase 7.7: Gateway Architecture (Week 13-14)
 
-**Goal**: A WebSocket control plane that all channels connect through, with session isolation.
+**Goal**: A WebSocket control plane that all channels connect through, with unified cross-channel sessions.
 
 ### Deliverables
 
@@ -427,7 +427,7 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 7: Scheduling & Automation | **Done** — one-time and recurring scheduling |
 | Phase 7.5: Telegram Interface | **Done** — aiogram adapter with commands and notifications |
 | Phase 7.6: Skills System | **Done** — 28 skills, CLI installer, trigger matching |
-| Phase 7.7: Gateway Architecture | **Done** — WebSocket control plane, session isolation, protocol |
+| Phase 7.7: Gateway Architecture | **Done** — WebSocket control plane, unified cross-channel sessions, protocol |
 | Phase 7.8: Channel Adapters | **Done** — CLI, Telegram, Discord, Slack via gateway |
 | Phase 7.9: EloPhantoHub | **Done** — Skill registry, search, install, update, agent auto-discovery |
 | Phase 8: Web UI | Planned |

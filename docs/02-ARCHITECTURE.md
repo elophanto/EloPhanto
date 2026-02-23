@@ -204,12 +204,16 @@ The gateway is a WebSocket server (`ws://127.0.0.1:18789`) that acts as the cent
 
 ### Session Management
 
-Each user/channel pair gets an isolated `Session` with:
+By default, all channels share a single unified session (`gateway.unified_sessions: true`). This means CLI, Telegram, Discord, and Slack see the same conversation history — chat from one channel, continue from another. Cross-channel messages and responses are broadcast to all connected adapters.
+
+When `unified_sessions: false`, each user/channel pair gets an isolated session.
+
+Each `Session` has:
 
 - Unique `session_id` (UUID)
-- Channel identifier (`cli`, `telegram`, `discord`, `slack`)
-- User identifier (channel-specific)
-- Independent `conversation_history` (max 20 messages, auto-trimmed)
+- Channel identifier (`unified` in unified mode, or `cli`/`telegram`/etc.)
+- User identifier (`owner` in unified mode, or channel-specific)
+- Shared `conversation_history` (max 20 messages, auto-trimmed)
 - Persistence to SQLite (survives restarts)
 
 ### Gateway Protocol
@@ -281,8 +285,8 @@ elophanto gateway
    - DiscordAdapter → connects to gateway + starts bot
    - SlackAdapter → connects to gateway + starts Socket Mode
 5. All adapters send messages through gateway
-6. Gateway routes to agent.run_session() with isolated sessions
-7. Responses routed back to originating adapter
+6. Gateway routes to agent.run_session() with unified session (shared across channels)
+7. Responses broadcast to all connected adapters (unified mode) or routed to originator (isolated mode)
 ```
 
 ## Data Flow: Example Task
