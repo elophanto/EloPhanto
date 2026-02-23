@@ -392,3 +392,41 @@ Lists or manages document collections.
 - **Permission**: `safe`
 - **Input**: `action` (enum: `list`, `info`, `delete`), `collection_id` (string, required for `info` and `delete`)
 - **Output**: For `list`: `collections` (array of collection summaries). For `info`: collection metadata with file count and chunk count. For `delete`: confirmation.
+
+### Verification / TOTP Tools
+
+#### `totp_enroll`
+
+Stores a TOTP secret for a service in the encrypted vault. Used when setting up 2FA on a service — extract the Base32 secret from the "Can't scan QR code?" link.
+
+- **Permission**: `moderate`
+- **Input**: `service` (string — service name e.g. "github"), `secret` (string — Base32 secret), `account` (string, optional — account email/username), `backup_codes` (array of strings, optional)
+- **Output**: `service` (string), `account` (string), `enrolled` (boolean)
+- **Behavior**: Validates secret is valid Base32, strips whitespace, stores `totp_{service}` in vault. Optionally stores metadata and backup codes. Updates identity beliefs. Secret is never echoed back.
+
+#### `totp_generate`
+
+Generates a 6-digit TOTP code for a previously enrolled service. Use when a service asks "Enter your authenticator code".
+
+- **Permission**: `safe`
+- **Input**: `service` (string — service name)
+- **Output**: `code` (string — 6-digit code), `seconds_remaining` (integer — seconds until expiry), `service` (string)
+- **Behavior**: Retrieves secret from vault, generates code via pyotp. If less than 5 seconds remain in the 30-second window, waits and regenerates to avoid entering an expired code. Secret is never returned — only the 6-digit code.
+
+#### `totp_list`
+
+Lists all services with stored TOTP secrets (names and metadata only, never secrets).
+
+- **Permission**: `safe`
+- **Input**: none
+- **Output**: `services` (array of `{service, account, enrolled_at}`), `count` (integer)
+- **Behavior**: Scans vault keys with `totp_` prefix, excludes `_meta` and `_backup` suffixes. Loads metadata for each service.
+
+#### `totp_delete`
+
+Removes a stored TOTP secret and all associated data for a service.
+
+- **Permission**: `moderate`
+- **Input**: `service` (string — service name)
+- **Output**: `deleted` (boolean), `service` (string)
+- **Behavior**: Deletes `totp_{service}`, `totp_{service}_meta`, and `totp_{service}_backup` from vault.

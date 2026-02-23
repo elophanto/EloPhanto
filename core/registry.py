@@ -171,3 +171,19 @@ class ToolRegistry:
         self.register(CryptoTransferTool())
         self.register(CryptoSwapTool())
         self.register(PaymentHistoryTool())
+
+        # Email monitor tool
+        from tools.email.monitor_tool import EmailMonitorTool
+
+        self.register(EmailMonitorTool())
+
+        # TOTP / verification tools
+        from tools.totp.delete_tool import TotpDeleteTool
+        from tools.totp.enroll_tool import TotpEnrollTool
+        from tools.totp.generate_tool import TotpGenerateTool
+        from tools.totp.list_tool import TotpListTool
+
+        self.register(TotpGenerateTool())
+        self.register(TotpEnrollTool())
+        self.register(TotpListTool())
+        self.register(TotpDeleteTool())

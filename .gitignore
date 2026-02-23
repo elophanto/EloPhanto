@@ -38,6 +38,7 @@ logs/
 # Node.js bridge plugins
 bridge/*/dist/
 bridge/*/node_modules/
+bridge/*/data/
 
 # uv
 .python-version
@@ -47,6 +48,7 @@ example/
 
 # config
 config.yaml
+config.yaml.bak
 
 # temp files
 temp/
