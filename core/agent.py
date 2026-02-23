@@ -309,6 +309,9 @@ class Agent:
         # Inject vault into vault tool (if vault was unlocked)
         self._inject_vault_deps()
 
+        # Inject vault + identity into TOTP tools
+        self._inject_totp_deps()
+
         # Start scheduler (if enabled)
         if self._config.scheduler.enabled:
             _status("Starting scheduler")
@@ -747,6 +750,16 @@ class Agent:
         tool = self._registry.get("email_monitor")
         if tool and self._email_monitor:
             tool._email_monitor = self._email_monitor
+
+    def _inject_totp_deps(self) -> None:
+        """Inject vault and identity manager into TOTP tools."""
+        for tool_name in ("totp_generate", "totp_enroll", "totp_list", "totp_delete"):
+            tool = self._registry.get(tool_name)
+            if tool:
+                if self._vault:
+                    tool._vault = self._vault
+                if hasattr(tool, "_identity_manager") and self._identity_manager:
+                    tool._identity_manager = self._identity_manager
 
     def set_approval_callback(
         self, callback: Callable[[str, str, dict[str, Any]], bool]

@@ -774,6 +774,51 @@ update config.yaml with file_write. Restart required after switching.
 </email_protocol>
 </email>"""
 
+_TOOL_VERIFICATION = """\
+<verification>
+You can handle 2FA verification challenges when signing up for or logging into services.
+
+<verification_priority>
+When a service offers multiple verification options, prefer them in this order:
+1. Email — your own inbox, fully autonomous
+2. TOTP authenticator — your own authenticator, fully autonomous after enrollment
+3. SMS — ask user for their phone number and codes via conversation
+4. Push 2FA / hardware keys — ask user to approve on their device
+</verification_priority>
+
+<totp_tools>
+- totp_enroll: Store a TOTP secret when setting up 2FA on a service. Extract the
+  Base32 secret from the "Can't scan QR code?" link on the setup page, then call
+  this tool with the service name and secret. The secret is encrypted in the vault.
+- totp_generate: Generate a 6-digit TOTP code for a service. Use this when a
+  service asks "Enter your authenticator code". Returns the code and seconds
+  remaining before it expires.
+- totp_list: List all services with stored TOTP secrets (names only, never secrets).
+- totp_delete: Remove a stored TOTP secret for a service.
+</totp_tools>
+
+<totp_enrollment_flow>
+When a service shows "Set up authenticator app":
+1. Look for "Can't scan QR code?" or "Enter key manually" link — click it
+2. Copy the Base32 secret text
+3. Call totp_enroll with the service name and secret
+4. Call totp_generate to get the confirmation code
+5. Enter the code on the setup page to complete enrollment
+6. Save any backup/recovery codes if shown
+ALWAYS tell the user what you're doing: "Setting up 2FA for GitHub..."
+</totp_enrollment_flow>
+
+<sms_verification>
+When SMS verification is the only option:
+1. Ask the user for their phone number (or use stored one from identity beliefs)
+2. Enter the number on the service's form
+3. Ask the user to read the SMS code they receive
+4. Enter the code — verification complete
+Store the phone number in identity beliefs (with the user's permission) so you
+don't ask again. NEVER store SMS codes — they're ephemeral.
+</sms_verification>
+</verification>"""
+
 _TOOL_MCP_SETUP = """\
 <mcp_setup>
 MCP (Model Context Protocol) lets you connect to external tool servers — filesystem,
@@ -952,6 +997,9 @@ def build_system_prompt(
         sections.append(_TOOL_EMAIL)
     else:
         sections.append(_TOOL_EMAIL_SETUP)
+
+    # Verification / TOTP (always included — tools handle missing vault gracefully)
+    sections.append(_TOOL_VERIFICATION)
 
     if mcp_enabled:
         sections.append(_TOOL_MCP)

@@ -445,6 +445,7 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 20: Hosted Platform | Spec — Tauri desktop app + Fly.io cloud instances |
 | Phase 21: MCP Integration | **Done** — MCP client, auto-install, mcp_manage tool, CLI commands, init wizard, agent self-management |
 | Phase 22: Injection Guard | **Done** — Multi-layer prompt injection defense for external content (browser, email, documents, shell, MCP) |
+| Phase 23: Verification & 2FA | **Done** — TOTP authenticator (4 tools), verification priority system, SMS via conversation |
 
 ## Phase 10: Self-Learning Model (Dataset Builder Done)
 

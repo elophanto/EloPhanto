@@ -27,6 +27,7 @@ dependencies = [
     "ebooklib>=0.18",
     "charset-normalizer>=3.3.0",
     "agentmail>=0.1.0",
+    "pyotp>=2.9.0",
 ]
 
 [project.optional-dependencies]

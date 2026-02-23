@@ -130,10 +130,17 @@ elophanto/
 │   ├── scheduling/                     # Task scheduling tools
 │   │   └── scheduler.py               # Create/list/manage scheduled tasks
 │   │
-│   └── documents/                      # Document & media analysis tools
-│       ├── analyze_tool.py             # Document intake + extraction + analysis
-│       ├── query_tool.py               # RAG query over document collections
-│       └── collections_tool.py         # Manage document collections
+│   ├── documents/                      # Document & media analysis tools
+│   │   ├── analyze_tool.py             # Document intake + extraction + analysis
+│   │   ├── query_tool.py               # RAG query over document collections
+│   │   └── collections_tool.py         # Manage document collections
+│   │
+│   └── totp/                           # TOTP authenticator tools
+│       ├── __init__.py
+│       ├── enroll_tool.py              # Store TOTP secret in vault
+│       ├── generate_tool.py            # Generate 6-digit TOTP codes
+│       ├── list_tool.py                # List enrolled services
+│       └── delete_tool.py              # Remove TOTP secret from vault
 │
 ├── data/                               # Structured data storage (gitignored)
 │   ├── downloads/                      # Temporary downloads from channels
@@ -424,6 +431,9 @@ cryptography         # Secret vault encryption
 gitpython            # Programmatic git operations
 click                # CLI framework (or typer)
 websockets           # Async WebSocket server/client (gateway)
+
+# Verification / 2FA
+pyotp                # TOTP code generation (RFC 6238)
 
 # Document analysis
 pymupdf              # PDF text extraction

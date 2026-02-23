@@ -63,6 +63,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans. Background execution: goals run autonomously checkpoint-by-checkpoint, pause on user interaction, auto-resume on restart
 - **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
 - **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Send/receive/search/reply, background inbox monitoring with cross-channel notifications, identity integration, service signup verification flows
+- **TOTP authenticator** — own 2FA authenticator (like Google Authenticator). Enroll TOTP secrets from service setup pages, generate 6-digit codes autonomously, handle verification challenges during signup/login flows. Secrets encrypted in vault
 - **Crypto payments** — agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config) or Coinbase AgentKit (managed custody, gasless, DEX swaps). USDC/ETH transfers, spending limits, full audit trail
 - **Evolving identity** — discovers its own identity on first run, evolves personality/values/capabilities through task reflection, maintains a living nature document
 - **Knowledge base** — persistent markdown knowledge with semantic search via embeddings (auto-selects OpenRouter for fast cloud embeddings, Ollama as local fallback)
@@ -89,7 +90,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 ├─────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├─────────────────────────────────────────────────┤
-│   Tool System (95+ built-in + MCP + plugins)      │  Capabilities
+│   Tool System (99+ built-in + MCP + plugins)      │  Capabilities
 ├─────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├─────────────────────────────────────────────────┤
@@ -131,6 +132,7 @@ Slack Adapter ─────┘                   ▼
 | Identity | identity_status, identity_update, identity_reflect | 3 |
 | Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search, email_monitor | 7 |
 | Payments | wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 7 |
+| Verification | totp_enroll, totp_generate, totp_list, totp_delete | 4 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
 | Scheduling | schedule_task, schedule_list | 2 |
 
@@ -392,7 +394,7 @@ elophanto/
 │   ├── telegram_adapter.py # Telegram adapter (aiogram)
 │   ├── discord_adapter.py  # Discord adapter (discord.py)
 │   └── slack_adapter.py    # Slack adapter (slack-bolt)
-├── tools/               # 95+ built-in tools
+├── tools/               # 99+ built-in tools
 │   ├── system/          # Shell, filesystem
 │   ├── browser/         # 47 browser tools
 │   ├── knowledge/       # Search, write, index, skills, hub
@@ -402,6 +404,7 @@ elophanto/
 │   ├── identity/        # Identity status, update, reflection
 │   ├── payments/        # Crypto wallet, transfers, swaps, audit
 │   ├── self_dev/        # Plugin creation, modification, rollback
+│   ├── totp/            # TOTP authenticator (enroll, generate, list, delete)
 │   ├── scheduling/      # Cron-based task scheduling
 │   ├── data/            # LLM calls
 │   └── mcp_manage.py    # MCP server management
@@ -449,6 +452,7 @@ elophanto/
 | 18 | Agent Census (anonymous startup heartbeat, machine fingerprint, ecosystem stats) | Done |
 | 19 | MCP Integration (MCP client, auto-install, mcp_manage tool, CLI, init wizard, agent self-management) | Done |
 | 20 | Prompt Injection Guard (multi-layer defense for external content — browser, email, docs, shell, MCP) | Done |
+| 21 | Verification & 2FA (TOTP authenticator, SMS via conversation, verification priority system) | Done |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -471,6 +475,7 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-23 | **TOTP authenticator** — Own 2FA authenticator (like Google Authenticator). 4 tools: `totp_enroll` (store Base32 secrets from service setup pages), `totp_generate` (generate 6-digit codes with TTL awareness), `totp_list` (list enrolled services), `totp_delete` (remove secrets). Secrets encrypted in vault, never exposed to LLM. Verification priority system in system prompt (email > TOTP > SMS > push). SMS verification handled conversationally. 33 tests |
 | 2026-02-23 | **Background inbox monitoring** — Agent can monitor its own email inbox in the background and push notifications to all connected channels (CLI, Telegram, Discord, Slack) when new emails arrive. Controlled via conversation: "monitor your inbox" starts it, "stop monitoring" stops it. Silent first poll (seeds seen IDs, no notification flood), seen ID persistence across restarts, configurable poll interval (default 5 min). New `email_monitor` tool with start/stop/status actions, `core/email_monitor.py` polling loop, cross-channel notification display in all 4 adapters. 30 tests |
 | 2026-02-23 | **Prompt injection defense** — Multi-layer guard against indirect prompt injection attacks via websites, emails, and documents. System prompt trust hierarchy teaches the LLM to treat external content as data. Tool output wrapping marks external results as untrusted. Pattern scanner detects common injection signatures (instruction overrides, role switches, exfiltration attempts, delimiter attacks) and flags them. Gateway input sanitization closes filename injection vectors. New `core/injection_guard.py` module, 35 tests |
 | 2026-02-23 | **Unified cross-channel sessions** — All channels (CLI, Telegram, Discord, Slack) now share one conversation by default (`gateway.unified_sessions: true`). Chat from Telegram, see it in CLI, and vice versa. Cross-channel message forwarding shows what was said on other channels. Responses broadcast to all connected channels. Set `unified_sessions: false` for per-channel isolation |

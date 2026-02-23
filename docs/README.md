@@ -23,7 +23,7 @@
 | 07 | [Security Architecture](07-SECURITY.md) | Vault, permissions, credential isolation, threat model |
 | 08 | [Browser Automation](08-BROWSER.md) | Node.js bridge, Playwright + stealth, profile mode, 47 browser tools |
 | 09 | [Project Structure](09-PROJECT-STRUCTURE.md) | Directory layout, tech stack, database schema, dependencies |
-| 10 | [Implementation Roadmap](10-ROADMAP.md) | 9-phase build plan with exit criteria for each phase |
+| 10 | [Implementation Roadmap](10-ROADMAP.md) | 23-phase build plan with exit criteria for each phase |
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
 | 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 28 bundled skills, trigger matching, EloPhantoHub registry |
@@ -32,11 +32,13 @@
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail |
 | 16 | [Document & Media Analysis](16-DOCUMENT-ANALYSIS.md) | File intake, OCR, vision analysis, RAG for large documents, research mode |
 | 17 | [Identity System](17-IDENTITY.md) | Agent identity, beliefs, personality evolution, social profiles |
-| 18 | [Agent Email](18-EMAIL.md) | Dual provider (AgentMail + SMTP/IMAP), send/receive/search, audit logging |
+| 18 | [Agent Email](18-EMAIL.md) | Dual provider (AgentMail + SMTP/IMAP), send/receive/search, background monitoring, audit logging |
 | 19 | [Skill Security](19-SKILL-SECURITY.md) | 7-layer defense-in-depth for EloPhantoHub marketplace |
 | 20 | [Hosted Platform](20-HOSTED-PLATFORM.md) | Desktop app (Tauri) + cloud instances (Fly.io), hybrid distribution |
 | 21 | [Agent Census](21-AGENT-CENSUS.md) | Anonymous startup heartbeat, machine fingerprint, ecosystem statistics |
 | 22 | [Recovery Mode](22-RECOVERY-MODE.md) | Remote recovery without LLM: health checks, config reload, restart triggers |
+| 23 | [MCP Integration](23-MCP.md) | MCP client, server management, auto-install, CLI, init wizard presets |
+| 24 | [Verification & 2FA](24-VERIFICATION.md) | TOTP authenticator, SMS via conversation, verification priority system |
 
 ---
 
