@@ -265,6 +265,13 @@ class Gateway:
             file_lines = []
             for att in attachments:
                 fname = att.get("filename", "unknown")
+                # Sanitize filenames to prevent injection via bracket interpolation
+                fname = (
+                    fname.replace("[", "(")
+                    .replace("]", ")")
+                    .replace("<", "(")
+                    .replace(">", ")")
+                )
                 mime = att.get("mime_type", "")
                 path = att.get("local_path", "")
                 size = att.get("size_bytes", 0)

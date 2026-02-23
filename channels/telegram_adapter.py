@@ -328,6 +328,18 @@ class TelegramChannelAdapter(ChannelAdapter):
                         await self._bot.send_message(uid, text)
                     except Exception as e:
                         logger.warning("Failed to notify user %s: %s", uid, e)
+            elif ntype == "new_email":
+                sender = msg.data.get("from", "unknown")
+                subject = msg.data.get("subject", "(no subject)")
+                snippet = msg.data.get("snippet", "")
+                text = f"\U0001f4e7 *New email*\nFrom: {sender}\nSubject: {subject}"
+                if snippet:
+                    text += f"\n\n{snippet[:300]}"
+                for uid in self._allowed_users:
+                    try:
+                        await self._bot.send_message(uid, text)
+                    except Exception as e:
+                        logger.warning("Failed to notify user %s: %s", uid, e)
             return
 
         # Cross-channel user messages — route to all allowed users

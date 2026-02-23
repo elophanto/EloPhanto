@@ -39,6 +39,7 @@ from core.database import Database
 from core.embeddings import create_embedder
 from core.executor import Executor
 from core.indexer import KnowledgeIndexer
+from core.injection_guard import wrap_tool_result
 from core.memory import MemoryManager, WorkingMemory
 from core.planner import build_system_prompt
 from core.plugin_loader import PluginLoader
@@ -165,6 +166,7 @@ class Agent:
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
         self._email_config: Any = None  # EmailConfig, set during initialize
+        self._email_monitor: Any = None  # EmailMonitor, set during initialize
         self._mcp_manager: Any = None  # MCPClientManager, set during initialize
         self._dataset_builder: Any = None  # DatasetBuilder, set during initialize
         self._goal_runner: Any = None  # GoalRunner, set during initialize
@@ -438,6 +440,17 @@ class Agent:
             try:
                 self._email_config = self._config.email
                 self._inject_email_deps()
+                # Create email monitor (user starts it via email_monitor tool)
+                email_list_tool = self._registry.get("email_list")
+                if email_list_tool:
+                    from core.email_monitor import EmailMonitor
+
+                    self._email_monitor = EmailMonitor(
+                        email_list_tool=email_list_tool,
+                        config=self._email_config,
+                        data_dir=self._config.project_dir / "data",
+                    )
+                    self._inject_email_monitor_dep()
                 logger.info("Email system ready")
             except Exception as e:
                 logger.warning(f"Email system setup failed: {e}")
@@ -556,6 +569,11 @@ class Agent:
                 await self._goal_runner.cancel()
             except Exception as e:
                 logger.debug("GoalRunner shutdown error: %s", e)
+        if self._email_monitor:
+            try:
+                await self._email_monitor.stop()
+            except Exception as e:
+                logger.debug("Email monitor shutdown error: %s", e)
         if self._dataset_builder:
             try:
                 await self._dataset_builder.flush()
@@ -723,6 +741,12 @@ class Agent:
                     tool._db = self._db
                 if hasattr(tool, "_identity_manager") and self._identity_manager:
                     tool._identity_manager = self._identity_manager
+
+    def _inject_email_monitor_dep(self) -> None:
+        """Inject EmailMonitor instance into the email_monitor tool."""
+        tool = self._registry.get("email_monitor")
+        if tool and self._email_monitor:
+            tool._email_monitor = self._email_monitor
 
     def set_approval_callback(
         self, callback: Callable[[str, str, dict[str, Any]], bool]
@@ -1048,7 +1072,10 @@ class Agent:
                     elif exec_result.error:
                         tool_content = json.dumps({"error": exec_result.error})
                     elif exec_result.result:
-                        tool_content = json.dumps(exec_result.result.to_dict())
+                        raw_result = exec_result.result.to_dict()
+                        func_name = tc["function"]["name"]
+                        raw_result = wrap_tool_result(func_name, raw_result)
+                        tool_content = json.dumps(raw_result)
                     else:
                         tool_content = json.dumps({"error": "No result returned"})
 

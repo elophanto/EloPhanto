@@ -306,6 +306,14 @@ class RecoveryConfig:
 
 
 @dataclass
+class EmailMonitorConfig:
+    """Defaults for background inbox monitoring (started via tool, not config)."""
+
+    poll_interval_minutes: int = 5
+    persist_seen_ids: bool = True
+
+
+@dataclass
 class EmailConfig:
     """Agent email configuration — AgentMail or SMTP/IMAP."""
 
@@ -319,6 +327,8 @@ class EmailConfig:
     # SMTP/IMAP settings (used when provider: smtp)
     smtp: SmtpServerConfig = field(default_factory=SmtpServerConfig)
     imap: ImapServerConfig = field(default_factory=ImapServerConfig)
+    # Background monitor defaults
+    monitor: EmailMonitorConfig = field(default_factory=EmailMonitorConfig)
 
 
 @dataclass
@@ -819,6 +829,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
     email_raw = raw.get("email", {})
     smtp_raw = email_raw.get("smtp", {})
     imap_raw = email_raw.get("imap", {})
+    monitor_raw = email_raw.get("monitor", {})
     email_config = EmailConfig(
         enabled=email_raw.get("enabled", False),
         provider=email_raw.get("provider", "agentmail"),
@@ -842,6 +853,10 @@ def load_config(config_path: Path | str | None = None) -> Config:
             username_ref=imap_raw.get("username_ref", "imap_username"),
             password_ref=imap_raw.get("password_ref", "imap_password"),
             mailbox=imap_raw.get("mailbox", "INBOX"),
+        ),
+        monitor=EmailMonitorConfig(
+            poll_interval_minutes=monitor_raw.get("poll_interval_minutes", 5),
+            persist_seen_ids=monitor_raw.get("persist_seen_ids", True),
         ),
     )
 
