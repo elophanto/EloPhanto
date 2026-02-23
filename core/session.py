@@ -35,7 +35,9 @@ class Session:
     def append_conversation_turn(self, user_msg: str, assistant_msg: str) -> None:
         """Store a user/assistant pair, trimming to max length."""
         self.conversation_history.append({"role": "user", "content": user_msg})
-        self.conversation_history.append({"role": "assistant", "content": assistant_msg})
+        self.conversation_history.append(
+            {"role": "assistant", "content": assistant_msg}
+        )
         if len(self.conversation_history) > _MAX_CONVERSATION_HISTORY:
             self.conversation_history = self.conversation_history[
                 -_MAX_CONVERSATION_HISTORY:
@@ -138,6 +140,16 @@ class SessionManager:
                 self._cache.pop(row["session_id"], None)
             logger.info("Cleaned up %d stale sessions", count)
         return count
+
+    async def delete(self, session_id: str) -> bool:
+        """Delete a session and its history. Returns True if deleted."""
+        self._cache.pop(session_id, None)
+        await self._db.execute(
+            "DELETE FROM sessions WHERE session_id = ?",
+            (session_id,),
+        )
+        logger.info("Deleted session %s", session_id[:8])
+        return True
 
     async def _persist(self, session: Session) -> None:
         """Upsert session to database."""

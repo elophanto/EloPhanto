@@ -186,8 +186,13 @@ class CLIAdapter(ChannelAdapter):
 
                 # Handle local-only commands
                 if cmd == "clear":
+                    await self.send_command(
+                        "clear",
+                        user_id=self._user_id,
+                        session_id=self._session_id,
+                    )
                     self._session_id = ""
-                    console.print(f"  [{_C_SUCCESS}]Session cleared.[/]\n")
+                    console.print(f"  [{_C_SUCCESS}]Session and memory cleared.[/]\n")
                     continue
 
                 if cmd == "stats":
@@ -203,7 +208,7 @@ class CLIAdapter(ChannelAdapter):
                 if cmd == "help":
                     console.print(
                         f"\n  [{_C_ACCENT}]Commands[/]\n"
-                        f"  /clear      — Reset conversation session\n"
+                        f"  /clear      — Reset session and wipe task memory\n"
                         f"  /stop       — Cancel running request (or Ctrl+C)\n"
                         f"  /status     — Show gateway status\n"
                         f"  /health     — Provider health report\n"
