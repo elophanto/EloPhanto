@@ -199,7 +199,7 @@ export class AwareBrowserAgent {
   constructor(config: AwareBrowserConfig = {}) {
     this.config = {
       headless: false,
-      viewport: { width: 1024, height: 768 }, // Smaller default for less screen space
+      viewport: { width: 1536, height: 864 }, // Smaller default for less screen space
       useSystemChrome: true, // Default to using system Chrome
       ...config,
     };
@@ -225,7 +225,7 @@ export class AwareBrowserAgent {
     }
     const chromium = cachedChromium!;  // Safe - we just assigned it above
 
-    const viewport = this.config.viewport || { width: 1024, height: 768 };
+    const viewport = this.config.viewport || { width: 1536, height: 864 };
 
     // Use system Chrome if enabled (recommended for real browser functionality)
     const channel = this.config.useSystemChrome ? 'chrome' : undefined;
@@ -748,7 +748,7 @@ export class AwareBrowserAgent {
       }
       const sharp = cachedSharp;
       // Keep a reasonable ceiling so we don't downscale typical viewport screenshots.
-      // (Our default viewport is 1024×768; we allow up to 1.5x for retina/high-DPI.)
+      // (Our default viewport is 1536×864; we allow up to 1.5x for retina/high-DPI.)
       const resizedBuffer = await sharp(buffer)
         .resize(1536, 1152, {
           fit: 'inside',  // Maintain aspect ratio, fit within bounds
@@ -2952,11 +2952,112 @@ export class AwareBrowserAgent {
   /**
    * Scroll the page
    */
-  async scroll(direction: 'up' | 'down', amount = 300): Promise<void> {
+  async scroll(direction: 'up' | 'down', amount = 3): Promise<void> {
     this.invalidateElementsCache();
     const page = await this.getPage();
-    const delta = direction === 'down' ? amount : -amount;
-    await page.mouse.wheel(0, delta);
+    const scrollAmount = direction === 'down' ? amount : -amount;
+
+    // Smart scroll: finds scrollable containers, ranks by z-index + visible area,
+    // scrolls both primary (highest z-index) and secondary (tallest) containers.
+    // Same approach as EKO's browser-labels.ts scroll_by().
+    await page.evaluate(`
+      (function() {
+        var amount = ${scrollAmount};
+        var documentElement = document.documentElement || document.body;
+
+        // If the page itself is scrollable, just scroll the window
+        if (documentElement.scrollHeight > window.innerHeight * 1.2) {
+          var y = Math.max(20, Math.min((window.innerHeight || documentElement.clientHeight) / 10, 200));
+          window.scrollBy(0, y * amount);
+          return;
+        }
+
+        // Find scrollable containers (modals, sidebars, etc.)
+        function findNodes(element, nodes) {
+          if (!element) return nodes || [];
+          if (!nodes) nodes = [];
+          var children = element.querySelectorAll ? element.querySelectorAll('*') : [];
+          for (var i = 0; i < children.length; i++) {
+            var node = children[i];
+            if (node.tagName === 'IFRAME' && node.contentDocument) {
+              findNodes(node.contentDocument, nodes);
+            } else {
+              nodes.push(node);
+            }
+          }
+          return nodes;
+        }
+
+        var allElements = findNodes(document);
+
+        // Strict: overflow-y auto/scroll AND actually overflowing
+        var scrollable = allElements.filter(function(el) {
+          var style = window.getComputedStyle(el);
+          var oy = style.getPropertyValue('overflow-y');
+          return (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight;
+        });
+
+        // Looser fallback: any overflow or natural overflow
+        if (scrollable.length === 0) {
+          scrollable = allElements.filter(function(el) {
+            var style = window.getComputedStyle(el);
+            var oy = style.getPropertyValue('overflow-y');
+            return oy === 'auto' || oy === 'scroll' || el.scrollHeight > el.clientHeight;
+          });
+        }
+
+        if (scrollable.length === 0) {
+          var y = Math.max(20, Math.min((window.innerHeight || documentElement.clientHeight) / 10, 200));
+          window.scrollBy(0, y * amount);
+          return;
+        }
+
+        function getVisibleArea(el) {
+          var rect = el.getBoundingClientRect();
+          var vh = window.innerHeight || documentElement.clientHeight;
+          var vw = window.innerWidth || documentElement.clientWidth;
+          var vl = Math.max(0, Math.min(rect.left, vw));
+          var vr = Math.max(0, Math.min(rect.right, vw));
+          var vt = Math.max(0, Math.min(rect.top, vh));
+          var vb = Math.max(0, Math.min(rect.bottom, vh));
+          return (vr - vl) * (vb - vt);
+        }
+
+        function getComputedZIndex(el) {
+          while (el && el !== document.body && el !== document.body.parentElement) {
+            var style = window.getComputedStyle(el);
+            var z = style.zIndex === 'auto' ? 0 : parseInt(style.zIndex) || 0;
+            if (z > 0) return z;
+            el = el.parentElement;
+          }
+          return 0;
+        }
+
+        // Sort by z-index (highest first), then visible area (largest first)
+        var sorted = scrollable.sort(function(a, b) {
+          var z = getComputedZIndex(b) - getComputedZIndex(a);
+          if (z !== 0) return z > 0 ? 1 : -1;
+          var v = getVisibleArea(b) - getVisibleArea(a);
+          if (v !== 0) return v > 0 ? 1 : -1;
+          return 0;
+        });
+
+        // Scroll primary container (highest z-index / largest visible)
+        var primary = sorted[0];
+        var py = Math.max(20, Math.min(primary.clientHeight / 10, 200));
+        primary.scrollBy(0, py * amount);
+
+        // Also scroll secondary container (tallest) if different from primary
+        var byHeight = sorted.slice().sort(function(a, b) {
+          return b.getBoundingClientRect().height - a.getBoundingClientRect().height;
+        });
+        var secondary = byHeight[0];
+        if (secondary !== primary) {
+          var sy = Math.max(20, Math.min(secondary.clientHeight / 10, 200));
+          secondary.scrollBy(0, sy * amount);
+        }
+      })()
+    `);
   }
 
   /**
@@ -3773,7 +3874,9 @@ export class AwareBrowserAgent {
     this.invalidateElementsCache();
     const page = await this.getPage();
 
-    const result = await page.evaluate(`
+    // Strategy: try Playwright click with human-like mouse movement first (EKO pattern),
+    // fall back to DOM event dispatch for elements Playwright can't reach.
+    const elementHandle = await page.evaluateHandle(`
       (function() {
         var idx = ${index};
 
@@ -3801,14 +3904,48 @@ export class AwareBrowserAgent {
           el = elements[idx];
         }
 
-        var tag = el.tagName.toLowerCase();
-        var text = (el.innerText || el.textContent || '').slice(0, 50).trim();
-
         try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch(e) {}
+        return el;
+      })()
+    `);
 
-        try {
-          // Dispatch the full pointer event chain that frameworks (React, Angular, Vue) expect.
-          // el.click() alone skips pointerdown/mousedown/pointerup/mouseup which many listeners require.
+    // Get element info for return value
+    const elementInfo = await page.evaluate(
+      (el: any) => {
+        const tag = el.tagName?.toLowerCase() || 'unknown';
+        const text = (el.innerText || el.textContent || '').slice(0, 50).trim();
+        return '<' + tag + '> "' + text + '"';
+      },
+      elementHandle
+    );
+
+    // Try Playwright click with human-like mouse movement (EKO pattern)
+    try {
+      const box = await (elementHandle as any).boundingBox();
+      if (box) {
+        // Move mouse to element center with random jitter (anti-detection)
+        await page.mouse.move(
+          box.x + box.width / 2 + (Math.random() * 10 - 5),
+          box.y + box.height / 2 + (Math.random() * 10 - 5),
+          { steps: Math.floor(Math.random() * 5) + 3 }
+        );
+      }
+      await (elementHandle as any).click({
+        delay: Math.random() * 50 + 20,  // 20-70ms random delay
+        force: false,
+      });
+    } catch {
+      // Playwright click failed — fall back to DOM event dispatch
+      await page.evaluate(`
+        (function() {
+          var idx = ${index};
+          var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+          if (!el) {
+            var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
+            el = document.querySelectorAll(interactiveSelectors)[idx];
+          }
+          if (!el) return;
+
           var rect = el.getBoundingClientRect();
           var cx = rect.left + rect.width / 2;
           var cy = rect.top + rect.height / 2;
@@ -3818,29 +3955,32 @@ export class AwareBrowserAgent {
           el.dispatchEvent(new PointerEvent('pointerup', evOpts));
           el.dispatchEvent(new MouseEvent('mouseup', evOpts));
           el.dispatchEvent(new MouseEvent('click', evOpts));
-        } catch(e) {
-          try { el.click(); } catch(e2) {
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          }
-        }
+          el.focus && el.focus();
+        })()
+      `);
+    }
 
-        // For radio/checkbox inputs: ensure state change is registered by frameworks.
-        // Many frameworks (React, Angular, Vue) listen on 'change'/'input' events,
-        // not 'click'. Without dispatching these, the radio may appear clicked but
-        // the framework state never updates and the form submission fails.
+    // For radio/checkbox inputs: ensure state change is registered by frameworks
+    await page.evaluate(`
+      (function() {
+        var idx = ${index};
+        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        if (!el) {
+          var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
+          el = document.querySelectorAll(interactiveSelectors)[idx];
+        }
+        if (!el) return;
+        var tag = el.tagName.toLowerCase();
         var isRadioOrCheckbox = (tag === 'input' && (el.type === 'radio' || el.type === 'checkbox'));
         var isRoleRadio = el.getAttribute('role') === 'radio' || el.getAttribute('role') === 'checkbox';
         if (isRadioOrCheckbox) {
-          // Ensure the checked state is set (click should do this, but force it)
           if (el.type === 'radio') el.checked = true;
           el.dispatchEvent(new Event('change', { bubbles: true }));
           el.dispatchEvent(new Event('input', { bubbles: true }));
         } else if (isRoleRadio) {
-          // ARIA role="radio" elements: toggle aria-checked and dispatch events
           el.setAttribute('aria-checked', 'true');
           el.dispatchEvent(new Event('change', { bubbles: true }));
           el.dispatchEvent(new Event('input', { bubbles: true }));
-          // Also find the parent radiogroup and uncheck siblings
           var group = el.closest('[role="radiogroup"]');
           if (group) {
             var siblings = group.querySelectorAll('[role="radio"]');
@@ -3849,15 +3989,13 @@ export class AwareBrowserAgent {
             }
           }
         }
-
-        return { clicked: true, elementInfo: '<' + tag + '> "' + text + '"' };
       })()
-    `) as { clicked: boolean; elementInfo?: string };
+    `);
 
     // Adaptive delay: ensures framework state updates + meets page timing requirements.
     await this.applyAdaptiveClickDelay(page);
 
-    return result;
+    return { clicked: true, elementInfo };
   }
 
   /**
@@ -4330,7 +4468,13 @@ export class AwareBrowserAgent {
     this.invalidateElementsCache();
     const page = await this.getPage();
 
-    const selector = await page.evaluate(`
+    // Strategy: try Playwright fill() first, fall back to DOM-level typing.
+    // Same approach as EKO's eko-nodejs/src/browser.ts — simple and robust.
+
+    // Step 1: Find the target element and get a handle to it.
+    // Drill into wrappers to find the actual input/textarea (but not contenteditable
+    // — the DOM fallback handles those better).
+    const elementHandle = await page.evaluateHandle(`
       (function() {
         var idx = ${index};
 
@@ -4351,75 +4495,82 @@ export class AwareBrowserAgent {
 
         try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch(e) {}
 
-        var isEditable =
-          el.tagName === 'INPUT' ||
-          el.tagName === 'TEXTAREA' ||
-          el.isContentEditable;
-
-        if (isEditable) {
-          el.setAttribute('data-aware-target', 'true');
-          return '[data-aware-target="true"]';
+        // Drill into wrapper to find actual input/textarea (like EKO's get_element)
+        if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.childElementCount !== 0) {
+          var nested = el.querySelector('input') || el.querySelector('textarea');
+          if (nested) el = nested;
         }
 
-        var descendant = el.querySelector('input, textarea, [contenteditable="true"]');
-        if (descendant) {
-          descendant.setAttribute('data-aware-target', 'true');
-          return '[data-aware-target="true"]';
-        }
-
-        throw new Error('Element ' + idx + ' is not an input/textarea or editable container. Use browser_get_elements to find the input field.');
-      })()
-    `) as string;
-
-    // Check if target is contenteditable (rich text editor) vs regular input
-    const isContentEditable = await page.evaluate(`
-      (function() {
-        var el = document.querySelector('[data-aware-target="true"]');
-        return el && el.isContentEditable && el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA';
+        return el;
       })()
     `);
 
-    if (isContentEditable) {
-      // Rich text editors (Slate, Draft, ProseMirror, etc.) ignore fill() and
-      // textContent assignment. The only reliable method is to click to focus,
-      // clear existing content, then simulate real keystrokes.
-      await page.click(selector, { timeout: 5000 });
-      await page.keyboard.press('Control+A');
-      await page.keyboard.type(text, { delay: 5 });
-    } else {
-      // Regular input/textarea: try Playwright fill(), then React setter hack.
-      try {
-        await page.fill(selector, text, { timeout: 5000 });
-      } catch {
-        // fill() can fail on non-standard elements — the evaluate below handles it
-      }
+    // Step 2: Try Playwright fill() — works for most standard inputs
+    let filled = false;
+    try {
+      await (elementHandle as any).fill('');
+      await (elementHandle as any).fill(text);
+      filled = true;
+    } catch {
+      // fill() fails on contenteditable, some React inputs, iframes, etc.
+    }
 
-      // React compatibility: call the prototype value setter + dispatch events.
-      // Safe even if fill() already worked — just re-confirms the value.
+    // Step 3: If fill() failed, fall back to DOM-level typing.
+    // This handles everything: React controlled inputs, contenteditable,
+    // rich text editors (Slate, Draft, ProseMirror), iframes.
+    // Same approach as EKO's browser-labels.ts typing() function.
+    if (!filled) {
       const escapedText = JSON.stringify(text);
       await page.evaluate(`
         (function() {
-          var el = document.querySelector('[data-aware-target="true"]');
-          if (!el) return;
-          el.focus && el.focus();
-          el.value = ${escapedText};
-          if (el.__proto__) {
-            var setter = Object.getOwnPropertyDescriptor(el.__proto__, 'value');
-            if (setter && setter.set) setter.set.call(el, ${escapedText});
+          var idx = ${index};
+
+          // Re-find element (same logic as above)
+          var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+          if (!el) {
+            var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
+            var elements = document.querySelectorAll(interactiveSelectors);
+            el = elements[idx];
           }
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
+          if (!el) return;
+
+          // Find the actual input element (EKO's element resolution logic)
+          var input;
+          if (el.tagName === 'IFRAME') {
+            var iframeDoc = el.contentDocument || el.contentWindow.document;
+            input = iframeDoc.querySelector('textarea')
+              || iframeDoc.querySelector('*[contenteditable="true"]')
+              || iframeDoc.querySelector('input');
+          } else if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.childElementCount === 0) {
+            input = el;
+          } else {
+            input = el.querySelector('input') || el.querySelector('textarea');
+            if (!input) {
+              input = el.querySelector('*[contenteditable="true"]') || el;
+              if (input.tagName === 'DIV') {
+                input = input.querySelector('span') || input.querySelector('div') || input;
+              }
+            }
+          }
+
+          input.focus && input.focus();
+
+          if (input.value === undefined) {
+            // Contenteditable element — set textContent directly
+            input.textContent = ${escapedText};
+          } else {
+            // Regular input — use React prototype setter hack
+            input.value = ${escapedText};
+            if (input.__proto__) {
+              var setter = Object.getOwnPropertyDescriptor(input.__proto__, 'value');
+              if (setter && setter.set) setter.set.call(input, ${escapedText});
+            }
+          }
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
         })()
       `);
     }
-
-    // Clean up
-    await page.evaluate(`
-      (function() {
-        const el = document.querySelector('[data-aware-target="true"]');
-        if (el) el.removeAttribute('data-aware-target');
-      })()
-    `);
   }
 
   /**
