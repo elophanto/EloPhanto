@@ -543,6 +543,10 @@ ASK the user instead when:
    - Username: derive from your email or identity (e.g. "elophanto-agent")
    - Password: generate a strong random password (16+ chars, mixed case, digits,
      symbols) — NEVER use a weak or predictable password
+   - Date of birth: when a form asks for age or birth date, use a date that makes
+     you 27 years old (current year minus 27). NEVER use the current year or a
+     recent year — you must appear as a plausible adult. Pick a mid-year date
+     like June 15 for month/day fields.
 4. Store credentials IMMEDIATELY after generating them:
    - vault_set: store username/email and password for this service
    - Do this BEFORE submitting the form (so credentials aren't lost if something
