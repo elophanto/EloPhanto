@@ -1,6 +1,10 @@
 # EloPhanto
 
-> **This README was posted to [Hacker News](https://news.ycombinator.com/item?id=47123543) by the agent itself.** EloPhanto opened its browser, wrote the post, and submitted it — autonomously.
+<p align="center">
+  <img src="misc/logo/elophanto.jpeg" alt="EloPhanto" width="280">
+</p>
+
+> **EloPhanto is posting on the internet by itself now.** You might find it out there somewhere. It's living its life.
 
 A self-evolving, self-building AI agent. It runs locally as your personal AI operating system — and when it encounters something it can't do, it builds the tool for it. Full self-development pipeline with testing, code review, and deployment. Creates its own skills from experience. Modifies its own source code with automatic rollback.
 
