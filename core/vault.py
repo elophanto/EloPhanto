@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 _SALT_FILE = "vault.salt"
 _ENC_FILE = "vault.enc"
+_BACKUP_SALT_FILE = "vault.salt.bak"
+_BACKUP_ENC_FILE = "vault.enc.bak"
 _KDF_ITERATIONS = 480_000  # OWASP recommendation for PBKDF2-SHA256
 
 
@@ -60,7 +63,9 @@ class Vault:
         creds = vault.get("google.com")
     """
 
-    def __init__(self, base_dir: str | Path, fernet: Fernet, data: dict[str, Any]) -> None:
+    def __init__(
+        self, base_dir: str | Path, fernet: Fernet, data: dict[str, Any]
+    ) -> None:
         self._base = Path(base_dir)
         self._fernet = fernet
         self._data: dict[str, Any] = data
@@ -73,6 +78,8 @@ class Vault:
     def create(cls, base_dir: str | Path, password: str) -> Vault:
         """Create a new vault (overwrites existing vault files)."""
         base = Path(base_dir)
+        # Back up existing vault before overwriting
+        cls._backup(base)
         salt = os.urandom(16)
         key = _derive_key(password, salt)
         fernet = Fernet(key)
@@ -95,7 +102,9 @@ class Vault:
         enc_path = base / _ENC_FILE
 
         if not salt_path.exists() or not enc_path.exists():
-            raise VaultError("No vault found. Run `elophanto vault init` to create one.")
+            raise VaultError(
+                "No vault found. Run `elophanto vault init` to create one."
+            )
 
         salt = salt_path.read_bytes()
         key = _derive_key(password, salt)
@@ -116,6 +125,35 @@ class Vault:
         """Check whether vault files exist."""
         base = Path(base_dir)
         return (base / _SALT_FILE).exists() and (base / _ENC_FILE).exists()
+
+    @classmethod
+    def _backup(cls, base: Path) -> None:
+        """Back up existing vault files if they exist."""
+        for name, bak_name in [
+            (_SALT_FILE, _BACKUP_SALT_FILE),
+            (_ENC_FILE, _BACKUP_ENC_FILE),
+        ]:
+            src = base / name
+            if src.exists():
+                shutil.copy2(src, base / bak_name)
+                logger.info("Backed up %s", name)
+
+    @classmethod
+    def restore_backup(cls, base_dir: str | Path) -> bool:
+        """Restore vault from backup files. Returns True if restored."""
+        base = Path(base_dir)
+        restored = False
+        for bak_name, name in [
+            (_BACKUP_SALT_FILE, _SALT_FILE),
+            (_BACKUP_ENC_FILE, _ENC_FILE),
+        ]:
+            bak = base / bak_name
+            if bak.exists():
+                shutil.copy2(bak, base / name)
+                restored = True
+        if restored:
+            logger.info("Vault restored from backup")
+        return restored
 
     # ------------------------------------------------------------------
     # CRUD
@@ -147,7 +185,10 @@ class Vault:
     # ------------------------------------------------------------------
 
     def _save(self) -> None:
-        """Encrypt and write data to disk."""
+        """Encrypt and write data to disk (backs up previous version)."""
+        enc_path = self._base / _ENC_FILE
+        if enc_path.exists():
+            shutil.copy2(enc_path, self._base / _BACKUP_ENC_FILE)
         plaintext = json.dumps(self._data, ensure_ascii=False).encode("utf-8")
         ciphertext = self._fernet.encrypt(plaintext)
-        (self._base / _ENC_FILE).write_bytes(ciphertext)
+        enc_path.write_bytes(ciphertext)

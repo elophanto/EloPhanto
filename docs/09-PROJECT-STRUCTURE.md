@@ -43,6 +43,8 @@ elophanto/
 ├── permissions.yaml                    # Permission rules (Smart Auto-Approve)
 ├── vault.enc                           # Encrypted secrets (generated at init)
 ├── vault.salt                          # Salt for vault key derivation
+├── vault.enc.bak                       # Auto-backup of vault (previous version)
+├── vault.salt.bak                      # Auto-backup of vault salt
 ├── .gitignore
 │
 ├── core/                               # Agent brain — the main loop and systems
