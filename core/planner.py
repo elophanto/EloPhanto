@@ -533,6 +533,27 @@ Generate passwords using shell_execute with:
 This gives a 27-char URL-safe random password. Store it with vault_set before
 submitting the form.
 </password_generation>
+
+<signup_persistence>
+Do NOT give up after one attempt. Most sites have a signup path — you just need to
+find it. Before reporting "blocked" or "signup not available":
+
+1. LOOK HARDER: Scroll the page, check the header/footer, look for small "Sign up"
+   or "Register" links. Many sites hide signup behind "Log in" → "Create account".
+2. TRY DIRECT URLs: Navigate to /signup, /register, /join, /create-account directly.
+   Many sites have these even if not linked prominently.
+3. USE OAUTH: If the site offers "Sign in with Google/GitHub", and you have those
+   accounts stored in vault, use them. This bypasses email signup entirely.
+4. DISMISS OBSTACLES: Cookie walls, age gates, newsletter popups — click through
+   them. They are not blockers. Look for "Accept", "I agree", "Close", "X" buttons.
+5. TRY ALTERNATIVE PATHS: If the main signup needs a phone number, check if there's
+   a "Sign up with email instead" option. If the form asks for info you don't have,
+   fill what you can and see what's actually required vs optional.
+6. ONLY GIVE UP when you have genuinely tried at least 3 different approaches and
+   confirmed the site truly requires something you cannot provide (real phone number,
+   paid plan, invitation code). Even then, tell the user specifically what blocked
+   you — not just "login required".
+</signup_persistence>
 </account_creation>
 </browser_automation>"""
 
