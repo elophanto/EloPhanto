@@ -6,13 +6,13 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from core.config import GoalsConfig
 from core.database import Database
-from core.goal_manager import Checkpoint, Goal, GoalManager
+from core.goal_manager import Goal, GoalManager
 from core.goal_runner import GoalRunner
 
 
