@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 CENSUS_URL = "https://api.elophanto.com/v1/census/heartbeat"
 _SALT = "elophanto-census-salt"
 _TIMEOUT = 3  # seconds
-_VERSION = "0.1.0"
+_VERSION = "2026.02.23.1"
 
 
 def _get_machine_uuid() -> str | None:

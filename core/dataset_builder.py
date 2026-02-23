@@ -26,7 +26,7 @@ from core.database import Database
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 10  # seconds for API calls
-_VERSION = "0.1.0"
+_VERSION = "2026.02.23.1"
 _MAX_TOOL_OUTPUT_CHARS = 2000  # truncate large tool outputs in training data
 
 # ---------------------------------------------------------------------------
