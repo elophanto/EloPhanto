@@ -438,12 +438,13 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 13: Autonomous Goal Loop | **Done** — Multi-phase goals, checkpoints, progress tracking, self-evaluation, autonomous background execution (GoalRunner), safety limits, auto-resume on startup |
 | Phase 14: Self-Learning Model | **Dataset Builder Done** — Agent-side collection pipeline (sanitizer, quality filter, signal extraction, batch upload, auto-registration). Training pipeline in idea phase |
 | Phase 15: Identity System | **Done** — Evolving identity, beliefs, personality, reflection, social profiles |
-| Phase 16: Email | **Done** — Dual provider (AgentMail + SMTP/IMAP), 6 tools, audit logging |
+| Phase 16: Email | **Done** — Dual provider (AgentMail + SMTP/IMAP), 7 tools, background inbox monitoring, audit logging |
 | Phase 17: Skill Security | **Done** — 7-layer defense-in-depth for EloPhantoHub marketplace |
 | Phase 18: Agent Census | **Done** — Anonymous startup heartbeat, machine fingerprint, ecosystem stats |
 | Phase 19: Recovery Mode | **Done** — Remote recovery without LLM, health checks, config reload |
 | Phase 20: Hosted Platform | Spec — Tauri desktop app + Fly.io cloud instances |
 | Phase 21: MCP Integration | **Done** — MCP client, auto-install, mcp_manage tool, CLI commands, init wizard, agent self-management |
+| Phase 22: Injection Guard | **Done** — Multi-layer prompt injection defense for external content (browser, email, documents, shell, MCP) |
 
 ## Phase 10: Self-Learning Model (Dataset Builder Done)
 

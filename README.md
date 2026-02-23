@@ -62,7 +62,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **Multi-channel gateway** — WebSocket control plane with channel adapters for CLI, Telegram, Discord, and Slack. Unified sessions by default: all channels share one conversation so you can chat from CLI and Telegram interchangeably
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans. Background execution: goals run autonomously checkpoint-by-checkpoint, pause on user interaction, auto-resume on restart
 - **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
-- **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Send/receive/search/reply, identity integration, service signup verification flows
+- **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Send/receive/search/reply, background inbox monitoring with cross-channel notifications, identity integration, service signup verification flows
 - **Crypto payments** — agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config) or Coinbase AgentKit (managed custody, gasless, DEX swaps). USDC/ETH transfers, spending limits, full audit trail
 - **Evolving identity** — discovers its own identity on first run, evolves personality/values/capabilities through task reflection, maintains a living nature document
 - **Knowledge base** — persistent markdown knowledge with semantic search via embeddings (auto-selects OpenRouter for fast cloud embeddings, Ollama as local fallback)
@@ -129,7 +129,7 @@ Slack Adapter ─────┘                   ▼
 | Documents | document_analyze, document_query, document_collections | 3 |
 | Goals | goal_create, goal_status, goal_manage | 3 |
 | Identity | identity_status, identity_update, identity_reflect | 3 |
-| Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search | 6 |
+| Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search, email_monitor | 7 |
 | Payments | wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 7 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
 | Scheduling | schedule_task, schedule_list | 2 |
@@ -280,6 +280,9 @@ email:
     username_ref: imap_username
     password_ref: imap_password
     mailbox: INBOX
+  monitor:
+    poll_interval_minutes: 5     # background poll interval (started via conversation)
+    persist_seen_ids: true       # persist seen IDs across restarts
 
 payments:
   enabled: false
@@ -378,6 +381,8 @@ elophanto/
 │   ├── payments/        # Crypto payments (manager, limits, audit)
 │   ├── goal_manager.py  # Autonomous goal loop
 │   ├── goal_runner.py   # Background goal execution
+│   ├── email_monitor.py # Background agent inbox monitor
+│   ├── injection_guard.py # Prompt injection defense (output wrapping + scanning)
 │   ├── protected.py     # Protected files system
 │   ├── approval_queue.py # Persistent approval tracking
 │   └── ...
@@ -393,7 +398,7 @@ elophanto/
 │   ├── knowledge/       # Search, write, index, skills, hub
 │   ├── documents/       # Document analysis, query, collections
 │   ├── goals/           # Goal loop tools
-│   ├── email/           # Agent email (AgentMail + SMTP/IMAP, send, receive, search)
+│   ├── email/           # Agent email (AgentMail + SMTP/IMAP, send, receive, search, monitor)
 │   ├── identity/        # Identity status, update, reflection
 │   ├── payments/        # Crypto wallet, transfers, swaps, audit
 │   ├── self_dev/        # Plugin creation, modification, rollback
@@ -438,11 +443,12 @@ elophanto/
 | 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
 | 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval, background execution) | Done |
 | 14 | Evolving Identity (first awakening, reflection, nature document, credential tracking) | Done |
-| 15 | Agent Email (dual provider: AgentMail cloud + SMTP/IMAP, send/receive/search, identity integration, skill, audit) | Done |
+| 15 | Agent Email (dual provider: AgentMail cloud + SMTP/IMAP, send/receive/search, background inbox monitoring, identity integration, skill, audit) | Done |
 | 16 | EloPhantoHub Supply Chain Security (7-layer defense, publisher tiers, CI scanning, checksums, content policy) | P0 Done |
 | 17 | Hosted Platform & Desktop App (Tauri desktop, Fly.io cloud instances, web dashboard, Stripe billing) | Spec |
 | 18 | Agent Census (anonymous startup heartbeat, machine fingerprint, ecosystem stats) | Done |
 | 19 | MCP Integration (MCP client, auto-install, mcp_manage tool, CLI, init wizard, agent self-management) | Done |
+| 20 | Prompt Injection Guard (multi-layer defense for external content — browser, email, docs, shell, MCP) | Done |
 
 See [docs/10-ROADMAP.md](docs/10-ROADMAP.md) for full details.
 
@@ -465,6 +471,8 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-23 | **Background inbox monitoring** — Agent can monitor its own email inbox in the background and push notifications to all connected channels (CLI, Telegram, Discord, Slack) when new emails arrive. Controlled via conversation: "monitor your inbox" starts it, "stop monitoring" stops it. Silent first poll (seeds seen IDs, no notification flood), seen ID persistence across restarts, configurable poll interval (default 5 min). New `email_monitor` tool with start/stop/status actions, `core/email_monitor.py` polling loop, cross-channel notification display in all 4 adapters. 30 tests |
+| 2026-02-23 | **Prompt injection defense** — Multi-layer guard against indirect prompt injection attacks via websites, emails, and documents. System prompt trust hierarchy teaches the LLM to treat external content as data. Tool output wrapping marks external results as untrusted. Pattern scanner detects common injection signatures (instruction overrides, role switches, exfiltration attempts, delimiter attacks) and flags them. Gateway input sanitization closes filename injection vectors. New `core/injection_guard.py` module, 35 tests |
 | 2026-02-23 | **Unified cross-channel sessions** — All channels (CLI, Telegram, Discord, Slack) now share one conversation by default (`gateway.unified_sessions: true`). Chat from Telegram, see it in CLI, and vice versa. Cross-channel message forwarding shows what was said on other channels. Responses broadcast to all connected channels. Set `unified_sessions: false` for per-channel isolation |
 | 2026-02-23 | **Autonomous background goal execution** — Goals now execute checkpoint-by-checkpoint in the background without waiting for user messages. `GoalRunner` class (`core/goal_runner.py`) uses `asyncio.create_task()` per checkpoint via `agent.run()`. Safety limits: 2h total time, $5 cost budget, LLM call cap. Conversation history isolated per checkpoint. Progress events broadcast to all channels (CLI, Telegram, Discord, Slack). User message auto-pauses goal. Auto-resume on agent restart. 12 new tests |
 | 2026-02-23 | **Ctrl+C request cancellation** — Pressing Ctrl+C during agent processing now cancels the current request and returns to the prompt instead of killing the terminal. Gateway spawns chat handling as cancellable tasks, CLI sends cancel command on interrupt. Also added `/stop` command. Double Ctrl+C within 1 second force-exits (safety valve). Goal lifecycle events displayed in CLI (started, checkpoint complete, completed, paused, resumed) |

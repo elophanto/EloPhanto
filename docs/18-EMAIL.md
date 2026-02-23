@@ -1,6 +1,6 @@
 # EloPhanto — Agent Email
 
-> **Status: Implemented** — Dual-provider email system. 6 tools, identity integration, audit logging. Supports AgentMail (cloud API) and SMTP/IMAP (bring your own server).
+> **Status: Implemented** — Dual-provider email system. 7 tools, identity integration, audit logging, background inbox monitoring. Supports AgentMail (cloud API) and SMTP/IMAP (bring your own server).
 
 ## Overview
 
@@ -11,7 +11,7 @@ EloPhanto's email system supports **two providers** — mirroring the dual-provi
 - **AgentMail** — Cloud-hosted, API-based, purpose-built for AI agents. Instant inbox creation, zero server config.
 - **SMTP/IMAP** — Connect any existing email account (Gmail, Outlook, self-hosted). Emails stay on your server.
 
-Both providers use the same 6 tools — the agent doesn't need to know which provider is active. Provider switching is a config change.
+Both providers use the same 7 tools — the agent doesn't need to know which provider is active. Provider switching is a config change.
 
 This is an **addition** to existing capabilities. The agent can still use browser-based email (Gmail, ProtonMail) via browser tools when needed. The email tools provide a fast, reliable, API-first channel for autonomous email operations without browser overhead.
 
@@ -172,6 +172,7 @@ email:
 | `email_read` | SAFE | Read a specific email (full body, headers, attachments) |
 | `email_reply` | MODERATE | Reply to an email thread |
 | `email_search` | SAFE | Semantic search across inbox |
+| `email_monitor` | MODERATE | Start/stop background inbox monitoring |
 
 ### `email_create_inbox` (`tools/email/create_inbox_tool.py`)
 
@@ -303,6 +304,68 @@ emails, signing up for services, and handling verification flows.
 5. **Never share your email credentials** — The API key is in the vault.
    Only share your inbox address when needed for signups or communication.
 ```
+
+## Background Inbox Monitoring
+
+The agent can monitor its own inbox in the background and push notifications to all connected channels when new emails arrive. This is controlled via conversation — the user asks, the agent starts it.
+
+### How It Works
+
+```
+User: "Monitor your inbox for new emails"
+    │
+    ▼
+Agent calls email_monitor(action="start")
+    │
+    ▼
+EmailMonitor background loop starts (default: every 5 minutes)
+    │
+    ▼
+┌─────────── Poll Loop ───────────┐
+│ 1. email_list(unread_only=True) │
+│ 2. Diff against seen_ids        │
+│ 3. Broadcast new_email event    │
+│ 4. Save seen_ids to disk        │
+│ 5. Sleep(poll_interval)         │
+└─────────────────────────────────┘
+    │
+    ▼
+All channels receive notification:
+  CLI:      📧 New email from alice@example.com
+  Telegram: 📧 *New email* — From: alice@example.com — Subject: ...
+  Discord:  📧 **New email** — From: alice@example.com — Subject: ...
+  Slack:    📧 *New email* — From: alice@example.com — Subject: ...
+```
+
+### Key Design Decisions
+
+- **Conversational control** — No config flag to auto-start. The user says "monitor my inbox" and the agent calls `email_monitor(action="start")`. "Stop monitoring" calls `action="stop"`.
+- **Agent's own inbox** — Monitors the agent's email address, not the user's personal inbox.
+- **Silent first poll** — The first poll seeds the `seen_ids` set without sending notifications, preventing a flood of old messages.
+- **Seen ID persistence** — Message IDs are persisted to `data/email_seen_ids.json` so the monitor doesn't re-notify after a restart.
+- **No LLM calls** — The monitor calls `EmailListTool.execute()` directly. Zero cost per poll.
+- **Gateway broadcast** — Uses `EventType.NOTIFICATION` with `session_id=None` to reach all connected channels.
+
+### `email_monitor` Tool
+
+- **Permission:** MODERATE
+- **Params:** `action` (string — `start`, `stop`, `status`), `poll_interval_minutes` (integer, optional — default 5)
+- **Returns:**
+  - `start`: `{status: "started", poll_interval_minutes: 5}`
+  - `stop`: `{status: "stopped"}`
+  - `status`: `{is_running: true/false, poll_interval_minutes: 5, seen_count: 42}`
+
+### Configuration
+
+```yaml
+# config.yaml — under email:
+email:
+  monitor:
+    poll_interval_minutes: 5    # default poll interval (overridable via tool param)
+    persist_seen_ids: true      # persist seen message IDs across restarts
+```
+
+No `enabled` field — the monitor starts/stops via the tool, not config. Config only sets defaults.
 
 ## Webhook Support (Future)
 
@@ -446,6 +509,8 @@ Added to `pyproject.toml` core dependencies (lightweight SDK, no heavy transitiv
 | `tools/email/read_tool.py` | email_read tool (AgentMail + IMAP) |
 | `tools/email/reply_tool.py` | email_reply tool (AgentMail + SMTP/IMAP) |
 | `tools/email/search_tool.py` | email_search tool (AgentMail + IMAP) |
+| `tools/email/monitor_tool.py` | email_monitor tool (start/stop/status) |
+| `core/email_monitor.py` | EmailMonitor background polling loop |
 | `skills/email-agent/SKILL.md` | Email agent skill |
 | `core/config.py` | EmailConfig, SmtpServerConfig, ImapServerConfig |
 | `core/agent.py` | Email initialization + dependency injection |
@@ -454,7 +519,7 @@ Added to `pyproject.toml` core dependencies (lightweight SDK, no heavy transitiv
 
 ## Status
 
-**Implemented** — Dual-provider email system complete.
+**Implemented** — Dual-provider email system with background inbox monitoring.
 
 ### Phases
 
@@ -462,5 +527,6 @@ Added to `pyproject.toml` core dependencies (lightweight SDK, no heavy transitiv
 |-------|-------|--------|
 | **Phase 1** | 6 tools, AgentMail provider, skill, identity integration, audit log | Done |
 | **Phase 1b** | SMTP/IMAP as second provider, dual-provider UX | Done |
+| **Phase 1c** | Background inbox monitoring — `email_monitor` tool, cross-channel notifications, seen ID persistence | Done |
 | **Phase 2** | Webhook listener for reactive email handling | Future |
 | **Phase 3** | Multi-inbox support, custom domain management | Future |

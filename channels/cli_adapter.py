@@ -118,6 +118,14 @@ class CLIAdapter(ChannelAdapter):
                 console.print(f"\n  [{_C_DIM}]{icon} Scheduled: {task_name}[/]")
                 if result:
                     console.print(f"  [{_C_DIM}]{result[:300]}[/]\n")
+            elif ntype == "new_email":
+                sender = msg.data.get("from", "unknown")
+                subject = msg.data.get("subject", "(no subject)")
+                snippet = msg.data.get("snippet", "")
+                console.print(f"\n  \U0001f4e7 New email from {sender}")
+                console.print(f"  [{_C_DIM}]{subject}[/]")
+                if snippet:
+                    console.print(f"  [{_C_DIM}]{snippet[:200]}[/]\n")
         elif event == "step_progress":
             tool_name = msg.data.get("tool_name", "")
             step = msg.data.get("step", "")

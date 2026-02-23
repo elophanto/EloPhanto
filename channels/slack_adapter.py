@@ -169,6 +169,27 @@ class SlackAdapter(ChannelAdapter):
         """Forward events to Slack."""
         event = msg.data.get("event", "")
 
+        # Handle broadcast notifications (no session_id needed)
+        if event == "notification" and self._app:
+            ntype = msg.data.get("notification_type", "")
+            if ntype == "new_email":
+                sender = msg.data.get("from", "unknown")
+                subject = msg.data.get("subject", "(no subject)")
+                snippet = msg.data.get("snippet", "")
+                text = f"\U0001f4e7 *New email*\nFrom: {sender}\nSubject: {subject}"
+                if snippet:
+                    text += f"\n\n{snippet[:300]}"
+                for slack_channel, thread_ts in self._session_threads.values():
+                    try:
+                        await self._app.client.chat_postMessage(
+                            channel=slack_channel,
+                            text=text,
+                            thread_ts=thread_ts,
+                        )
+                    except Exception:
+                        pass
+            return
+
         # Cross-channel user messages — route to all known threads
         if event == "user_message" and self._app:
             ch = msg.data.get("channel", "?")

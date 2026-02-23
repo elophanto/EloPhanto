@@ -207,6 +207,25 @@ class DiscordAdapter(ChannelAdapter):
                             pass
             return
 
+        # Handle broadcast notifications (no session_id needed)
+        if event == "notification":
+            ntype = msg.data.get("notification_type", "")
+            if ntype == "new_email":
+                sender = msg.data.get("from", "unknown")
+                subject = msg.data.get("subject", "(no subject)")
+                snippet = msg.data.get("snippet", "")
+                text = f"\U0001f4e7 **New email**\nFrom: {sender}\nSubject: {subject}"
+                if snippet:
+                    text += f"\n\n{snippet[:300]}"
+                for cid in self._session_channels.values():
+                    dc_ch = self._client.get_channel(cid) if self._client else None
+                    if dc_ch:
+                        try:
+                            await dc_ch.send(text)
+                        except Exception:
+                            pass
+            return
+
         channel_id = self._session_channels.get(msg.session_id)
         if channel_id and self._client:
             channel = self._client.get_channel(channel_id)

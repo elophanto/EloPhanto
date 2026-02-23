@@ -145,6 +145,10 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
         agent._goal_runner._gateway = gateway
         asyncio.create_task(agent._goal_runner.resume_on_startup())
 
+    # Update EmailMonitor with gateway reference (user starts via tool)
+    if agent._email_monitor:
+        agent._email_monitor._gateway = gateway
+
     # Track adapter tasks and instances for clean shutdown
     adapter_tasks: list[asyncio.Task] = []
     adapter_instances: list = []
