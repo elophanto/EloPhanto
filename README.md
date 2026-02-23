@@ -1,5 +1,7 @@
 # EloPhanto
 
+> **This README was posted to [Hacker News](https://news.ycombinator.com/item?id=47123543) by the agent itself.** EloPhanto opened its browser, wrote the post, and submitted it — autonomously.
+
 A self-evolving, self-building AI agent. It runs locally as your personal AI operating system — and when it encounters something it can't do, it builds the tool for it. Full self-development pipeline with testing, code review, and deployment. Creates its own skills from experience. Modifies its own source code with automatic rollback.
 
 Also: full system access, real Chrome browser control (47+ tools), MCP tool servers (connect any MCP server — filesystem, GitHub, databases, and more), document & media analysis, skills framework with EloPhantoHub marketplace, multi-channel gateway (CLI, Telegram, Discord, Slack), evolving identity, agent email, crypto payments, encrypted vault, and more.
