@@ -2,9 +2,10 @@
 
 ## Overview
 
-EloPhanto controls real Chrome browsers via a Node.js bridge to the `AwareBrowserAgent` engine.
+EloPhanto controls real Chrome browsers via a Node.js bridge built on [FellouAI/eko](https://github.com/FellouAI/eko).
 Python communicates with a Node.js subprocess over JSON-RPC (stdin/stdout), delegating all browser
-operations to the battle-tested TypeScript browser engine copied from the `aware-agent` project.
+operations to a TypeScript browser engine that follows EKO's proven patterns for input handling,
+click simulation, scrolling, and anti-detection.
 
 ## Architecture
 
@@ -158,14 +159,44 @@ The bridge exposes 46 browser tools from `AwareBrowserAgent`. Key categories:
 
 ## Element Interaction
 
-The bridge uses `AwareBrowserAgent`'s element stamping system. When `browser_navigate`
+The bridge uses element stamping for reliable targeting. When `browser_navigate`
 or `browser_get_elements` is called, each interactive element is stamped with a
 `data-aware-idx` attribute. Subsequent `browser_click`, `browser_type`, and similar
-calls use this index for reliable targeting.
+calls use this index.
 
 The element stamping covers: links, buttons, inputs, selects, textareas, ARIA roles
 (button, link, radio, checkbox, tab, menuitem, switch, slider, combobox, listbox),
 contenteditable elements, onclick handlers, and cursor-pointer styled elements.
+
+### Input Handling (EKO-style fallback chain)
+
+`browser_type` follows EKO's two-tier approach:
+
+1. **Playwright `fill()`** — tried first as the fast path. Works for standard HTML inputs and textareas.
+2. **DOM-level fallback** — if `fill()` fails (React controlled inputs, contenteditable editors, iframes), falls back to direct DOM manipulation:
+   - **React inputs**: Uses the prototype value setter hack (`Object.getOwnPropertyDescriptor(el.__proto__, 'value').set.call(el, text)`) + dispatches `input` and `change` events so React's state updates
+   - **Contenteditable**: Sets `textContent` directly for rich text editors (Slate.js, Draft.js, ProseMirror)
+   - **Iframes**: Traverses into iframes to find the actual input element
+   - **Wrapper elements**: Drills through `<div>` wrappers to find the inner `<input>` or `<textarea>`
+
+### Click Simulation (human-like)
+
+`browser_click` uses EKO's mouse movement pattern:
+
+1. Gets the element's bounding box
+2. Moves the cursor to the element center with ±5px random jitter and 3-7 motion steps
+3. Clicks with a random delay (20-70ms) to simulate human timing
+4. If Playwright click fails, falls back to the full DOM event dispatch chain (pointerdown → mousedown → pointerup → mouseup → click)
+
+### Smart Scrolling
+
+`browser_scroll` uses EKO's dual-container strategy:
+
+1. Checks if the page itself is scrollable first
+2. Finds all scrollable containers (overflow-y: auto/scroll with overflowing content)
+3. Traverses into iframes to find scrollable elements
+4. Ranks containers by z-index (highest first), then by visible area
+5. Scrolls both the primary container (highest z-index — typically modals/overlays) and the secondary container (tallest — typically the main content)
 
 ## Anti-Detection
 
@@ -174,7 +205,8 @@ automation fingerprints. Additionally:
 - System Chrome is used by default (`use_system_chrome: true`)
 - Anti-detection Chromium flags: `--disable-blink-features=AutomationControlled`, `--disable-features=IsolateOrigins,site-per-process,ChromeWhatsNewUI`
 - Profile stability flags: `--disable-sync`, `--disable-background-networking`, `--disable-component-update`, `--noerrdialogs`, `--disable-session-crashed-bubble`, `--hide-crash-restore-bubble`
-- The full event dispatch chain is used for clicks (pointerdown → mousedown → pointerup → mouseup → click)
+- Human-like mouse movement before clicks: cursor moves to element with random ±5px jitter and 3-7 motion steps, click delay randomized between 20-70ms
+- Full DOM event dispatch chain as fallback (pointerdown → mousedown → pointerup → mouseup → click)
 
 ## Content Sanitization
 
@@ -214,8 +246,8 @@ browser:
   user_data_dir: ''           # Chrome profile path (for profile mode); empty = auto-detect
   profile_directory: Default  # Profile subdirectory (Default, Profile 1, etc.)
   use_system_chrome: true     # Use system Chrome vs Playwright Chromium
-  viewport_width: 1280        # Browser viewport width
-  viewport_height: 720        # Browser viewport height
+  viewport_width: 1536        # Browser viewport width
+  viewport_height: 864        # Browser viewport height
 ```
 
 ## Setup
