@@ -167,6 +167,7 @@ class Agent:
         self._email_config: Any = None  # EmailConfig, set during initialize
         self._mcp_manager: Any = None  # MCPClientManager, set during initialize
         self._dataset_builder: Any = None  # DatasetBuilder, set during initialize
+        self._goal_runner: Any = None  # GoalRunner, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
@@ -387,6 +388,17 @@ class Agent:
                 )
                 self._inject_goal_deps()
                 logger.info("Goal system ready")
+
+                # Initialize GoalRunner for autonomous background execution
+                if self._config.goals.auto_continue:
+                    from core.goal_runner import GoalRunner
+
+                    self._goal_runner = GoalRunner(
+                        agent=self,
+                        goal_manager=self._goal_manager,
+                        gateway=self._gateway,
+                        config=self._config.goals,
+                    )
             except Exception as e:
                 logger.warning(f"Goal system setup failed: {e}")
 
@@ -539,6 +551,11 @@ class Agent:
                 self._scheduler.shutdown(wait=False)
             except Exception as e:
                 logger.debug("Scheduler shutdown error: %s", e)
+        if self._goal_runner:
+            try:
+                await self._goal_runner.cancel()
+            except Exception as e:
+                logger.debug("GoalRunner shutdown error: %s", e)
         if self._dataset_builder:
             try:
                 await self._dataset_builder.flush()
@@ -651,11 +668,17 @@ class Agent:
             collections_tool._store = self._document_store
 
     def _inject_goal_deps(self) -> None:
-        """Inject goal manager into goal tools."""
+        """Inject goal manager and goal runner into goal tools."""
         for tool_name in ("goal_create", "goal_status", "goal_manage"):
             tool = self._registry.get(tool_name)
             if tool and self._goal_manager:
                 tool._goal_manager = self._goal_manager
+            if (
+                tool
+                and self._goal_runner
+                and tool_name in ("goal_create", "goal_manage")
+            ):
+                tool._goal_runner = self._goal_runner
 
     def _inject_identity_deps(self) -> None:
         """Inject identity manager into identity tools."""
@@ -731,6 +754,10 @@ class Agent:
                 to the correct channel via gateway).
             on_step: Async callback for step progress reporting.
         """
+
+        # Pause background goal execution if user sends a message
+        if self._goal_runner and self._goal_runner.is_running:
+            self._goal_runner.notify_user_interaction()
 
         # Temporarily override callbacks for this session
         prev_approval = self._executor._approval_callback

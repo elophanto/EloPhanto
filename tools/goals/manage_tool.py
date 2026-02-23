@@ -12,6 +12,7 @@ class GoalManageTool(BaseTool):
 
     def __init__(self) -> None:
         self._goal_manager: Any = None
+        self._goal_runner: Any = None
 
     @property
     def name(self) -> str:
@@ -62,40 +63,72 @@ class GoalManageTool(BaseTool):
 
         try:
             if action == "pause":
-                ok = await self._goal_manager.pause_goal(goal_id)
-                if not ok:
-                    return ToolResult(
-                        success=False, error="Cannot pause (goal not active or not found)"
-                    )
-                return ToolResult(success=True, data={"goal_id": goal_id, "action": "paused"})
+                # Pause background runner if active for this goal
+                if self._goal_runner and self._goal_runner.current_goal_id == goal_id:
+                    await self._goal_runner.pause()
+                else:
+                    ok = await self._goal_manager.pause_goal(goal_id)
+                    if not ok:
+                        return ToolResult(
+                            success=False,
+                            error="Cannot pause (goal not active or not found)",
+                        )
+                return ToolResult(
+                    success=True, data={"goal_id": goal_id, "action": "paused"}
+                )
 
             elif action == "resume":
-                ok = await self._goal_manager.resume_goal(goal_id)
+                # Resume via GoalRunner for background execution
+                if self._goal_runner:
+                    ok = await self._goal_runner.resume(goal_id)
+                else:
+                    ok = await self._goal_manager.resume_goal(goal_id)
                 if not ok:
                     return ToolResult(
-                        success=False, error="Cannot resume (goal not paused or not found)"
+                        success=False,
+                        error="Cannot resume (goal not paused or not found)",
                     )
-                return ToolResult(success=True, data={"goal_id": goal_id, "action": "resumed"})
+                return ToolResult(
+                    success=True,
+                    data={
+                        "goal_id": goal_id,
+                        "action": "resumed",
+                        "background_execution": bool(self._goal_runner),
+                    },
+                )
 
             elif action == "cancel":
+                # Cancel background runner if active for this goal
+                if self._goal_runner and self._goal_runner.current_goal_id == goal_id:
+                    await self._goal_runner.cancel()
                 ok = await self._goal_manager.cancel_goal(goal_id)
                 if not ok:
                     return ToolResult(success=False, error="Goal not found")
-                return ToolResult(success=True, data={"goal_id": goal_id, "action": "cancelled"})
+                return ToolResult(
+                    success=True, data={"goal_id": goal_id, "action": "cancelled"}
+                )
 
             elif action == "revise":
                 if not reason:
-                    return ToolResult(success=False, error="reason is required for revise action")
+                    return ToolResult(
+                        success=False, error="reason is required for revise action"
+                    )
                 goal = await self._goal_manager.get_goal(goal_id)
                 if not goal:
                     return ToolResult(success=False, error="Goal not found")
 
                 new_checkpoints = await self._goal_manager.revise_plan(goal, reason)
                 if not new_checkpoints:
-                    return ToolResult(success=False, error="Revision produced no checkpoints")
+                    return ToolResult(
+                        success=False, error="Revision produced no checkpoints"
+                    )
 
                 cp_list = [
-                    {"order": c.order, "title": c.title, "success_criteria": c.success_criteria}
+                    {
+                        "order": c.order,
+                        "title": c.title,
+                        "success_criteria": c.success_criteria,
+                    }
                     for c in new_checkpoints
                 ]
                 return ToolResult(

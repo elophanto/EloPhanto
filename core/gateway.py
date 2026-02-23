@@ -75,6 +75,9 @@ class Gateway:
         # Pending approval futures: approval_msg_id → asyncio.Future[bool]
         self._pending_approvals: dict[str, asyncio.Future[bool]] = {}
 
+        # Active chat tasks: client_id → asyncio.Task (for cancellation)
+        self._active_chat_tasks: dict[str, asyncio.Task[None]] = {}
+
         # Map session_id → set of client_ids subscribed to that session
         self._session_clients: dict[str, set[str]] = {}
 
@@ -189,8 +192,18 @@ class Gateway:
         self, client: ClientConnection, msg: GatewayMessage
     ) -> None:
         """Route an incoming message to the appropriate handler."""
+        if msg.type == MessageType.CHAT:
+            # Spawn as task so the websocket loop stays responsive for
+            # approvals, commands (cancel), and other messages during processing.
+            task = asyncio.create_task(self._handle_chat(client, msg))
+            self._active_chat_tasks[client.client_id] = task
+            task.add_done_callback(
+                lambda _t: self._active_chat_tasks.pop(client.client_id, None)
+            )
+            return
+
+        # Everything else is handled inline (fast operations)
         handlers = {
-            MessageType.CHAT: self._handle_chat,
             MessageType.APPROVAL_RESPONSE: self._handle_approval_response,
             MessageType.COMMAND: self._handle_command,
             MessageType.STATUS: self._handle_status,
@@ -329,6 +342,20 @@ class Gateway:
                 exclude_client=client.client_id,
             )
 
+        except asyncio.CancelledError:
+            logger.info("Chat cancelled for session %s", session.session_id[:8])
+            try:
+                await client.websocket.send(
+                    response_message(
+                        session.session_id,
+                        "Request cancelled.",
+                        done=True,
+                        reply_to=msg.id,
+                    ).to_json()
+                )
+            except Exception:
+                pass
+
         except Exception as e:
             logger.error("Agent error for session %s: %s", session.session_id[:8], e)
             await client.websocket.send(
@@ -427,6 +454,18 @@ class Gateway:
                     done=True,
                 ).to_json()
             )
+
+        elif command == "cancel":
+            task = self._active_chat_tasks.get(client.client_id)
+            if task and not task.done():
+                task.cancel()
+                logger.info("Cancelled active task for client %s", client.client_id[:8])
+            else:
+                await client.websocket.send(
+                    response_message(
+                        session_id, "Nothing to cancel.", done=True
+                    ).to_json()
+                )
 
         else:
             # Try recovery handler — pure Python, no LLM

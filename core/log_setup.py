@@ -115,7 +115,9 @@ def setup_logging(*, debug: bool = False) -> None:
     root.addHandler(fh)
 
     ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG if debug else logging.WARNING)
+    # Only show console logs in debug mode. In normal mode, all logs go
+    # to the file only — keeps the Rich terminal UI clean.
+    ch.setLevel(logging.DEBUG if debug else logging.CRITICAL)
     ch.setFormatter(fmt)
     ch.addFilter(redact_filter)
     root.addHandler(ch)
