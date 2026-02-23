@@ -38,12 +38,14 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 ## What Can You Use It For?
 
-- **Automate repetitive workflows** — "Check my email every morning, summarize new messages, and notify me on Telegram"
-- **Research & content creation** — "Research this topic, find sources, and write a blog post with citations"
-- **Web scraping & monitoring** — "Track prices on this site, alert me when X drops below $100"
-- **Account management** — "Create accounts on these services, handle 2FA, store credentials securely"
-- **Development automation** — "Build me a CRUD app with Next.js + Prisma + shadcn from scratch"
-- **Autonomous goals** — "Grow my Twitter following to 1,000" — it decomposes, plans, executes checkpoint by checkpoint across sessions
+- **Make it earn money** — it has its own crypto wallet, email, and web presence. Give it a goal and a budget, it figures out the rest
+- **Autonomous long-term goals** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates and adjusts. Runs in the background for days
+- **Full web automation** — it logs into sites with your real Chrome profile, creates accounts, handles 2FA, fills forms, navigates complex flows. Not a toy browser — your actual sessions
+- **Build software end-to-end** — "Build me a SaaS dashboard with Next.js + Prisma + shadcn" — it writes the code, runs tests, fixes bugs, deploys
+- **Research & content** — "Research competitor pricing across 20 sites and write a report with sources" — it opens tabs, reads pages, compiles findings
+- **Automate your life** — "Every morning: check my email, summarize what's important, post a digest to my Telegram" — cron scheduling, cross-channel notifications
+- **Manage accounts at scale** — create accounts on services, store credentials in encrypted vault, handle email verification and TOTP 2FA autonomously
+- **Self-improve on your tasks** — when you correct it, it writes the lesson down. Next time it checks its notes first. It literally gets better the more you use it
 
 ## Why EloPhanto?
 
