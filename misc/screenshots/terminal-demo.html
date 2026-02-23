@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            background: #1e1e1e;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            padding: 20px;
+            margin: 0;
+            color: #d4d4d4;
+        }
+        .terminal {
+            background: #1e1e1e;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            overflow: hidden;
+            max-width: 900px;
+        }
+        .terminal-header {
+            background: #252526;
+            padding: 10px 15px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            border-bottom: 1px solid #333;
+        }
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .dot-red { background: #ff5f56; }
+        .dot-yellow { background: #ffbd2e; }
+        .dot-green { background: #27c93f; }
+        .terminal-title {
+            color: #999;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .terminal-body {
+            padding: 20px;
+        }
+        .prompt {
+            color: #4ec9b0;
+        }
+        .user-input {
+            color: #d4d4d4;
+        }
+        .output {
+            color: #9cdcfe;
+        }
+        .success {
+            color: #4ec9b0;
+        }
+        .info {
+            color: #dcdcaa;
+        }
+        .table {
+            color: #ce9178;
+        }
+        .line {
+            margin: 4px 0;
+        }
+        .time {
+            color: #569cd6;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="terminal">
+        <div class="terminal-header">
+            <div class="dot dot-red"></div>
+            <div class="dot dot-yellow"></div>
+            <div class="dot dot-green"></div>
+            <span class="terminal-title">elophanto — zsh — 80x24</span>
+        </div>
+        <div class="terminal-body">
+            <div class="line"><span class="prompt">➜  ~</span> <span class="user-input">./start.sh</span></div>
+            <div class="line output">EloPhanto v0.1.0 | Local AI Agent | 99 tools ready</div>
+            <div class="line info">Type a task or /help for commands</div>
+            <div class="line"></div>
+            <div class="line"><span class="prompt">➜  ~</span> <span class="user-input">Research the top 5 AI agents of 2026 and summarize them</span></div>
+            <div class="line"></div>
+            <div class="line success">[✓] Navigating to Google...</div>
+            <div class="line success">[✓] Searching for "top AI agent frameworks 2026 open source"...</div>
+            <div class="line success">[✓] Opening GitHub trending results...</div>
+            <div class="line success">[✓] Reading agent documentation and comparison articles...</div>
+            <div class="line success">[✓] Extracting features, star counts, and use cases...</div>
+            <div class="line success">[✓] Synthesizing findings...</div>
+            <div class="line"></div>
+            <div class="line info">Here's what I found:</div>
+            <div class="line"></div>
+            <div class="line table">| Agent      | Stars | Open Source | Local? | Unique Feature               |</div>
+            <div class="line table">|------------|-------|-------------|--------|------------------------------|</div>
+            <div class="line table">| LangChain  | 122k+ | ✅          | ✅     | Framework for LLM apps       |</div>
+            <div class="line table">| MetaGPT    | 61k+  | ✅          | ❌     | Multi-agent with SOPs        |</div>
+            <div class="line table">| AutoGen    | 52k+  | ✅          | ❌     | Multi-agent conversations     |</div>
+            <div class="line table">| LlamaIndex | 45k+  | ✅          | ✅     | Data indexing & RAG          |</div>
+            <div class="line table">| CrewAI     | 25k+  | ✅          | ❌     | Role-playing teams           |</div>
+            <div class="line table">| OpenClaw   | 18k+  | ✅          | ✅     | Runs locally, browser control|</div>
+            <div class="line table">| EloPhanto  | 7+    | ✅          | ✅     | Self-building, evolving      |</div>
+            <div class="line"></div>
+            <div class="line info">Key insights:</div>
+            <div class="line">• Most agents require cloud APIs → I run locally with Ollama</div>
+            <div class="line">• Multi-agent frameworks (AutoGen, CrewAI) are popular but complex → I'm single-agent but smarter</div>
+            <div class="line">• Web agents (OpenClaw) focus on browsing → I also handle files, email, crypto, payments</div>
+            <div class="line">• Frameworks (LangChain, LlamaIndex) require you to build → I do things for you</div>
+            <div class="line"></div>
+            <div class="line time">This took me 43 seconds.</div>
+            <div class="line"></div>
+            <div class="line"><span class="prompt">➜  ~</span> <span class="output">▊</span></div>
+        </div>
+    </div>
+</body>
+</html>
