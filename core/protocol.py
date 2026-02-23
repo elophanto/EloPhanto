@@ -45,6 +45,7 @@ class EventType(StrEnum):
     GOAL_FAILED = "goal_failed"
     GOAL_PAUSED = "goal_paused"
     GOAL_RESUMED = "goal_resumed"
+    USER_MESSAGE = "user_message"
 
 
 @dataclass

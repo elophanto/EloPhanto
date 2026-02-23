@@ -60,6 +60,7 @@ class Gateway:
         port: int = 18789,
         auth_token: str | None = None,
         max_sessions: int = 50,
+        unified_sessions: bool = True,
     ) -> None:
         self._agent = agent
         self._sessions = session_manager
@@ -67,6 +68,7 @@ class Gateway:
         self._port = port
         self._auth_token = auth_token
         self._max_sessions = max_sessions
+        self._unified_sessions = unified_sessions
 
         self._clients: dict[str, ClientConnection] = {}
         self._server: Any = None
@@ -239,8 +241,10 @@ class Gateway:
         client.channel = channel
         client.user_id = user_id
 
-        # Get or create session
-        if msg.session_id:
+        # Get or create session — unified mode shares one session across channels
+        if self._unified_sessions:
+            session = await self._sessions.get_or_create("unified", "owner")
+        elif msg.session_id:
             session = await self._sessions.get(msg.session_id)
             if not session:
                 session = await self._sessions.get_or_create(channel, user_id)
@@ -305,6 +309,22 @@ class Gateway:
                 session, client, tool_name, description, params
             )
 
+        # Broadcast user message to other channels (unified mode)
+        if self._unified_sessions:
+            await self.broadcast(
+                event_message(
+                    session.session_id,
+                    EventType.USER_MESSAGE,
+                    {
+                        "channel": channel,
+                        "user_id": user_id,
+                        "content": content[:500],
+                    },
+                ),
+                session_id=session.session_id,
+                exclude_client=client.client_id,
+            )
+
         # Run agent with session isolation
         try:
             agent_response = await self._agent.run_session(
@@ -317,15 +337,19 @@ class Gateway:
             # Persist session
             await self._sessions.save(session)
 
-            # Send response
-            await client.websocket.send(
-                response_message(
-                    session.session_id,
-                    agent_response.content,
-                    done=True,
-                    reply_to=msg.id,
-                ).to_json()
+            # Send response — broadcast to all session subscribers in unified
+            # mode so other channels see the answer. The requesting client
+            # resolves via reply_to match; others call on_response().
+            resp = response_message(
+                session.session_id,
+                agent_response.content,
+                done=True,
+                reply_to=msg.id,
             )
+            if self._unified_sessions:
+                await self.broadcast(resp, session_id=session.session_id)
+            else:
+                await client.websocket.send(resp.to_json())
 
             # Broadcast task complete event
             await self.broadcast(

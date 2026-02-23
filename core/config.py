@@ -150,6 +150,7 @@ class GatewayConfig:
     auth_token_ref: str = ""
     max_sessions: int = 50
     session_timeout_hours: int = 24
+    unified_sessions: bool = True  # All channels share one conversation
 
 
 @dataclass
@@ -682,6 +683,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         auth_token_ref=gw_raw.get("auth_token_ref", ""),
         max_sessions=gw_raw.get("max_sessions", 50),
         session_timeout_hours=gw_raw.get("session_timeout_hours", 24),
+        unified_sessions=gw_raw.get("unified_sessions", True),
     )
 
     # Parse hub section

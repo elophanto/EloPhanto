@@ -50,7 +50,7 @@
 
 **How it stays safe**: Encrypted credential vault. Three-tier permission system (Ask Always / Smart Auto / Full Auto) with per-tool overrides via `permissions.yaml`. Protected files system that prevents the agent from modifying its own safety-critical code. Log redaction strips API keys and secrets. Git-based rollback for all self-modifications. Full QA pipeline for self-developed code. Database-backed approval queue that works across all channels.
 
-**How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as the control plane. Channel adapters (CLI, Telegram, Discord, Slack) connect as thin WebSocket clients. Each user/channel gets an isolated session with independent conversation history, persisted to SQLite. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use.
+**How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as the control plane. Channel adapters (CLI, Telegram, Discord, Slack) connect as thin WebSocket clients. By default, all channels share one unified session — chat from CLI, continue from Telegram, same conversation history. Cross-channel messages and responses are broadcast to all connected adapters. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use.
 
 **How it controls the browser**: A Node.js bridge spawns real Chrome (Playwright + stealth plugin) with the user's copied profile. In profile mode, existing sessions and cookies are preserved — no re-authentication needed. 47 browser tools cover navigation, clicking, typing, scrolling, screenshots, console/network inspection, and more.
 

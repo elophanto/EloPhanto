@@ -127,6 +127,13 @@ class CLIAdapter(ChannelAdapter):
         elif event == "task_complete":
             goal = msg.data.get("goal", "")
             console.print(f"  [{_C_DIM}]Task completed: {goal[:60]}[/]")
+        elif event == "user_message":
+            ch = msg.data.get("channel", "?")
+            content = msg.data.get("content", "")
+            if content:
+                console.print(
+                    f"\n  [{_C_DIM}]({ch})[/] [{_C_USER}]{content[:300]}[/]\n"
+                )
         elif event in (
             "goal_started",
             "goal_checkpoint_complete",

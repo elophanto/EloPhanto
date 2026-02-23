@@ -49,7 +49,9 @@ class SlackAdapter(ChannelAdapter):
             )
             from slack_bolt.async_app import AsyncApp
         except ImportError as err:
-            raise RuntimeError("slack-bolt not installed. Run: pip install slack-bolt") from err
+            raise RuntimeError(
+                "slack-bolt not installed. Run: pip install slack-bolt"
+            ) from err
 
         await self.connect_gateway()
 
@@ -132,7 +134,9 @@ class SlackAdapter(ChannelAdapter):
             if content:
                 client = self._app.client
                 for chunk in _split_slack(content, 3900):
-                    await client.chat_postMessage(channel=channel, text=chunk, thread_ts=thread_ts)
+                    await client.chat_postMessage(
+                        channel=channel, text=chunk, thread_ts=thread_ts
+                    )
 
     async def on_approval_request(self, msg: GatewayMessage) -> None:
         """Send approval request as Slack message with reaction-based approval."""
@@ -163,12 +167,29 @@ class SlackAdapter(ChannelAdapter):
 
     async def on_event(self, msg: GatewayMessage) -> None:
         """Forward events to Slack."""
+        event = msg.data.get("event", "")
+
+        # Cross-channel user messages — route to all known threads
+        if event == "user_message" and self._app:
+            ch = msg.data.get("channel", "?")
+            content = msg.data.get("content", "")
+            if content:
+                for slack_channel, thread_ts in self._session_threads.values():
+                    try:
+                        await self._app.client.chat_postMessage(
+                            channel=slack_channel,
+                            text=f"({ch}) {content[:400]}",
+                            thread_ts=thread_ts,
+                        )
+                    except Exception:
+                        pass
+            return
+
         session_data = self._session_threads.get(msg.session_id)
         if not session_data or not self._app:
             return
 
         channel, thread_ts = session_data
-        event = msg.data.get("event", "")
 
         if event == "task_complete":
             goal = msg.data.get("goal", "")

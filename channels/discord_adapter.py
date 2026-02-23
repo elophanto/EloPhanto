@@ -44,7 +44,9 @@ class DiscordAdapter(ChannelAdapter):
             import discord
             from discord import app_commands
         except ImportError as err:
-            raise RuntimeError("discord.py not installed. Run: pip install discord.py") from err
+            raise RuntimeError(
+                "discord.py not installed. Run: pip install discord.py"
+            ) from err
 
         await self.connect_gateway()
 
@@ -189,11 +191,26 @@ class DiscordAdapter(ChannelAdapter):
 
     async def on_event(self, msg: GatewayMessage) -> None:
         """Forward events to Discord."""
+        event = msg.data.get("event", "")
+
+        # Cross-channel user messages
+        if event == "user_message":
+            ch = msg.data.get("channel", "?")
+            content = msg.data.get("content", "")
+            if content:
+                for cid in self._session_channels.values():
+                    dc_ch = self._client.get_channel(cid) if self._client else None
+                    if dc_ch:
+                        try:
+                            await dc_ch.send(f"({ch}) {content[:400]}")
+                        except Exception:
+                            pass
+            return
+
         channel_id = self._session_channels.get(msg.session_id)
         if channel_id and self._client:
             channel = self._client.get_channel(channel_id)
             if channel:
-                event = msg.data.get("event", "")
                 if event == "task_complete":
                     goal = msg.data.get("goal", "")
                     await channel.send(f"Task complete: {goal[:200]}")

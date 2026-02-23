@@ -34,7 +34,7 @@ This is not a secondary interface — it is a full-featured channel with the sam
                                                                      └─────────────────┘
 ```
 
-In gateway mode, the Telegram adapter connects to the gateway via WebSocket. Sessions are isolated per Telegram user. The agent is shared across all channels.
+In gateway mode, the Telegram adapter connects to the gateway via WebSocket. By default, all channels share one unified session (`unified_sessions: true`) — chat from Telegram, see it in CLI, and vice versa. The agent is shared across all channels.
 
 ### Direct Mode (legacy)
 
@@ -387,7 +387,7 @@ All channels share the same:
 - Permission system and approval queue
 - Tool registry and EloPhantoHub
 
-Each user/channel gets an isolated session with independent conversation history. Approval requests are routed to the originating channel. Events (task completion, errors) are broadcast to all connected adapters.
+By default, all channels share one unified session — messages and responses are visible across CLI, Telegram, Discord, and Slack. Set `gateway.unified_sessions: false` for per-channel isolation. Approval requests are routed to the originating channel. Events (task completion, errors) are broadcast to all connected adapters.
 
 ## Future Enhancements (Self-Development Candidates)
 
