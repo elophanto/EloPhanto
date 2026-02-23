@@ -149,3 +149,11 @@ class MemoryManager:
                 }
             )
         return results
+
+    async def clear_all(self) -> int:
+        """Delete all task memories. Returns count deleted."""
+        rows = await self._db.execute("SELECT COUNT(*) as cnt FROM memory")
+        count = rows[0]["cnt"] if rows else 0
+        if count:
+            await self._db.execute("DELETE FROM memory")
+        return count

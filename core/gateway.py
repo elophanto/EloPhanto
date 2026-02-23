@@ -497,6 +497,20 @@ class Gateway:
                     ).to_json()
                 )
 
+        elif command == "clear":
+            # Delete the current session to wipe conversation history
+            if client.session_id:
+                await self._sessions.delete(client.session_id)
+            client.session_id = ""
+            # Clear task memory so the agent doesn't recall old tasks
+            mem_mgr = getattr(self._agent, "_memory_manager", None)
+            if mem_mgr:
+                count = await mem_mgr.clear_all()
+                text = f"Session cleared. {count} task memories wiped."
+            else:
+                text = "Session cleared."
+            await client.websocket.send(response_message("", text, done=True).to_json())
+
         else:
             # Try recovery handler — pure Python, no LLM
             if self._recovery:
