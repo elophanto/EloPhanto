@@ -12,7 +12,7 @@
 
 An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, writes code, sends emails, creates accounts, manages files, makes payments. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves.
 
-Runs locally. Works with free local models. Your data stays on your machine.
+Runs locally. Works with free local models, Z.ai coding plan, or OpenRouter. Your data stays on your machine.
 
 <p align="center">
   <img src="misc/screenshots/terminal-demo.png" alt="Terminal Demo" width="600">
@@ -133,7 +133,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 | **Runs locally** | ✅ | ❌ Cloud | ✅ | ❌ Cloud |
 | **Self-building tools** | ✅ | ❌ | ❌ | ❌ |
 | **Real browser control** | ✅ (Chrome profile) | ❌ | ❌ | ❌ |
-| **No API keys required** | ✅ (Ollama) | ❌ | ✅ | ❌ |
+| **Free local or cloud models** | ✅ (Ollama, Z.ai, OpenRouter) | ❌ | ✅ | ❌ |
 | **Multi-channel** | ✅ (TG, Discord, Slack) | ❌ | ❌ | ❌ |
 | **Evolving identity** | ✅ | ❌ | ❌ | ❌ |
 
@@ -145,53 +145,46 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 <summary>Click to expand architecture overview</summary>
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CHANNEL LAYER                                │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐   │
-│  │   CLI    │  │ Telegram │  │ Discord  │  │ Slack / Email / Web  │   │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────────┬───────────┘   │
-│       │             │             │                    │                  │
-└───────┼─────────────┼─────────────┼────────────────────┼──────────────────┘
-        │             │             │                    │
-        └─────────────┴─────────────┴────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           GATEWAY LAYER                                 │
-│              (Orchestrates channels, handles routing)                     │
-│                              │                                           │
-└──────────────────────────────┼───────────────────────────────────────────────┘
-                               │
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           CORE LAYER                                     │
-│  ┌───────────────────────────────────────────────────────────────────┐     │
-│  │                      AGENT LOOP                                 │     │
-│  │  Input → Parse → Plan → Execute → Reflect → Response             │     │
-│  └───────────────────────────────────────────────────────────────────┘     │
-│                              │                                           │
-│  ┌───────────────────────────────────────────────────────────────────┐     │
-│  │                    IDENTITY & KNOWLEDGE                          │     │
-│  │  • name, purpose, values, personality, communication_style       │     │
-│  │  • capabilities, beliefs, curiosities, boundaries               │     │
-│  │  • lesson learning, pattern extraction                          │     │
-│  └───────────────────────────────────────────────────────────────────┘     │
-│                              │                                           │
-│  ┌───────────────────────────────────────────────────────────────────┐     │
-│  │                      TOOL REGISTRY                              │     │
-│  │  • 100+ tools across: filesystem, browser, vault, payments,  │     │
-│  │    email, scheduling, knowledge, self-development, verification  │     │
-│  └───────────────────────────────────────────────────────────────────┘     │
-└──────────────────────────────┼───────────────────────────────────────────────┘
-                               │
-        ┌──────────────────────┼──────────────────────┐
-        │                      │                      │
-┌───────▼────────┐  ┌────────▼─────────┐  ┌────────▼──────────┐
-│  BRIDGE LAYER  │  │   CHANNELS       │  │   OTHER CORE     │
-│  • Browser      │  │   • Telegram     │  │   • Vault        │
-│  (EKO engine)  │  │   • Discord      │  │   • Config       │
-│                │  │   • Email        │  │   • DB           │
-│                │  │   • Slack       │  │   • Logs         │
-│                │  │   • CLI         │  │                  │
-└────────────────┘  └──────────────────┘  └──────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                      CHANNEL LAYER                        │
+│                                                           │
+│   ┌─────┐  ┌──────────┐  ┌─────────┐  ┌──────────────┐  │
+│   │ CLI │  │ Telegram │  │ Discord │  │ Slack / Web  │  │
+│   └──┬──┘  └────┬─────┘  └────┬────┘  └──────┬───────┘  │
+│      └──────────┴─────────────┴───────────────┘          │
+└─────────────────────────┬─────────────────────────────────┘
+                          │
+┌─────────────────────────▼─────────────────────────────────┐
+│                    GATEWAY LAYER                           │
+│        (Orchestrates channels, handles routing)            │
+└─────────────────────────┬─────────────────────────────────┘
+                          │
+┌─────────────────────────▼─────────────────────────────────┐
+│                      CORE LAYER                           │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │ AGENT LOOP                                          │  │
+│  │ Input → Parse → Plan → Execute → Reflect → Response │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                          │                                │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │ IDENTITY & KNOWLEDGE                                │  │
+│  │ name · values · personality · beliefs · lessons     │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                          │                                │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │ TOOL REGISTRY  (100+ tools)                         │  │
+│  │ browser · vault · payments · email · scheduling     │  │
+│  └─────────────────────────────────────────────────────┘  │
+└────────┬─────────────────┬─────────────────┬──────────────┘
+         │                 │                 │
+┌────────▼──────┐  ┌──────▼───────┐  ┌──────▼───────┐
+│ BROWSER       │  │ CHANNELS     │  │ SERVICES     │
+│ EKO engine    │  │ Telegram     │  │ Vault        │
+│ Playwright    │  │ Discord      │  │ Config       │
+│ Node.js RPC   │  │ Email        │  │ Database     │
+│               │  │ Slack        │  │ Scheduler    │
+└───────────────┘  └──────────────┘  └──────────────┘
 ```
 
 </details>
