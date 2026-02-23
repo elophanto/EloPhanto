@@ -4371,36 +4371,47 @@ export class AwareBrowserAgent {
       })()
     `) as string;
 
-    // Try Playwright fill() first, then always run React-compatible setter.
-    // fill() handles most sites but React controlled inputs need the prototype
-    // setter hack (same approach as EKO's browser-labels.ts).
-    try {
-      await page.fill(selector, text, { timeout: 5000 });
-    } catch {
-      // fill() can fail on non-standard elements — the evaluate below handles it
-    }
-
-    // React compatibility: call the prototype value setter + dispatch events.
-    // This is safe even if fill() already worked — it just re-confirms the value.
-    const escapedText = JSON.stringify(text);
-    await page.evaluate(`
+    // Check if target is contenteditable (rich text editor) vs regular input
+    const isContentEditable = await page.evaluate(`
       (function() {
         var el = document.querySelector('[data-aware-target="true"]');
-        if (!el) return;
-        el.focus && el.focus();
-        if (el.value === undefined) {
-          el.textContent = ${escapedText};
-        } else {
+        return el && el.isContentEditable && el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA';
+      })()
+    `);
+
+    if (isContentEditable) {
+      // Rich text editors (Slate, Draft, ProseMirror, etc.) ignore fill() and
+      // textContent assignment. The only reliable method is to click to focus,
+      // clear existing content, then simulate real keystrokes.
+      await page.click(selector, { timeout: 5000 });
+      await page.keyboard.press('Control+A');
+      await page.keyboard.type(text, { delay: 5 });
+    } else {
+      // Regular input/textarea: try Playwright fill(), then React setter hack.
+      try {
+        await page.fill(selector, text, { timeout: 5000 });
+      } catch {
+        // fill() can fail on non-standard elements — the evaluate below handles it
+      }
+
+      // React compatibility: call the prototype value setter + dispatch events.
+      // Safe even if fill() already worked — just re-confirms the value.
+      const escapedText = JSON.stringify(text);
+      await page.evaluate(`
+        (function() {
+          var el = document.querySelector('[data-aware-target="true"]');
+          if (!el) return;
+          el.focus && el.focus();
           el.value = ${escapedText};
           if (el.__proto__) {
             var setter = Object.getOwnPropertyDescriptor(el.__proto__, 'value');
             if (setter && setter.set) setter.set.call(el, ${escapedText});
           }
-        }
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      })()
-    `);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        })()
+      `);
+    }
 
     // Clean up
     await page.evaluate(`
