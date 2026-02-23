@@ -1,11 +1,12 @@
 """elophanto vault — Manage the encrypted credential vault.
 
 Commands:
-    init   — Create a new vault (sets master password)
-    set    — Store a credential (domain + email + password)
-    get    — Retrieve a credential
-    list   — List stored credential keys
-    delete — Remove a credential
+    init    — Create a new vault (sets master password)
+    set     — Store a credential (domain + email + password)
+    get     — Retrieve a credential
+    list    — List stored credential keys
+    delete  — Remove a credential
+    restore — Restore vault from the most recent backup
 """
 
 from __future__ import annotations
@@ -193,3 +194,13 @@ def vault_delete(domain: str) -> None:
         console.print(f"[green]Credentials for {domain} deleted.[/green]")
     else:
         console.print(f"[yellow]No credentials found for {domain}[/yellow]")
+
+
+@vault_cmd.command("restore")
+def vault_restore() -> None:
+    """Restore vault from the most recent backup."""
+    vdir = _vault_dir()
+    if Vault.restore_backup(vdir):
+        console.print("[green]Vault restored from backup.[/green]")
+    else:
+        console.print("[red]No backup found.[/red]")

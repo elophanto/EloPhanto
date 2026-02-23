@@ -26,14 +26,23 @@ All credentials are stored in an encrypted local vault file (`vault.enc`). The v
 5. On agent startup, the user enters the master password. The key is derived, the vault is decrypted, and secrets are held in memory for the session.
 6. When the agent process stops, the in-memory secrets are cleared.
 
+### Auto-Backup
+
+The vault automatically backs up before every write:
+
+- **On every `set()` / `delete()`**: `vault.enc` is copied to `vault.enc.bak` before the new encrypted data is written
+- **On `create()` (vault init)**: Both `vault.salt` and `vault.enc` are backed up before overwriting, preventing accidental data loss from re-initialization
+
+Recovery: `elophanto vault restore` copies the `.bak` files back to restore the previous vault state.
+
 ### Vault Operations
 
 ```
 vault_get(key) → decrypted value
-vault_set(key, value) → encrypts and persists
-vault_delete(key) → removes entry and persists
+vault_set(key, value) → encrypts and persists (auto-backup before write)
+vault_delete(key) → removes entry and persists (auto-backup before write)
 vault_list() → returns key names only (never values)
-vault_rotate() → re-encrypts all secrets with a new master password
+vault_restore() → restores vault from most recent backup
 ```
 
 ### What Goes in the Vault

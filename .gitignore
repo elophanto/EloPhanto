@@ -26,6 +26,8 @@ Thumbs.db
 # EloPhanto secrets
 vault.enc
 vault.salt
+vault.enc.bak
+vault.salt.bak
 .env
 
 # Logs
