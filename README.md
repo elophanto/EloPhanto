@@ -10,11 +10,11 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
 </p>
 
-An open-source AI agent that runs locally on your machine. It can browse the web, manage files, send emails, handle crypto payments, and when it encounters something it can't do — **it builds the tool for it**.
+An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses the web, writes code, sends emails, creates accounts, manages files, makes payments. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves.
 
-Full self-development pipeline with testing, code review, and deployment. Creates its own skills from experience. Modifies its own source code with automatic rollback.
+Runs locally. Works with free local models. Your data stays on your machine.
 
-> It's already out there posting on the internet by itself. Living its life.
+> It's already out there on the internet doing its own thing.
 
 ## Get Started
 
