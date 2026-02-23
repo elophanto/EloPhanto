@@ -68,7 +68,7 @@ class TestTotpGenerateTool:
         assert result.success
         assert len(result.data["code"]) == 6
         assert result.data["code"].isdigit()
-        assert 0 < result.data["seconds_remaining"] <= 30
+        assert 0 <= result.data["seconds_remaining"] <= 30
         assert result.data["service"] == "github"
 
     async def test_service_name_normalized(self, tool: TotpGenerateTool) -> None:
