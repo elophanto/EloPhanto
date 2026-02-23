@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
+import time as _time
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -46,6 +48,7 @@ class CLIAdapter(ChannelAdapter):
         self._user_id = "cli-user"
         self._listener_task: asyncio.Task | None = None
         self._status: Status | None = None
+        self._chat_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Connect to gateway and enter REPL loop."""
@@ -210,14 +213,42 @@ class CLIAdapter(ChannelAdapter):
             )
             self._status.start()
 
-            try:
-                response = await self.send_chat(
+            # Wrap in asyncio.Task so SIGINT can cancel it properly.
+            # KeyboardInterrupt does NOT propagate through asyncio awaits,
+            # so we use loop.add_signal_handler to cancel the task instead.
+            self._chat_task = asyncio.create_task(
+                self.send_chat(
                     content=user_input,
                     user_id=self._user_id,
                     session_id=self._session_id,
                 )
-                self._status.stop()
-                self._status = None
+            )
+
+            _sigint_fired = False
+            _last_sigint = 0.0
+
+            def _on_sigint() -> None:
+                nonlocal _sigint_fired, _last_sigint
+                now = _time.monotonic()
+                if now - _last_sigint < 1.0:
+                    # Double Ctrl+C within 1 second — force exit
+                    import os
+
+                    os._exit(1)
+                _last_sigint = now
+                _sigint_fired = True
+                task = self._chat_task
+                if task and not task.done():
+                    task.cancel()
+
+            loop.add_signal_handler(signal.SIGINT, _on_sigint)
+
+            try:
+                response = await self._chat_task
+
+                if self._status:
+                    self._status.stop()
+                    self._status = None
 
                 # Track session for future messages
                 if response.session_id:
@@ -234,21 +265,27 @@ class CLIAdapter(ChannelAdapter):
                 )
                 console.print()
 
-            except KeyboardInterrupt:
+            except asyncio.CancelledError:
                 if self._status:
                     self._status.stop()
                     self._status = None
-                console.print(f"\n  [{_C_WARN}]Cancelling...[/]")
-                try:
-                    await self.send_command(
-                        "cancel",
-                        user_id=self._user_id,
-                        session_id=self._session_id,
-                    )
-                except Exception:
-                    pass
-                console.print()
-                continue
+                if _sigint_fired:
+                    # User pressed Ctrl+C — cancel request and continue REPL
+                    console.print(f"\n  [{_C_WARN}]Cancelling...[/]")
+                    try:
+                        await self.send_command(
+                            "cancel",
+                            user_id=self._user_id,
+                            session_id=self._session_id,
+                        )
+                    except Exception:
+                        pass
+                    console.print()
+                    continue
+                else:
+                    # Outer task cancelled (app shutdown) — propagate
+                    raise
+
             except TimeoutError:
                 if self._status:
                     self._status.stop()
@@ -259,6 +296,11 @@ class CLIAdapter(ChannelAdapter):
                     self._status.stop()
                     self._status = None
                 console.print(f"\n  [bold red]Error:[/] {e}")
+            finally:
+                try:
+                    loop.remove_signal_handler(signal.SIGINT)
+                except Exception:
+                    pass
 
     def _display_goal_event(self, event: str, data: dict) -> None:
         """Display a goal lifecycle event in the terminal."""
