@@ -49,6 +49,7 @@ example/
 # config
 config.yaml
 config.yaml.bak
+README.md.bak
 
 # temp files
 temp/
