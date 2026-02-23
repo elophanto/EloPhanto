@@ -36,8 +36,15 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 </details>
 
-## What Can You Use It For?
+## Two Ways to Use It
 
+**As your assistant** — give it tasks, it executes. Automate workflows, build software, research topics, manage accounts.
+
+**As its own thing** — let it run. It builds its own identity on first boot. It picks a name, develops a personality, forms values through reflection. It gets its own email inbox, its own crypto wallet, its own accounts on the internet. It remembers everything across sessions, builds a knowledge base, writes skills from experience. It's a digital creature that grows the more it runs — like a pet that learns, except this one can browse the web, write code, and make money.
+
+## What Can You Do With It?
+
+- **Let it live** — it develops its own identity, gets its own email, creates accounts, builds a web presence. Leave it running and it grows on its own
 - **Make it earn money** — it has its own crypto wallet, email, and web presence. Give it a goal and a budget, it figures out the rest
 - **Autonomous long-term goals** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates and adjusts. Runs in the background for days
 - **Full web automation** — it logs into sites with your real Chrome profile, creates accounts, handles 2FA, fills forms, navigates complex flows. Not a toy browser — your actual sessions
@@ -45,7 +52,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Research & content** — "Research competitor pricing across 20 sites and write a report with sources" — it opens tabs, reads pages, compiles findings
 - **Automate your life** — "Every morning: check my email, summarize what's important, post a digest to my Telegram" — cron scheduling, cross-channel notifications
 - **Manage accounts at scale** — create accounts on services, store credentials in encrypted vault, handle email verification and TOTP 2FA autonomously
-- **Self-improve on your tasks** — when you correct it, it writes the lesson down. Next time it checks its notes first. It literally gets better the more you use it
+- **Self-improve on your tasks** — when you correct it, it writes the lesson down and checks its notes before similar tasks. It literally gets better the more you use it
 
 ## Why EloPhanto?
 
