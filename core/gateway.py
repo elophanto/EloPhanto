@@ -245,9 +245,8 @@ class Gateway:
         if self._unified_sessions:
             session = await self._sessions.get_or_create("unified", "owner")
         elif msg.session_id:
-            session = await self._sessions.get(msg.session_id)
-            if not session:
-                session = await self._sessions.get_or_create(channel, user_id)
+            existing = await self._sessions.get(msg.session_id)
+            session = existing or await self._sessions.get_or_create(channel, user_id)
         else:
             session = await self._sessions.get_or_create(channel, user_id)
 
