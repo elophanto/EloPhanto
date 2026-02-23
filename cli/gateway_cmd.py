@@ -58,18 +58,21 @@ _BANNER = f"""\
 def gateway_cmd(config_path: str | None, debug: bool, no_cli: bool) -> None:
     """Start the gateway with agent and all enabled channel adapters."""
     import signal
+    import time as _time
 
     setup_logging(debug=debug)
 
-    _interrupted_once = False
+    _last_interrupt = 0.0
 
     def _force_exit(sig: int, frame: Any) -> None:
-        nonlocal _interrupted_once
-        if _interrupted_once:
+        nonlocal _last_interrupt
+        now = _time.monotonic()
+        if now - _last_interrupt < 1.0:
+            # Double Ctrl+C within 1 second — force exit
             import os
 
             os._exit(1)
-        _interrupted_once = True
+        _last_interrupt = now
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, _force_exit)
@@ -135,6 +138,11 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
 
     await gateway.start()
     agent._gateway = gateway  # Enable scheduled task notifications
+
+    # Update GoalRunner with gateway reference + resume active goals
+    if agent._goal_runner:
+        agent._goal_runner._gateway = gateway
+        asyncio.create_task(agent._goal_runner.resume_on_startup())
 
     # Track adapter tasks and instances for clean shutdown
     adapter_tasks: list[asyncio.Task] = []

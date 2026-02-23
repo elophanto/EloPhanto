@@ -250,6 +250,10 @@ class GoalsConfig:
     max_time_per_checkpoint_seconds: int = 600
     context_summary_max_tokens: int = 1500
     auto_continue: bool = True
+    # Background execution safety limits
+    max_total_time_per_goal_seconds: int = 7200  # 2 hours
+    cost_budget_per_goal_usd: float = 5.0
+    pause_between_checkpoints_seconds: int = 2
 
 
 @dataclass
@@ -747,6 +751,13 @@ def load_config(config_path: Path | str | None = None) -> Config:
         ),
         context_summary_max_tokens=goals_raw.get("context_summary_max_tokens", 1500),
         auto_continue=goals_raw.get("auto_continue", True),
+        max_total_time_per_goal_seconds=goals_raw.get(
+            "max_total_time_per_goal_seconds", 7200
+        ),
+        cost_budget_per_goal_usd=goals_raw.get("cost_budget_per_goal_usd", 5.0),
+        pause_between_checkpoints_seconds=goals_raw.get(
+            "pause_between_checkpoints_seconds", 2
+        ),
     )
 
     # Parse identity section

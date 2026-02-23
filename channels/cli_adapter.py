@@ -124,6 +124,15 @@ class CLIAdapter(ChannelAdapter):
         elif event == "task_complete":
             goal = msg.data.get("goal", "")
             console.print(f"  [{_C_DIM}]Task completed: {goal[:60]}[/]")
+        elif event in (
+            "goal_started",
+            "goal_checkpoint_complete",
+            "goal_completed",
+            "goal_failed",
+            "goal_paused",
+            "goal_resumed",
+        ):
+            self._display_goal_event(event, msg.data)
 
     async def _repl_loop(self) -> None:
         """Main REPL — read input, send to gateway, display response."""
@@ -131,7 +140,7 @@ class CLIAdapter(ChannelAdapter):
 
         console.print(f"\n  [{_C_DIM}]Connected to gateway at {self._gateway_url}[/]")
         console.print(
-            f"  [{_C_DIM}]Type a message, /clear to reset, or exit to quit.[/]\n"
+            f"  [{_C_DIM}]Type a message, /clear to reset, Ctrl+C to cancel, or exit to quit.[/]\n"
         )
 
         while self._running:
@@ -166,10 +175,18 @@ class CLIAdapter(ChannelAdapter):
                 if cmd == "stats":
                     cmd = "status"  # alias to gateway's status command
 
+                if cmd == "stop":
+                    await self.send_command(
+                        "cancel", user_id=self._user_id, session_id=self._session_id
+                    )
+                    console.print(f"  [{_C_WARN}]Cancel requested.[/]\n")
+                    continue
+
                 if cmd == "help":
                     console.print(
                         f"\n  [{_C_ACCENT}]Commands[/]\n"
                         f"  /clear      — Reset conversation session\n"
+                        f"  /stop       — Cancel running request (or Ctrl+C)\n"
                         f"  /status     — Show gateway status\n"
                         f"  /health     — Provider health report\n"
                         f"  /config     — Read/update config\n"
@@ -217,6 +234,21 @@ class CLIAdapter(ChannelAdapter):
                 )
                 console.print()
 
+            except KeyboardInterrupt:
+                if self._status:
+                    self._status.stop()
+                    self._status = None
+                console.print(f"\n  [{_C_WARN}]Cancelling...[/]")
+                try:
+                    await self.send_command(
+                        "cancel",
+                        user_id=self._user_id,
+                        session_id=self._session_id,
+                    )
+                except Exception:
+                    pass
+                console.print()
+                continue
             except TimeoutError:
                 if self._status:
                     self._status.stop()
@@ -227,3 +259,39 @@ class CLIAdapter(ChannelAdapter):
                     self._status.stop()
                     self._status = None
                 console.print(f"\n  [bold red]Error:[/] {e}")
+
+    def _display_goal_event(self, event: str, data: dict) -> None:
+        """Display a goal lifecycle event in the terminal."""
+        goal_text = data.get("goal", "")
+        goal_id = data.get("goal_id", "")[:8]
+
+        if event == "goal_started":
+            console.print(
+                f"\n  [{_C_ACCENT}]\u25b6 Goal started[/] [{_C_DIM}]({goal_id})[/]"
+                f"  {goal_text[:80]}"
+            )
+        elif event == "goal_checkpoint_complete":
+            title = data.get("checkpoint_title", "")
+            order = data.get("checkpoint_order", "")
+            console.print(f"  [{_C_SUCCESS}]\u2713 Checkpoint {order}[/] {title}")
+        elif event == "goal_completed":
+            console.print(
+                f"\n  [{_C_SUCCESS}]\u2714 Goal completed[/] [{_C_DIM}]({goal_id})[/]"
+                f"  {goal_text[:80]}\n"
+            )
+        elif event == "goal_failed":
+            error = data.get("error", "")
+            console.print(
+                f"\n  [bold red]\u2716 Goal failed[/] [{_C_DIM}]({goal_id})[/]"
+                f"  {error[:100]}\n"
+            )
+        elif event == "goal_paused":
+            reason = data.get("reason", "")
+            console.print(
+                f"\n  [{_C_WARN}]\u23f8 Goal paused[/] [{_C_DIM}]({goal_id})[/]"
+                f"  {reason[:100]}\n"
+            )
+        elif event == "goal_resumed":
+            console.print(
+                f"\n  [{_C_ACCENT}]\u25b6 Goal resumed[/] [{_C_DIM}]({goal_id})[/]\n"
+            )

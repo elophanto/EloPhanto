@@ -468,6 +468,16 @@ When executing a checkpoint:
 If a checkpoint fails after retries, pause the goal and inform the user.
 </checkpoint_execution>
 
+<autonomous_execution>
+When you create a goal, the agent automatically works through checkpoints
+in the background without waiting for user messages. Progress updates are
+sent to all connected channels (CLI, Telegram, Discord, Slack).
+If the user sends a message during goal execution, the goal automatically
+pauses after the current checkpoint finishes. Resume with goal_manage
+action="resume". Goals also auto-resume on agent restart if auto_continue
+is enabled.
+</autonomous_execution>
+
 <self_evaluation>
 After completing checkpoints, periodically evaluate:
 - Am I making real progress toward the overall goal?

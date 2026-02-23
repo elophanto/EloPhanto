@@ -60,7 +60,7 @@ Give the agent a task in natural language. It plans which tools to use, executes
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack, and more) and its tools appear alongside built-in tools. Agent manages setup through conversation — installs SDK, adds servers, tests connections. Also: `elophanto mcp` CLI and init wizard presets
 - **Browser automation** — control a real Chrome browser with 47 tools (navigate, click, type, screenshot, extract data, manage tabs, inspect DOM, read console/network logs)
 - **Multi-channel gateway** — WebSocket control plane with channel adapters for CLI, Telegram, Discord, and Slack, all with isolated sessions
-- **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans
+- **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, auto-summarize context, self-evaluate and revise plans. Background execution: goals run autonomously checkpoint-by-checkpoint, pause on user interaction, auto-resume on restart
 - **Document & media analysis** — analyze PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel; small files direct, large documents via RAG with page citations and OCR
 - **Agent email** — own email inbox with dual provider support: AgentMail (cloud API, zero config) or SMTP/IMAP (your own server — Gmail, Outlook, etc.). Send/receive/search/reply, identity integration, service signup verification flows
 - **Crypto payments** — agent's own wallet on Base with dual provider support: local self-custody wallet (default, zero config) or Coinbase AgentKit (managed custody, gasless, DEX swaps). USDC/ETH transfers, spending limits, full audit trail
@@ -376,6 +376,7 @@ elophanto/
 │   ├── identity.py      # Evolving agent identity manager
 │   ├── payments/        # Crypto payments (manager, limits, audit)
 │   ├── goal_manager.py  # Autonomous goal loop
+│   ├── goal_runner.py   # Background goal execution
 │   ├── protected.py     # Protected files system
 │   ├── approval_queue.py # Persistent approval tracking
 │   └── ...
@@ -434,7 +435,7 @@ elophanto/
 | 10 | Self-Learning Model (HF Jobs + Unsloth, HuggingFace, Ollama) | Dataset Builder Done |
 | 11 | Agent Payments (crypto wallet, spending limits, audit trail) | Done |
 | 12 | Document & Media Analysis (images, PDFs, OCR, RAG research) | Done |
-| 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval) | Done |
+| 13 | Autonomous Goal Loop (decompose, checkpoints, context, self-eval, background execution) | Done |
 | 14 | Evolving Identity (first awakening, reflection, nature document, credential tracking) | Done |
 | 15 | Agent Email (dual provider: AgentMail cloud + SMTP/IMAP, send/receive/search, identity integration, skill, audit) | Done |
 | 16 | EloPhantoHub Supply Chain Security (7-layer defense, publisher tiers, CI scanning, checksums, content policy) | P0 Done |
@@ -463,6 +464,8 @@ EloPhanto was built by **[Petr Royce](https://github.com/0xroyce)** as part of r
 
 | Date | Change |
 |------|--------|
+| 2026-02-23 | **Autonomous background goal execution** — Goals now execute checkpoint-by-checkpoint in the background without waiting for user messages. `GoalRunner` class (`core/goal_runner.py`) uses `asyncio.create_task()` per checkpoint via `agent.run()`. Safety limits: 2h total time, $5 cost budget, LLM call cap. Conversation history isolated per checkpoint. Progress events broadcast to all channels (CLI, Telegram, Discord, Slack). User message auto-pauses goal. Auto-resume on agent restart. 12 new tests |
+| 2026-02-23 | **Ctrl+C request cancellation** — Pressing Ctrl+C during agent processing now cancels the current request and returns to the prompt instead of killing the terminal. Gateway spawns chat handling as cancellable tasks, CLI sends cancel command on interrupt. Also added `/stop` command. Double Ctrl+C within 1 second force-exits (safety valve). Goal lifecycle events displayed in CLI (started, checkpoint complete, completed, paused, resumed) |
 | 2026-02-22 | **Response speed fix** — Eliminated 25-40 second delay on every response caused by post-task housekeeping (identity reflection, task memory, dataset collection) blocking the reply. All post-task work now runs as fire-and-forget background tasks via `asyncio.create_task()`. Embedding detection moved to non-blocking startup. Response time dropped from 30+ seconds to ~4 seconds |
 | 2026-02-22 | **Self-learning dataset builder** — Opt-in only (`self_learning.enabled: false` by default). Agent-side data collection pipeline for training. Captures task interactions, sanitizes locally (14 secret patterns, PII, browser data), enriches with training signals (user sentiment, denial/error detection, turn count), buffers in local SQLite, uploads in batches to elophanto.com collection API. Auto-registration via census fingerprint, key recovery on conflict. Server-side: collect endpoint, daily cron pushes to HuggingFace Datasets as JSONL. Collects both successes and failures for DPO/RLHF training. Only collects interactions with tool use (no greetings/chat). 42 tests |
 | 2026-02-22 | **MCP integration** — Native MCP client support: connect to any MCP server and its tools appear alongside built-in tools. Dual transport (stdio + Streamable HTTP), vault-referenced secrets, per-server permissions. Agent self-management via `mcp_manage` tool (install SDK, add/remove/test servers through conversation). `elophanto mcp` CLI commands (list, add, remove, test). Init wizard step 8 with presets (filesystem, GitHub, Brave Search). Auto-install SDK on startup. System prompt integration. Welcome panel shows `mcp (N)` with connected server count |

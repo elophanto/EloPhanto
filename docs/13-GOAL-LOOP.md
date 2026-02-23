@@ -91,6 +91,28 @@ Core orchestrator with methods for:
 - **Self-evaluation**: `evaluate_progress()` — LLM assesses if plan needs revision
 - **Budget enforcement**: `check_budget()` — caps LLM calls per goal
 
+### GoalRunner (`core/goal_runner.py`)
+
+Autonomous background executor. Runs goal checkpoints as `asyncio.create_task()` without waiting for user messages.
+
+- **`start_goal(goal_id)`** — Launch background execution. One goal at a time.
+- **`pause()`** / **`cancel()`** — Stop after current checkpoint or immediately.
+- **`resume(goal_id)`** — Resume a paused goal's background execution.
+- **`notify_user_interaction()`** — Called when user sends a message; sets `_stop_requested` flag so the loop pauses after the current checkpoint finishes.
+- **`resume_on_startup()`** — Auto-resumes active goals when the agent restarts (if `auto_continue: true`).
+
+**Execution loop** (`_run_goal_loop`):
+1. Broadcast `GOAL_STARTED` event
+2. Loop: get next pending checkpoint → execute via `agent.run(prompt)` → mark complete/failed → broadcast progress
+3. Self-evaluate every 2 checkpoints (LLM checks if on track, revision needed)
+4. Check safety limits (LLM calls, time, cost) before each checkpoint
+5. Check `_stop_requested` flag between checkpoints (set by user interaction or pause)
+6. When all checkpoints done → broadcast `GOAL_COMPLETED`
+
+**Conversation isolation**: Each checkpoint starts fresh. Before `agent.run()`, the runner saves and clears `_conversation_history`, then restores it after. Goal context comes from the system prompt (via `build_goal_context()`).
+
+**Approval routing**: Background checkpoint execution overrides the executor's approval callback to broadcast approval requests to all connected gateway clients. Any client on any channel can approve.
+
 ### Database Tables
 
 **`goals`** — tracks goal lifecycle, status, context summary, budget counters.
@@ -115,9 +137,9 @@ Two XML sections are added to the system prompt via `build_system_prompt()`:
 
 ### Protocol Events
 
-Five new `EventType` values for gateway event propagation:
+Six `EventType` values for gateway event propagation:
 
-- `GOAL_STARTED`, `GOAL_CHECKPOINT_COMPLETE`, `GOAL_COMPLETED`, `GOAL_FAILED`, `GOAL_PAUSED`
+- `GOAL_STARTED`, `GOAL_CHECKPOINT_COMPLETE`, `GOAL_COMPLETED`, `GOAL_FAILED`, `GOAL_PAUSED`, `GOAL_RESUMED`
 
 ### Skill
 
@@ -132,9 +154,12 @@ goals:
   max_checkpoint_attempts: 3
   max_goal_attempts: 3
   max_llm_calls_per_goal: 200
-  max_time_per_checkpoint_seconds: 600
+  max_time_per_checkpoint_seconds: 600    # per checkpoint
   context_summary_max_tokens: 1500
-  auto_continue: true
+  auto_continue: true                     # auto-resume active goals on startup
+  max_total_time_per_goal_seconds: 7200   # 2 hours total per goal
+  cost_budget_per_goal_usd: 5.0           # max cost before auto-pause
+  pause_between_checkpoints_seconds: 2    # brief pause between checkpoints
 ```
 
 ## Goal Lifecycle
@@ -166,13 +191,16 @@ Each LLM call increments `goal.llm_calls_used`. Before every call, `check_budget
 | File | Description |
 |------|-------------|
 | `core/goal_manager.py` | GoalManager orchestrator |
-| `tools/goals/create_tool.py` | goal_create tool |
+| `core/goal_runner.py` | GoalRunner — autonomous background execution |
+| `tools/goals/create_tool.py` | goal_create tool (triggers GoalRunner) |
 | `tools/goals/status_tool.py` | goal_status tool |
-| `tools/goals/manage_tool.py` | goal_manage tool |
+| `tools/goals/manage_tool.py` | goal_manage tool (wires pause/resume/cancel to GoalRunner) |
 | `skills/goals/SKILL.md` | Goal decomposition skill |
-| `core/planner.py` | Extended with `<goals>` and `<active_goal>` XML |
-| `core/agent.py` | GoalManager initialization and context injection |
+| `core/planner.py` | Extended with `<goals>`, `<autonomous_execution>`, and `<active_goal>` XML |
+| `core/agent.py` | GoalManager/GoalRunner initialization, user-interrupt hook, context injection |
 | `core/registry.py` | Goal tool registration |
 | `core/database.py` | goals + goal_checkpoints DDL |
-| `core/config.py` | GoalsConfig dataclass |
-| `core/protocol.py` | Goal event types |
+| `core/config.py` | GoalsConfig dataclass (includes background execution safety limits) |
+| `core/protocol.py` | Goal event types (6 events) |
+| `cli/gateway_cmd.py` | GoalRunner gateway wiring + startup resume |
+| `tests/test_core/test_goal_runner.py` | GoalRunner tests (12 tests) |

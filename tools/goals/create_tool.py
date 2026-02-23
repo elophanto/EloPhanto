@@ -12,6 +12,7 @@ class GoalCreateTool(BaseTool):
 
     def __init__(self) -> None:
         self._goal_manager: Any = None
+        self._goal_runner: Any = None
 
     @property
     def name(self) -> str:
@@ -60,9 +61,18 @@ class GoalCreateTool(BaseTool):
                 )
 
             checkpoint_list = [
-                {"order": c.order, "title": c.title, "success_criteria": c.success_criteria}
+                {
+                    "order": c.order,
+                    "title": c.title,
+                    "success_criteria": c.success_criteria,
+                }
                 for c in checkpoints
             ]
+
+            # Trigger autonomous background execution
+            bg_started = False
+            if self._goal_runner:
+                bg_started = await self._goal_runner.start_goal(goal.goal_id)
 
             return ToolResult(
                 success=True,
@@ -72,6 +82,7 @@ class GoalCreateTool(BaseTool):
                     "status": goal.status,
                     "total_checkpoints": goal.total_checkpoints,
                     "checkpoints": checkpoint_list,
+                    "background_execution": bg_started,
                 },
             )
         except Exception as e:

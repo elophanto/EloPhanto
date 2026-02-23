@@ -435,7 +435,7 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 10: Self-Learning Model | **Dataset Builder Done** — Training pipeline in idea phase |
 | Phase 11: Agent Payments | **Phase 1 Done** — Crypto wallet (local + Coinbase AgentKit), 7 tools, spending limits, audit trail |
 | Phase 12: Document & Media Analysis | **Done** — PDF, DOCX, XLSX, PPTX, EPUB, OCR, vision analysis, RAG |
-| Phase 13: Autonomous Goal Loop | **Done** — Multi-phase goals, checkpoints, progress tracking, self-evaluation |
+| Phase 13: Autonomous Goal Loop | **Done** — Multi-phase goals, checkpoints, progress tracking, self-evaluation, autonomous background execution (GoalRunner), safety limits, auto-resume on startup |
 | Phase 14: Self-Learning Model | **Dataset Builder Done** — Agent-side collection pipeline (sanitizer, quality filter, signal extraction, batch upload, auto-registration). Training pipeline in idea phase |
 | Phase 15: Identity System | **Done** — Evolving identity, beliefs, personality, reflection, social profiles |
 | Phase 16: Email | **Done** — Dual provider (AgentMail + SMTP/IMAP), 6 tools, audit logging |
