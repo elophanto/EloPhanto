@@ -45,32 +45,6 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Development automation** — "Build me a CRUD app with Next.js + Prisma + shadcn from scratch"
 - **Autonomous goals** — "Grow my Twitter following to 1,000" — it decomposes, plans, executes checkpoint by checkpoint across sessions
 
-## Demo
-
-```
-You: Research the top 5 open-source AI agents and compare them in a table
-
-EloPhanto:
- [✓] Navigating to Google...
- [✓] Opening AutoGPT GitHub page...
- [✓] Extracting CrewAI documentation...
- [✓] Reading OpenDevin overview...
- [✓] Checking BabyAGI and MetaGPT repos...
- [✓] Compiling comparison table...
-
-Here's what I found:
-
-| Agent     | Stars | Local? | Self-Building | Browser | Multi-Channel |
-|-----------|-------|--------|---------------|---------|---------------|
-| AutoGPT   | 169k  | ❌     | ❌            | ❌      | ❌            |
-| CrewAI     | 25k   | ✅     | ❌            | ❌      | ❌            |
-| OpenDevin  | 38k   | ✅     | ❌            | ✅      | ❌            |
-| BabyAGI    | 20k   | ❌     | ❌            | ❌      | ❌            |
-| EloPhanto  | —     | ✅     | ✅            | ✅      | ✅            |
-
-This took me 34 seconds across 5 browser tabs.
-```
-
 ## Why EloPhanto?
 
 - **Self-building** — encounters a missing capability, builds the tool, tests it, deploys it. No other agent does this end-to-end.
