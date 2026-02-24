@@ -346,42 +346,47 @@ The user should always know what the agent is doing — whether it's handling th
 
 ### Live Activity Feed
 
-When the mind is active, the CLI shows a persistent status line and event stream:
+When the mind is active, the CLI shows a detailed real-time event stream with every tool call visible:
 
 ```
-  ◆ EloPhanto
-
-  ⠋ Mind active · Scanning Upwork for Python gigs...
-
-  ↳ mind: Found 4 matching gigs, evaluating ROI
-  ↳ mind: Applied to "DataSync API" ($400) — proposal sent
-  ↳ mind: Skipped "Logo Design" — outside capabilities
-  ↳ mind: Next wakeup in 10 min (monitoring proposals)
+  ────────────────────────────────────────────────────────────
+  ◆ MIND WAKEUP cycle #3  (2 today)
+    Budget: $0.1200 / $1.5000
+    Last: Checked X timeline, posted engagement reply
+    Memory: Freelance: Applied to 3 Upwork gigs. Revenue this week: $600...
+  → browser_navigate url=https://upwork.com/freelance-jobs/python
+  → browser_screenshot
+  → browser_click index=12
+  → browser_type index=5, text=I can build this API integration...
+  → email_send to=client@company.com, subject=Re: API Proposal
+  → update_scratchpad content=Applied to DataSync API ($400), sent follow-up...
+  → set_next_wakeup seconds=600
+  ◆ Result: Applied to DataSync API gig, sent follow-up to client
+    $0.0045 · 8.2s · 7 tools
+    Sleeping · next in 10m 0s · cost $0.0045 · 8.2s · 7 tools · budget left $0.1155
+  ────────────────────────────────────────────────────────────
 
   ❯ _
 ```
 
-When idle between wakeups:
+When the user types, the mind pauses and resumes after:
 
 ```
-  ◆ EloPhanto
+  ◇ Mind paused (you're talking)
 
-  ○ Mind sleeping · Next wakeup in 8 min · Budget: $4.20 remaining
-  ↳ Last: Applied to 2 freelance gigs (12 min ago)
+  ❯ How's the freelancing going?
+  ... (agent responds with full status from scratchpad)
 
-  ❯ _
+  ◇ Mind resumed · 2 events queued
 ```
 
-When the user types, the mind status dims but stays visible:
+Tool errors are highlighted:
 
 ```
-  ◆ EloPhanto
-
-  ○ Mind paused (you're talking)
-  ↳ Will resume: monitoring 3 pending proposals
-
-  ❯ Fix the bug in auth.py
-  ⠋ Thinking...
+  → browser_navigate url=https://upwork.com/messages
+  ✗ browser_click Session expired, please re-authenticate
+  ⚠ Mind error: Browser session expired on Upwork
+    Recovery: will retry next cycle
 ```
 
 ### Gateway Event Types
@@ -390,13 +395,14 @@ New event types for mind activity, broadcast through the existing gateway protoc
 
 | Event | When | Data |
 |-------|------|------|
-| `mind_wakeup` | Mind starts a think cycle | `{ priority: "revenue", action: "Scanning freelance platforms" }` |
-| `mind_action` | Mind executes a meaningful action | `{ summary: "Applied to DataSync API ($400)", tool: "browser_navigate" }` |
-| `mind_sleep` | Mind finishes cycle, going to sleep | `{ next_wakeup_seconds: 600, last_action: "Applied to 2 gigs" }` |
-| `mind_paused` | Mind paused for user interaction | `{ will_resume: "monitoring proposals" }` |
-| `mind_resumed` | Mind resumed after user task | `{ pending_events: 2 }` |
-| `mind_revenue` | Revenue event (payment, new lead, etc.) | `{ type: "payment_received", amount: "$200", source: "DataSync gig" }` |
-| `mind_error` | Something went wrong in autonomous ops | `{ error: "Browser session expired on Upwork", recovery: "will retry next cycle" }` |
+| `mind_wakeup` | Mind starts a think cycle | `{ cycle, budget_remaining, budget_total, scratchpad_preview, last_action, total_cycles_today }` |
+| `mind_tool_use` | Mind calls a tool (real-time) | `{ tool, params, status, error }` |
+| `mind_action` | Mind completes a cycle action | `{ summary, cost, elapsed, tools_used, tool_count }` |
+| `mind_sleep` | Mind finishes cycle, going to sleep | `{ next_wakeup_seconds, last_action, cycle_cost, elapsed_seconds, total_spent, budget_remaining, cycle_number, tools_used }` |
+| `mind_paused` | Mind paused for user interaction | `{ will_resume }` |
+| `mind_resumed` | Mind resumed after user task | `{ pending_events }` |
+| `mind_revenue` | Revenue event (payment, new lead, etc.) | `{ type, amount, source }` |
+| `mind_error` | Something went wrong in autonomous ops | `{ error, recovery }` |
 
 ### `/mind` Command
 
@@ -505,8 +511,9 @@ autonomous_mind:
 | Event injector | `core/autonomous_mind.py` | Thread-safe event queue for external signals |
 | Config | `core/config.py` | `AutonomousMindConfig` dataclass |
 | Agent integration | `core/agent.py` | Start/stop mind, pause/resume on user interaction |
-| Gateway wiring | `cli/gateway_cmd.py` | Start mind on gateway boot, wire events |
-| Protocol events | `core/protocol.py` | `MIND_WAKEUP`, `MIND_ACTION`, `MIND_SLEEP`, `MIND_PAUSED`, `MIND_RESUMED`, `MIND_REVENUE`, `MIND_ERROR` |
+| Gateway wiring | `cli/chat_cmd.py`, `cli/gateway_cmd.py` | Start mind on gateway boot, wire events |
+| Protocol events | `core/protocol.py` | `MIND_WAKEUP`, `MIND_TOOL_USE`, `MIND_ACTION`, `MIND_SLEEP`, `MIND_PAUSED`, `MIND_RESUMED`, `MIND_REVENUE`, `MIND_ERROR` |
+| Tool execution hook | `core/executor.py` | `_on_tool_executed` callback for real-time tool use broadcasting |
 | CLI display | `channels/cli_adapter.py` | Mind status line, action feed, `/mind` command |
 | Channel display | `channels/{telegram,discord,slack}_adapter.py` | `/mind` command, minimal notifications |
 
