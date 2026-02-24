@@ -706,6 +706,19 @@ class BrowserManager:
     # Tool dispatch — single generic method for all 44 tools
     # ------------------------------------------------------------------
 
+    async def set_task_context(self, task: str) -> None:
+        """Set the current task context on the browser bridge.
+
+        This is forwarded to the Node.js vision model so it knows what
+        the agent is trying to accomplish — preventing goal drift.
+        """
+        if not self._initialized:
+            return
+        try:
+            await self._bridge.call("set_task_context", {"task": task})
+        except Exception:
+            pass  # Non-critical — vision still works without it
+
     async def call_tool(
         self, name: str, args: dict[str, Any] | None = None
     ) -> dict[str, Any]:

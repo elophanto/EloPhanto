@@ -54,6 +54,455 @@ let stealthApplied = false;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let cachedSharp: any = null;
 
+/**
+ * EKO-style DOM tree builder — injected into pages via page.evaluate().
+ * Identifies interactive elements, checks visibility + top-element status,
+ * draws colored overlay labels, and returns pseudo-HTML for LLM grounding.
+ * Ported directly from EKO's build-dom-tree.ts.
+ */
+const BUILD_DOM_TREE_SCRIPT = `(function() {
+  var computedStyleCache = new WeakMap();
+  function getCachedComputedStyle(element) {
+    if (!element) return null;
+    if (computedStyleCache.has(element)) return computedStyleCache.get(element);
+    try {
+      var style = window.getComputedStyle(element);
+      if (style) computedStyleCache.set(element, style);
+      return style;
+    } catch(e) { return null; }
+  }
+
+  function get_clickable_elements(markHighlightElements, includeAttributes) {
+    if (markHighlightElements === undefined) markHighlightElements = true;
+    window.clickable_elements = {};
+    computedStyleCache = new WeakMap();
+    document.querySelectorAll("[eko-user-highlight-id]").forEach(function(ele) { ele.removeAttribute("eko-user-highlight-id"); });
+    var page_tree = build_dom_tree(markHighlightElements);
+    var element_tree = parse_node(page_tree);
+    var element_str = clickable_elements_to_string(element_tree, includeAttributes);
+    var client_rect = {
+      width: window.innerWidth || document.documentElement.clientWidth,
+      height: window.innerHeight || document.documentElement.clientHeight,
+    };
+    if (markHighlightElements) {
+      return { element_str: element_str, client_rect: client_rect };
+    } else {
+      var area_map = create_area_map(element_tree);
+      return { element_str: element_str, client_rect: client_rect, area_map: area_map };
+    }
+  }
+
+  function get_highlight_element(highlightIndex) {
+    var element = document.querySelector('[eko-user-highlight-id="eko-highlight-' + highlightIndex + '"]');
+    return element || window.clickable_elements[highlightIndex];
+  }
+
+  function remove_highlight() {
+    var highlight = document.getElementById('eko-highlight-container');
+    if (highlight) highlight.remove();
+    computedStyleCache = new WeakMap();
+  }
+
+  function getXPathTree(element, stopAtBoundary) {
+    if (stopAtBoundary === undefined) stopAtBoundary = true;
+    var segments = [];
+    var currentElement = element;
+    while (currentElement && currentElement.nodeType === Node.ELEMENT_NODE) {
+      if (stopAtBoundary && (currentElement.parentNode instanceof ShadowRoot || currentElement.parentNode instanceof HTMLIFrameElement)) break;
+      var index = 0;
+      var sibling = currentElement.previousSibling;
+      while (sibling) {
+        if (sibling.nodeType === Node.ELEMENT_NODE && sibling.nodeName === currentElement.nodeName) index++;
+        sibling = sibling.previousSibling;
+      }
+      var tagName = currentElement.nodeName.toLowerCase();
+      var xpathIndex = index > 0 ? '[' + (index + 1) + ']' : '';
+      segments.unshift(tagName + xpathIndex);
+      currentElement = currentElement.parentNode;
+    }
+    return segments.join('/');
+  }
+
+  function get_element_real_bounding_rect(element) {
+    if (!element || !(element instanceof Element)) return { x: 0, y: 0, width: 0, height: 0 };
+    var rect = element.getBoundingClientRect();
+    var x = rect.left;
+    var y = rect.top;
+    var width = rect.width;
+    var height = rect.height;
+    var win = element.ownerDocument.defaultView;
+    var maxDepth = 10;
+    var depth = 0;
+    while (win && win !== win.parent && depth < maxDepth) {
+      depth++;
+      var frameElement = win.frameElement;
+      if (!frameElement) break;
+      var frameRect = frameElement.getBoundingClientRect();
+      x += frameRect.left;
+      y += frameRect.top;
+      var frameStyle = getCachedComputedStyle(frameElement);
+      x += parseFloat(frameStyle.borderLeftWidth) || 0;
+      y += parseFloat(frameStyle.borderTopWidth) || 0;
+      x += parseFloat(frameStyle.paddingLeft) || 0;
+      y += parseFloat(frameStyle.paddingTop) || 0;
+      win = win.parent;
+    }
+    return { x: x, y: y, width: width, height: height };
+  }
+
+  function create_area_map(element_tree) {
+    var area_map = {};
+    function process_node(node) {
+      if (node.tagName) {
+        if (node.highlightIndex != null) {
+          var element = window.clickable_elements[node.highlightIndex];
+          area_map[node.highlightIndex] = get_element_real_bounding_rect(element);
+        }
+        for (var i = 0; i < node.children.length; i++) process_node(node.children[i]);
+      }
+    }
+    process_node(element_tree);
+    return area_map;
+  }
+
+  function clickable_elements_to_string(element_tree, includeAttributes) {
+    if (!includeAttributes) {
+      includeAttributes = ['id','title','type','name','role','class','src','href','aria-label','placeholder','value','alt','aria-expanded'];
+    }
+    function get_all_text_till_next_clickable_element(element_node) {
+      var text_parts = [];
+      function collect_text(node) {
+        if (node.tagName && node != element_node && node.highlightIndex != null) return;
+        if (!node.tagName && node.text) { text_parts.push(node.text); }
+        else if (node.tagName) {
+          for (var i = 0; i < node.children.length; i++) collect_text(node.children[i]);
+        }
+      }
+      collect_text(element_node);
+      return text_parts.join('\\n').trim().replace(/\\n+/g, ' ');
+    }
+    function has_parent_with_highlight_index(node) {
+      var current = node.parent;
+      while (current) {
+        if (current.highlightIndex != null) return true;
+        current = current.parent;
+      }
+      return false;
+    }
+    var formatted_text = [];
+    function process_node(node, depth) {
+      if (node.text == null) {
+        if (node.highlightIndex != null) {
+          var attributes_str = '';
+          if (includeAttributes) {
+            for (var i = 0; i < includeAttributes.length; i++) {
+              var key = includeAttributes[i];
+              var value = node.attributes[key];
+              if (key == "class" && value && value.length > 30) {
+                value = value.split(" ").slice(0, 3).join(" ");
+              } else if ((key == "src" || key == "href") && value && value.length > 200) {
+                continue;
+              } else if ((key == "src" || key == "href") && value && value.startsWith("/")) {
+                value = window.location.origin + value;
+              }
+              if (key && value) attributes_str += ' ' + key + '="' + value + '"';
+            }
+            attributes_str = attributes_str.replace(/\\n+/g, ' ');
+          }
+          var text = get_all_text_till_next_clickable_element(node);
+          formatted_text.push('[' + node.highlightIndex + ']:<' + node.tagName + attributes_str + '>' + text + '</' + node.tagName + '>');
+        }
+        for (var i = 0; i < node.children.length; i++) process_node(node.children[i], depth + 1);
+      } else if (!has_parent_with_highlight_index(node)) {
+        formatted_text.push('[]:' + node.text);
+      }
+    }
+    process_node(element_tree, 0);
+    return formatted_text.join('\\n');
+  }
+
+  function parse_node(node_data, parent) {
+    if (!node_data) return;
+    if (node_data.type == 'TEXT_NODE') {
+      return { text: node_data.text || '', isVisible: node_data.isVisible || false, parent: parent };
+    }
+    var element_node = {
+      tagName: node_data.tagName,
+      xpath: node_data.xpath,
+      highlightIndex: node_data.highlightIndex,
+      attributes: node_data.attributes || {},
+      isVisible: node_data.isVisible || false,
+      isInteractive: node_data.isInteractive || false,
+      isTopElement: node_data.isTopElement || false,
+      shadowRoot: node_data.shadowRoot || false,
+      children: [],
+      parent: parent,
+    };
+    if (node_data.children) {
+      for (var i = 0; i < node_data.children.length; i++) {
+        var child_node = parse_node(node_data.children[i], element_node);
+        if (child_node) element_node.children.push(child_node);
+      }
+    }
+    return element_node;
+  }
+
+  function build_dom_tree(markHighlightElements) {
+    var highlightIndex = 0;
+    var duplicates = new Set();
+
+    function highlightElement(element, index, parentIframe) {
+      var container = document.getElementById('eko-highlight-container');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'eko-highlight-container';
+        container.style.position = 'fixed';
+        container.style.pointerEvents = 'none';
+        container.style.top = '0';
+        container.style.left = '0';
+        container.style.width = '100%';
+        container.style.height = '100%';
+        container.style.zIndex = '2147483647';
+        document.documentElement.appendChild(container);
+      }
+      var colors = ['#FF0000','#00FF00','#0000FF','#FFA500','#800080','#008080','#FF69B4','#4B0082','#FF4500','#2E8B57','#DC143C','#4682B4'];
+      var colorIndex = index % colors.length;
+      var baseColor = colors[colorIndex];
+      var backgroundColor = baseColor + '1A';
+
+      var overlay = document.createElement('div');
+      overlay.style.position = 'absolute';
+      overlay.style.border = '2px solid ' + baseColor;
+      overlay.style.pointerEvents = 'none';
+      overlay.style.boxSizing = 'border-box';
+
+      var rect = element.getBoundingClientRect();
+      var top = rect.top;
+      var left = rect.left;
+
+      if (rect.width < window.innerWidth / 2 || rect.height < window.innerHeight / 2) {
+        overlay.style.backgroundColor = backgroundColor;
+      }
+      if (parentIframe) {
+        var iframeRect = parentIframe.getBoundingClientRect();
+        top += iframeRect.top;
+        left += iframeRect.left;
+      }
+
+      overlay.style.top = top + 'px';
+      overlay.style.left = left + 'px';
+      overlay.style.width = rect.width + 'px';
+      overlay.style.height = rect.height + 'px';
+
+      var label = document.createElement('div');
+      label.className = 'eko-highlight-label';
+      label.style.position = 'absolute';
+      label.style.background = baseColor;
+      label.style.color = 'white';
+      label.style.padding = '1px 4px';
+      label.style.borderRadius = '4px';
+      label.style.fontSize = Math.min(12, Math.max(8, rect.height / 2)) + 'px';
+      label.textContent = index;
+
+      var labelWidth = 20;
+      var labelHeight = 16;
+      var labelTop = top + 2;
+      var labelLeft = left + rect.width - labelWidth - 2;
+      if (rect.width < labelWidth + 4 || rect.height < labelHeight + 4) {
+        labelTop = top - labelHeight - 2;
+        labelLeft = left + rect.width - labelWidth;
+      }
+      if (labelTop < 0) labelTop = top + 2;
+      if (labelLeft < 0) labelLeft = left + 2;
+      if (labelLeft + labelWidth > window.innerWidth) labelLeft = left + rect.width - labelWidth - 2;
+
+      label.style.top = labelTop + 'px';
+      label.style.left = labelLeft + 'px';
+
+      container.appendChild(overlay);
+      container.appendChild(label);
+      element.setAttribute('eko-user-highlight-id', 'eko-highlight-' + index);
+      return index + 1;
+    }
+
+    function isElementAccepted(element) {
+      var denyList = new Set(['svg','script','style','link','meta','noscript','template']);
+      return !denyList.has(element.tagName.toLowerCase());
+    }
+
+    var clickEventTypes = ['click','mousedown','mouseup','touchstart','touchend'];
+
+    function getElementEventListeners(el) {
+      var listeners = {};
+      for (var i = 0; i < clickEventTypes.length; i++) {
+        var type = clickEventTypes[i];
+        var handler = el['on' + type];
+        if (handler) {
+          listeners[type] = [{ listener: handler, useCapture: false }];
+        }
+      }
+      return listeners;
+    }
+
+    function isInteractiveElement(element) {
+      if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+      var interactiveElements = new Set(['a','button','details','embed','input','label','menu','menuitem','object','select','textarea','summary','option','optgroup','fieldset','legend']);
+      var interactiveRoles = new Set(['button','menu','menuitem','menubar','link','checkbox','radio','slider','tab','tabpanel','textbox','combobox','grid','listbox','option','progressbar','scrollbar','searchbox','switch','tree','treeitem','spinbutton','tooltip','a-button-inner','a-dropdown-button','click','menuitemcheckbox','menuitemradio','a-button-text','button-text','button-icon','button-icon-only','button-text-icon-only','dropdown']);
+      var tagName = element.tagName.toLowerCase();
+      var role = element.getAttribute('role');
+      var ariaRole = element.getAttribute('aria-role');
+      var tabIndex = element.getAttribute('tabindex');
+      var hasInteractiveRole = interactiveElements.has(tagName) || interactiveRoles.has(role) || interactiveRoles.has(ariaRole) || (tabIndex !== null && tabIndex !== '-1') || element.getAttribute('data-action') === 'a-dropdown-select' || element.getAttribute('data-action') === 'a-dropdown-button' || element.getAttribute('contenteditable') === 'true';
+      if (hasInteractiveRole) return true;
+
+      if (window.getEventListeners) {
+        var listeners = window.getEventListeners(element);
+        var hasRealClickListeners = clickEventTypes.some(function(type) { return listeners[type] && listeners[type].length > 0; });
+        if (!hasRealClickListeners) return false;
+      }
+
+      var hasClickHandler = element.onclick !== null || element.getAttribute('onclick') !== null || element.hasAttribute('ng-click') || element.hasAttribute('@click') || element.hasAttribute('v-on:click');
+      var hasAriaProps = element.hasAttribute('aria-expanded') || element.hasAttribute('aria-pressed') || element.hasAttribute('aria-selected') || element.hasAttribute('aria-checked');
+      var isDraggable = element.draggable || element.getAttribute('draggable') === 'true';
+      if (hasAriaProps || hasClickHandler || isDraggable) return true;
+
+      var elListeners = getElementEventListeners(element);
+      var hasClickListeners = clickEventTypes.some(function(type) { return elListeners[type] && elListeners[type].length > 0; });
+      if (hasClickListeners) return true;
+
+      var hasClickStyling = element.style.cursor === 'pointer' || getCachedComputedStyle(element).cursor === 'pointer';
+      if (hasClickStyling) {
+        var count = 0;
+        var current = element.parentElement;
+        while (current && current !== document.documentElement) {
+          if (current.style.cursor === 'pointer' || getCachedComputedStyle(current).cursor === 'pointer') return false;
+          current = current.parentElement;
+          if (++count > 10) break;
+        }
+        return true;
+      }
+      return false;
+    }
+
+    function isElementVisible(element) {
+      if (element.offsetWidth === 0 && element.offsetHeight === 0) return false;
+      var style = getCachedComputedStyle(element);
+      return style && style.visibility !== 'hidden' && style.display !== 'none';
+    }
+
+    function isTopElement(element) {
+      var doc = element.ownerDocument;
+      if (doc !== window.document) return true;
+      var shadowRoot = element.getRootNode();
+      if (shadowRoot instanceof ShadowRoot) {
+        var rect = element.getBoundingClientRect();
+        var point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        try {
+          var topEl = shadowRoot.elementFromPoint(point.x, point.y);
+          if (!topEl) return false;
+          var count = 0;
+          var current = topEl;
+          while (current && current !== shadowRoot) {
+            if (current === element) return true;
+            current = current.parentElement;
+            if (++count > 15) break;
+          }
+          return false;
+        } catch(e) { return true; }
+      }
+      var rect = element.getBoundingClientRect();
+      var point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      try {
+        var topEl = document.elementFromPoint(point.x, point.y);
+        if (!topEl) return false;
+        var count = 0;
+        var current = topEl;
+        while (current && current !== document.documentElement) {
+          if (current === element) return true;
+          current = current.parentElement;
+          if (++count > 15) break;
+        }
+        return false;
+      } catch(e) { return true; }
+    }
+
+    function isTextNodeVisible(textNode) {
+      var range = document.createRange();
+      range.selectNodeContents(textNode);
+      var rect = range.getBoundingClientRect();
+      return rect.width !== 0 && rect.height !== 0 && rect.top >= 0 && rect.top <= window.innerHeight && textNode.parentElement && textNode.parentElement.checkVisibility && textNode.parentElement.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+    }
+
+    function buildDomTree(node, parentIframe) {
+      if (!node || duplicates.has(node)) return null;
+      duplicates.add(node);
+      if (node.nodeType === Node.TEXT_NODE) {
+        var textContent = node.textContent.trim();
+        if (textContent && isTextNodeVisible(node)) {
+          return { type: 'TEXT_NODE', text: textContent, isVisible: true };
+        }
+        return null;
+      }
+      if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node)) return null;
+
+      var nodeData = {
+        tagName: node.tagName ? node.tagName.toLowerCase() : null,
+        xpath: node.nodeType === Node.ELEMENT_NODE ? getXPathTree(node, true) : null,
+        attributes: {},
+        children: [],
+      };
+      if (node.nodeType === Node.ELEMENT_NODE && node.attributes) {
+        var attributeNames = node.getAttributeNames ? node.getAttributeNames() : [];
+        for (var ai = 0; ai < attributeNames.length; ai++) {
+          nodeData.attributes[attributeNames[ai]] = node.getAttribute(attributeNames[ai]);
+        }
+      }
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        var isInteractive = isInteractiveElement(node);
+        var isVisible = isElementVisible(node);
+        var isTop = isTopElement(node);
+        nodeData.isInteractive = isInteractive;
+        nodeData.isVisible = isVisible;
+        nodeData.isTopElement = isTop;
+        var isInShadowDOM = node.getRootNode() instanceof ShadowRoot;
+        var shouldHighlight = isInteractive && isVisible && (isTop || isInShadowDOM);
+        if (shouldHighlight) {
+          nodeData.highlightIndex = highlightIndex++;
+          window.clickable_elements[nodeData.highlightIndex] = node;
+          if (markHighlightElements) highlightElement(node, nodeData.highlightIndex, parentIframe);
+        }
+      }
+      if (node.shadowRoot) {
+        nodeData.shadowRoot = true;
+        var shadowChildren = Array.from(node.shadowRoot.children).map(function(child) { return buildDomTree(child, parentIframe); }).filter(function(c) { return c !== null; });
+        nodeData.children.push.apply(nodeData.children, shadowChildren);
+      }
+      if (node.tagName === 'IFRAME') {
+        try {
+          var iframeDoc = node.contentDocument || node.contentWindow.document;
+          if (iframeDoc) {
+            var iframeChildren = Array.from(iframeDoc.body.children).map(function(child) { return buildDomTree(child, node); }).filter(function(c) { return c !== null; });
+            nodeData.children.push.apply(nodeData.children, iframeChildren);
+          }
+        } catch(e) {}
+      } else {
+        var style = getCachedComputedStyle(node);
+        if (style && style.display !== 'none') {
+          var children = Array.from(node.children).map(function(child) { return buildDomTree(child, parentIframe); }).filter(function(c) { return c !== null; });
+          nodeData.children.push.apply(nodeData.children, children);
+        }
+      }
+      return nodeData;
+    }
+    return buildDomTree(document.body);
+  }
+
+  window.get_clickable_elements = get_clickable_elements;
+  window.get_highlight_element = get_highlight_element;
+  window.remove_highlight = remove_highlight;
+})()`;
+
+
 export interface AwareBrowserConfig {
   headless?: boolean;
   cdpWsEndpoint?: string;
@@ -780,6 +1229,102 @@ export class AwareBrowserAgent {
   }
 
   /**
+   * Combined screenshot + element listing using EKO's DOM tree approach.
+   * Injects the DOM tree builder, identifies interactive elements, draws colored
+   * overlays with index labels, takes a screenshot, then removes overlays.
+   * Returns both the screenshot AND the pseudo-HTML element list in one call,
+   * guaranteeing index consistency between visual labels and text.
+   */
+  async takeScreenshotWithElements(): Promise<{
+    imageBase64: string;
+    imageType: 'image/jpeg' | 'image/png' | 'image/webp';
+    pseudoHtml: string;
+    url: string;
+    title: string;
+  }> {
+    const page = await this.getPage();
+    const [url, title] = await Promise.all([
+      Promise.resolve(page.url()).catch(() => ''),
+      page.title().catch(() => ''),
+    ]);
+
+    // Wait for network to settle (EKO uses 300ms sleep + networkidle)
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 3000 });
+    } catch {
+      // Timeout is fine
+    }
+
+    // Inject DOM tree builder and get elements with highlights
+    let pseudoHtml = '';
+    let lastError = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        // Small delay for DOM to stabilize (EKO does 200ms)
+        await new Promise(r => setTimeout(r, 200));
+        // Inject the script
+        await page.evaluate(BUILD_DOM_TREE_SCRIPT);
+        await new Promise(r => setTimeout(r, 50));
+        // Get elements with highlighting enabled
+        const result = await page.evaluate('window.get_clickable_elements(true)') as {
+          element_str: string;
+          client_rect: { width: number; height: number };
+        } | null;
+        if (result && result.element_str) {
+          pseudoHtml = result.element_str;
+          break;
+        }
+        lastError = `Attempt ${attempt + 1}: get_clickable_elements returned empty`;
+      } catch (e) {
+        lastError = `Attempt ${attempt + 1}: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    if (!pseudoHtml && lastError) {
+      console.warn(`[EKO DOM tree] All attempts failed: ${lastError}`);
+    }
+
+    // Small delay for overlay render
+    await new Promise(r => setTimeout(r, 100));
+
+    // Take screenshot with overlays visible
+    const buffer = await page.screenshot({ type: 'jpeg', quality: 80 });
+
+    // Remove overlays
+    try {
+      await page.evaluate('window.remove_highlight && window.remove_highlight()');
+    } catch {
+      // Ignore
+    }
+
+    // Resize for vision API
+    try {
+      if (!cachedSharp) {
+        cachedSharp = (await import('sharp')).default;
+      }
+      const resizedBuffer = await cachedSharp(buffer)
+        .resize(1536, 1152, { fit: 'inside', withoutEnlargement: true })
+        .sharpen()
+        .webp({ quality: 80 })
+        .toBuffer();
+      return {
+        imageBase64: resizedBuffer.toString('base64'),
+        imageType: 'image/webp',
+        pseudoHtml,
+        url,
+        title,
+      };
+    } catch {
+      return {
+        imageBase64: buffer.toString('base64'),
+        imageType: 'image/jpeg',
+        pseudoHtml,
+        url,
+        title,
+      };
+    }
+  }
+
+  /**
    * Add visual index labels to interactive elements for vision grounding
    * Returns the indices of elements that were highlighted
    */
@@ -929,7 +1474,7 @@ export class AwareBrowserAgent {
         var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
 
         // 1) Stable lookup by stamped index from browser_get_elements.
-        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
 
         // 2) Fallback to positional lookup with the same selector set.
         if (!el) {
@@ -985,7 +1530,7 @@ export class AwareBrowserAgent {
     await page.evaluate(`
       (function() {
         var idx = ${index};
-        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
         if (!el) return;
         var r = el.getBoundingClientRect();
         var x = r.left + (r.width / 2);
@@ -1019,7 +1564,7 @@ export class AwareBrowserAgent {
     const page = await this.getPage();
     const result = await page.evaluate(`(function() {
       var idx = ${index};
-      var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+      var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
       if (!el) {
         var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
         var list = document.querySelectorAll(interactiveSelectors);
@@ -1073,7 +1618,7 @@ export class AwareBrowserAgent {
       // Get element bounding box for coordinate mapping
       const box = await page.evaluate(`(function() {
         var idx = ${elementIndex};
-        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
         if (!el) {
           var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
           var list = document.querySelectorAll(interactiveSelectors);
@@ -1136,7 +1681,7 @@ export class AwareBrowserAgent {
     if (pointerType === 'touch' && elementIndex !== undefined) {
       await page.evaluate(`(function() {
         var idx = ${elementIndex};
-        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
         if (!el) return;
         var pts = ${JSON.stringify(absPoints)};
         function touch(type, x, y) {
@@ -1173,7 +1718,7 @@ export class AwareBrowserAgent {
       if (!hitTarget) {
         const isCanvas = await page.evaluate(`(function() {
           var idx = ${elementIndex};
-          var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+          var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
           return el && el.tagName && el.tagName.toLowerCase() === 'canvas';
         })()`) as boolean;
 
@@ -1425,7 +1970,7 @@ export class AwareBrowserAgent {
         var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
 
         function findEl(idx) {
-          var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+          var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
           if (!el) {
             var list = document.querySelectorAll(interactiveSelectors);
             if (idx < 0 || idx >= list.length) throw new Error('Element ' + idx + ' not found. Re-run browser_get_elements to refresh indices.');
@@ -3495,16 +4040,41 @@ export class AwareBrowserAgent {
   }
 
   async getInteractiveElements(opts?: { showAll?: boolean; compact?: boolean }): Promise<string> {
-    const showAll = opts?.showAll ?? false;
-    const compact = opts?.compact ?? false;
-
-    // Return cached result if still fresh (skip cache for showAll/compact — cached result is truncated)
-    if (!showAll && !compact && this.elementsCache && (Date.now() - this.elementsCache.ts) < this.ELEMENTS_CACHE_TTL) {
+    // Return cached result if still fresh
+    if (!opts?.showAll && !opts?.compact && this.elementsCache && (Date.now() - this.elementsCache.ts) < this.ELEMENTS_CACHE_TTL) {
       return this.elementsCache.value;
     }
 
     const page = await this.getPage();
 
+    // Use EKO's DOM tree builder for proper element identification
+    try {
+      await page.evaluate(BUILD_DOM_TREE_SCRIPT);
+      await new Promise(r => setTimeout(r, 50));
+      const result = await page.evaluate('window.get_clickable_elements(false)') as {
+        element_str: string;
+        client_rect: { width: number; height: number };
+      } | null;
+      if (result && result.element_str) {
+        // Also stamp data-aware-idx for backwards compat with click/type methods
+        await page.evaluate(`(function() {
+          if (!window.clickable_elements) return;
+          var keys = Object.keys(window.clickable_elements);
+          for (var i = 0; i < keys.length; i++) {
+            var el = window.clickable_elements[keys[i]];
+            if (el && el.setAttribute) el.setAttribute('data-aware-idx', keys[i]);
+          }
+        })()`);
+        this.elementsCache = { value: result.element_str, ts: Date.now() };
+        return result.element_str;
+      }
+    } catch {
+      // Fall back to CSS selector approach below
+    }
+
+    // Fallback: CSS selector approach (legacy)
+    const showAll = opts?.showAll ?? false;
+    const compact = opts?.compact ?? false;
     const elements = await page.evaluate(`
       (function() {
         var SHOW_ALL = ${showAll ? 'true' : 'false'};
@@ -3682,7 +4252,7 @@ export class AwareBrowserAgent {
     `) as string;
 
     // Only cache the normal (truncated) result; showAll/compact results are one-off
-    if (!showAll && !compact) {
+    if (!opts?.showAll && !opts?.compact) {
       this.elementsCache = { value: elements, ts: Date.now() };
     }
     return elements;
@@ -3706,7 +4276,7 @@ export class AwareBrowserAgent {
         var idx = ${index};
 
         // 1. Stable lookup via data-aware-idx
-        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
 
         // 2. Fallback to positional index
         if (!el) {
@@ -3883,7 +4453,7 @@ export class AwareBrowserAgent {
         var idx = ${index};
 
         // 1. Try stable lookup via data-aware-idx (survives DOM mutations)
-        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
 
         // 2. Fallback to positional index if stable ID not found
         if (!el) {
@@ -3941,7 +4511,7 @@ export class AwareBrowserAgent {
       await page.evaluate(`
         (function() {
           var idx = ${index};
-          var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+          var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
           if (!el) {
             var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
             el = document.querySelectorAll(interactiveSelectors)[idx];
@@ -3966,7 +4536,7 @@ export class AwareBrowserAgent {
     await page.evaluate(`
       (function() {
         var idx = ${index};
-        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
         if (!el) {
           var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
           el = document.querySelectorAll(interactiveSelectors)[idx];
@@ -4348,7 +4918,7 @@ export class AwareBrowserAgent {
         var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
 
         function findByIndex(idx) {
-          var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+          var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
           if (!el) {
             var list = document.querySelectorAll(interactiveSelectors);
             if (idx >= 0 && idx < list.length) el = list[idx];
@@ -4517,7 +5087,7 @@ export class AwareBrowserAgent {
         var idx = ${index};
 
         // 1. Stable lookup via data-aware-idx
-        var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
 
         // 2. Fallback to positional index
         if (!el) {
@@ -4563,7 +5133,7 @@ export class AwareBrowserAgent {
           var idx = ${index};
 
           // Re-find element (same logic as above)
-          var el = document.querySelector('[data-aware-idx="' + idx + '"]');
+          var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
           if (!el) {
             var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
             var elements = document.querySelectorAll(interactiveSelectors);

@@ -173,6 +173,12 @@ A task is complete when ALL of the following are true:
 - Final gut-check: "Would a staff engineer approve this?" If the answer is no —
   if the result is hacky, incomplete, or fragile — fix it before reporting done.
 
+For browser tasks specifically: clicking a button is NOT completion. You must
+observe the RESULT of the click. If you clicked "Publish" or "Send", verify
+with a screenshot that the content is actually published/sent. Platforms often
+have multi-step flows (button → confirmation → actual publish). Handle every
+step before declaring success.
+
 When all conditions are met, respond with a summary — do NOT call another tool.
 </task_completion>
 </behavior>"""
@@ -358,18 +364,40 @@ You control a real Chrome browser via a Node.js bridge. In direct mode, the
 browser uses the user's REAL Chrome profile with all cookies, sessions, and
 logins intact. The user's regular Chrome must be closed for this to work.
 
+<critical_protocol name="goal_persistence">
+EVERY action you take MUST move toward the CURRENT TASK in runtime_context.
+Do NOT get sidetracked by prominent but wrong UI options. For example:
+- "Publish an article" means the long-form editor, NOT a quick note/status update.
+- "Post on X" means composing a tweet, NOT browsing the feed.
+- If you see multiple creation options (Note vs Article, Quick Post vs New Post),
+  ALWAYS choose the one that matches the user's requested task.
+After EACH observation, verify: "Am I still on the path toward the requested task?"
+If not, navigate back to the correct flow. Do not settle for a similar-but-wrong action.
+Follow user instructions exactly. Do not be lazy or take shortcuts. Keep working until
+the task is fully completed — not partially done, not a different variant.
+</critical_protocol>
+
 <critical_protocol name="evidence_gating">
 After ANY state-changing action (browser_click, browser_click_text, browser_type,
 browser_navigate, browser_press_key, browser_select_option, browser_drag_drop),
 you MUST call an observation tool BEFORE your next action:
-- browser_extract — get text content from the page
+- browser_screenshot — labeled screenshot with element indices + pseudo-HTML
 - browser_get_elements — list interactive elements with indices
-- browser_screenshot — visual snapshot with optional analysis
+- browser_extract — get text content from the page
 - browser_read_semantic — compressed screen-reader view for dense pages
 
 NEVER chain two actions without observing the result in between.
 If a page does not change after an action, try a different approach — do not
 repeat the same action.
+
+SCREENSHOTS: Screenshots include colored bounding boxes with index labels on all
+interactive elements. Each bounding box and its label share the same color, with
+labels in the top-right corner. Use the element indices from the pseudo-HTML list
+to interact via browser_click, browser_type, etc.
+- Element format: "[15]:<button class="primary">Submit</button>"
+- Non-interactive context: "[]:Some text" (for understanding only, not clickable)
+- Labels may overlap — use the pseudo-HTML list to verify correct element indices
+- Only visible, top-most elements are labeled (elements behind modals are excluded)
 
 ASYNC BUTTONS: After clicking buttons that trigger server operations (Publish,
 Save, Submit, Send, Delete, Confirm), the browser waits for the network to
@@ -378,6 +406,21 @@ settle automatically. When you observe the page afterward:
   to wait for the spinner to disappear or a success message to appear.
 - Do NOT click the same button again while it is in a loading/disabled state.
 - If the button text changed (e.g., "Publish" → "Published"), the action succeeded.
+
+PUBLISH VERIFICATION — CRITICAL: Clicking a publish/send/submit button does NOT
+mean the task is done. Many platforms (Substack, WordPress, Medium, etc.) show a
+CONFIRMATION DIALOG after the first publish button. You MUST:
+1. Take a screenshot IMMEDIATELY after clicking any publish/send button.
+2. If a confirmation dialog appeared (e.g., "Are you sure?", "Send now?",
+   "Confirm publish"), click the confirm button.
+3. Take ANOTHER screenshot to verify the content is actually live/published.
+4. Only report success when you see concrete evidence: a "Published" banner,
+   a live URL, a success toast, or the published content on the public page.
+Never assume a single button click completed a multi-step publish flow.
+
+POPUPS AND MODALS: Handle popups, cookie banners, and confirmation dialogs by
+accepting or closing them. If an element you need is behind a modal overlay,
+close the modal first.
 </critical_protocol>
 
 <session_handling>
@@ -397,7 +440,7 @@ settle automatically. When you observe the page afterward:
 - browser_go_back: Navigate back to the previous page.
 - browser_extract: Extract text content from the current page.
 - browser_read_semantic: Compressed screen-reader-style view — best for long/dense pages.
-- browser_screenshot: Take screenshot with optional vision analysis. Use highlight=true to see element indices.
+- browser_screenshot: Take labeled screenshot with colored element indices + pseudo-HTML element list.
 - browser_get_html: Get full HTML source (hidden data-* attributes, comments, etc.).
 - browser_get_meta: Get page meta tags.
 </category>
@@ -1083,6 +1126,7 @@ def build_system_prompt(
     available_skills: str = "",
     goal_context: str = "",
     identity_context: str = "",
+    current_goal: str = "",
 ) -> str:
     """Assemble the full system prompt from XML-structured sections.
 
@@ -1098,18 +1142,21 @@ def build_system_prompt(
         available_skills: Pre-formatted XML block from SkillManager.
         goal_context: Pre-built XML from GoalManager.build_goal_context().
         identity_context: Pre-built XML from IdentityManager.build_identity_context().
+        current_goal: The user's current task/goal (anchored in system prompt for persistence).
 
     Returns:
         Complete system prompt string with XML structure.
     """
     now = datetime.now(UTC).strftime("%A, %B %d, %Y %H:%M UTC")
 
+    goal_line = f"\nCURRENT TASK: {current_goal}\n" if current_goal else ""
     runtime = (
         f"<runtime_context>\n"
         f"Current date and time: {now}\n"
         f"Permission mode: {permission_mode}\n"
         f"Browser available: {'yes' if browser_enabled else 'no'}\n"
         f"Scheduler available: {'yes' if scheduler_enabled else 'no'}\n"
+        f"{goal_line}"
         f"</runtime_context>"
     )
 
