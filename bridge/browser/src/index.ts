@@ -733,6 +733,54 @@ This is similar to DevTools Elements search (Ctrl+F).`,
     },
     {
       type: 'tool',
+      name: 'browser_upload_file',
+      description: `Upload file(s) to an <input type="file"> element by index. Use when you see a file input in the element list.
+Provide absolute file paths. Supports multiple files if the input has the "multiple" attribute.`,
+      schema: {
+        type: 'object',
+        properties: {
+          index: { type: 'number', description: 'Element index of the file input (from browser_get_elements)' },
+          files: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Absolute file path(s) to upload',
+          },
+        },
+        required: ['index', 'files'],
+      },
+      execute: async (params: unknown) => {
+        const { index, files } = params as { index: number; files: string[] };
+        if (!files || files.length === 0) throw new Error('At least one file path is required.');
+        const browser = await this.ensureBrowser();
+        return browser.uploadFile(index, files);
+      },
+    },
+    {
+      type: 'tool',
+      name: 'browser_file_chooser',
+      description: `Upload file(s) via a native file dialog. Use when clicking a button/area opens a file picker (no visible <input type="file"> in the element list).
+Registers a file chooser listener, clicks the trigger element, then sets the files. Provide absolute file paths.`,
+      schema: {
+        type: 'object',
+        properties: {
+          triggerIndex: { type: 'number', description: 'Element index of the button/area that opens the file dialog' },
+          files: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Absolute file path(s) to upload',
+          },
+        },
+        required: ['triggerIndex', 'files'],
+      },
+      execute: async (params: unknown) => {
+        const { triggerIndex, files } = params as { triggerIndex: number; files: string[] };
+        if (!files || files.length === 0) throw new Error('At least one file path is required.');
+        const browser = await this.ensureBrowser();
+        return browser.uploadFileViaChooser(triggerIndex, files);
+      },
+    },
+    {
+      type: 'tool',
       name: 'browser_drag_drop',
       description: `Drag an element from one position to another. Supports index-based (preferred) and coordinate-based dragging.
 Index-based: pass fromIndex + toIndex (element indices from browser_get_elements). Deterministic and scroll-safe.
@@ -1844,6 +1892,8 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
       'browser_select_option',
       'browser_hover_element',
       'browser_hover',
+      'browser_upload_file',
+      'browser_file_chooser',
       'browser_drag_drop',
       'browser_drag_solve',
       'browser_drag_brute_force',
@@ -1993,6 +2043,21 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
         if (typeof (args as any).relative === 'boolean') outArgs.relative = (args as any).relative;
         if (typeof (args as any).durationMs === 'number') outArgs.durationMs = (args as any).durationMs;
         out.push({ tool: 'browser_pointer_path', args: outArgs, why: a.why });
+        continue;
+      }
+
+      if (a.tool === 'browser_upload_file') {
+        const idx = (args as any).index;
+        const files = (args as any).files;
+        if (typeof idx !== 'number' || !Array.isArray(files) || files.length === 0) continue;
+        out.push({ tool: 'browser_upload_file', args: { index: idx, files: files.map(String) }, why: a.why });
+        continue;
+      }
+      if (a.tool === 'browser_file_chooser') {
+        const idx = (args as any).triggerIndex;
+        const files = (args as any).files;
+        if (typeof idx !== 'number' || !Array.isArray(files) || files.length === 0) continue;
+        out.push({ tool: 'browser_file_chooser', args: { triggerIndex: idx, files: files.map(String) }, why: a.why });
         continue;
       }
 
@@ -2221,6 +2286,7 @@ browser_press_key {key} | browser_type_text {text, pressEnter?} | browser_select
 browser_scroll {direction:"up"|"down", amount?} | browser_hover_element {index} | browser_hover {x, y}
 browser_drag_drop {fromIndex, toIndex} or {fromX, fromY, toX, toY} | browser_drag_solve {strategy?} | browser_drag_brute_force {}
 browser_click_batch {texts?, indices?} | browser_pointer_path {points:[{x,y},...], elementIndex?, relative?}
+browser_upload_file {index, files:["/path/to/file"]} | browser_file_chooser {triggerIndex, files:["/path/to/file"]}
 browser_get_element_box {index} | browser_extract {} | browser_get_elements {} | browser_get_meta {}
 browser_inspect_element {index} | browser_screenshot {}
 

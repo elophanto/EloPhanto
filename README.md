@@ -150,7 +150,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 ### Everything Else
 
-- **Browser automation** — real Chrome browser with 47 tools (navigate, click, type, screenshot, extract data, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions
+- **Browser automation** — real Chrome browser with 49 tools (navigate, click, type, screenshot, extract data, upload files, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Multi-channel gateway** — WebSocket control plane with CLI, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, self-evaluate and revise plans. Background execution with auto-resume on restart
@@ -165,12 +165,12 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Prompt injection defense** — multi-layer guard against injection attacks via websites, emails, and documents
 
 <details>
-<summary>Built-in Tools (99+)</summary>
+<summary>Built-in Tools (101+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
 | System | shell_execute, file_read, file_write, file_list, file_delete, file_move | 6 |
-| Browser | navigate, click, type, screenshot, extract, scroll, tabs, console, network, storage, cookies, drag, hover, wait, eval, audit + more | 47 |
+| Browser | navigate, click, type, screenshot, extract, scroll, tabs, console, network, storage, cookies, drag, hover, upload, wait, eval, audit + more | 49 |
 | Knowledge | knowledge_search, knowledge_write, knowledge_index, skill_read, skill_list | 5 |
 | Hub | hub_search, hub_install | 2 |
 | Self-Dev | self_create_plugin, self_modify_source, self_rollback, self_read_source, self_run_tests, self_list_capabilities | 6 |
@@ -202,7 +202,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (99+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (101+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -249,7 +249,7 @@ EloPhanto/
 │   ├── identity.py      # Evolving agent identity
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
-├── tools/               # 99+ built-in tools
+├── tools/               # 101+ built-in tools
 ├── skills/              # 28 bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (838 tests)

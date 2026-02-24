@@ -123,9 +123,9 @@ When `user_data_dir` is empty, the default Chrome path is auto-detected:
 - Linux: `~/.config/google-chrome`
 - Windows: `%LOCALAPPDATA%\Google\Chrome\User Data`
 
-## Tools (46)
+## Tools (48)
 
-The bridge exposes 46 browser tools from `AwareBrowserAgent`. Key categories:
+The bridge exposes 48 browser tools from `AwareBrowserAgent`. Key categories:
 
 ### Navigation & Reading
 
@@ -153,6 +153,8 @@ The bridge exposes 46 browser tools from `AwareBrowserAgent`. Key categories:
 | `browser_select_option` | Select/deselect form controls |
 | `browser_drag_drop` | Drag-and-drop by index or coordinates |
 | `browser_hover_element` | Hover by index |
+| `browser_upload_file` | Upload file(s) to `<input type="file">` by element index |
+| `browser_file_chooser` | Upload file(s) via native file dialog triggered by clicking a button |
 
 ### Data & Debugging
 
@@ -227,6 +229,24 @@ When clicking/typing by index, the bridge resolves elements via:
 3. Traverses into iframes to find scrollable elements
 4. Ranks containers by z-index (highest first), then by visible area
 5. Scrolls both the primary container (highest z-index — typically modals/overlays) and the secondary container (tallest — typically the main content)
+
+### File Upload
+
+Two tools handle file uploads depending on the page's implementation:
+
+**`browser_upload_file`** — for visible `<input type="file">` elements:
+1. Resolves the element by index (same chain as click: `get_highlight_element` → `data-aware-idx` → positional)
+2. If the element is a wrapper (e.g., `<div>`), drills into it to find a nested `<input type="file">`
+3. Sets file(s) via Playwright's `setInputFiles()` — no native dialog opened
+4. Supports multiple files if the input has the `multiple` attribute
+
+**`browser_file_chooser`** — for buttons/areas that trigger a native file picker:
+1. Registers a `page.waitForEvent('filechooser')` listener (10s timeout)
+2. Clicks the trigger element (human-like with jitter, DOM fallback)
+3. Intercepts the native file dialog and sets files via `fileChooser.setFiles()`
+4. Use this when there is no visible `<input type="file">` in the element list — just an "Upload" button or drop zone
+
+Both tools accept absolute file paths and verify file existence before attempting upload.
 
 ## Anti-Detection
 
