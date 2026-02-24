@@ -405,7 +405,6 @@ class CLIAdapter(ChannelAdapter):
             cost = data.get("cost", "")
             elapsed = data.get("elapsed", "")
             tool_count = data.get("tool_count", 0)
-            tools = data.get("tools_used", [])
 
             console.print(f"  [{_M}]  ◆ Result:[/] {summary[:200]}")
             parts = []
@@ -422,7 +421,6 @@ class CLIAdapter(ChannelAdapter):
             secs = data.get("next_wakeup_seconds", 300)
             cost = data.get("cycle_cost", "")
             elapsed = data.get("elapsed_seconds", 0)
-            spent = data.get("total_spent", "")
             remaining = data.get("budget_remaining", "")
             tools_n = data.get("tools_used", 0)
 
