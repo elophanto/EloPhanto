@@ -531,6 +531,45 @@ class Gateway:
                     await self._subscribe_to_unified(c)
             await client.websocket.send(response_message("", text, done=True).to_json())
 
+        elif command == "mind":
+            mind = getattr(self._agent, "_autonomous_mind", None)
+            if mind:
+                status = mind.get_status()
+                state = (
+                    "paused"
+                    if status["paused"]
+                    else ("active" if status["running"] else "stopped")
+                )
+                budget_pct = (
+                    int(status["budget_spent"] / status["budget_total"] * 100)
+                    if status["budget_total"] > 0
+                    else 0
+                )
+                lines = [
+                    f"**Autonomous Mind** — {state}",
+                    f"- Budget: ${status['budget_spent']:.4f} / "
+                    f"${status['budget_total']:.2f} ({budget_pct}% used)",
+                    f"- Cycles: {status['cycle_count']}",
+                    f"- Last wakeup: {status['last_wakeup']}",
+                    f"- Last action: {status['last_action'][:100]}",
+                    f"- Next wakeup: {int(status['next_wakeup_sec'])}s",
+                    f"- Pending events: {status['pending_events']}",
+                ]
+                actions = status.get("recent_actions", [])
+                if actions:
+                    lines.append("\n**Recent Actions:**")
+                    for a in actions[-8:]:
+                        lines.append(f"  {a['ts']}  {a['summary'][:100]}")
+                sp = status.get("scratchpad", "")
+                if sp:
+                    lines.append(f"\n**Scratchpad:**\n{sp[:1000]}")
+                text = "\n".join(lines)
+            else:
+                text = "Autonomous mind is not enabled. Set `autonomous_mind.enabled: true` in config.yaml."
+            await client.websocket.send(
+                response_message(session_id, text, done=True).to_json()
+            )
+
         else:
             # Try recovery handler — pure Python, no LLM
             if self._recovery:

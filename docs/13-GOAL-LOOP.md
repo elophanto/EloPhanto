@@ -204,3 +204,14 @@ Each LLM call increments `goal.llm_calls_used`. Before every call, `check_budget
 | `core/protocol.py` | Goal event types (6 events) |
 | `cli/gateway_cmd.py` | GoalRunner gateway wiring + startup resume |
 | `tests/test_core/test_goal_runner.py` | GoalRunner tests (12 tests) |
+
+## Coordination with Autonomous Mind
+
+When the autonomous mind is enabled (`autonomous_mind.enabled: true`), it coordinates with the goal loop:
+
+- **Goal resumption**: The mind's priority stack places active goals at the top. On wakeup, if a goal has a pending checkpoint, the mind resumes it instead of starting independent work.
+- **Pause/resume symmetry**: Both the goal runner and the mind pause on user interaction (`notify_user_interaction()`) and resume on task completion (`notify_task_complete()`). They share the same lifecycle pattern.
+- **Event feedback**: Goal lifecycle events (checkpoint complete, goal complete, goal failed) are broadcast through the gateway. The mind sees these as pending events on its next wakeup cycle.
+- **History isolation**: Both systems isolate their conversation history from user chat — saving, clearing, and restoring `_conversation_history` around each execution cycle.
+
+See `26-AUTONOMOUS-MIND.md` for the full autonomous mind design.

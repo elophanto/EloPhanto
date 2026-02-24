@@ -446,6 +446,8 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 21: MCP Integration | **Done** — MCP client, auto-install, mcp_manage tool, CLI commands, init wizard, agent self-management |
 | Phase 22: Injection Guard | **Done** — Multi-layer prompt injection defense for external content (browser, email, documents, shell, MCP) |
 | Phase 23: Verification & 2FA | **Done** — TOTP authenticator (4 tools), verification priority system, SMS via conversation |
+| Phase 24: Agent Swarm | **Done** — Orchestrate Claude Code, Codex, Gemini CLI as a coding team. Isolated git worktrees, tmux sessions, knowledge-enriched prompts, PR/CI monitoring, mid-task redirection |
+| Phase 25: Autonomous Mind | **Done** — Purpose-driven background thinking loop, priority stack, revenue pursuit, LLM-controlled wakeup, persistent scratchpad, budget isolation, gateway event broadcasting, `/mind` command, 2 tools |
 
 ## Phase 10: Self-Learning Model (Dataset Builder Done)
 

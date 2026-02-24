@@ -337,6 +337,26 @@ Lists all scheduled tasks.
 - **Input**: `filter` (enum: `all`, `active`, `paused`)
 - **Output**: `tasks` (array of task objects with `id`, `name`, `schedule`, `next_run`, `last_run`, `status`)
 
+### Mind Tools
+
+#### `set_next_wakeup`
+
+Controls how many seconds until the autonomous mind's next think cycle. The LLM calls this at the end of each cycle to schedule itself based on urgency.
+
+- **Permission**: `safe`
+- **Input**: `seconds` (integer, 60-3600 — clamped to config min/max), `reason` (string, optional)
+- **Output**: `next_wakeup_seconds` (integer), `reason` (string)
+- **Behavior**: Sets `_next_wakeup_sec` on the AutonomousMind instance. Shorter intervals (60-120s) for active monitoring, longer (600-1800s) when idle.
+
+#### `update_scratchpad`
+
+Replaces the autonomous mind's persistent working memory. The scratchpad survives across wakeup cycles and is included in the mind's prompt context.
+
+- **Permission**: `safe`
+- **Input**: `content` (string — full markdown content, replaces current scratchpad)
+- **Output**: `length` (integer), `path` (string)
+- **Behavior**: Writes content to `data/scratchpad.md`. The mind reads this file at the start of each think cycle to maintain continuity.
+
 ### Goal Tools
 
 #### `goal_create`

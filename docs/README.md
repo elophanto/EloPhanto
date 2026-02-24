@@ -39,6 +39,8 @@
 | 22 | [Recovery Mode](22-RECOVERY-MODE.md) | Remote recovery without LLM: health checks, config reload, restart triggers |
 | 23 | [MCP Integration](23-MCP.md) | MCP client, server management, auto-install, CLI, init wizard presets |
 | 24 | [Verification & 2FA](24-VERIFICATION.md) | TOTP authenticator, SMS via conversation, verification priority system |
+| 25 | [Agent Swarm](25-AGENT-SWARM.md) | Orchestrate Claude Code, Codex, Gemini CLI as a coding team via conversation |
+| 26 | [Autonomous Mind](26-AUTONOMOUS-MIND.md) | Purpose-driven background thinking loop, revenue pursuit, scratchpad, budget isolation |
 
 ---
 

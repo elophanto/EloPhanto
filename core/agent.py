@@ -172,6 +172,7 @@ class Agent:
         self._dataset_builder: Any = None  # DatasetBuilder, set during initialize
         self._goal_runner: Any = None  # GoalRunner, set during initialize
         self._swarm_manager: Any = None  # SwarmManager, set during initialize
+        self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
@@ -413,6 +414,22 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Goal system setup failed: {e}")
 
+        # Initialize autonomous mind
+        if self._config.autonomous_mind.enabled:
+            _status("Preparing autonomous mind")
+            try:
+                from core.autonomous_mind import AutonomousMind
+
+                self._autonomous_mind = AutonomousMind(
+                    agent=self,
+                    gateway=self._gateway,
+                    config=self._config.autonomous_mind,
+                    project_root=self._config.project_root,
+                )
+                logger.info("Autonomous mind ready (starts on gateway boot)")
+            except Exception as e:
+                logger.warning(f"Autonomous mind setup failed: {e}")
+
         # Initialize identity system
         if self._config.identity.enabled:
             _status("Loading identity")
@@ -653,6 +670,11 @@ class Agent:
                 await self._goal_runner.cancel()
             except Exception as e:
                 logger.debug("GoalRunner shutdown error: %s", e)
+        if self._autonomous_mind:
+            try:
+                await self._autonomous_mind.cancel()
+            except Exception as e:
+                logger.debug("Autonomous mind shutdown error: %s", e)
         if self._email_monitor:
             try:
                 await self._email_monitor.stop()
@@ -886,9 +908,11 @@ class Agent:
             on_step: Async callback for step progress reporting.
         """
 
-        # Pause background goal execution if user sends a message
+        # Pause background execution if user sends a message
         if self._goal_runner and self._goal_runner.is_running:
             self._goal_runner.notify_user_interaction()
+        if self._autonomous_mind and self._autonomous_mind.is_running:
+            self._autonomous_mind.notify_user_interaction()
 
         # Temporarily override callbacks for this session
         prev_approval = self._executor._approval_callback
@@ -911,6 +935,9 @@ class Agent:
             # Restore previous callbacks
             self._executor._approval_callback = prev_approval
             self._on_step = prev_step
+            # Resume autonomous mind after user task
+            if self._autonomous_mind and self._autonomous_mind.is_paused:
+                asyncio.create_task(self._autonomous_mind.notify_task_complete())
 
     async def run(self, goal: str) -> AgentResponse:
         """Execute the plan-execute-reflect loop for a user goal.

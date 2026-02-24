@@ -151,6 +151,8 @@ class CLIAdapter(ChannelAdapter):
             "goal_resumed",
         ):
             self._display_goal_event(event, msg.data)
+        elif event.startswith("mind_"):
+            self._display_mind_event(event, msg.data)
 
     async def _repl_loop(self) -> None:
         """Main REPL — read input, send to gateway, display response."""
@@ -211,6 +213,7 @@ class CLIAdapter(ChannelAdapter):
                         f"  /clear      — Reset session and wipe task memory\n"
                         f"  /stop       — Cancel running request (or Ctrl+C)\n"
                         f"  /status     — Show gateway status\n"
+                        f"  /mind       — Autonomous mind status & actions\n"
                         f"  /health     — Provider health report\n"
                         f"  /config     — Read/update config\n"
                         f"  /provider   — Enable/disable providers\n"
@@ -357,3 +360,37 @@ class CLIAdapter(ChannelAdapter):
             console.print(
                 f"\n  [{_C_ACCENT}]\u25b6 Goal resumed[/] [{_C_DIM}]({goal_id})[/]\n"
             )
+
+    def _display_mind_event(self, event: str, data: dict) -> None:
+        """Display autonomous mind events in the terminal."""
+        if event == "mind_wakeup":
+            cycle = data.get("cycle", "")
+            console.print(f"  [{_C_DIM}]\u25cb Mind wakeup #{cycle}[/]")
+        elif event == "mind_action":
+            summary = data.get("summary", "")
+            console.print(f"  [{_C_ACCENT}]\u21b3 mind:[/] {summary[:120]}")
+        elif event == "mind_sleep":
+            secs = data.get("next_wakeup_seconds", 300)
+            last = data.get("last_action", "")
+            cost = data.get("cycle_cost", "")
+            console.print(
+                f"  [{_C_DIM}]\u25cb Mind sleeping \u00b7 next in {secs}s"
+                f" \u00b7 {cost}[/]"
+            )
+        elif event == "mind_paused":
+            console.print(f"  [{_C_DIM}]\u25cb Mind paused (you're talking)[/]")
+        elif event == "mind_resumed":
+            pending = data.get("pending_events", 0)
+            extra = f" \u00b7 {pending} events queued" if pending else ""
+            console.print(f"  [{_C_DIM}]\u25cb Mind resumed{extra}[/]")
+        elif event == "mind_revenue":
+            rtype = data.get("type", "")
+            amount = data.get("amount", "")
+            source = data.get("source", "")
+            console.print(
+                f"\n  [{_C_SUCCESS}]\U0001f4b0 Revenue: {rtype}[/]"
+                f" {amount} \u2014 {source}\n"
+            )
+        elif event == "mind_error":
+            error = data.get("error", "")
+            console.print(f"  [{_C_WARN}]\u26a0 Mind: {error[:120]}[/]")
