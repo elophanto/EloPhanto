@@ -6028,6 +6028,144 @@ export class AwareBrowserAgent {
   }
 
   /**
+   * Select text within an element by index.
+   * Handles input/textarea (setSelectionRange) and contenteditable/DOM (Range API).
+   * Used for text styling workflows (bold, italic, etc.) in rich text editors like Medium.
+   */
+  async selectTextByIndex(opts: {
+    index: number;
+    startOffset?: number;
+    endOffset?: number;
+  }): Promise<{
+    success: boolean;
+    selectedText: string;
+    elementType: string;
+    error?: string;
+  }> {
+    const page = await this.getPage();
+    const { index, startOffset, endOffset } = opts;
+
+    const result = await page.evaluate(`
+      (function() {
+        var idx = ${index};
+        var startOff = ${startOffset !== undefined ? startOffset : 'undefined'};
+        var endOff = ${endOffset !== undefined ? endOffset : 'undefined'};
+
+        // 1. Stable lookup via data-aware-idx
+        var el = (window.get_highlight_element && window.get_highlight_element(idx))
+          || document.querySelector('[data-aware-idx="' + idx + '"]');
+
+        // 2. Fallback to positional index
+        if (!el) {
+          var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
+          var elements = document.querySelectorAll(interactiveSelectors);
+          if (idx < 0 || idx >= elements.length) {
+            return { success: false, selectedText: '', elementType: 'unknown',
+              error: 'Element ' + idx + ' not found. Total: ' + elements.length + '. Re-run browser_get_elements.' };
+          }
+          el = elements[idx];
+        }
+
+        try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch(e) {}
+
+        var tag = (el.tagName || '').toLowerCase();
+
+        // Input / textarea — use setSelectionRange
+        if (tag === 'input' || tag === 'textarea') {
+          el.focus();
+          var valLen = (el.value || '').length;
+          var s = (startOff !== undefined) ? Math.min(startOff, valLen) : 0;
+          var e = (endOff !== undefined) ? Math.min(endOff, valLen) : valLen;
+          el.setSelectionRange(s, e);
+          return { success: true, selectedText: (el.value || '').slice(s, e), elementType: tag };
+        }
+
+        // Drill into wrapper: find nested input/textarea
+        if (el.childElementCount > 0) {
+          var nested = el.querySelector('input') || el.querySelector('textarea');
+          if (nested) {
+            nested.focus();
+            var nLen = (nested.value || '').length;
+            var ns = (startOff !== undefined) ? Math.min(startOff, nLen) : 0;
+            var ne = (endOff !== undefined) ? Math.min(endOff, nLen) : nLen;
+            nested.setSelectionRange(ns, ne);
+            return { success: true, selectedText: (nested.value || '').slice(ns, ne), elementType: nested.tagName.toLowerCase() };
+          }
+        }
+
+        // Contenteditable or regular DOM element — use Range API
+        var editTarget = el;
+        if (el.closest && el.closest('[contenteditable="true"]')) {
+          editTarget = el.closest('[contenteditable="true"]');
+        } else if (el.getAttribute && el.getAttribute('contenteditable') === 'true') {
+          editTarget = el;
+        }
+
+        editTarget.focus && editTarget.focus();
+
+        var textContent = editTarget.textContent || '';
+        var s = (startOff !== undefined) ? Math.min(startOff, textContent.length) : 0;
+        var e = (endOff !== undefined) ? Math.min(endOff, textContent.length) : textContent.length;
+
+        // Walk text nodes to find the right positions
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        var range = document.createRange();
+
+        // Collect text nodes in document order
+        var walker = document.createTreeWalker(editTarget, NodeFilter.SHOW_TEXT, null, false);
+        var textNodes = [];
+        var node;
+        while (node = walker.nextNode()) textNodes.push(node);
+
+        if (textNodes.length === 0) {
+          // No text nodes — select the element itself
+          range.selectNodeContents(editTarget);
+          sel.addRange(range);
+          return { success: true, selectedText: '', elementType: 'empty' };
+        }
+
+        // Map character offsets to text node + local offset
+        var charCount = 0;
+        var startNode = null, startLocal = 0;
+        var endNode = null, endLocal = 0;
+
+        for (var i = 0; i < textNodes.length; i++) {
+          var tn = textNodes[i];
+          var tnLen = tn.textContent.length;
+          if (!startNode && charCount + tnLen > s) {
+            startNode = tn;
+            startLocal = s - charCount;
+          }
+          if (!endNode && charCount + tnLen >= e) {
+            endNode = tn;
+            endLocal = e - charCount;
+            break;
+          }
+          charCount += tnLen;
+        }
+
+        // Edge cases: offset beyond last node
+        if (!startNode) { startNode = textNodes[textNodes.length - 1]; startLocal = startNode.textContent.length; }
+        if (!endNode) { endNode = textNodes[textNodes.length - 1]; endLocal = endNode.textContent.length; }
+
+        range.setStart(startNode, startLocal);
+        range.setEnd(endNode, endLocal);
+        sel.addRange(range);
+
+        var isEditable = editTarget.isContentEditable || editTarget.getAttribute('contenteditable') === 'true';
+        return {
+          success: true,
+          selectedText: textContent.slice(s, e),
+          elementType: isEditable ? 'contenteditable' : tag
+        };
+      })()
+    `) as { success: boolean; selectedText: string; elementType: string; error?: string };
+
+    return result;
+  }
+
+  /**
    * Check if browser is initialized
    */
   get isInitialized(): boolean {

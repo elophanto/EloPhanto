@@ -1060,6 +1060,28 @@ Prefer this over browser_click for form controls — it handles event dispatch, 
     },
     {
       type: 'tool',
+      name: 'browser_select_text',
+      description: `Select text within an element. Essential for text styling workflows in rich text editors (Medium, Substack, Google Docs).
+After selecting text, use browser_click on formatting buttons (bold, italic, heading, link) to style the selection.
+Handles input/textarea (setSelectionRange), contenteditable (Range API), and regular DOM elements.
+Omit startOffset/endOffset to select ALL text in the element.`,
+      schema: {
+        type: 'object',
+        properties: {
+          index: { type: 'number', description: 'Element index from browser_get_elements' },
+          startOffset: { type: 'number', description: 'Character offset to start selection (default: 0 = beginning)' },
+          endOffset: { type: 'number', description: 'Character offset to end selection (default: all text)' },
+        },
+        required: ['index'],
+      },
+      execute: async (params: unknown) => {
+        const p = params as { index: number; startOffset?: number; endOffset?: number };
+        const browser = await this.ensureBrowser();
+        return browser.selectTextByIndex(p);
+      },
+    },
+    {
+      type: 'tool',
       name: 'browser_wait_for_selector',
       description: `Wait for a CSS selector to appear/disappear, or wait for a JS condition to become truthy.
 Much more reliable than fixed-ms browser_wait for dynamic content (reveals, modals, AJAX).

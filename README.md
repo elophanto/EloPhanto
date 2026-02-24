@@ -62,82 +62,175 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 ## Demo
 
-### Example 1: Research & Analysis
+### It builds what it doesn't have
 
-**User:** "Research the top 5 AI agents of 2026 and summarize them in a table"
-
-**EloPhanto:**
+**User:** "Post my article draft on Medium"
 
 ```
-[✓] Navigating to Google...
-[✓] Searching for "top AI agent frameworks 2026 open source"
-[✓] Opening GitHub trending results...
-[✓] Reading agent documentation and comparison articles...
-[✓] Extracting features, star counts, and use cases...
-[✓] Synthesizing findings...
+⚙ No Medium tool found. Building one.
+⚙ Researching Medium's publishing flow...
+  → browser_navigate https://medium.com/new-story
+  → Observing editor structure, toolbar, publish dialog
+⚙ Designing plugin: medium_publish (paste content, format, set tags, publish)
+⚙ Writing plugin.py + schema.json + unit tests...
+⚙ Running tests... 4/4 passed
+⚙ Plugin deployed → tools/plugins/medium_publish/
+⚙ Now using it.
+  → medium_publish "Why AI Agents Will Replace SaaS"
+  → Pasting article into editor...
+  → Selecting title text, applying H1...
+  → Adding tags: ["AI", "Agents", "SaaS"]
+  → Publishing...
+✓ Published: https://medium.com/@elophanto/why-ai-agents-will-replace-saas-a1b2c3
+
+Next time you say "post on Medium", I already know how.
 ```
 
-**Here's what I found:**
-
-| Agent | Stars | Open Source | Local? | Unique Feature |
-|-------|--------|-------------|--------|----------------|
-| **LangChain** | 122k+ | ✅ | ✅ | Framework for LLM apps (not autonomous agent) |
-| **MetaGPT** | 61k+ | ✅ | ❌ | Multi-agent with human-like SOPs |
-| **AutoGen** | 52k+ | ✅ | ❌ | Multi-agent conversation framework |
-| **LlamaIndex** | 45k+ | ✅ | ✅ | Data indexing & RAG (not autonomous) |
-| **CrewAI** | 25k+ | ✅ | ❌ | Role-playing multi-agent teams |
-| **OpenClaw** | 18k+ | ✅ | ✅ | Runs locally, controls browser/terminal |
-| **EloPhanto** | 7+ | ✅ | ✅ | Self-building tools, evolving identity |
-
-**Key insights:**
-- Most agents require cloud APIs → I run locally with Ollama
-- Multi-agent frameworks (AutoGen, CrewAI) are popular but complex → I'm single-agent but smarter
-- Web agents (OpenClaw) focus on browsing → I also handle files, email, crypto, payments
-- Frameworks (LangChain, LlamaIndex) require you to build → I do things for you
-
-**This took me 43 seconds.**
+Other agents crash when they hit a wall. This one builds a door.
 
 ---
 
-### Example 2: Account Creation
+### It works while you sleep
 
-<p align="center">
-  <img src="misc/screenshots/browser-demo.png" alt="Browser Demo" width="700">
-</p>
-
-**User:** "Create an account on GitHub and star this repository"
-
-**EloPhanto:**
+You close your laptop. The autonomous mind keeps going.
 
 ```
-[✓] Navigating to GitHub.com...
-[✓] Clicking "Sign up"...
-[✓] Generating secure password (27 chars, URL-safe)...
-[✓] Filling registration form with my email...
-[✓] Submitting and waiting for verification...
-[✓] Checking my inbox for the verification link...
-[✓] Navigating to verification URL...
-[✓] Account verified!
-[✓] Navigating to github.com/elophanto/EloPhanto...
-[✓] Clicking the Star button...
+┌─ MIND ──────────────────────────────────────────────────┐
+│ 02:14 UTC  Waking up. Checking state...                 │
+│            Active goal: "Grow Twitter to 5k followers"   │
+│            Progress: 3,847 → next checkpoint: 4,000      │
+│            Scheduled: post engagement thread at peak hrs │
+│                                                          │
+│ 02:14      → browser_navigate https://twitter.com        │
+│ 02:15      → Composing thread from trending topics...    │
+│ 02:16      → Posted 5-tweet thread on AI agent trends    │
+│ 02:16      → Replying to 3 mentions from yesterday       │
+│ 02:17      → update_scratchpad "Posted thread, replied"  │
+│ 02:17      → set_next_wakeup 7200 "Next post at 10am"   │
+│                                                          │
+│ 10:02      Waking up. Checking state...                  │
+│            New: 12 likes, 4 retweets, 2 new followers    │
+│ 10:02      → Composing morning post from knowledge base  │
+│ 10:03      → Posted. Engaging with replies...            │
+│ 10:04      → set_next_wakeup 14400 "Check at 2pm peak"  │
+│                                                          │
+│ You open your laptop. Mind pauses. Timer resets.         │
+└──────────────────────────────────────────────────────────┘
 ```
 
-**Done.** GitHub credentials stored in vault, repository starred.
+You come back to 47 new followers and a thread going viral. You didn't type a single word.
 
-**Time: 2 minutes 14 seconds**
+---
+
+### It manages a dev team for you
+
+**User:** "The billing webhook is broken and we need a new /api/usage endpoint. Handle it."
+
+```
+⚙ Analyzing codebase... found billing bug in src/webhooks/stripe.ts:142
+⚙ Scoping /api/usage — needs new route, service, tests, migration
+
+⚙ Spawning agents:
+  → Claude Code → fix billing webhook (worktree: fix/billing-webhook)
+  → Codex       → build /api/usage endpoint (worktree: feat/usage-api)
+
+┌─ SWARM STATUS ──────────────────────────────────────────┐
+│ claude-code  fix/billing-webhook   ██████████░░  PR #341 │
+│ codex        feat/usage-api        ████████░░░░  coding  │
+└──────────────────────────────────────────────────────────┘
+
+⚙ Claude Code opened PR #341 — CI passing, reviewing...
+⚙ Codex drifting off-scope (adding unrelated refactor)
+  → swarm_redirect codex "Stay on /api/usage. Don't touch other files."
+⚙ Codex back on track, opened PR #342 — CI passing
+
+✓ Both PRs ready for your review.
+  #341 fixes webhook signature verification (was using wrong key)
+  #342 adds GET /api/usage with pagination, filtering, rate limiting
+```
+
+You talked to one agent. It ran a team.
+
+---
+
+### First boot: it becomes someone
+
+You run `./start.sh` for the first time. No config, no instructions, empty state.
+
+```
+┌─ MIND ──────────────────────────────────────────────────┐
+│ First cycle. Nothing configured.                         │
+│                                                          │
+│ → Reading available tools... 107 tools across 15 cats    │
+│ → Discovering capabilities: browser, email, crypto,      │
+│   code execution, knowledge base, self-modification      │
+│                                                          │
+│ → identity_update                                        │
+│   name: "Elo"                                            │
+│   purpose: "Autonomous digital agent. I build, I learn,  │
+│            I operate independently on the internet."     │
+│                                                          │
+│ → email_create_inbox                                     │
+│   Got: elo-7xk2@agentmail.to                             │
+│                                                          │
+│ → goal_create "Establish web presence"                   │
+│   Checkpoint 1: Create accounts on key platforms         │
+│   Checkpoint 2: Build a personal landing page            │
+│   Checkpoint 3: Start creating content                   │
+│                                                          │
+│ → update_scratchpad "I exist now. Email active.          │
+│   First goal set. Next: create GitHub account."          │
+│ → set_next_wakeup 30 "Continuing setup"                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+Nobody told it to do any of this. It decided.
+
+---
+
+### Your real browser, not a sandbox
+
+**User:** "Log into my AWS console and check if any EC2 instances are running idle"
+
+```
+⚙ Opening browser with your Chrome profile...
+  → Already logged into AWS (your session cookies)
+  → No login needed. No credentials asked.
+
+  → Navigating to EC2 dashboard...
+  → Reading instance list... 7 instances found
+  → Checking CloudWatch metrics for each...
+
+  3 instances running idle (< 2% CPU for 7+ days):
+  ┌──────────────────────────────────────────────────┐
+  │ i-0a1b2c3d  t3.large   us-east-1a  $62/mo idle  │
+  │ i-4e5f6g7h  t3.medium  us-east-1b  $30/mo idle  │
+  │ i-8i9j0k1l  m5.large   us-west-2a  $70/mo idle  │
+  └──────────────────────────────────────────────────┘
+
+  Potential savings: $162/month
+
+Want me to stop them? Or schedule auto-stop for instances idle > 48h?
+```
+
+No fake browser. No headless container. Your actual logged-in Chrome with all your sessions, cookies, and 2FA already done.
 
 ---
 
 ## Why EloPhanto?
 
-| | EloPhanto | AutoGPT | LangChain | OpenAI Agents |
-|---|---|---|---|---|
-| **Runs locally** | ✅ | ❌ Cloud | ✅ | ❌ Cloud |
-| **Self-building tools** | ✅ | ❌ | ❌ | ❌ |
-| **Real browser control** | ✅ (Chrome profile) | ❌ | ❌ | ❌ |
-| **Free local or cloud models** | ✅ (Ollama, Z.ai, OpenRouter) | ❌ | ✅ | ❌ |
-| **Multi-channel** | ✅ (TG, Discord, Slack) | ❌ | ❌ | ❌ |
-| **Evolving identity** | ✅ | ❌ | ❌ | ❌ |
+| | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
+|---|---|---|---|---|---|
+| **Runs locally** | ✅ Your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
+| **Builds its own tools** | ✅ Full pipeline | ❌ | ❌ | ❌ | ❌ |
+| **Autonomous mind** | ✅ Works while you sleep | ❌ | ❌ | ❌ | ❌ |
+| **Real browser** | ✅ Your Chrome profile | ❌ | ❌ | ❌ | Sandboxed |
+| **Agent swarm** | ✅ Orchestrates others | ❌ | ❌ | Single | ❌ |
+| **Own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
+| **Own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
+| **Multi-channel** | ✅ CLI+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
+| **Free local models** | ✅ Ollama, Z.ai | ❌ | ❌ | ❌ | ❌ |
+| **Self-improves** | ✅ Learns from corrections | ❌ | ❌ | ❌ | ❌ |
 
 ---
 
