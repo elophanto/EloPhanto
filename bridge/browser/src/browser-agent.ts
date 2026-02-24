@@ -3497,6 +3497,127 @@ export class AwareBrowserAgent {
   }
 
   /**
+   * Upload file(s) to an <input type="file"> element by index.
+   * Uses Playwright's setInputFiles() — works for standard file inputs.
+   */
+  async uploadFile(index: number, filePaths: string[]): Promise<{ success: boolean; files: string[]; elementInfo?: string }> {
+    const page = await this.getPage();
+
+    // Verify all files exist
+    for (const fp of filePaths) {
+      if (!fs.existsSync(fp)) {
+        throw new Error(`File not found: ${fp}`);
+      }
+    }
+
+    // Find the file input element
+    const elementHandle = await page.evaluateHandle(`
+      (function() {
+        var idx = ${index};
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
+
+        if (!el) {
+          var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
+          var elements = document.querySelectorAll(interactiveSelectors);
+          if (idx >= 0 && idx < elements.length) el = elements[idx];
+        }
+        if (!el) throw new Error('Element ' + idx + ' not found. Re-run browser_get_elements to refresh indices.');
+
+        // If the element itself is not a file input, look for one inside it
+        if (el.tagName !== 'INPUT' || el.type !== 'file') {
+          var fileInput = el.querySelector('input[type="file"]');
+          if (fileInput) el = fileInput;
+        }
+
+        return el;
+      })()
+    `);
+
+    const tagInfo = await page.evaluate(
+      (el: any) => ({ tag: el.tagName?.toLowerCase(), type: el.type, accept: el.accept || '' }),
+      elementHandle
+    );
+
+    // Use setInputFiles on the element
+    await (elementHandle as any).setInputFiles(filePaths);
+
+    return {
+      success: true,
+      files: filePaths.map(fp => path.basename(fp)),
+      elementInfo: `<${tagInfo.tag} type="${tagInfo.type}"${tagInfo.accept ? ` accept="${tagInfo.accept}"` : ''}>`,
+    };
+  }
+
+  /**
+   * Upload file(s) via a native file chooser dialog.
+   * Registers a filechooser listener, clicks the trigger element, then sets files.
+   * Use this when clicking a button opens a file dialog (no visible <input type="file">).
+   */
+  async uploadFileViaChooser(triggerIndex: number, filePaths: string[]): Promise<{ success: boolean; files: string[]; triggerInfo?: string }> {
+    this.invalidateElementsCache();
+    const page = await this.getPage();
+
+    // Verify all files exist
+    for (const fp of filePaths) {
+      if (!fs.existsSync(fp)) {
+        throw new Error(`File not found: ${fp}`);
+      }
+    }
+
+    // Set up filechooser listener BEFORE clicking the trigger
+    const chooserPromise = page.waitForEvent('filechooser', { timeout: 10000 });
+
+    // Click the trigger element (same logic as clickElementByIndex but inlined for atomicity)
+    const elementHandle = await page.evaluateHandle(`
+      (function() {
+        var idx = ${triggerIndex};
+        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
+        if (!el) {
+          var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
+          var elements = document.querySelectorAll(interactiveSelectors);
+          if (idx >= 0 && idx < elements.length) el = elements[idx];
+        }
+        if (!el) throw new Error('Element ' + idx + ' not found. Re-run browser_get_elements to refresh indices.');
+        try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch(e) {}
+        return el;
+      })()
+    `);
+
+    const triggerInfo = await page.evaluate(
+      (el: any) => '<' + (el.tagName?.toLowerCase() || 'unknown') + '> "' + (el.innerText || '').slice(0, 50).trim() + '"',
+      elementHandle
+    );
+
+    // Click the trigger
+    try {
+      await (elementHandle as any).click({ delay: Math.random() * 50 + 20 });
+    } catch {
+      // Fallback to DOM click
+      await page.evaluate(`
+        (function() {
+          var idx = ${triggerIndex};
+          var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
+          if (!el) {
+            var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"]';
+            el = document.querySelectorAll(interactiveSelectors)[idx];
+          }
+          if (el) el.click();
+        })()
+      `);
+    }
+
+    // Wait for the file chooser dialog
+    const fileChooser = await chooserPromise;
+    await fileChooser.setFiles(filePaths);
+
+    return {
+      success: true,
+      files: filePaths.map(fp => path.basename(fp)),
+      triggerInfo,
+    };
+  }
+
+  /**
    * Scroll the page
    */
   async scroll(direction: 'up' | 'down', amount = 3): Promise<void> {

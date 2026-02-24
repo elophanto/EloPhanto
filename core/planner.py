@@ -379,7 +379,8 @@ the task is fully completed — not partially done, not a different variant.
 
 <critical_protocol name="evidence_gating">
 After ANY state-changing action (browser_click, browser_click_text, browser_type,
-browser_navigate, browser_press_key, browser_select_option, browser_drag_drop),
+browser_navigate, browser_press_key, browser_select_option, browser_drag_drop,
+browser_upload_file, browser_file_chooser),
 you MUST call an observation tool BEFORE your next action:
 - browser_screenshot — labeled screenshot with element indices + pseudo-HTML
 - browser_get_elements — list interactive elements with indices
@@ -431,6 +432,16 @@ interact with it. If it appeared on its own (cookie banner on page load), it is
 a BLOCKER — dismiss it. NEVER close a modal that is part of a publish/submit flow.
 </critical_protocol>
 
+FILE UPLOADS — two tools, choose the right one:
+- browser_upload_file {index, files} — Use when you see an <input type="file"> in the element list.
+  Just set files directly on the input. No click needed.
+- browser_file_chooser {triggerIndex, files} — Use when a button/area OPENS a file picker dialog
+  (no visible file input). This clicks the trigger and intercepts the native dialog.
+When the task requires uploading an image or file, check the element list:
+  - If you see an input[type="file"], use browser_upload_file.
+  - If you only see an "Upload" button or drop zone, use browser_file_chooser.
+Provide ABSOLUTE file paths. After upload, always screenshot to verify the file was accepted.
+
 <session_handling>
 - ALWAYS try navigating to a site FIRST. Do NOT preemptively look up credentials
   or ask the user to set up the vault. The user's profile likely has active sessions.
@@ -466,6 +477,8 @@ Prefer browser_click_text when you know the visible text; browser_click when you
 - browser_type_text: Type without targeting an element (when focus is already set).
 - browser_press_key: Press keyboard key (Enter, Escape, Tab, arrow keys, shortcuts).
 - browser_select_option: Select dropdown option, check/uncheck radio/checkbox.
+- browser_upload_file: Upload file(s) to a visible <input type="file"> by index. Provide absolute file paths.
+- browser_file_chooser: Upload file(s) via native file dialog. Click a trigger button that opens a file picker, then set files. Use when there is no visible file input — just an "Upload" or "Choose file" button/area.
 </category>
 
 <category name="element_inspection">
