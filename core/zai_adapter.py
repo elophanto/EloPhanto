@@ -134,11 +134,10 @@ class ZaiAdapter:
     async def health_check(self) -> bool:
         """Verify Z.ai connectivity with a minimal request.
 
-        Uses the paygo endpoint for the health check regardless of
-        coding_plan setting — this is just a connectivity/auth test and
-        the coding endpoint may reject lightweight pings.
+        Uses the same endpoint as actual requests — coding endpoint for
+        coding_plan users, paygo for others.
         """
-        base = self._base_url_paygo or self._base_url
+        base = self._base_url
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
