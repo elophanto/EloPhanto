@@ -358,14 +358,34 @@ class Database:
             )
 
     async def create_vec_table(self, dimensions: int) -> None:
-        """Create the vec_chunks virtual table with the detected embedding dimensions."""
+        """Create the vec_chunks virtual table with the detected embedding dimensions.
+
+        Only recreates if the table doesn't exist or dimensions changed.
+        """
         if not self._vec_available:
             return
 
         def _create() -> None:
             assert self._conn is not None
             with self._write_lock:
-                # Drop and recreate if dimensions changed
+                # Check if table already exists with correct dimensions
+                try:
+                    row = self._conn.execute(
+                        "SELECT COUNT(*) as cnt FROM vec_chunks_rowids"
+                    ).fetchone()
+                    # Table exists — check dimensions by inspecting a row
+                    if row and row[0] > 0:
+                        sample = self._conn.execute(
+                            "SELECT length(embedding) / 4 as dims FROM vec_chunks LIMIT 1"
+                        ).fetchone()
+                        if sample and sample[0] == dimensions:
+                            return  # Table exists with correct dimensions
+                    elif row and row[0] == 0:
+                        # Table exists but empty — no need to recreate
+                        return
+                except Exception:
+                    pass  # Table doesn't exist yet
+
                 self._conn.execute("DROP TABLE IF EXISTS vec_chunks")
                 self._conn.execute(
                     f"CREATE VIRTUAL TABLE vec_chunks USING vec0("
@@ -377,13 +397,32 @@ class Database:
         await asyncio.to_thread(_create)
 
     async def create_document_vec_table(self, dimensions: int) -> None:
-        """Create the document_chunks_vec virtual table for document embeddings."""
+        """Create the document_chunks_vec virtual table for document embeddings.
+
+        Only recreates if the table doesn't exist or dimensions changed.
+        """
         if not self._vec_available:
             return
 
         def _create() -> None:
             assert self._conn is not None
             with self._write_lock:
+                try:
+                    row = self._conn.execute(
+                        "SELECT COUNT(*) as cnt FROM document_chunks_vec"
+                    ).fetchone()
+                    if row and row[0] > 0:
+                        sample = self._conn.execute(
+                            "SELECT length(embedding) / 4 as dims "
+                            "FROM document_chunks_vec LIMIT 1"
+                        ).fetchone()
+                        if sample and sample[0] == dimensions:
+                            return
+                    elif row and row[0] == 0:
+                        return
+                except Exception:
+                    pass
+
                 self._conn.execute("DROP TABLE IF EXISTS document_chunks_vec")
                 self._conn.execute(
                     f"CREATE VIRTUAL TABLE document_chunks_vec USING vec0("

@@ -77,7 +77,9 @@ class ChannelAdapter(ABC):
         try:
             import websockets
         except ImportError as err:
-            raise RuntimeError("websockets package required: pip install websockets") from err
+            raise RuntimeError(
+                "websockets package required: pip install websockets"
+            ) from err
 
         self._ws = await websockets.connect(self._gateway_url)
         self._running = True
@@ -122,16 +124,15 @@ class ChannelAdapter(ABC):
         )
 
         # Create future for response
-        future: asyncio.Future[GatewayMessage] = asyncio.get_event_loop().create_future()
+        future: asyncio.Future[GatewayMessage] = (
+            asyncio.get_event_loop().create_future()
+        )
         self._pending_responses[msg.id] = future
 
         await self.send_to_gateway(msg)
 
         try:
-            return await asyncio.wait_for(future, timeout=600)
-        except TimeoutError:
-            logger.warning("Chat response timed out for message %s", msg.id[:8])
-            raise
+            return await future
         finally:
             self._pending_responses.pop(msg.id, None)
 
@@ -196,7 +197,9 @@ class ChannelAdapter(ABC):
             reply_to = msg.data.get("reply_to", "")
             future = self._pending_responses.get(reply_to)
             if future and not future.done():
-                future.set_exception(RuntimeError(msg.data.get("detail", "Gateway error")))
+                future.set_exception(
+                    RuntimeError(msg.data.get("detail", "Gateway error"))
+                )
             else:
                 await self.on_error(msg)
 
