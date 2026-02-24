@@ -13,15 +13,16 @@ class SetNextWakeupTool(BaseTool):
     name = "set_next_wakeup"
     description = (
         "Set how many seconds until your next autonomous thinking cycle. "
-        "Use shorter intervals (60-120s) when actively monitoring something, "
-        "longer intervals (600-1800s) when nothing is happening. Range: 60-3600."
+        "Use shorter intervals when actively monitoring something, "
+        "longer intervals when nothing is happening. "
+        "Clamped to min_wakeup_seconds..max_wakeup_seconds from config."
     )
     input_schema = {
         "type": "object",
         "properties": {
             "seconds": {
                 "type": "integer",
-                "description": "Seconds until next wakeup (60-3600)",
+                "description": "Seconds until next wakeup (clamped to config min/max)",
             },
             "reason": {
                 "type": "string",

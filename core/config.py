@@ -993,10 +993,11 @@ def load_config(config_path: Path | str | None = None) -> Config:
 
     # Parse autonomous_mind section
     am_raw = raw.get("autonomous_mind", {})
+    _wakeup_sec = am_raw.get("wakeup_seconds", 300)
     autonomous_mind_config = AutonomousMindConfig(
         enabled=am_raw.get("enabled", False),
-        wakeup_seconds=am_raw.get("wakeup_seconds", 300),
-        min_wakeup_seconds=am_raw.get("min_wakeup_seconds", 60),
+        wakeup_seconds=_wakeup_sec,
+        min_wakeup_seconds=am_raw.get("min_wakeup_seconds", _wakeup_sec),
         max_wakeup_seconds=am_raw.get("max_wakeup_seconds", 3600),
         budget_pct=am_raw.get("budget_pct", 15.0),
         max_rounds_per_wakeup=am_raw.get("max_rounds_per_wakeup", 8),
