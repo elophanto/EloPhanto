@@ -262,7 +262,7 @@ class AutonomousMindConfig:
 
     enabled: bool = False
     wakeup_seconds: int = 300  # Default wakeup interval (5 min)
-    min_wakeup_seconds: int = 60
+    min_wakeup_seconds: int = 300  # Defaults to wakeup_seconds at parse time
     max_wakeup_seconds: int = 3600
     budget_pct: float = 15.0  # % of daily LLM budget for autonomous ops
     max_rounds_per_wakeup: int = 8  # Max tool call rounds per cycle
