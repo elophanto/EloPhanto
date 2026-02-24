@@ -131,7 +131,7 @@ class TestOpenRouterEmbedder:
 
         assert result.dimensions == 3072
         assert len(result.vector) == 3072
-        assert result.model == "qwen/qwen3-embedding-8b"
+        assert result.model == "google/gemini-embedding-001"
 
     @pytest.mark.asyncio
     async def test_embed_batch(self) -> None:
@@ -166,7 +166,7 @@ class TestOpenRouterEmbedder:
 
         model, dims = await client.detect_model()
 
-        assert model == "qwen/qwen3-embedding-8b"
+        assert model == "google/gemini-embedding-001"
         assert dims == 3072
 
     @pytest.mark.asyncio

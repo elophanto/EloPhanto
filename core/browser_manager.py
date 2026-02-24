@@ -491,6 +491,10 @@ class BrowserManager:
         self._active_source_path: str | None = None
         self._prefs_backup: str | None = None
 
+        # Vision analysis config — set by agent after construction
+        self.openrouter_key: str = ""
+        self.vision_model: str = ""
+
     @classmethod
     def from_config(cls, config: Any) -> BrowserManager:
         """Create from a BrowserConfig dataclass."""
@@ -537,6 +541,11 @@ class BrowserManager:
             "viewport": self._viewport,
             "useSystemChrome": self._use_system_chrome,
         }
+
+        # Pass vision config so the bridge can analyze screenshots via OpenRouter
+        if self.openrouter_key:
+            config["openrouterKey"] = self.openrouter_key
+            config["visionModel"] = self.vision_model or "google/gemini-2.0-flash-001"
 
         if self._mode == "cdp_ws":
             config["cdpWsEndpoint"] = self._cdp_ws_endpoint

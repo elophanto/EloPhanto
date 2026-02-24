@@ -1214,15 +1214,12 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
   }
 
   /**
-   * Capture a lightweight screenshot + pseudo-HTML after a state-changing action.
-   * Returns null on failure — actions should never fail because of snapshot capture.
+   * Capture a post-action snapshot: screenshot saved to disk + pseudo-HTML.
+   * Only returns text data (pseudo-HTML + path) — no base64 in tool results.
+   * Returns null on failure so actions never break because of snapshot capture.
    */
   private async capturePostActionSnapshot(): Promise<{
-    imageBase64: string;
-    imageType: string;
     pseudoHtml: string;
-    url: string;
-    title: string;
     savedPath?: string;
   } | null> {
     try {
@@ -1234,11 +1231,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
         { url: combined.url, title: combined.title },
       ).catch(() => null);
       return {
-        imageBase64: combined.imageBase64,
-        imageType: combined.imageType,
         pseudoHtml: combined.pseudoHtml,
-        url: combined.url,
-        title: combined.title,
         savedPath: saved?.path,
       };
     } catch {
@@ -1263,11 +1256,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
       title: result.title,
       elements: snapshot?.pseudoHtml ?? await browser.getInteractiveElements(),
       message: `Navigated to "${result.title}". Interactive elements listed above with [index] numbers.`,
-      ...(snapshot ? {
-        screenshot: snapshot.imageBase64,
-        screenshotType: snapshot.imageType,
-        screenshotPath: snapshot.savedPath,
-      } : {}),
+      ...(snapshot?.savedPath ? { screenshotPath: snapshot.savedPath } : {}),
     };
   }
 
@@ -1282,11 +1271,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
       success: true,
       message: `Clicked element [${index}]`,
       elements: snapshot?.pseudoHtml ?? await browser.getInteractiveElements(),
-      ...(snapshot ? {
-        screenshot: snapshot.imageBase64,
-        screenshotType: snapshot.imageType,
-        screenshotPath: snapshot.savedPath,
-      } : {}),
+      ...(snapshot?.savedPath ? { screenshotPath: snapshot.savedPath } : {}),
     };
   }
 
@@ -1302,11 +1287,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
       matchedText: hit.matchedText,
       matchedTag: hit.tag,
       elements: snapshot?.pseudoHtml ?? await browser.getInteractiveElements(),
-      ...(snapshot ? {
-        screenshot: snapshot.imageBase64,
-        screenshotType: snapshot.imageType,
-        screenshotPath: snapshot.savedPath,
-      } : {}),
+      ...(snapshot?.savedPath ? { screenshotPath: snapshot.savedPath } : {}),
     };
   }
 
@@ -1632,11 +1613,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
       success: true,
       message: `Typed "${text}" into element [${index}]${enter ? ' and pressed Enter' : ''}`,
       elements: snapshot?.pseudoHtml,
-      ...(snapshot ? {
-        screenshot: snapshot.imageBase64,
-        screenshotType: snapshot.imageType,
-        screenshotPath: snapshot.savedPath,
-      } : {}),
+      ...(snapshot?.savedPath ? { screenshotPath: snapshot.savedPath } : {}),
     };
   }
 

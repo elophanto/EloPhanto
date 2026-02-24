@@ -760,7 +760,7 @@ def _run_full_wizard(config_dir: str) -> None:
         "knowledge",
         {
             "embedding_provider": "auto",
-            "embedding_openrouter_model": "qwen/qwen3-embedding-8b",
+            "embedding_openrouter_model": "google/gemini-embedding-001",
             "embedding_model": "nomic-embed-text",
             "embedding_fallback": "mxbai-embed-large",
         },
@@ -1093,7 +1093,7 @@ def _default_config() -> dict:
         },
         "knowledge": {
             "embedding_provider": "auto",
-            "embedding_openrouter_model": "qwen/qwen3-embedding-8b",
+            "embedding_openrouter_model": "google/gemini-embedding-001",
             "embedding_model": "nomic-embed-text",
             "embedding_fallback": "mxbai-embed-large",
         },

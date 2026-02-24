@@ -130,7 +130,7 @@ Formatting, classification, extraction, template filling. Low complexity.
 
 Converting text chunks to vectors for the knowledge system.
 
-- **Cloud** (default): `qwen/qwen3-embedding-8b` via OpenRouter — fast, cheap ($0.01/M tokens), #1 MTEB multilingual, 32K context
+- **Cloud** (default): `google/gemini-embedding-001` via OpenRouter — fast, cheap, high-quality multilingual embeddings
 - **Local fallback**: `nomic-embed-text` or `mxbai-embed-large` via Ollama — free, private, works offline
 - **Note**: Z.ai does NOT offer an embeddings API. Embeddings are handled by OpenRouter or Ollama.
 - **Auto mode** (default): Uses OpenRouter if an API key is configured, otherwise falls back to Ollama. Configurable via `knowledge.embedding_provider` in `config.yaml`.

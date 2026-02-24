@@ -148,7 +148,7 @@ goals:
 
 knowledge:
   embedding_provider: auto          # auto (OpenRouter if configured, else Ollama), openrouter, ollama
-  embedding_openrouter_model: "qwen/qwen3-embedding-8b"
+  embedding_openrouter_model: "google/gemini-embedding-001"
   embedding_model: "nomic-embed-text"   # Ollama model
   embedding_fallback: "mxbai-embed-large" # Ollama fallback
 
