@@ -68,7 +68,7 @@ agents:
       command: "codex --model gpt-5.3-codex -c 'model_reasoning_effort=high' --dangerously-bypass-approvals-and-sandbox"
       strengths: [backend, complex-bugs, multi-file-refactors, reasoning]
     gemini:
-      command: "gemini --model gemini-2.5-pro -p"
+      command: "gemini --model gemini-2.5-flash -p"
       strengths: [ui-design, css, visual-polish]
 
   done_criteria:
