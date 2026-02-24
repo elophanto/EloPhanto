@@ -75,6 +75,17 @@ const handlers: Record<string, Handler> = {
   },
 
   /**
+   * Set the current task context for goal-aware vision analysis.
+   * Called by the Python agent before browser work so the vision model
+   * knows what task the agent is trying to accomplish.
+   */
+  set_task_context: async (params) => {
+    const task = (params.task as string) || '';
+    plugin.taskContext = task;
+    return { ok: true, task };
+  },
+
+  /**
    * Call any browser tool by name.
    * This is the primary dispatch method — all 44 tools go through here.
    */

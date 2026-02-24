@@ -47,6 +47,9 @@ export default class BrowserPlugin implements AwarePlugin {
   description = 'Browser automation using Playwright with real Chrome support';
   author = 'aware-agent';
 
+  /** Current task context — set by Python agent for goal-aware vision analysis. */
+  taskContext = '';
+
   private agent!: AgentContext;
   private browser: AwareBrowserAgent | null = null;
   private config: BrowserConfig = {
@@ -273,17 +276,14 @@ Auto-detects common modal patterns, or you can specify a CSS selector.`,
     {
       type: 'tool',
       name: 'browser_screenshot',
-      description: `Take a screenshot of the current page and analyze it.
-Returns a detailed description of what's visible on the page including:
-- Page type (login form, search results, forum, etc.)
-- Key interactive elements (buttons, forms, links)
-- Important text content
-- Suggested next actions
-Use highlight=true to overlay element indices on the screenshot (helps correlate visual elements with browser_get_elements indices).`,
+      description: `Take a screenshot of the current page with labeled interactive elements.
+Screenshots include colored bounding boxes with index labels on all interactive elements. Each box and its label share the same color, with labels in the top-right corner.
+Also returns a pseudo-HTML element list where each element has a matching index (e.g., "[15]:<button>Submit</button>").
+Use the element indices from the returned list to interact with elements via browser_click, browser_type, etc.`,
       schema: {
         type: 'object',
         properties: {
-          highlight: { type: 'boolean', description: 'If true, overlay element index labels on screenshot for visual grounding (default: false)' },
+          highlight: { type: 'boolean', description: 'Ignored (highlights always enabled). Kept for backwards compatibility.' },
           forceVision: { type: 'boolean', description: 'If true, always run vision analysis even when text content looks sufficient (use after hover to see revealed visual content)' },
         },
       },
@@ -318,7 +318,7 @@ Use highlight=true to overlay element indices on the screenshot (helps correlate
     {
       type: 'tool',
       name: 'browser_get_elements',
-      description: 'Get list of interactive elements on the current page with their indices. Use showAll=true when you need to see ALL offscreen/hidden elements (e.g. to find a submit button on a long page).',
+      description: 'Get list of interactive elements on the current page as pseudo-HTML with indices. Format: "[15]:<button class="primary">Submit</button>". Elements marked "[]:text" are non-interactive context. Uses DOM tree traversal to detect elements in iframes, shadow DOM, and via event listeners. Only returns elements that are visible and not obscured by overlays.',
       schema: {
         type: 'object',
         properties: {
@@ -1592,36 +1592,42 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
 
   private async screenshot(highlight = false, forceVision = false) {
     const browser = await this.ensureBrowser();
-    const result = await browser.takeScreenshot(highlight);
 
-    const saved = await this.saveScreenshotToDisk(result.imageBase64, result.imageType, {
-      url: result.url,
-      title: result.title,
+    // Try combined screenshot+elements (EKO pattern) with fallback to legacy
+    let combined: { imageBase64: string; imageType: string; pseudoHtml: string; url: string; title: string };
+    try {
+      combined = await browser.takeScreenshotWithElements();
+    } catch (e) {
+      this.agent?.log?.warn?.(`takeScreenshotWithElements() failed, falling back to legacy: ${e instanceof Error ? e.message : String(e)}`);
+      // Fallback to old method
+      const legacy = await browser.takeScreenshot(highlight);
+      const legacyElements = await browser.getInteractiveElements().catch(() => '');
+      combined = {
+        imageBase64: legacy.imageBase64,
+        imageType: legacy.imageType,
+        pseudoHtml: legacyElements,
+        url: legacy.url,
+        title: legacy.title,
+      };
+    }
+
+    const saved = await this.saveScreenshotToDisk(combined.imageBase64, combined.imageType as any, {
+      url: combined.url,
+      title: combined.title,
     }).catch((e) => {
       this.agent?.log?.warn?.(`Failed to save screenshot to disk: ${e instanceof Error ? e.message : String(e)}`);
       return null;
     });
 
-    // Always gather deterministic context so the agent never gets stuck on vision
-    const [content, elements] = await Promise.all([
-      browser.extractContent().catch(() => ''),
-      browser.getInteractiveElements().catch(() => ''),
-    ]);
+    // Also get page content for context
+    const content = await browser.extractContent().catch(() => '');
+    const elements = combined.pseudoHtml;
 
-    // Include highlighted indices info if highlighting was enabled
-    const highlightInfo = highlight && result.highlightedIndices
-      ? `\n\n[Highlighted ${result.highlightedIndices.length} elements with index labels on screenshot. Red boxes/numbers show clickable element indices.]`
-      : '';
+    const highlightInfo = '\n\n[Screenshot includes colored bounding boxes with index labels on interactive elements. Each box and label share the same color. Element indices in the screenshot match the pseudo-HTML element list below.]';
 
     // Use vision model only when deterministic data is insufficient.
-    // If both extract and getElements returned usable data, skip the expensive API call.
-    // Threshold raised to 500 chars — simple pages (challenge steps, forms) easily exceed
-    // this with headings + instructions; vision is only needed for truly blank/canvas pages.
     const hasContent = typeof content === 'string' && content.trim().length > 500;
-    const elemStr = typeof elements === 'string' ? elements : String(elements ?? '');
-    const hasElements = elemStr.trim().length > 50;
-    // forceVision=true bypasses the sufficiency check (used after hover-reveal actions
-    // where text doesn't change but visual content does)
+    const hasElements = typeof elements === 'string' && elements.trim().length > 50;
     const needsVision = forceVision || !hasContent || !hasElements;
 
     if (this.config.openrouterKey && this.config.visionModel && needsVision) {
@@ -1629,13 +1635,12 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
         this.agent.log.info(`📸 Analyzing screenshot with vision model: ${this.config.visionModel} (deterministic data insufficient)`);
 
         const analysis = await this.analyzeScreenshotWithVision(
-          result.imageBase64,
-          result.imageType,
+          combined.imageBase64,
+          combined.imageType,
           content.slice(0, 5000),
           elements
         );
-        
-        // Log the full vision analysis so user can see what agent "sees"
+
         this.agent.log.info(`👁️ Vision Analysis:\n${analysis}`);
 
         const parsedVision = this.parseVisionJson(analysis);
@@ -1643,12 +1648,11 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
           this.agent.log.warn('⚠️ Vision output was not valid JSON (or could not be parsed). Using deterministic fallback vision from extract+elements.');
         }
 
-        // Treat non-JSON or explicit failures as analysis failure (but still return content/elements)
         const trimmed = analysis.trim();
         const isAnalysisFailed =
           trimmed.startsWith('ANALYSIS_FAILED:') ||
           trimmed === 'Unable to analyze screenshot' ||
-          (!trimmed.startsWith('{') && !trimmed.startsWith('[')); // we expect JSON output
+          (!trimmed.startsWith('{') && !trimmed.startsWith('['));
 
         const fallbackVision = isAnalysisFailed && !parsedVision
           ? this.buildFallbackVision(content.slice(0, 5000), elements)
@@ -1662,20 +1666,18 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
           progress_signal_to_watch: (parsedVision?.progress_signal_to_watch ?? fallbackVision?.progress_signal_to_watch) ?? undefined,
           questions_for_human: (parsedVision?.questions_for_human ?? fallbackVision?.questions_for_human) ?? undefined,
           visionModel: this.config.visionModel,
-          url: result.url,
-          title: result.title,
+          url: combined.url,
+          title: combined.title,
           savedScreenshotPath: saved?.path ?? undefined,
           content: content.slice(0, 5000),
           contentLength: content.length,
           elements,
-          highlightedElements: highlight ? result.highlightedIndices : undefined,
           note: (isAnalysisFailed
             ? 'Vision analysis unavailable/unstructured; included extracted page content + interactive elements for deterministic progress.'
             : 'Screenshot analyzed by vision model with structured output.') + highlightInfo,
         };
       } catch (error) {
         this.agent.log.warn(`Vision analysis failed: ${error}`);
-        // Fall back to returning raw image
       }
     }
 
@@ -1688,15 +1690,14 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
     this.agent.log.info(`📸 ${skipReason}`);
     return {
       success: true,
-      imageBase64: !needsVision ? undefined : result.imageBase64,
-      imageType: !needsVision ? undefined : result.imageType,
-      url: result.url,
-      title: result.title,
+      imageBase64: !needsVision ? undefined : combined.imageBase64,
+      imageType: !needsVision ? undefined : combined.imageType,
+      url: combined.url,
+      title: combined.title,
       savedScreenshotPath: saved?.path ?? undefined,
       content: content.slice(0, 5000),
       contentLength: content.length,
       elements,
-      highlightedElements: highlight ? result.highlightedIndices : undefined,
       note: skipReason + highlightInfo,
     };
   }
@@ -1838,6 +1839,9 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
       'browser_click_text',
       'browser_scroll',
       'browser_type',
+      'browser_press_key',
+      'browser_type_text',
+      'browser_select_option',
       'browser_hover_element',
       'browser_hover',
       'browser_drag_drop',
@@ -1904,6 +1908,27 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
         if (typeof idx !== 'number' || !Number.isFinite(idx)) continue;
         if (typeof text !== 'string') continue;
         out.push({ tool: 'browser_type', args: { index: idx, text, ...(typeof enter === 'boolean' ? { enter } : {}) }, why: a.why });
+        continue;
+      }
+      if (a.tool === 'browser_press_key') {
+        const key = (args as any).key;
+        if (typeof key !== 'string' || !key.trim()) continue;
+        out.push({ tool: 'browser_press_key', args: { key: key.trim() }, why: a.why });
+        continue;
+      }
+      if (a.tool === 'browser_type_text') {
+        const text = (args as any).text;
+        if (typeof text !== 'string') continue;
+        const pressEnter = typeof (args as any).pressEnter === 'boolean' ? (args as any).pressEnter : undefined;
+        out.push({ tool: 'browser_type_text', args: { text, ...(pressEnter !== undefined ? { pressEnter } : {}) }, why: a.why });
+        continue;
+      }
+      if (a.tool === 'browser_select_option') {
+        const idx = (args as any).index;
+        const value = (args as any).value;
+        if (typeof idx !== 'number' || !Number.isFinite(idx)) continue;
+        if (typeof value !== 'string') continue;
+        out.push({ tool: 'browser_select_option', args: { index: idx, value }, why: a.why });
         continue;
       }
       if (a.tool === 'browser_inspect_element' || a.tool === 'browser_get_element_box') {
@@ -2177,8 +2202,10 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
         ? elements
         : JSON.stringify(elements).slice(0, 5000);
 
-    const basePrompt = (textInput: string, elemsInput: string) => `You recommend next actions for a web automation agent.
+    const taskLine = this.taskContext ? `\nCURRENT TASK: ${this.taskContext}\nCRITICAL: Only take actions that move toward this exact task. If you see alternatives (e.g., "Note" vs "Article", "Quick post" vs "New post"), choose the one that matches the task. Do NOT complete a different task than requested.\n` : '';
 
+    const basePrompt = (textInput: string, elemsInput: string) => `You recommend next actions for a web automation agent.
+${taskLine}
 TEXT: ${textInput || '[none]'}
 ELEMENTS: ${elemsInput}
 
@@ -2190,6 +2217,7 @@ Rules:
 
 Tools (use ONLY these):
 browser_click {index} | browser_click_text {text, exact?, nth?} | browser_type {index, text, enter?}
+browser_press_key {key} | browser_type_text {text, pressEnter?} | browser_select_option {index, value}
 browser_scroll {direction:"up"|"down", amount?} | browser_hover_element {index} | browser_hover {x, y}
 browser_drag_drop {fromIndex, toIndex} or {fromX, fromY, toX, toY} | browser_drag_solve {strategy?} | browser_drag_brute_force {}
 browser_click_batch {texts?, indices?} | browser_pointer_path {points:[{x,y},...], elementIndex?, relative?}

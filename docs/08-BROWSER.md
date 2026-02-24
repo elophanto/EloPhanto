@@ -30,10 +30,16 @@ Python (EloPhanto)                        Node.js (bridge/browser/)
 
 **Protocol:**
 ```
-Request:  {"id": 1, "method": "call_tool", "params": {"name": "browser_navigate", "args": {"url": "https://..."}}}
-Response: {"id": 1, "result": {"success": true, "url": "...", "title": "...", "elements": [...]}}
-Error:    {"id": 1, "error": {"message": "...", "code": -1}}
+Initialize: {"id": 1, "method": "initialize", "params": {"mode": "profile", ...}}
+Set task:   {"id": 2, "method": "set_task_context", "params": {"task": "Publish article on Substack"}}
+Tool call:  {"id": 3, "method": "call_tool", "params": {"name": "browser_navigate", "args": {"url": "https://..."}}}
+Response:   {"id": 3, "result": {"success": true, "url": "...", "title": "...", "elements": [...]}}
+Error:      {"id": 3, "error": {"message": "...", "code": -1}}
 ```
+
+The `set_task_context` method forwards the user's current goal to the browser bridge.
+The vision model includes this task in its analysis prompt, preventing goal drift
+(e.g., creating a Note when asked to publish an Article).
 
 ## Connection Modes
 
@@ -128,8 +134,8 @@ The bridge exposes 46 browser tools from `AwareBrowserAgent`. Key categories:
 | `browser_navigate` | Navigate to URL, returns elements with indices |
 | `browser_extract` | Full page text/HTML extraction |
 | `browser_read_semantic` | Compressed screen-reader-style view (headings, landmarks, forms) |
-| `browser_screenshot` | Capture viewport (optional element highlight) |
-| `browser_get_elements` | List interactive elements with index numbers |
+| `browser_screenshot` | Labeled screenshot with colored element overlays + pseudo-HTML |
+| `browser_get_elements` | Interactive elements as pseudo-HTML via DOM tree traversal |
 | `browser_get_html` | Full HTML source |
 | `browser_list_tabs` | List open tabs |
 
@@ -141,6 +147,8 @@ The bridge exposes 46 browser tools from `AwareBrowserAgent`. Key categories:
 | `browser_click_text` | Click by visible text match |
 | `browser_click_batch` | Multiple clicks in one call |
 | `browser_type` | Type into element by index |
+| `browser_press_key` | Press keyboard key (Enter, Escape, Tab, arrow keys, shortcuts) |
+| `browser_type_text` | Type text without targeting a specific element |
 | `browser_scroll` | Scroll page or container |
 | `browser_select_option` | Select/deselect form controls |
 | `browser_drag_drop` | Drag-and-drop by index or coordinates |
@@ -159,14 +167,36 @@ The bridge exposes 46 browser tools from `AwareBrowserAgent`. Key categories:
 
 ## Element Interaction
 
-The bridge uses element stamping for reliable targeting. When `browser_navigate`
-or `browser_get_elements` is called, each interactive element is stamped with a
-`data-aware-idx` attribute. Subsequent `browser_click`, `browser_type`, and similar
-calls use this index.
+### EKO DOM Tree System
 
-The element stamping covers: links, buttons, inputs, selects, textareas, ARIA roles
-(button, link, radio, checkbox, tab, menuitem, switch, slider, combobox, listbox),
-contenteditable elements, onclick handlers, and cursor-pointer styled elements.
+The bridge uses EKO's DOM tree traversal for element identification (ported from
+[FellouAI/eko](https://github.com/FellouAI/eko)'s `build-dom-tree.ts`). When
+`browser_screenshot` or `browser_get_elements` is called, a JavaScript module is
+injected into the page that:
+
+1. **Recursively traverses** the entire DOM including iframes and shadow DOM
+2. **Identifies interactive elements** via comprehensive checks:
+   - HTML tags (`a`, `button`, `input`, `select`, `textarea`, etc.)
+   - ARIA roles (`button`, `link`, `checkbox`, `combobox`, `tab`, `menuitem`, etc.)
+   - Event listeners (`onclick`, `onmousedown`, `ontouchstart`, framework bindings like `@click`, `ng-click`, `v-on:click`)
+   - Styling (`cursor: pointer` with parent deduplication)
+   - Attributes (`contenteditable`, `tabindex`, `draggable`, `aria-expanded/pressed/selected`)
+3. **Checks visibility** — `offsetWidth/Height`, `display`, `visibility`
+4. **Checks top-element status** — uses `document.elementFromPoint()` to verify the element isn't behind a modal or overlay
+5. **Draws colored overlays** — 12 cycling colors, bounding boxes with index labels at z-index max
+6. **Returns pseudo-HTML** — e.g., `[15]:<button class="primary" aria-label="Publish">Publish Article</button>`
+7. **Stores element references** — `window.get_highlight_element(index)` retrieves the exact element for clicking
+
+The combined `takeScreenshotWithElements()` method ensures index consistency:
+screenshot labels and pseudo-HTML indices always match because they're generated
+in the same call. Falls back to the legacy CSS selector approach if injection fails.
+
+### Element Resolution
+
+When clicking/typing by index, the bridge resolves elements via:
+1. `window.get_highlight_element(idx)` — stored reference from DOM tree traversal
+2. `document.querySelector('[data-aware-idx="idx"]')` — legacy stamped attribute
+3. Positional fallback via `querySelectorAll(selectors)[idx]`
 
 ### Input Handling (EKO-style fallback chain)
 

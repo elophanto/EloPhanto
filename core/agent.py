@@ -907,7 +907,15 @@ class Agent:
             available_skills=available_skills,
             goal_context=goal_context,
             identity_context=identity_context,
+            current_goal=goal,
         )
+
+        # Forward task context to browser bridge for goal-aware vision analysis
+        if self._browser_manager:
+            try:
+                await self._browser_manager.set_task_context(goal)
+            except Exception:
+                pass
 
         # Build conversation for LLM: prior turns + current user message
         messages: list[dict[str, Any]] = list(conversation_history)
