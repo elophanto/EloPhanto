@@ -148,7 +148,14 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     # Update AutonomousMind with gateway reference + start
     if agent._autonomous_mind:
         agent._autonomous_mind._gateway = gateway
-        asyncio.create_task(agent._autonomous_mind.resume_on_startup())
+        mind_task = asyncio.create_task(agent._autonomous_mind.resume_on_startup())
+        mind_task.add_done_callback(
+            lambda t: (
+                logger.error("Mind startup failed: %s", t.exception())
+                if not t.cancelled() and t.exception()
+                else None
+            )
+        )
 
     # Update EmailMonitor with gateway reference (user starts via tool)
     if agent._email_monitor:
