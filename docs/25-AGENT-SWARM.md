@@ -1,6 +1,6 @@
 # Agent Swarm — Orchestrate Claude Code, Codex & Gemini CLI
 
-EloPhanto turns you into a one-person dev team. Instead of running Claude Code or Codex by hand, EloPhanto spawns them, writes their prompts with full business context from your knowledge vault, monitors progress, redirects agents that go off track, runs multi-model code review, and pings you on Telegram when PRs are ready to merge.
+EloPhanto turns you into a one-person dev team. Instead of running Claude Code or Codex by hand, EloPhanto spawns them, writes their prompts with full business context from your knowledge vault, monitors progress, redirects agents that go off track, runs multi-model code review, and pings you on any channel when PRs are ready to merge.
 
 You talk to EloPhanto. EloPhanto manages the fleet.
 
@@ -42,14 +42,21 @@ EloPhanto holds your knowledge vault — meeting notes, customer data, past deci
 └─────────────────────────────────────────────────────┘
 ```
 
-Each coding agent runs in its own:
-- **Managed process** — EloPhanto spawns it via `tmux` for persistence, automatic logging, and mid-task redirection. If EloPhanto restarts, agent sessions survive.
-- **Git worktree** — isolated branch per agent. No merge conflicts between parallel agents.
-- **Independent environment** — own `node_modules`, builds, and test runs.
+## Setup
 
-## Configuration
+Install the CLI agents you want to use, then run `setup.sh` — it handles the rest:
 
-Add to `config.yaml`:
+```bash
+# Install whichever agents you want EloPhanto to manage
+npm install -g @anthropic-ai/claude-code   # Claude Code
+npm install -g @openai/codex               # Codex
+npm install -g @anthropic-ai/gemini-cli    # Gemini CLI
+
+# Run setup — auto-detects installed agents, installs tmux + gh if needed
+./setup.sh
+```
+
+Then enable the swarm in `config.yaml`:
 
 ```yaml
 agents:
@@ -77,9 +84,15 @@ agents:
     review_passed: true
 ```
 
-Prerequisites: install the CLI agents you want (`claude`, `codex`, `gemini`), plus `tmux` and `gh` (GitHub CLI).
+Start EloPhanto and chat. That's it.
+
+```bash
+./start.sh
+```
 
 ## Workflow
+
+Everything happens through conversation. No terminals to manage, no scripts to run.
 
 ### 1. Describe the Task
 
@@ -94,46 +107,23 @@ EloPhanto has your meeting notes in its knowledge vault. Zero explanation needed
 
 ### 2. EloPhanto Spawns an Agent
 
-EloPhanto picks the right agent for the task, creates an isolated worktree, enriches the prompt with business context, and spawns the agent:
+EloPhanto picks the right agent for the task, creates an isolated worktree, enriches the prompt with business context, and spawns the agent. You see a confirmation:
 
-```bash
-# EloPhanto does this automatically:
-git worktree add ../worktrees/feat-templates -b feat/templates origin/main
-cd ../worktrees/feat-templates && pnpm install
-
-tmux new-session -d -s "agent-templates" \
-  "codex --model gpt-5.3-codex \
-   --dangerously-bypass-approvals-and-sandbox \
-   'Implement a configuration template system for team sharing.
-    Customer: Acme Agency (enterprise tier, 12 users).
-    Their current config structure: { ... pulled from knowledge vault ... }
-    Requirements: save existing configs as templates, edit, duplicate, share.
-    Stack: Next.js 16, Prisma, PostgreSQL.
-    Tests: unit + E2E. Include screenshots for UI changes.
-    When done: git push && gh pr create --fill'"
+```
+EloPhanto: "Spawning Codex on feat/templates.
+           Context: Acme Agency config structure pulled from vault.
+           I'll notify you when the PR is ready."
 ```
 
-The task is tracked in a registry so EloPhanto can monitor it:
-
-```json
-{
-  "id": "feat-templates",
-  "agent": "codex",
-  "session": "agent-templates",
-  "branch": "feat/templates",
-  "status": "running",
-  "started_at": "2026-02-24T10:30:00Z",
-  "retries": 0
-}
-```
+Behind the scenes, EloPhanto creates a git worktree, installs dependencies, writes a detailed prompt with customer context from your knowledge vault, and launches the agent in a persistent tmux session. You don't touch any of it.
 
 ### 3. Automated Monitoring
 
 EloPhanto's scheduler checks all running agents every 10 minutes. The check is deterministic — no LLM calls, near-zero cost:
 
 - **Process alive?** — Is the agent session still running?
-- **PR created?** — `gh pr list --head feat/templates`
-- **CI passed?** — `gh pr checks`
+- **PR created?** — Checks for open PRs on the tracked branch
+- **CI passed?** — Checks CI status via GitHub CLI
 - **Reviews passed?** — All AI reviewers approved?
 
 On failure, EloPhanto decides the next action using business context:
@@ -144,26 +134,23 @@ On failure, EloPhanto decides the next action using business context:
 | CI failed (lint/types) | Respawn with error output appended to prompt |
 | CI failed (tests) | Analyze failure, refine prompt, respawn |
 | Wrong approach | Redirect agent mid-task (see below) |
-| Needs human decision | Escalate to Telegram/Slack |
+| Needs human decision | Escalate to any connected channel |
 
 ### 4. Mid-Task Redirection
 
-When an agent goes off track, EloPhanto redirects it without killing it. This is the key advantage — EloPhanto has context the coding agent doesn't:
+When an agent goes off track, EloPhanto redirects it without killing it. This is the key advantage — EloPhanto has context the coding agent doesn't.
 
-```bash
-# Agent building the wrong thing
-tmux send-keys -t agent-templates \
-  "Stop. The customer wants to save EXISTING configs as templates,
-   not create templates from scratch. Reuse the ConfigSnapshot type
-   in src/types/config.ts." Enter
+You can trigger redirection through conversation:
 
-# Agent needs data it doesn't have
-tmux send-keys -t agent-templates \
-  "Here's the customer's actual config structure: { ... }
-   Match this schema exactly." Enter
+```
+You: "That template agent — make sure it reuses the existing ConfigSnapshot
+     type, don't let it build from scratch."
+
+EloPhanto: "Redirected. Told it to use ConfigSnapshot from src/types/config.ts
+           and match the customer's existing schema."
 ```
 
-EloPhanto makes these calls using knowledge the coding agent never had — customer history, meeting notes, what was tried before, why it failed.
+Or EloPhanto catches it automatically during monitoring — it reads the agent's output, compares it against your business context, and course-corrects before the agent wastes tokens going the wrong direction.
 
 ### 5. Multi-Model Code Review
 
@@ -175,14 +162,14 @@ Every PR gets reviewed by multiple AI models before you see it. They catch diffe
 | **Gemini Code Assist** | Security issues, scalability problems. Free tier |
 | **Claude Code** | Validates what others flag. Best at architectural concerns |
 
-All three post comments directly on the PR via `gh api`. EloPhanto orchestrates the reviews in parallel.
+All three post comments directly on the PR. EloPhanto orchestrates the reviews in parallel.
 
 ### 6. Notification
 
-Only when ALL criteria pass does EloPhanto notify you:
+Only when ALL criteria pass does EloPhanto notify you on whichever channels you're connected to:
 
 ```
-Telegram: "PR #341 ready for review.
+"PR #341 ready for review.
   ✓ CI passed (lint, types, unit, E2E)
   ✓ Codex review: approved
   ✓ Gemini review: approved
@@ -233,6 +220,15 @@ Each agent needs ~3GB RAM (worktree + dependencies + build + tests):
 | Mac Mini M4 | 32GB | 8–10 |
 | Mac Studio M4 Max | 128GB | 30+ |
 | Linux server (cloud) | 64GB | 15–20 |
+
+## Under the Hood
+
+For those who want to understand the internals:
+
+- **tmux** — Each agent runs in a persistent tmux session. This gives EloPhanto three things: sessions survive if EloPhanto restarts, full terminal logging for debugging, and mid-task redirection via `tmux send-keys` (inject new instructions into a running agent without killing it).
+- **Git worktrees** — Each agent gets its own worktree on a separate branch. No merge conflicts between parallel agents, no shared state.
+- **Task registry** — JSON file tracking all active agents (branch, session, status, retries). The monitoring loop reads this, not the agents directly.
+- **`gh` CLI** — PR creation, CI status checks, and code review comments all go through GitHub CLI.
 
 ## Self-Improving Prompts
 
