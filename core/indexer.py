@@ -455,7 +455,10 @@ class KnowledgeIndexer:
                         (chunk_id, _serialize_vector(embedding.vector)),
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to embed chunk {chunk_id}: {e}")
+                    logger.error(
+                        f"Failed to embed chunk {chunk_id} "
+                        f"(model={self._embedding_model}): {e}"
+                    )
 
 
 def _serialize_vector(vector: list[float]) -> bytes:

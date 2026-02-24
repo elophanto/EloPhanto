@@ -551,6 +551,63 @@ class Agent:
                         f"Indexed {result.files_indexed} knowledge files "
                         f"({result.chunks_created} chunks)"
                     )
+                if result.errors:
+                    for err in result.errors:
+                        logger.warning(f"Indexing error: {err}")
+
+                # Check embedding health — auto-recover if broken
+                try:
+                    total_chunks = await self._db.execute(
+                        "SELECT COUNT(*) as cnt FROM knowledge_chunks"
+                    )
+                    chunk_count = total_chunks[0]["cnt"] if total_chunks else 0
+                    vec_count = 0
+                    if self._db.vec_available:
+                        vec_rows = await self._db.execute(
+                            "SELECT COUNT(*) as cnt FROM vec_chunks_rowids"
+                        )
+                        vec_count = vec_rows[0]["cnt"] if vec_rows else 0
+
+                    if chunk_count > 0 and vec_count == 0:
+                        logger.warning(
+                            f"⚠ EMBEDDINGS BROKEN: {chunk_count} chunks, "
+                            f"0 embeddings — forcing full re-index"
+                        )
+                        _status("Re-indexing knowledge (fixing embeddings)")
+                        reindex = await self._indexer.index_all()
+                        logger.info(
+                            f"Full re-index: {reindex.files_indexed} files, "
+                            f"{reindex.chunks_created} chunks"
+                        )
+                        # Re-check after full reindex
+                        if self._db.vec_available:
+                            vec_rows = await self._db.execute(
+                                "SELECT COUNT(*) as cnt FROM vec_chunks_rowids"
+                            )
+                            vec_count = vec_rows[0]["cnt"] if vec_rows else 0
+                        total_chunks = await self._db.execute(
+                            "SELECT COUNT(*) as cnt FROM knowledge_chunks"
+                        )
+                        chunk_count = total_chunks[0]["cnt"] if total_chunks else 0
+                        if vec_count > 0:
+                            logger.info(
+                                f"Embeddings recovered: {chunk_count} chunks, "
+                                f"{vec_count} embeddings"
+                            )
+                        else:
+                            logger.error(
+                                f"⚠ EMBEDDINGS STILL BROKEN after re-index: "
+                                f"{chunk_count} chunks, 0 embeddings — "
+                                f"check embedding provider config"
+                            )
+                    else:
+                        logger.info(
+                            f"Knowledge: {chunk_count} chunks, "
+                            f"{vec_count} embeddings, "
+                            f"vec_available={self._db.vec_available}"
+                        )
+                except Exception:
+                    pass
             except Exception as e:
                 logger.warning(f"Knowledge indexing failed: {e}")
 
