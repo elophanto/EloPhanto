@@ -89,7 +89,7 @@ Each chunk retains metadata: source file path, heading hierarchy (breadcrumb), f
 
 Chunks are embedded via the configured provider. The default is `auto`, which selects the fastest available:
 
-1. **OpenRouter** (cloud, default if API key configured) — `qwen/qwen3-embedding-8b`, fast, cheap ($0.01/M tokens), #1 MTEB multilingual, 32K context
+1. **OpenRouter** (cloud, default if API key configured) — `google/gemini-embedding-001`, fast, cheap, high-quality multilingual embeddings
 2. **Ollama** (local fallback) — `nomic-embed-text` (primary) or `mxbai-embed-large` (fallback), free but requires local GPU
 
 The provider is configured in `config.yaml`:
@@ -97,7 +97,7 @@ The provider is configured in `config.yaml`:
 ```yaml
 knowledge:
   embedding_provider: auto  # auto | openrouter | ollama
-  embedding_openrouter_model: qwen/qwen3-embedding-8b
+  embedding_openrouter_model: google/gemini-embedding-001
   embedding_model: nomic-embed-text       # Ollama model
   embedding_fallback: mxbai-embed-large   # Ollama fallback
 ```

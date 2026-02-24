@@ -234,39 +234,37 @@ class Agent:
                 ", ".join(enabled),
             )
 
-        # --- Embedding detection (background — not on critical path) ---
-        async def _detect_embeddings_bg() -> None:
+        # --- Embedding detection (must complete before indexing) ---
+        _status("Detecting embedding model")
+        try:
             from core.embeddings import OpenRouterEmbedder
 
-            try:
-                kc = self._config.knowledge
-                if isinstance(self._embedder, OpenRouterEmbedder):
-                    primary_model = kc.embedding_openrouter_model
-                    fallback_model = None
-                else:
-                    primary_model = kc.embedding_model
-                    fallback_model = kc.embedding_fallback
-                model, dims = await self._embedder.detect_model(
-                    primary=primary_model,
-                    fallback=fallback_model,
-                )
-                if model and dims:
-                    self._indexer.set_embedding_model(model)
+            kc = self._config.knowledge
+            if isinstance(self._embedder, OpenRouterEmbedder):
+                primary_model = kc.embedding_openrouter_model
+                fallback_model = None
+            else:
+                primary_model = kc.embedding_model
+                fallback_model = kc.embedding_fallback
+            model, dims = await self._embedder.detect_model(
+                primary=primary_model,
+                fallback=fallback_model,
+            )
+            if model and dims:
+                self._indexer.set_embedding_model(model)
+                try:
+                    await self._db.create_vec_table(dims)
+                except Exception as e:
+                    logger.warning(f"Failed to create vec table: {e}")
+                # Also create document vec table if documents subsystem is active
+                if self._document_store:
                     try:
-                        await self._db.create_vec_table(dims)
-                    except Exception as e:
-                        logger.warning(f"Failed to create vec table: {e}")
-                    # Also create document vec table if documents subsystem is active
-                    if self._document_store:
-                        try:
-                            await self._db.create_document_vec_table(dims)
-                        except Exception:
-                            pass
-                    logger.info(f"Embedding model ready: {model} ({dims}d)")
-            except Exception as e:
-                logger.info(f"Embeddings not available: {e}")
-
-        asyncio.create_task(_detect_embeddings_bg())
+                        await self._db.create_document_vec_table(dims)
+                    except Exception:
+                        pass
+                logger.info(f"Embedding model ready: {model} ({dims}d)")
+        except Exception as e:
+            logger.info(f"Embeddings not available: {e}")
 
         # Inject dependencies into knowledge tools
         self._inject_knowledge_deps()
@@ -298,6 +296,12 @@ class Agent:
                 from core.browser_manager import BrowserManager
 
                 self._browser_manager = BrowserManager.from_config(self._config.browser)
+
+                # Pass OpenRouter key for vision-based screenshot analysis
+                or_cfg = self._config.llm.providers.get("openrouter")
+                if or_cfg and or_cfg.api_key and or_cfg.enabled:
+                    self._browser_manager.openrouter_key = or_cfg.api_key
+
                 logger.info(
                     "Browser configured (mode=%s) — will launch on first use",
                     self._browser_manager.mode,
@@ -1130,6 +1134,14 @@ class Agent:
                         raw_result = exec_result.result.to_dict()
                         func_name = tc["function"]["name"]
                         raw_result = wrap_tool_result(func_name, raw_result)
+                        # Strip base64 images from browser results — they bloat
+                        # context for text-only LLMs. The bridge saves screenshots
+                        # to disk and returns a path instead.
+                        if func_name.startswith("browser_"):
+                            _data = raw_result.get("data")
+                            if isinstance(_data, dict):
+                                _data.pop("imageBase64", None)
+                                _data.pop("imageType", None)
                         tool_content = json.dumps(raw_result)
                     else:
                         tool_content = json.dumps({"error": "No result returned"})

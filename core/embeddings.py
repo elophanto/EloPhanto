@@ -95,7 +95,7 @@ class OpenRouterEmbedder:
         self,
         api_key: str,
         base_url: str = "https://openrouter.ai/api/v1",
-        default_model: str = "qwen/qwen3-embedding-8b",
+        default_model: str = "google/gemini-embedding-001",
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
