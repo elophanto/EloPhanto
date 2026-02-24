@@ -499,7 +499,7 @@ class Config:
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
-    swarm: "SwarmConfig" = field(default_factory=lambda: SwarmConfig())
+    swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
     project_root: Path = field(default_factory=Path.cwd)
 
 
