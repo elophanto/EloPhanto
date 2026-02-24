@@ -4518,7 +4518,6 @@ export class AwareBrowserAgent {
     // Step 3: If fill() failed, fall back to DOM-level typing.
     // This handles everything: React controlled inputs, contenteditable,
     // rich text editors (Slate, Draft, ProseMirror), iframes.
-    // Same approach as EKO's browser-labels.ts typing() function.
     if (!filled) {
       const escapedText = JSON.stringify(text);
       await page.evaluate(`
@@ -4547,27 +4546,50 @@ export class AwareBrowserAgent {
             input = el.querySelector('input') || el.querySelector('textarea');
             if (!input) {
               input = el.querySelector('*[contenteditable="true"]') || el;
-              if (input.tagName === 'DIV') {
-                input = input.querySelector('span') || input.querySelector('div') || input;
-              }
             }
           }
 
           input.focus && input.focus();
 
-          if (input.value === undefined) {
-            // Contenteditable element — set textContent directly
-            input.textContent = ${escapedText};
-          } else {
-            // Regular input — use React prototype setter hack
+          // Check if this is a contenteditable / rich text editor
+          var isContentEditable = input.isContentEditable
+            || input.getAttribute('contenteditable') === 'true'
+            || (input.closest && input.closest('[contenteditable="true"]'));
+
+          if (isContentEditable) {
+            // Rich text editors (Substack/Slate, Medium/ProseMirror, etc.)
+            // use internal state managers. Direct textContent assignment
+            // bypasses their state, causing duplication or deletion.
+            // Use execCommand which goes through the browser's editing
+            // pipeline — editors listen to these events and stay in sync.
+            var editTarget = input.closest
+              ? (input.closest('[contenteditable="true"]') || input)
+              : input;
+            editTarget.focus();
+
+            // Select all existing content
+            var sel = window.getSelection();
+            var range = document.createRange();
+            range.selectNodeContents(editTarget);
+            sel.removeAllRanges();
+            sel.addRange(range);
+
+            // Replace selection with new text via the editing pipeline
+            document.execCommand('insertText', false, ${escapedText});
+          } else if (input.value !== undefined) {
+            // Regular input/textarea — use React prototype setter hack
             input.value = ${escapedText};
             if (input.__proto__) {
               var setter = Object.getOwnPropertyDescriptor(input.__proto__, 'value');
               if (setter && setter.set) setter.set.call(input, ${escapedText});
             }
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          } else {
+            // Last resort fallback for unknown element types
+            input.textContent = ${escapedText};
+            input.dispatchEvent(new Event('input', { bubbles: true }));
           }
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
         })()
       `);
     }

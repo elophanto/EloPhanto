@@ -135,6 +135,14 @@ class Gateway:
                 future.set_result(False)
         self._pending_approvals.clear()
 
+    async def _subscribe_to_unified(self, client: ClientConnection) -> None:
+        """Subscribe a client to the unified session (creates it if needed)."""
+        session = await self._sessions.get_or_create("unified", "owner")
+        client.session_id = session.session_id
+        if session.session_id not in self._session_clients:
+            self._session_clients[session.session_id] = set()
+        self._session_clients[session.session_id].add(client.client_id)
+
     async def broadcast(
         self,
         msg: GatewayMessage,
@@ -173,6 +181,11 @@ class Gateway:
             await websocket.send(
                 status_message("connected", {"client_id": client_id}).to_json()
             )
+
+            # Auto-subscribe to unified session so cross-channel forwarding
+            # works immediately (without requiring the client to chat first).
+            if self._unified_sessions:
+                await self._subscribe_to_unified(client)
 
             async for raw in websocket:
                 try:
@@ -499,8 +512,11 @@ class Gateway:
 
         elif command == "clear":
             # Delete the current session to wipe conversation history
-            if client.session_id:
-                await self._sessions.delete(client.session_id)
+            old_session_id = client.session_id
+            if old_session_id:
+                await self._sessions.delete(old_session_id)
+                # Remove stale subscription set for the deleted session
+                self._session_clients.pop(old_session_id, None)
             client.session_id = ""
             # Clear task memory so the agent doesn't recall old tasks
             mem_mgr = getattr(self._agent, "_memory_manager", None)
@@ -509,6 +525,10 @@ class Gateway:
                 text = f"Session cleared. {count} task memories wiped."
             else:
                 text = "Session cleared."
+            # Re-subscribe all connected clients to the new unified session
+            if self._unified_sessions:
+                for _cid, c in self._clients.items():
+                    await self._subscribe_to_unified(c)
             await client.websocket.send(response_message("", text, done=True).to_json())
 
         else:
