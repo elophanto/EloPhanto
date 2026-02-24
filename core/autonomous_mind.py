@@ -335,10 +335,19 @@ class AutonomousMind:
         # Build the prompt
         prompt = self._build_prompt()
 
-        # Broadcast wakeup event
+        # Broadcast wakeup event with rich context
+        daily_budget = self._daily_budget()
+        scratchpad_preview = _read_scratchpad(self._project_root)[:200].strip()
         await self._broadcast_event(
             EventType.MIND_WAKEUP,
-            {"cycle": self._cycle_count + 1},
+            {
+                "cycle": self._cycle_count + 1,
+                "budget_remaining": f"${max(0, daily_budget - self._spent_today_usd):.4f}",
+                "budget_total": f"${daily_budget:.4f}",
+                "scratchpad_preview": scratchpad_preview or "(empty)",
+                "last_action": self._last_action,
+                "total_cycles_today": self._cycle_count,
+            },
         )
 
         # Isolate conversation history (same pattern as GoalRunner)
@@ -375,6 +384,37 @@ class AutonomousMind:
 
         self._agent._executor.set_approval_callback(_auto_approve)
 
+        # Hook tool execution to broadcast real-time tool use events
+        _tool_uses: list[dict[str, str]] = []
+        _loop = asyncio.get_event_loop()
+
+        def _on_tool(name: str, params: dict[str, Any], error: str | None) -> None:
+            # Format params compactly for display
+            param_str = ""
+            if params:
+                parts = []
+                for k, v in list(params.items())[:3]:
+                    sv = str(v)
+                    parts.append(f"{k}={sv[:60]}{'…' if len(sv) > 60 else ''}")
+                param_str = ", ".join(parts)
+            status = "error" if error else "ok"
+            _tool_uses.append({"tool": name, "params": param_str, "status": status})
+            # Fire-and-forget broadcast
+            _loop.create_task(
+                self._broadcast_event(
+                    EventType.MIND_TOOL_USE,
+                    {
+                        "tool": name,
+                        "params": param_str,
+                        "status": status,
+                        "error": error or "",
+                    },
+                )
+            )
+
+        prev_tool_cb = self._agent._executor._on_tool_executed
+        self._agent._executor._on_tool_executed = _on_tool
+
         try:
             # Run through the agent's normal pipeline
             response = await asyncio.wait_for(
@@ -398,13 +438,19 @@ class AutonomousMind:
                 self._recent_actions = self._recent_actions[-50:]
             _append_action_log(self._project_root, action_summary)
 
-            # Broadcast action
+            # Broadcast action with full details
             elapsed = time.monotonic() - cycle_start
-            if self._config.verbosity != "minimal" or cost > 0.01:
-                await self._broadcast_event(
-                    EventType.MIND_ACTION,
-                    {"summary": action_summary, "cost": f"${cost:.4f}"},
-                )
+            daily_budget = self._daily_budget()
+            await self._broadcast_event(
+                EventType.MIND_ACTION,
+                {
+                    "summary": action_summary,
+                    "cost": f"${cost:.4f}",
+                    "elapsed": f"{elapsed:.1f}s",
+                    "tools_used": [t["tool"] for t in _tool_uses],
+                    "tool_count": len(_tool_uses),
+                },
+            )
 
             # Broadcast sleep
             await self._broadcast_event(
@@ -414,6 +460,10 @@ class AutonomousMind:
                     "last_action": action_summary,
                     "cycle_cost": f"${cost:.4f}",
                     "elapsed_seconds": round(elapsed, 1),
+                    "total_spent": f"${self._spent_today_usd:.4f}",
+                    "budget_remaining": f"${max(0, daily_budget - self._spent_today_usd):.4f}",
+                    "cycle_number": self._cycle_count + 1,
+                    "tools_used": len(_tool_uses),
                 },
             )
 
@@ -425,9 +475,10 @@ class AutonomousMind:
                 {"error": "Think cycle timed out", "recovery": "will retry"},
             )
         finally:
-            # Restore conversation history and approval callback
+            # Restore conversation history, approval callback, and tool callback
             self._agent._conversation_history = saved_history
             self._agent._executor._approval_callback = prev_approval
+            self._agent._executor._on_tool_executed = prev_tool_cb
 
     # ------------------------------------------------------------------
     # Prompt building

@@ -53,6 +53,7 @@ class EventType(StrEnum):
     AGENT_STOPPED = "agent_stopped"
     MIND_WAKEUP = "mind_wakeup"
     MIND_ACTION = "mind_action"
+    MIND_TOOL_USE = "mind_tool_use"
     MIND_SLEEP = "mind_sleep"
     MIND_PAUSED = "mind_paused"
     MIND_RESUMED = "mind_resumed"

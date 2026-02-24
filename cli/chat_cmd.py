@@ -526,10 +526,32 @@ async def _chat_gateway(cfg: Any) -> None:
         host=cfg.gateway.host,
         port=cfg.gateway.port,
         max_sessions=cfg.gateway.max_sessions,
+        unified_sessions=cfg.gateway.unified_sessions,
     )
     await gateway.start()
     agent._gateway = gateway  # Enable scheduled task notifications
     gw_url = gateway.url
+
+    # Wire up GoalRunner with gateway reference + resume active goals
+    if agent._goal_runner:
+        agent._goal_runner._gateway = gateway
+        asyncio.create_task(agent._goal_runner.resume_on_startup())
+
+    # Wire up AutonomousMind with gateway reference + start
+    if agent._autonomous_mind:
+        agent._autonomous_mind._gateway = gateway
+        _mind_task = asyncio.create_task(agent._autonomous_mind.resume_on_startup())
+        _mind_task.add_done_callback(
+            lambda t: (
+                logger.error("Mind startup failed: %s", t.exception())
+                if not t.cancelled() and t.exception()
+                else None
+            )
+        )
+
+    # Wire up EmailMonitor with gateway reference
+    if agent._email_monitor:
+        agent._email_monitor._gateway = gateway
 
     # Start background channel adapters (Telegram, Discord, Slack)
     adapter_tasks: list[asyncio.Task] = []

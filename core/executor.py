@@ -62,6 +62,9 @@ class Executor:
         self._approval_callback: Callable[[str, str, dict[str, Any]], bool] | None = (
             None
         )
+        self._on_tool_executed: (
+            Callable[[str, dict[str, Any], str | None], None] | None
+        ) = None
 
         perms = _load_permissions(config.project_root)
         self._tool_overrides: dict[str, str] = perms.get("tool_overrides", {}) or {}
@@ -146,6 +149,11 @@ class Executor:
         try:
             logger.info(f"Executing tool '{tool_name}' with params: {params}")
             result = await tool.execute(params)
+            if self._on_tool_executed:
+                try:
+                    self._on_tool_executed(tool_name, params, None)
+                except Exception:
+                    pass
             return ExecutionResult(
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
@@ -153,6 +161,11 @@ class Executor:
             )
         except Exception as e:
             logger.error(f"Tool '{tool_name}' execution failed: {e}")
+            if self._on_tool_executed:
+                try:
+                    self._on_tool_executed(tool_name, params, str(e))
+                except Exception:
+                    pass
             return ExecutionResult(
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,

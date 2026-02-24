@@ -363,34 +363,104 @@ class CLIAdapter(ChannelAdapter):
 
     def _display_mind_event(self, event: str, data: dict) -> None:
         """Display autonomous mind events in the terminal."""
+        _M = "bright_magenta"  # Mind accent color
+        _MD = "dim magenta"  # Mind dim
+
         if event == "mind_wakeup":
             cycle = data.get("cycle", "")
-            console.print(f"  [{_C_DIM}]\u25cb Mind wakeup #{cycle}[/]")
+            budget = data.get("budget_remaining", "")
+            budget_total = data.get("budget_total", "")
+            last = data.get("last_action", "")
+            total = data.get("total_cycles_today", 0)
+            scratchpad = data.get("scratchpad_preview", "")
+
+            console.print(f"\n  [{_M}]{'─' * 60}[/]")
+            console.print(
+                f"  [{_M}]◆ MIND WAKEUP[/] [{_C_DIM}]cycle #{cycle}[/]"
+                f"  [{_C_DIM}]({total} today)[/]"
+            )
+            console.print(f"  [{_C_DIM}]  Budget: {budget} / {budget_total}[/]")
+            if last and last != "(not started)":
+                console.print(f"  [{_C_DIM}]  Last: {last[:100]}[/]")
+            if scratchpad and scratchpad != "(empty)":
+                preview = scratchpad.replace("\n", " ")[:100]
+                console.print(f"  [{_C_DIM}]  Memory: {preview}[/]")
+
+        elif event == "mind_tool_use":
+            tool = data.get("tool", "")
+            params = data.get("params", "")
+            status = data.get("status", "ok")
+            error = data.get("error", "")
+
+            if status == "error":
+                console.print(
+                    f"  [{_C_WARN}]  ✗ {tool}[/]" f" [{_C_DIM}]{error[:80]}[/]"
+                )
+            else:
+                param_display = f" [{_C_DIM}]{params[:80]}[/]" if params else ""
+                console.print(f"  [{_M}]  → {tool}[/]{param_display}")
+
         elif event == "mind_action":
             summary = data.get("summary", "")
-            console.print(f"  [{_C_ACCENT}]\u21b3 mind:[/] {summary[:120]}")
+            cost = data.get("cost", "")
+            elapsed = data.get("elapsed", "")
+            tool_count = data.get("tool_count", 0)
+            tools = data.get("tools_used", [])
+
+            console.print(f"  [{_M}]  ◆ Result:[/] {summary[:200]}")
+            parts = []
+            if cost:
+                parts.append(cost)
+            if elapsed:
+                parts.append(elapsed)
+            if tool_count:
+                parts.append(f"{tool_count} tools")
+            if parts:
+                console.print(f"  [{_C_DIM}]  {' · '.join(parts)}[/]")
+
         elif event == "mind_sleep":
             secs = data.get("next_wakeup_seconds", 300)
-            last = data.get("last_action", "")
             cost = data.get("cycle_cost", "")
+            elapsed = data.get("elapsed_seconds", 0)
+            spent = data.get("total_spent", "")
+            remaining = data.get("budget_remaining", "")
+            tools_n = data.get("tools_used", 0)
+
+            # Format sleep duration nicely
+            if secs >= 3600:
+                time_str = f"{secs // 3600}h {(secs % 3600) // 60}m"
+            elif secs >= 60:
+                time_str = f"{secs // 60}m {secs % 60}s"
+            else:
+                time_str = f"{secs}s"
+
             console.print(
-                f"  [{_C_DIM}]\u25cb Mind sleeping \u00b7 next in {secs}s"
-                f" \u00b7 {cost}[/]"
+                f"  [{_C_DIM}]  Sleeping · next in {time_str}"
+                f" · cost {cost} · {elapsed}s · {tools_n} tools"
+                f" · budget left {remaining}[/]"
             )
+            console.print(f"  [{_M}]{'─' * 60}[/]\n")
+
         elif event == "mind_paused":
-            console.print(f"  [{_C_DIM}]\u25cb Mind paused (you're talking)[/]")
+            console.print(f"  [{_C_DIM}]  ◇ Mind paused (you're talking)[/]")
+
         elif event == "mind_resumed":
             pending = data.get("pending_events", 0)
-            extra = f" \u00b7 {pending} events queued" if pending else ""
-            console.print(f"  [{_C_DIM}]\u25cb Mind resumed{extra}[/]")
+            extra = f" · {pending} events queued" if pending else ""
+            console.print(f"  [{_M}]  ◇ Mind resumed{extra}[/]")
+
         elif event == "mind_revenue":
             rtype = data.get("type", "")
             amount = data.get("amount", "")
             source = data.get("source", "")
             console.print(
-                f"\n  [{_C_SUCCESS}]\U0001f4b0 Revenue: {rtype}[/]"
-                f" {amount} \u2014 {source}\n"
+                f"\n  [{_C_SUCCESS}]  💰 REVENUE: {rtype}[/]"
+                f" [{_C_SUCCESS}]{amount}[/] — {source}\n"
             )
+
         elif event == "mind_error":
             error = data.get("error", "")
-            console.print(f"  [{_C_WARN}]\u26a0 Mind: {error[:120]}[/]")
+            recovery = data.get("recovery", "")
+            console.print(f"  [{_C_WARN}]  ⚠ Mind error: {error[:150]}[/]")
+            if recovery:
+                console.print(f"  [{_C_DIM}]  Recovery: {recovery}[/]")
