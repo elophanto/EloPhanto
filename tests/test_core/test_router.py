@@ -21,7 +21,6 @@ class TestRouterSelection:
                         enabled=True,
                         api_key="test-key",
                         default_model="glm-4.7",
-                        fast_model="glm-4.7-flash",
                     ),
                     "openrouter": ProviderConfig(
                         enabled=True,
@@ -50,7 +49,7 @@ class TestRouterSelection:
                     "simple": RoutingConfig(
                         preferred_provider="zai",
                         models={
-                            "zai": "glm-4.7-flash",
+                            "zai": "glm-4.7",
                             "openrouter": "minimax/minimax-m2.5",
                             "ollama": "llama3.2:3b",
                         },
@@ -82,7 +81,7 @@ class TestRouterSelection:
         router = LLMRouter(config)
         provider, model = router._select_provider_and_model("simple", None)
         assert provider == "zai"
-        assert model == "glm-4.7-flash"
+        assert model == "glm-4.7"
 
     def test_explicit_model_override(self) -> None:
         config = self._make_config()

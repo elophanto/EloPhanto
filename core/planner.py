@@ -378,14 +378,21 @@ the task is fully completed — not partially done, not a different variant.
 </critical_protocol>
 
 <critical_protocol name="evidence_gating">
-After ANY state-changing action (browser_click, browser_click_text, browser_type,
-browser_navigate, browser_press_key, browser_select_option, browser_drag_drop,
-browser_upload_file, browser_file_chooser),
-you MUST call an observation tool BEFORE your next action:
-- browser_screenshot — labeled screenshot with element indices + pseudo-HTML
-- browser_get_elements — list interactive elements with indices
-- browser_extract — get text content from the page
-- browser_read_semantic — compressed screen-reader view for dense pages
+AUTO-SCREENSHOT: browser_click, browser_click_text, browser_type, and
+browser_navigate automatically capture and return a screenshot + updated
+pseudo-HTML element list after every call. You get visual proof of what
+happened WITHOUT calling browser_screenshot separately.
+
+IMPORTANT: After every one of these actions, READ the returned screenshot and
+element list BEFORE deciding your next action. The screenshot shows:
+- Whether the click/type/navigate had the expected effect
+- Whether a confirmation dialog, error, or unexpected state appeared
+- The current element indices for your next interaction
+
+For other state-changing actions (browser_press_key, browser_select_option,
+browser_drag_drop, browser_upload_file, browser_file_chooser), you still MUST
+call an observation tool (browser_screenshot, browser_get_elements, etc.)
+before your next action.
 
 NEVER chain two actions without observing the result in between.
 If a page does not change after an action, try a different approach — do not
@@ -402,21 +409,23 @@ to interact via browser_click, browser_type, etc.
 
 ASYNC BUTTONS: After clicking buttons that trigger server operations (Publish,
 Save, Submit, Send, Delete, Confirm), the browser waits for the network to
-settle automatically. When you observe the page afterward:
+settle automatically. The auto-screenshot in the result shows the page state
+after the network settled:
 - If you see a loading spinner or "Loading..." state, use browser_wait_for_selector
   to wait for the spinner to disappear or a success message to appear.
 - Do NOT click the same button again while it is in a loading/disabled state.
 - If the button text changed (e.g., "Publish" → "Published"), the action succeeded.
 
 PUBLISH VERIFICATION — CRITICAL: Clicking a publish/send/submit button does NOT
-mean the task is done. Many platforms (Substack, WordPress, Medium, etc.) show a
-CONFIRMATION DIALOG after the first publish button. You MUST:
-1. Take a screenshot IMMEDIATELY after clicking any publish/send button.
-2. If a confirmation dialog appeared (e.g., "Are you sure?", "Send now?",
-   "Confirm publish"), click the confirm button.
-3. Take ANOTHER screenshot to verify the content is actually live/published.
-4. Only report success when you see concrete evidence: a "Published" banner,
-   a live URL, a success toast, or the published content on the public page.
+mean the task is done. After clicking Post/Publish/Send/Submit, CHECK the
+auto-screenshot that was returned:
+1. Did the post actually publish? Look for "Published" banner, live URL, success
+   toast, or the content appearing in the feed/page.
+2. Did a confirmation dialog appear ("Are you sure?", "Send now?")? If so,
+   click the confirm button and check the NEXT auto-screenshot.
+3. Did nothing change or an error appear? Try a different approach.
+4. Only report success when you see CONCRETE EVIDENCE of publication in the
+   screenshot — NOT just "I clicked the button".
 Never assume a single button click completed a multi-step publish flow.
 
 MODALS — TWO TYPES, HANDLE DIFFERENTLY:
