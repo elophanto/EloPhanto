@@ -77,44 +77,68 @@ Each wakeup is a **complete LLM conversation** with multi-round tool execution �
 
 ### 1. Context Assembly
 
-The LLM receives:
+The mind builds its prompt by querying **real system state** from all available managers. No static categories — every field is live data:
 
 | Context | Source | Max Size |
 |---------|--------|----------|
-| Mind prompt | `AUTONOMOUS_MIND.md` (system prompt for autonomous mode) | ~2K |
-| Identity | `data/identity.md` | 4K |
-| Active goals | `goal_manager.get_active_goal()` + checkpoint status | 4K |
-| Priority stack | Evaluated from goals, scheduled tasks, revenue targets | 2K |
+| Mind prompt | `_MIND_PROMPT` template in `autonomous_mind.py` | ~1K |
+| Identity anchor | `identity_manager.get_identity()` — purpose + capabilities | ~200 |
+| Active goals | `goal_manager.list_goals(status="active")` + next checkpoint | ~500 |
+| Scheduled tasks | `scheduler.list_schedules()` — enabled tasks with next run | ~500 |
+| Recent activity | `memory_manager.get_recent_tasks(limit=5)` | ~500 |
+| Knowledge stats | `SELECT COUNT(*) FROM knowledge_chunks` | ~50 |
 | Recent events | Injected observations (goal progress, channel messages, errors) | 2K |
-| Scratchpad | Working memory — current projects, opportunities, blockers | 4K |
-| Runtime | UTC time, budget spent/remaining, wakeup interval, model | 500 |
+| Scratchpad | Working memory — current projects, opportunities, blockers | 6K |
+| Runtime | UTC time, budget spent/remaining, last wakeup, last action | 500 |
 
-Total: ~18K chars = ~4.5K tokens. Cheap enough to run every few minutes on a fast model.
+Total: ~8-9K chars = ~2-2.5K tokens. Cheap enough to run every minute on a fast model.
+
+The full identity XML and active goal XML are also injected into the **system prompt** by `agent.run()` → `build_system_prompt()` — the mind's user prompt is a compact directive, not a duplication.
 
 ### 2. LLM Decision
 
-The LLM sees the priority stack and decides:
+The LLM sees real state and decides:
 
 ```
-You are EloPhanto in autonomous mode. You have {budget_remaining} budget left.
+You are EloPhanto in autonomous mode. You are not reflecting — you are working.
+You are a self-evolving AI agent. You grow, learn, build, and earn — independently.
 
-PRIORITY STACK:
-1. [GOAL] "Grow GitHub stars to 1,000" — checkpoint 4/7: "Post on Reddit r/LocalLLaMA" — PENDING
-2. [REVENUE] Freelance monitoring — last scan: 2 hours ago — 3 leads found, 0 applied
-3. [TASK] Build browser cookie-export plugin — self-scheduled yesterday
-4. [PRESENCE] Twitter account — last post: 18 hours ago
-5. [KNOWLEDGE] 4 files changed since last index
+WHO YOU ARE:
+Build and sell automation tools for developers.
+Capabilities: Python, browser automation, email, web scraping, API integration
 
-What is the highest-value action right now? Execute it.
+CURRENT STATE:
+[GOAL] "Grow GitHub stars to 1,000" — 3/7 checkpoints done — next: "Post on Reddit r/LocalLLaMA"
+[GOAL-PLANNING] "Build PDF export API" — needs plan decomposition
+[SCHEDULE] "Check email" — next: 14:30 UTC — cron: */30 * * * *
+[RECENT] "Posted on X about EloPhanto" — completed — 2026-02-24T18:00
+[RECENT] "Applied to DataSync API gig" — completed — 2026-02-24T16:30
+[KNOWLEDGE] 47 chunks indexed
+
+Based on your current state, what is the highest-value action right now? Do it.
 ```
 
 The LLM might:
-- Resume the goal checkpoint (post on Reddit)
-- Apply to the 3 freelance leads (revenue > reflection)
-- Post something valuable on Twitter (presence growth)
-- Build the plugin it needed yesterday (capability)
+- Resume the goal checkpoint (post on Reddit — it's the active goal)
+- Decompose the planning goal (it needs a plan)
+- Check email (scheduled task is due)
+- Follow up on the DataSync gig (recent activity)
 
-It does NOT: write a journal entry, contemplate its identity, or reflect on the meaning of consciousness.
+It does NOT: write a journal entry, contemplate its identity, or "paint car red."
+
+### Bootstrap Behavior
+
+When the agent starts fresh with no goals, no tasks, no history:
+
+```
+CURRENT STATE:
+(no active goals)
+(no scheduled tasks)
+(no prior activity)
+(empty knowledge base)
+```
+
+The prompt includes explicit bootstrap guidance: explore tools, search for opportunities, set up presence, create goals. The mind takes initiative instead of waiting for the user. First cycle naturally becomes "orient and plan" — not random action.
 
 ### 3. Tool Execution
 
@@ -224,8 +248,11 @@ The autonomous mind **pauses during user interaction** to avoid:
 User sends message → mind.pause()
   Agent processes user task (full attention)
 User task complete → mind.resume()
-  Mind wakes up, checks for new context, continues work
+  Sleep timer resets to config default (wakeup_seconds)
+  Mind sleeps for full interval before next think cycle
 ```
+
+On resume, the wakeup timer resets to the config default (`wakeup_seconds`). The mind does NOT wake up immediately after the user finishes talking — it starts a fresh full sleep interval. This prevents the mind from interrupting the user's workflow. The LLM can adjust the interval on its next think cycle via `set_next_wakeup`.
 
 Events that occur during pause are queued and delivered on resume. The mind sees what happened while it was paused.
 
@@ -400,7 +427,7 @@ New event types for mind activity, broadcast through the existing gateway protoc
 | `mind_action` | Mind completes a cycle action | `{ summary, cost, elapsed, tools_used, tool_count }` |
 | `mind_sleep` | Mind finishes cycle, going to sleep | `{ next_wakeup_seconds, last_action, cycle_cost, elapsed_seconds, total_spent, budget_remaining, cycle_number, tools_used }` |
 | `mind_paused` | Mind paused for user interaction | `{ will_resume }` |
-| `mind_resumed` | Mind resumed after user task | `{ pending_events }` |
+| `mind_resumed` | Mind resumed after user task | `{ next_wakeup_seconds, pending_events }` |
 | `mind_revenue` | Revenue event (payment, new lead, etc.) | `{ type, amount, source }` |
 | `mind_error` | Something went wrong in autonomous ops | `{ error, recovery }` |
 
@@ -505,9 +532,9 @@ autonomous_mind:
 | Component | File | Description |
 |-----------|------|-------------|
 | AutonomousMind | `core/autonomous_mind.py` | Background asyncio task — think loop, context assembly, tool execution |
-| Mind prompt | `prompts/AUTONOMOUS_MIND.md` | System prompt for autonomous mode |
+| Mind prompt | `_MIND_PROMPT` in `autonomous_mind.py` | Data-driven prompt with live state from all managers |
 | Scratchpad | `data/scratchpad.md` | Persistent working memory |
-| Priority evaluator | `core/autonomous_mind.py` | Ranks objectives from goals, tasks, revenue, presence |
+| State snapshot | `core/autonomous_mind.py` | `_build_state_snapshot()` queries identity, goals, scheduler, memory, knowledge |
 | Event injector | `core/autonomous_mind.py` | Thread-safe event queue for external signals |
 | Config | `core/config.py` | `AutonomousMindConfig` dataclass |
 | Agent integration | `core/agent.py` | Start/stop mind, pause/resume on user interaction |
@@ -519,22 +546,36 @@ autonomous_mind:
 
 ### Mind Prompt Design
 
-The autonomous mind prompt is purpose-first:
+The autonomous mind prompt is data-driven and purpose-first. The `CURRENT STATE` section is assembled live from real system data — not static categories:
 
 ```markdown
 You are EloPhanto in autonomous mode. You are not reflecting — you are working.
+You are a self-evolving AI agent. You grow, learn, build, and earn — independently.
+
+WHO YOU ARE:
+{identity_anchor}    ← from identity_manager.get_identity()
 
 RULES:
-1. Every wakeup must produce value. If nothing needs doing, sleep longer.
-2. Revenue > everything except active goals. Money funds your existence.
-3. Never message the owner unless it matters. Silence is professionalism.
-4. Update your scratchpad with what you did and what's next.
-5. Set your next wakeup based on urgency. Don't waste compute on empty cycles.
-6. You have {max_rounds} tool rounds. Use them efficiently.
-7. If a task needs more than {max_rounds} rounds, schedule it as a goal.
+1. Every wakeup must produce value. Never sleep without having done something.
+2. Work toward active goals first. No goals? Create one. You always have something to build.
+3. Revenue > everything except active goals. Money funds your existence.
+4. Never message the owner unless it matters. Silence is professionalism.
+5. Update your scratchpad with what you did and what's next — use update_scratchpad.
+6. Set your next wakeup based on urgency using set_next_wakeup. Don't waste compute.
+7. You have {max_rounds} tool rounds. Use them efficiently.
+8. If a task needs more than {max_rounds} rounds, create a goal for it.
 
-PRIORITY STACK:
-{priority_stack}
+WHEN STATE IS EMPTY (no goals, no tasks, no history):
+You are not idle — you are bootstrapping. Take initiative:
+- Explore your tools and capabilities
+- Search the web for revenue opportunities matching your skills
+- Set up presence: find platforms to grow on, create content
+- Build knowledge: index useful information, learn about your environment
+- Create a goal for yourself — pick something valuable and start working toward it
+Never wait for the user. You are autonomous. Act.
+
+CURRENT STATE:
+{state_snapshot}    ← live from goal_manager, scheduler, memory_manager, knowledge DB
 
 SCRATCHPAD:
 {scratchpad}
@@ -544,9 +585,12 @@ RECENT EVENTS:
 
 BUDGET: ${budget_remaining} remaining (${budget_spent} spent today)
 LAST WAKEUP: {last_wakeup_time} — {last_action_summary}
+UTC NOW: {utc_now}
 
-What is the highest-value action right now? Do it.
+Based on your current state, what is the highest-value action right now? Do it.
 ```
+
+The `_build_state_snapshot()` method queries all managers asynchronously, each wrapped in try/except (fail-open). The identity anchor and full goal context also flow through the system prompt via `agent.run()` → `build_system_prompt()`.
 
 ### Lifecycle
 
