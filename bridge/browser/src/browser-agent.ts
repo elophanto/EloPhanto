@@ -719,12 +719,14 @@ export class AwareBrowserAgent {
     ]);
 
     // Let the UI settle after the last action (animations, overlays, async DOM updates).
-    // Use adaptive waiting: wait for network to idle OR 500ms max (whichever comes first).
-    // This ensures we capture error modals/dynamic content without waiting unnecessarily.
-    await Promise.race([
-      page.waitForLoadState('networkidle', { timeout: 500 }).catch(() => { }),
-      page.waitForTimeout(500).catch(() => { }),
-    ]);
+    // Wait for network idle (max 3s) so async operations (publish, save, API calls)
+    // complete before the screenshot. EKO uses 5s for navigation — 3s for screenshot
+    // is a reasonable balance between accuracy and responsiveness.
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 3000 });
+    } catch {
+      // Timeout is fine — page may have long-polling or streaming connections
+    }
 
     // Optionally highlight elements with their indices for vision grounding
     let highlightedIndices: number[] = [];
@@ -3995,6 +3997,20 @@ export class AwareBrowserAgent {
     // Adaptive delay: ensures framework state updates + meets page timing requirements.
     await this.applyAdaptiveClickDelay(page);
 
+    // Wait for the page to settle after click — async operations (publish, save,
+    // submit) trigger network requests that take 1-5+ seconds. Without this,
+    // the next screenshot captures a loading/spinner state and the LLM loops.
+    // Strategy: wait for network idle (max 3s), catching any navigation that
+    // the click may have triggered.
+    try {
+      await Promise.race([
+        page.waitForLoadState('networkidle', { timeout: 3000 }),
+        page.waitForLoadState('domcontentloaded', { timeout: 3000 }),
+      ]);
+    } catch {
+      // Timeout is fine — means page is still active, not stuck
+    }
+
     return { clicked: true, elementInfo };
   }
 
@@ -4281,6 +4297,17 @@ export class AwareBrowserAgent {
 
     // Adaptive delay: ensures framework state updates + meets page timing requirements.
     await this.applyAdaptiveClickDelay(page);
+
+    // Wait for the page to settle after click (same as clickElementByIndex)
+    try {
+      await Promise.race([
+        page.waitForLoadState('networkidle', { timeout: 3000 }),
+        page.waitForLoadState('domcontentloaded', { timeout: 3000 }),
+      ]);
+    } catch {
+      // Timeout is fine
+    }
+
     return { matchedText: clickResult.matchedText!, tag: clickResult.tag! };
   }
 
@@ -4457,6 +4484,17 @@ export class AwareBrowserAgent {
 
     // Adaptive delay: ensures framework state updates + meets page timing requirements.
     await this.applyAdaptiveClickDelay(page);
+
+    // Wait for the page to settle after batch click
+    try {
+      await Promise.race([
+        page.waitForLoadState('networkidle', { timeout: 3000 }),
+        page.waitForLoadState('domcontentloaded', { timeout: 3000 }),
+      ]);
+    } catch {
+      // Timeout is fine
+    }
+
     return result;
   }
 
