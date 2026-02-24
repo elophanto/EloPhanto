@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -51,7 +51,7 @@ def _write_scratchpad(project_root: Path, content: str) -> None:
 def _append_action_log(project_root: Path, entry: str) -> None:
     path = project_root / _ACTIONS_LOG_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%H:%M")
+    ts = datetime.now(UTC).strftime("%H:%M")
     with open(path, "a", encoding="utf-8") as f:
         f.write(f"{ts}  {entry}\n")
 
@@ -150,8 +150,8 @@ class AutonomousMind:
 
     def _register_mind_tools(self) -> None:
         """Register mind-specific tools (set_next_wakeup, update_scratchpad)."""
-        from tools.mind.wakeup_tool import SetNextWakeupTool
         from tools.mind.scratchpad_tool import UpdateScratchpadTool
+        from tools.mind.wakeup_tool import SetNextWakeupTool
 
         wakeup_tool = SetNextWakeupTool()
         wakeup_tool._mind = self
@@ -360,7 +360,7 @@ class AutonomousMind:
 
     async def _think(self) -> None:
         """One think cycle: build context, call agent, broadcast results."""
-        self._last_wakeup_time = datetime.now(timezone.utc).strftime("%H:%M UTC")
+        self._last_wakeup_time = datetime.now(UTC).strftime("%H:%M UTC")
         cycle_start = time.monotonic()
 
         # Build the prompt (async — queries real state from all managers)
@@ -463,7 +463,7 @@ class AutonomousMind:
             self._last_action = action_summary
 
             # Log action
-            ts = datetime.now(timezone.utc).strftime("%H:%M")
+            ts = datetime.now(UTC).strftime("%H:%M")
             self._recent_actions.append({"ts": ts, "summary": action_summary})
             if len(self._recent_actions) > 50:
                 self._recent_actions = self._recent_actions[-50:]
@@ -648,7 +648,7 @@ class AutonomousMind:
             budget_spent=self._spent_today_usd,
             last_wakeup=self._last_wakeup_time,
             last_action=self._last_action,
-            utc_now=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            utc_now=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         )
 
     # ------------------------------------------------------------------
@@ -663,7 +663,7 @@ class AutonomousMind:
     def _check_budget(self) -> bool:
         """Check if mind is within its daily budget."""
         # Reset budget on new day
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         if today != self._budget_reset_date:
             self._budget_reset_date = today
             self._spent_today_usd = 0.0
