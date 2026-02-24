@@ -210,18 +210,6 @@ def _edit_providers(config: dict) -> None:
         )
         config["llm"]["providers"]["zai"]["default_model"] = zai_default
 
-        current_fast = (
-            config.get("llm", {})
-            .get("providers", {})
-            .get("zai", {})
-            .get("fast_model", "glm-4.7-flash")
-        )
-        zai_fast = Prompt.ask(
-            "  Fast/cheap Z.ai model",
-            choices=["glm-4.7-flash", "glm-4.7", "glm-5"],
-            default=current_fast,
-        )
-        config["llm"]["providers"]["zai"]["fast_model"] = zai_fast
         console.print("  [green]Z.ai configured.[/green]")
     else:
         _ensure_provider(config, "zai")
@@ -324,8 +312,8 @@ def _edit_models(config: dict) -> None:
         "zai": {
             "planning": "glm-5",
             "coding": "glm-4.7",
-            "analysis": "glm-4.7-flash",
-            "simple": "glm-4.7-flash",
+            "analysis": "glm-4.7",
+            "simple": "glm-4.7",
         },
     }
 
@@ -1062,7 +1050,6 @@ def _default_config() -> dict:
                     "base_url_coding": "https://api.z.ai/api/coding/paas/v4",
                     "base_url_paygo": "https://api.z.ai/api/paas/v4",
                     "default_model": "glm-4.7",
-                    "fast_model": "glm-4.7-flash",
                 },
                 "ollama": {
                     "base_url": "http://localhost:11434",

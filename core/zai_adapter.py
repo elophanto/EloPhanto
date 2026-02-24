@@ -43,6 +43,8 @@ class ZaiAdapter:
         self._base_url = (
             zai_cfg.base_url_coding if zai_cfg.coding_plan else zai_cfg.base_url_paygo
         )
+        self._base_url_paygo = zai_cfg.base_url_paygo
+        self._default_model = zai_cfg.default_model or "glm-4.7"
         # Persistent HTTP client — reuses TCP connections across calls
         self._client = httpx.AsyncClient(timeout=120.0)
 
@@ -130,7 +132,13 @@ class ZaiAdapter:
         )
 
     async def health_check(self) -> bool:
-        """Verify Z.ai connectivity with a minimal request."""
+        """Verify Z.ai connectivity with a minimal request.
+
+        Uses the paygo endpoint for the health check regardless of
+        coding_plan setting — this is just a connectivity/auth test and
+        the coding endpoint may reject lightweight pings.
+        """
+        base = self._base_url_paygo or self._base_url
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
@@ -138,17 +146,17 @@ class ZaiAdapter:
         }
 
         payload = {
-            "model": "glm-4.7-flash",
+            "model": self._default_model,
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
         }
 
         try:
             response = await self._client.post(
-                f"{self._base_url}/chat/completions",
+                f"{base}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=5.0,
+                timeout=10.0,
             )
             if response.status_code != 200:
                 logger.warning(

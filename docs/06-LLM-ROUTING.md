@@ -205,7 +205,6 @@ llm:
       base_url_coding: "https://api.z.ai/api/coding/paas/v4"
       base_url_paygo: "https://api.z.ai/api/paas/v4"
       default_model: "glm-4.7"
-      fast_model: "glm-4.7-flash"
     
     ollama:
       base_url: "http://localhost:11434"
@@ -233,13 +232,13 @@ llm:
       preferred_provider: openrouter
       models:
         openrouter: "google/gemini-3.1-pro-preview"
-        zai: "glm-4.7-flash"
+        zai: "glm-4.7"
         ollama: "qwen2.5:14b"
     simple:
       preferred_provider: openrouter
       models:
         openrouter: "minimax/minimax-m2.5"
-        zai: "glm-4.7-flash"
+        zai: "glm-4.7"
         ollama: "llama3.2:3b"
 
   budget:

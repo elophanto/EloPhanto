@@ -1213,23 +1213,61 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
     return this.browser;
   }
 
+  /**
+   * Capture a lightweight screenshot + pseudo-HTML after a state-changing action.
+   * Returns null on failure — actions should never fail because of snapshot capture.
+   */
+  private async capturePostActionSnapshot(): Promise<{
+    imageBase64: string;
+    imageType: string;
+    pseudoHtml: string;
+    url: string;
+    title: string;
+    savedPath?: string;
+  } | null> {
+    try {
+      const browser = await this.ensureBrowser();
+      const combined = await browser.takeScreenshotWithElements();
+      const saved = await this.saveScreenshotToDisk(
+        combined.imageBase64,
+        combined.imageType as any,
+        { url: combined.url, title: combined.title },
+      ).catch(() => null);
+      return {
+        imageBase64: combined.imageBase64,
+        imageType: combined.imageType,
+        pseudoHtml: combined.pseudoHtml,
+        url: combined.url,
+        title: combined.title,
+        savedPath: saved?.path,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   private async navigate(url: string) {
     const browser = await this.ensureBrowser();
-    
+
     let finalUrl = url;
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       finalUrl = `https://${url}`;
     }
 
     const result = await browser.navigate(finalUrl);
-    const elements = await browser.getInteractiveElements();
+    const snapshot = await this.capturePostActionSnapshot();
 
     return {
       success: true,
       url: result.url,
       title: result.title,
-      elements: elements,
+      elements: snapshot?.pseudoHtml ?? await browser.getInteractiveElements(),
       message: `Navigated to "${result.title}". Interactive elements listed above with [index] numbers.`,
+      ...(snapshot ? {
+        screenshot: snapshot.imageBase64,
+        screenshotType: snapshot.imageType,
+        screenshotPath: snapshot.savedPath,
+      } : {}),
     };
   }
 
@@ -1238,12 +1276,17 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
     await browser.clickElementByIndex(index);
     await browser.waitForDomStable();
 
-    const elements = await browser.getInteractiveElements();
+    const snapshot = await this.capturePostActionSnapshot();
 
     return {
       success: true,
       message: `Clicked element [${index}]`,
-      elements: elements,
+      elements: snapshot?.pseudoHtml ?? await browser.getInteractiveElements(),
+      ...(snapshot ? {
+        screenshot: snapshot.imageBase64,
+        screenshotType: snapshot.imageType,
+        screenshotPath: snapshot.savedPath,
+      } : {}),
     };
   }
 
@@ -1252,13 +1295,18 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
     const hit = await browser.clickElementByText(text, { exact, caseSensitive, nth });
     await browser.waitForDomStable();
 
-    const elements = await browser.getInteractiveElements();
+    const snapshot = await this.capturePostActionSnapshot();
     return {
       success: true,
       message: `Clicked element matching text "${text}"`,
       matchedText: hit.matchedText,
       matchedTag: hit.tag,
-      elements,
+      elements: snapshot?.pseudoHtml ?? await browser.getInteractiveElements(),
+      ...(snapshot ? {
+        screenshot: snapshot.imageBase64,
+        screenshotType: snapshot.imageType,
+        screenshotPath: snapshot.savedPath,
+      } : {}),
     };
   }
 
@@ -1573,15 +1621,22 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
   private async type(index: number, text: string, enter?: boolean) {
     const browser = await this.ensureBrowser();
     await browser.typeIntoElementByIndex(index, text);
-    
+
     if (enter) {
       await browser.pressKey('Enter');
       await browser.waitForDomStable(2000);
     }
 
+    const snapshot = await this.capturePostActionSnapshot();
     return {
       success: true,
       message: `Typed "${text}" into element [${index}]${enter ? ' and pressed Enter' : ''}`,
+      elements: snapshot?.pseudoHtml,
+      ...(snapshot ? {
+        screenshot: snapshot.imageBase64,
+        screenshotType: snapshot.imageType,
+        screenshotPath: snapshot.savedPath,
+      } : {}),
     };
   }
 

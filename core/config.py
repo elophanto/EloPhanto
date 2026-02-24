@@ -26,7 +26,6 @@ class ProviderConfig:
     base_url_coding: str = ""
     base_url_paygo: str = ""
     default_model: str = ""
-    fast_model: str = ""
 
 
 @dataclass
@@ -513,7 +512,6 @@ def _parse_provider(name: str, data: dict[str, Any]) -> ProviderConfig:
         base_url_coding=data.get("base_url_coding", ""),
         base_url_paygo=data.get("base_url_paygo", ""),
         default_model=data.get("default_model", ""),
-        fast_model=data.get("fast_model", ""),
     )
 
 
