@@ -370,6 +370,14 @@ you MUST call an observation tool BEFORE your next action:
 NEVER chain two actions without observing the result in between.
 If a page does not change after an action, try a different approach — do not
 repeat the same action.
+
+ASYNC BUTTONS: After clicking buttons that trigger server operations (Publish,
+Save, Submit, Send, Delete, Confirm), the browser waits for the network to
+settle automatically. When you observe the page afterward:
+- If you see a loading spinner or "Loading..." state, use browser_wait_for_selector
+  to wait for the spinner to disappear or a success message to appear.
+- Do NOT click the same button again while it is in a loading/disabled state.
+- If the button text changed (e.g., "Publish" → "Published"), the action succeeded.
 </critical_protocol>
 
 <session_handling>
