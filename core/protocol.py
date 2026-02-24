@@ -46,6 +46,11 @@ class EventType(StrEnum):
     GOAL_PAUSED = "goal_paused"
     GOAL_RESUMED = "goal_resumed"
     USER_MESSAGE = "user_message"
+    AGENT_SPAWNED = "agent_spawned"
+    AGENT_COMPLETED = "agent_completed"
+    AGENT_FAILED = "agent_failed"
+    AGENT_REDIRECTED = "agent_redirected"
+    AGENT_STOPPED = "agent_stopped"
 
 
 @dataclass

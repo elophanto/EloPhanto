@@ -442,6 +442,34 @@ class SelfLearningConfig:
 
 
 @dataclass
+class AgentProfileConfig:
+    """Configuration for an external coding agent profile."""
+
+    command: str = ""
+    args: list[str] = field(default_factory=list)
+    strengths: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    done_criteria: str = "pr_created"
+    max_time_seconds: int = 3600
+
+
+@dataclass
+class SwarmConfig:
+    """Agent swarm orchestration configuration."""
+
+    enabled: bool = False
+    max_concurrent_agents: int = 3
+    monitor_interval_seconds: int = 30
+    worktree_base_dir: str = ""
+    cleanup_merged_worktrees: bool = True
+    tmux_session_prefix: str = "elo-swarm"
+    default_done_criteria: str = "pr_created"
+    prompt_enrichment: bool = True
+    max_enrichment_chunks: int = 5
+    profiles: dict[str, AgentProfileConfig] = field(default_factory=dict)
+
+
+@dataclass
 class Config:
     """Top-level EloPhanto configuration."""
 
@@ -471,6 +499,7 @@ class Config:
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
+    swarm: "SwarmConfig" = field(default_factory=lambda: SwarmConfig())
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -924,6 +953,32 @@ def load_config(config_path: Path | str | None = None) -> Config:
         ),
     )
 
+    # Parse swarm section
+    swarm_raw = raw.get("swarm", {})
+    swarm_profiles: dict[str, AgentProfileConfig] = {}
+    for prof_name, prof_data in (swarm_raw.get("profiles") or {}).items():
+        prof_data = prof_data or {}
+        swarm_profiles[prof_name] = AgentProfileConfig(
+            command=prof_data.get("command", ""),
+            args=prof_data.get("args", []),
+            strengths=prof_data.get("strengths", []),
+            env=prof_data.get("env", {}),
+            done_criteria=prof_data.get("done_criteria", "pr_created"),
+            max_time_seconds=prof_data.get("max_time_seconds", 3600),
+        )
+    swarm_config = SwarmConfig(
+        enabled=swarm_raw.get("enabled", False),
+        max_concurrent_agents=swarm_raw.get("max_concurrent_agents", 3),
+        monitor_interval_seconds=swarm_raw.get("monitor_interval_seconds", 30),
+        worktree_base_dir=swarm_raw.get("worktree_base_dir", ""),
+        cleanup_merged_worktrees=swarm_raw.get("cleanup_merged_worktrees", True),
+        tmux_session_prefix=swarm_raw.get("tmux_session_prefix", "elo-swarm"),
+        default_done_criteria=swarm_raw.get("default_done_criteria", "pr_created"),
+        prompt_enrichment=swarm_raw.get("prompt_enrichment", True),
+        max_enrichment_chunks=swarm_raw.get("max_enrichment_chunks", 5),
+        profiles=swarm_profiles,
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -951,6 +1006,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         recovery=recovery_config,
         mcp=mcp_config,
         self_learning=self_learning_config,
+        swarm=swarm_config,
         project_root=config_path.parent,
     )
 

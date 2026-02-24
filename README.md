@@ -52,6 +52,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Make it earn money** — it has its own crypto wallet, email, and web presence. Give it a goal and a budget, it figures out the rest
 - **Autonomous long-term goals** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates and adjusts. Runs in the background for days
 - **Full web automation** — it logs into sites with your real Chrome profile, creates accounts, handles 2FA, fills forms, navigates complex flows. Not a toy browser — your actual sessions
+- **Run a dev team from chat** — "Spawn Claude Code on the billing bug and Codex on the new API endpoint" — it creates isolated git worktrees, writes context-enriched prompts from your knowledge vault, launches agents in tmux, monitors PRs and CI, redirects agents that go off track, and pings you when PRs are ready to merge. You talk to EloPhanto, EloPhanto manages the fleet
 - **Build software end-to-end** — "Build me a SaaS dashboard with Next.js + Prisma + shadcn" — it writes the code, runs tests, fixes bugs, deploys
 - **Research & content** — "Research competitor pricing across 20 sites and write a report with sources" — it opens tabs, reads pages, compiles findings
 - **Automate your life** — "Every morning: check my email, summarize what's important, post a digest to my Telegram" — cron scheduling, cross-channel notifications
@@ -150,6 +151,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 ### Everything Else
 
+- **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team. Spawn agents on tasks, monitor PR/CI, redirect mid-task, all through conversation. Each agent gets an isolated git worktree and tmux session
 - **Browser automation** — real Chrome browser with 49 tools (navigate, click, type, screenshot, extract data, upload files, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Multi-channel gateway** — WebSocket control plane with CLI, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
@@ -165,7 +167,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Prompt injection defense** — multi-layer guard against injection attacks via websites, emails, and documents
 
 <details>
-<summary>Built-in Tools (101+)</summary>
+<summary>Built-in Tools (105+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -181,6 +183,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 | Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search, email_monitor | 7 |
 | Payments | wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 7 |
 | Verification | totp_enroll, totp_generate, totp_list, totp_delete | 4 |
+| Swarm | swarm_spawn, swarm_status, swarm_redirect, swarm_stop | 4 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
 | Scheduling | schedule_task, schedule_list | 2 |
 
@@ -202,7 +205,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (101+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (105+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
