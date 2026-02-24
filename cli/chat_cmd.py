@@ -169,6 +169,35 @@ def _build_welcome_panel(
     info.add_row("Features", "  ".join(features))
     info.add_row("Mode", f"[{_C_ACCENT}]{cfg.permission_mode}[/]")
 
+    # Knowledge / embedding health
+    try:
+        _db = agent._db
+        if _db:
+            import asyncio
+
+            async def _kb_stats():
+                rows = await _db.execute("SELECT COUNT(*) as c FROM knowledge_chunks")
+                cn = rows[0]["c"] if rows else 0
+                vn = 0
+                if _db.vec_available:
+                    vr = await _db.execute(
+                        "SELECT COUNT(*) as c FROM vec_chunks_rowids"
+                    )
+                    vn = vr[0]["c"] if vr else 0
+                return cn, vn
+
+            loop = asyncio.get_event_loop()
+            _cn, _vn = loop.run_until_complete(_kb_stats())
+            if _cn == 0:
+                kb_label = f"[{_C_DIM}]no knowledge files[/]"
+            elif _vn == 0:
+                kb_label = f"[red]{_cn} chunks, 0 embeddings — search broken![/]"
+            else:
+                kb_label = f"[{_C_SUCCESS}]{_cn} chunks, {_vn} embeddings[/]"
+            info.add_row("Knowledge", kb_label)
+    except Exception:
+        pass
+
     commands = Text()
     commands.append("\n")
     commands.append("  /clear", style="bold")
