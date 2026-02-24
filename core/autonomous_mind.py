@@ -175,11 +175,24 @@ class AutonomousMind:
 
         self._stop_requested = False
         self._paused = False
+        # First wakeup is immediate (10s warmup), then use configured interval
+        self._next_wakeup_sec = 10.0
         self._task = asyncio.create_task(self._run_loop(), name="autonomous-mind")
+        self._task.add_done_callback(self._on_task_done)
         logger.info(
-            "Autonomous mind started (wakeup every %ds)", self._config.wakeup_seconds
+            "Autonomous mind started (first wakeup in 10s, then every %ds)",
+            self._config.wakeup_seconds,
         )
         return True
+
+    @staticmethod
+    def _on_task_done(task: asyncio.Task) -> None:
+        """Log unhandled exceptions from the background task."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error("Autonomous mind crashed: %s", exc, exc_info=exc)
 
     async def cancel(self) -> None:
         """Stop the autonomous mind."""
@@ -289,6 +302,9 @@ class AutonomousMind:
                 try:
                     await self._think()
                     self._cycle_count += 1
+                    # After first cycle, restore configured default if LLM didn't set it
+                    if self._cycle_count == 1 and self._next_wakeup_sec <= 10.0:
+                        self._next_wakeup_sec = float(self._config.wakeup_seconds)
                 except Exception as e:
                     logger.error("Mind think cycle error: %s", e, exc_info=True)
                     await self._broadcast_event(
