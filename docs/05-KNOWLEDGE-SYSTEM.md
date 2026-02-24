@@ -120,7 +120,7 @@ The `knowledge_search` tool performs hybrid search:
 
 Re-indexing happens:
 
-- On agent startup (incremental — only files changed since last index)
+- On agent startup (incremental — only files changed since last index; auto-recovers with full re-index if chunks exist but embeddings are missing)
 - When `knowledge_write` creates or modifies a file
 - When `knowledge_index` is explicitly called
 - On a configurable schedule (default: every 6 hours while agent is running)
