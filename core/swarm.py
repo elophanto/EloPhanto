@@ -465,7 +465,7 @@ class SwarmManager:
         pr_info = await self._check_pr_status(agent)
         if pr_info and pr_info.get("number"):
             agent.pr_url = pr_info.get("url", "")
-            agent.pr_number = pr_info.get("number")
+            agent.pr_number = int(pr_info["number"])
             ci_status = await self._check_ci_status(agent.pr_number)
             agent.ci_status = ci_status
 
