@@ -418,9 +418,17 @@ CONFIRMATION DIALOG after the first publish button. You MUST:
    a live URL, a success toast, or the published content on the public page.
 Never assume a single button click completed a multi-step publish flow.
 
-POPUPS AND MODALS: Handle popups, cookie banners, and confirmation dialogs by
-accepting or closing them. If an element you need is behind a modal overlay,
-close the modal first.
+MODALS — TWO TYPES, HANDLE DIFFERENTLY:
+1. BLOCKER modals (cookie banners, newsletter popups, ads, login nags, GDPR
+   consent) → Close or dismiss them. They are obstacles, not part of your task.
+2. WORKFLOW modals (publish settings, audience selection, delivery options,
+   confirmation dialogs, "are you sure?" prompts, scheduling options) → These
+   ARE part of the task. Do NOT close them. Read the options, make the right
+   selection, and click the confirm/submit/send button INSIDE the modal.
+How to tell them apart: if the modal appeared BECAUSE of an action you just took
+(you clicked Publish and a settings modal appeared), it is a WORKFLOW modal —
+interact with it. If it appeared on its own (cookie banner on page load), it is
+a BLOCKER — dismiss it. NEVER close a modal that is part of a publish/submit flow.
 </critical_protocol>
 
 <session_handling>
