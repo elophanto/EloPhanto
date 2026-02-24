@@ -29,6 +29,7 @@ _SECTIONS = {
     "browser": "Web browsing settings",
     "scheduler": "Background scheduling",
     "mcp": "MCP tool servers",
+    "autonomous_mind": "Autonomous background mind",
 }
 
 
@@ -54,7 +55,7 @@ def init_cmd(ctx: click.Context, config_dir: str) -> None:
 def edit_cmd(ctx: click.Context, section: str | None) -> None:
     """Edit a specific section of the configuration.
 
-    SECTION can be: providers, models, permissions, browser, scheduler.
+    SECTION can be: providers, models, permissions, browser, scheduler, mcp, autonomous_mind.
     If omitted, shows a menu.
     """
     config_dir: str = ctx.obj["config_dir"]
@@ -98,6 +99,7 @@ def edit_cmd(ctx: click.Context, section: str | None) -> None:
         "browser": _edit_browser,
         "scheduler": _edit_scheduler,
         "mcp": _edit_mcp,
+        "autonomous_mind": _edit_autonomous_mind,
     }
     editors[section](config)
 
@@ -521,6 +523,54 @@ def _edit_scheduler(config: dict) -> None:
         console.print("  [dim]Disabled.[/dim]")
 
 
+def _edit_autonomous_mind(config: dict) -> None:
+    """Edit autonomous mind settings."""
+    console.print("[bold]Autonomous Mind[/bold]")
+    console.print(
+        "  [dim]Purpose-driven background thinking loop that runs between\n"
+        "  user interactions. Pursues goals, revenue, and maintenance.\n"
+        "  Pauses when you send a message, resumes when done.[/dim]"
+    )
+
+    mind_cfg = config.setdefault("autonomous_mind", {})
+    current_enabled = mind_cfg.get("enabled", False)
+    mind_enabled = Confirm.ask("  Enable autonomous mind?", default=current_enabled)
+    mind_cfg["enabled"] = mind_enabled
+
+    if mind_enabled:
+        current_wakeup = mind_cfg.get("wakeup_seconds", 300)
+        wakeup = Prompt.ask(
+            "  Default wakeup interval (seconds)",
+            default=str(current_wakeup),
+        )
+        mind_cfg["wakeup_seconds"] = int(wakeup)
+        mind_cfg.setdefault("min_wakeup_seconds", 60)
+        mind_cfg.setdefault("max_wakeup_seconds", 3600)
+
+        current_budget = mind_cfg.get("budget_pct", 15.0)
+        budget = Prompt.ask(
+            "  Budget (% of daily LLM budget)",
+            default=str(current_budget),
+        )
+        mind_cfg["budget_pct"] = float(budget)
+        mind_cfg.setdefault("max_rounds_per_wakeup", 8)
+
+        current_verbosity = mind_cfg.get("verbosity", "normal")
+        verbosity = Prompt.ask(
+            "  Terminal verbosity",
+            choices=["minimal", "normal", "verbose"],
+            default=current_verbosity,
+        )
+        mind_cfg["verbosity"] = verbosity
+
+        console.print(
+            f"  [green]Autonomous mind enabled — wakes every {mind_cfg['wakeup_seconds']}s, "
+            f"{mind_cfg['budget_pct']}% budget.[/green]"
+        )
+    else:
+        console.print("  [dim]Disabled.[/dim]")
+
+
 # ── Common MCP server presets ────────────────────────────────────────────────
 
 _MCP_PRESETS: dict[str, dict] = {
@@ -739,6 +789,10 @@ def _run_full_wizard(config_dir: str) -> None:
     _edit_mcp(config)
 
     console.print()
+    console.print("[bold]9. Autonomous Mind[/bold]")
+    _edit_autonomous_mind(config)
+
+    console.print()
 
     # Ensure defaults for sections not prompted
     config.setdefault("plugins", {"plugins_dir": "plugins", "auto_load": True})
@@ -766,6 +820,15 @@ def _run_full_wizard(config_dir: str) -> None:
         },
     )
     config.setdefault("mcp", {"enabled": False, "servers": {}})
+    config.setdefault(
+        "autonomous_mind",
+        {
+            "enabled": False,
+            "wakeup_seconds": 300,
+            "budget_pct": 15.0,
+            "verbosity": "normal",
+        },
+    )
 
     # Write config
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -799,6 +862,10 @@ def _run_full_wizard(config_dir: str) -> None:
         features_status.append(f"MCP: [green]{len(mcp_servers)} server(s)[/green]")
     else:
         features_status.append("MCP: [dim]disabled[/dim]")
+    if config.get("autonomous_mind", {}).get("enabled"):
+        features_status.append("Mind: [green]enabled[/green]")
+    else:
+        features_status.append("Mind: [dim]disabled[/dim]")
     features_str = " | ".join(features_status)
 
     mode = config.get("agent", {}).get("permission_mode", "ask_always")
@@ -1100,5 +1167,14 @@ def _default_config() -> dict:
         "mcp": {
             "enabled": False,
             "servers": {},
+        },
+        "autonomous_mind": {
+            "enabled": False,
+            "wakeup_seconds": 300,
+            "min_wakeup_seconds": 60,
+            "max_wakeup_seconds": 3600,
+            "budget_pct": 15.0,
+            "max_rounds_per_wakeup": 8,
+            "verbosity": "normal",
         },
     }

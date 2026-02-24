@@ -198,6 +198,18 @@ How much autonomy should EloPhanto have?
 Choice: 1
 ✓ Permission mode set to "Ask Always"
 
+── Autonomous Mind (Optional) ────────────
+
+Enable autonomous background thinking?
+The agent will work on goals, revenue, and maintenance
+between your conversations. Pauses when you speak.
+
+Enable autonomous mind? [y/N]: y
+  Default wakeup interval (seconds): 300
+  Budget (% of daily LLM budget): 15.0
+  Terminal verbosity [minimal/normal/verbose]: normal
+✓ Autonomous mind enabled — wakes every 300s, 15.0% budget.
+
 ── Done! ─────────────────────────────────
 
 ✓ EloPhanto is ready!

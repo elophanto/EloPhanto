@@ -74,6 +74,7 @@ elophanto/
 │   ├── storage.py                      # Structured data/ directory management (uploads, downloads, cache)
 │   ├── document_processor.py           # Document extraction pipeline (PDF, DOCX, OCR, chunking)
 │   ├── document_store.py               # Document collection storage (embeddings, RAG retrieval)
+│   ├── autonomous_mind.py              # Autonomous background thinking loop (purpose-driven, budget-isolated)
 │   ├── census.py                       # Anonymous agent census (machine fingerprint, startup heartbeat)
 │   ├── dataset_builder.py              # Self-learning data collection (sanitizer, quality filter, batch upload)
 │   │
@@ -137,12 +138,17 @@ elophanto/
 │   │   ├── query_tool.py               # RAG query over document collections
 │   │   └── collections_tool.py         # Manage document collections
 │   │
-│   └── totp/                           # TOTP authenticator tools
+│   ├── totp/                           # TOTP authenticator tools
+│   │   ├── __init__.py
+│   │   ├── enroll_tool.py              # Store TOTP secret in vault
+│   │   ├── generate_tool.py            # Generate 6-digit TOTP codes
+│   │   ├── list_tool.py                # List enrolled services
+│   │   └── delete_tool.py              # Remove TOTP secret from vault
+│   │
+│   └── mind/                           # Autonomous mind tools
 │       ├── __init__.py
-│       ├── enroll_tool.py              # Store TOTP secret in vault
-│       ├── generate_tool.py            # Generate 6-digit TOTP codes
-│       ├── list_tool.py                # List enrolled services
-│       └── delete_tool.py              # Remove TOTP secret from vault
+│       ├── wakeup_tool.py              # set_next_wakeup — LLM-controlled sleep interval
+│       └── scratchpad_tool.py          # update_scratchpad — persistent working memory
 │
 ├── data/                               # Structured data storage (gitignored)
 │   ├── downloads/                      # Temporary downloads from channels

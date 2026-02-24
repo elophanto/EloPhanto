@@ -51,6 +51,13 @@ class EventType(StrEnum):
     AGENT_FAILED = "agent_failed"
     AGENT_REDIRECTED = "agent_redirected"
     AGENT_STOPPED = "agent_stopped"
+    MIND_WAKEUP = "mind_wakeup"
+    MIND_ACTION = "mind_action"
+    MIND_SLEEP = "mind_sleep"
+    MIND_PAUSED = "mind_paused"
+    MIND_RESUMED = "mind_resumed"
+    MIND_REVENUE = "mind_revenue"
+    MIND_ERROR = "mind_error"
 
 
 @dataclass

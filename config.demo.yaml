@@ -255,3 +255,14 @@ email:
     username_ref: "imap_username"
     password_ref: "imap_password"
     mailbox: INBOX
+# ── Autonomous Mind ──────────────────────────────────────────
+# Background thinking loop that runs between user interactions.
+# Pursues goals, revenue, and maintenance autonomously.
+autonomous_mind:
+  enabled: true                 # Set to true to activate background mind
+  wakeup_seconds: 300           # Default interval between think cycles (seconds)
+  min_wakeup_seconds: 60        # Minimum interval the LLM can set
+  max_wakeup_seconds: 3600      # Maximum interval the LLM can set
+  budget_pct: 100.0              # % of daily LLM budget allocated to mind
+  max_rounds_per_wakeup: 8      # Max tool-call rounds per think cycle
+  verbosity: normal             # minimal | normal | verbose

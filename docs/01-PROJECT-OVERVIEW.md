@@ -14,6 +14,7 @@ It is not a chatbot. It is not an assistant wrapper. It is a persistent, self-aw
 - **Full system access**: Shell, filesystem, real browser (with user's sessions), email, calendar — anything the user can do, EloPhanto can do.
 - **Open source**: Apache 2.0 licensed. No telemetry. No central server. No vendor lock-in.
 - **Secure by design**: Encrypted credential vault. Immutable permission core. Tiered approval system.
+- **Autonomous when idle**: Between user interactions, a purpose-driven background mind pursues goals, revenue, and maintenance on its own. Pauses when you speak, resumes when done. Budget-isolated.
 
 ## What Makes It Different
 

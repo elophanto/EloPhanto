@@ -14,6 +14,8 @@ EloPhanto is organized into seven layers. Each layer has a clear responsibility 
 ├─────────────────────────────────────────────────┤
 │          Self-Development Pipeline               │  Layer 4: Evolution Engine
 ├─────────────────────────────────────────────────┤
+│     Autonomous Mind (background think loop)      │  Layer 3.5: Background Brain
+├─────────────────────────────────────────────────┤
 │         Tool System (built-in + plugins)         │  Layer 3: Capabilities
 ├─────────────────────────────────────────────────┤
 │              Agent Core Loop                     │  Layer 2: Brain
@@ -70,6 +72,10 @@ The agent operates in a continuous cycle for every task.
 **Remember**: Completed tasks are summarized and stored in long-term memory. Failures are documented with what went wrong and why. This memory is searchable and influences future planning. Post-task housekeeping (memory storage, identity reflection, dataset collection) runs as fire-and-forget background tasks — the user receives the response immediately without waiting for these to complete.
 
 The loop supports nesting — if a tool call triggers a sub-task (e.g., self-development), that sub-task runs its own plan/execute/reflect cycle within the parent task.
+
+### Autonomous Mind
+
+Between user interactions, the agent runs a purpose-driven background thinking loop (`core/autonomous_mind.py`). Each wakeup cycle evaluates a priority stack (active goals → revenue → pending tasks → capability gaps → presence growth → knowledge maintenance), executes the highest-value action, updates a persistent scratchpad, and schedules its own next wakeup. The mind pauses instantly when the user sends a message and resumes when the user's task completes. It runs through the same `agent.run()` pipeline as user requests but with isolated conversation history and its own budget allocation (configurable % of daily LLM budget). See `26-AUTONOMOUS-MIND.md` for the full design.
 
 ### Session-Scoped Execution
 

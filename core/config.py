@@ -257,6 +257,19 @@ class GoalsConfig:
 
 
 @dataclass
+class AutonomousMindConfig:
+    """Autonomous background mind configuration."""
+
+    enabled: bool = False
+    wakeup_seconds: int = 300  # Default wakeup interval (5 min)
+    min_wakeup_seconds: int = 60
+    max_wakeup_seconds: int = 3600
+    budget_pct: float = 15.0  # % of daily LLM budget for autonomous ops
+    max_rounds_per_wakeup: int = 8  # Max tool call rounds per cycle
+    verbosity: str = "normal"  # minimal | normal | verbose
+
+
+@dataclass
 class IdentityConfig:
     """Evolving agent identity configuration."""
 
@@ -499,6 +512,7 @@ class Config:
     mcp: MCPConfig = field(default_factory=MCPConfig)
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
+    autonomous_mind: AutonomousMindConfig = field(default_factory=AutonomousMindConfig)
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -977,6 +991,18 @@ def load_config(config_path: Path | str | None = None) -> Config:
         profiles=swarm_profiles,
     )
 
+    # Parse autonomous_mind section
+    am_raw = raw.get("autonomous_mind", {})
+    autonomous_mind_config = AutonomousMindConfig(
+        enabled=am_raw.get("enabled", False),
+        wakeup_seconds=am_raw.get("wakeup_seconds", 300),
+        min_wakeup_seconds=am_raw.get("min_wakeup_seconds", 60),
+        max_wakeup_seconds=am_raw.get("max_wakeup_seconds", 3600),
+        budget_pct=am_raw.get("budget_pct", 15.0),
+        max_rounds_per_wakeup=am_raw.get("max_rounds_per_wakeup", 8),
+        verbosity=am_raw.get("verbosity", "normal"),
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -1005,6 +1031,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         mcp=mcp_config,
         self_learning=self_learning_config,
         swarm=swarm_config,
+        autonomous_mind=autonomous_mind_config,
         project_root=config_path.parent,
     )
 
