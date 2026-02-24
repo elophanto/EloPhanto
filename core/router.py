@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC
 from typing import Any
 
+import httpx
 import litellm
 
 from core.config import Config
@@ -177,11 +178,27 @@ class LLMRouter:
                 )
                 return result
             except Exception as e:
+                elapsed = time.monotonic() - _attempt_start
+                # Timeouts mean the request is too heavy — retrying the same
+                # provider won't help.  Fall through to the next provider.
+                is_timeout = (
+                    isinstance(e, (httpx.TimeoutException, asyncio.TimeoutError))
+                    or "timed out" in str(e).lower()
+                )
+
+                if is_timeout:
+                    logger.warning(
+                        f"[TIMING] {provider}/{model} timed out after {elapsed:.0f}s "
+                        f"— skipping to next provider"
+                    )
+                    self._mark_unhealthy(provider)
+                    raise
+
                 delay = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)]
                 if attempt < self.MAX_RETRIES - 1:
                     logger.warning(
                         f"[TIMING] {provider}/{model} attempt {attempt + 1}/{self.MAX_RETRIES} "
-                        f"failed after {time.monotonic() - _attempt_start:.2f}s: {e}. "
+                        f"failed after {elapsed:.2f}s: {e}. "
                         f"Retrying in {delay}s..."
                     )
                     # Reset health so retry doesn't skip this provider
