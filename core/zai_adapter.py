@@ -46,7 +46,7 @@ class ZaiAdapter:
         self._base_url_paygo = zai_cfg.base_url_paygo
         self._default_model = zai_cfg.default_model or "glm-4.7"
         # Persistent HTTP client — reuses TCP connections across calls
-        self._client = httpx.AsyncClient(timeout=120.0)
+        self._client = httpx.AsyncClient(timeout=180.0)
 
     async def complete(
         self,
