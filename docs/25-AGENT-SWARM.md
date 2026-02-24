@@ -1,5 +1,10 @@
 # Agent Swarm — Orchestrate Claude Code, Codex & Gemini CLI
 
+> **Status: Implemented** — Core swarm system is live. `core/swarm.py` (SwarmManager),
+> 4 tools (`swarm_spawn`, `swarm_status`, `swarm_redirect`, `swarm_stop`),
+> config section, DB persistence, gateway events, system prompt integration.
+> Multi-model code review and proactive work discovery are planned extensions.
+
 EloPhanto turns you into a one-person dev team. Instead of running Claude Code or Codex by hand, EloPhanto spawns them, writes their prompts with full business context from your knowledge vault, monitors progress, redirects agents that go off track, runs multi-model code review, and pings you on any channel when PRs are ready to merge.
 
 You talk to EloPhanto. EloPhanto manages the fleet.

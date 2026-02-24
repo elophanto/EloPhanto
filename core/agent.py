@@ -79,6 +79,7 @@ _PARALLEL_SAFE_TOOLS = frozenset(
         "email_read",
         "email_search",
         "schedule_list",
+        "swarm_status",
     }
 )
 
@@ -170,6 +171,7 @@ class Agent:
         self._mcp_manager: Any = None  # MCPClientManager, set during initialize
         self._dataset_builder: Any = None  # DatasetBuilder, set during initialize
         self._goal_runner: Any = None  # GoalRunner, set during initialize
+        self._swarm_manager: Any = None  # SwarmManager, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
@@ -458,6 +460,24 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Email system setup failed: {e}")
 
+        # Initialize swarm system (agent orchestration)
+        if self._config.swarm.enabled:
+            _status("Preparing swarm")
+            try:
+                from core.swarm import SwarmManager
+
+                self._swarm_manager = SwarmManager(
+                    db=self._db,
+                    config=self._config.swarm,
+                    project_root=self._config.project_root,
+                    gateway=self._gateway,
+                )
+                await self._swarm_manager.start()
+                self._inject_swarm_deps()
+                logger.info("Swarm system ready")
+            except Exception as e:
+                logger.warning(f"Swarm system setup failed: {e}")
+
         # Initialize MCP client (connect to external MCP servers)
         if self._config.mcp.enabled:
             _mcp_available = False
@@ -577,6 +597,11 @@ class Agent:
                 await self._email_monitor.stop()
             except Exception as e:
                 logger.debug("Email monitor shutdown error: %s", e)
+        if self._swarm_manager:
+            try:
+                await self._swarm_manager.stop()
+            except Exception as e:
+                logger.debug("Swarm manager shutdown error: %s", e)
         if self._dataset_builder:
             try:
                 await self._dataset_builder.flush()
@@ -751,6 +776,14 @@ class Agent:
         if tool and self._email_monitor:
             tool._email_monitor = self._email_monitor
 
+    def _inject_swarm_deps(self) -> None:
+        """Inject SwarmManager into swarm tools."""
+        swarm_tools = ("swarm_spawn", "swarm_status", "swarm_redirect", "swarm_stop")
+        for tool_name in swarm_tools:
+            tool = self._registry.get(tool_name)
+            if tool and self._swarm_manager:
+                tool._swarm_manager = self._swarm_manager
+
     def _inject_totp_deps(self) -> None:
         """Inject vault and identity manager into TOTP tools."""
         for tool_name in ("totp_generate", "totp_enroll", "totp_list", "totp_delete"):
@@ -903,6 +936,7 @@ class Agent:
             payments_enabled=self._config.payments.enabled,
             email_enabled=self._config.email.enabled,
             mcp_enabled=bool(self._mcp_manager and self._mcp_manager.connected_servers),
+            swarm_enabled=self._config.swarm.enabled,
             knowledge_context=knowledge_context,
             available_skills=available_skills,
             goal_context=goal_context,

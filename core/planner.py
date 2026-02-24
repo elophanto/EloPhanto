@@ -1088,6 +1088,62 @@ Changes require an agent restart to take effect. If a user asks to add or remove
 a server, use mcp_manage and then tell them to restart.
 </mcp>"""
 
+_TOOL_SWARM = """\
+<swarm>
+You can orchestrate external coding agents (Claude Code, Codex, Gemini CLI, etc.)
+to work on tasks in parallel. Each agent runs in an isolated git worktree on its
+own branch, inside a tmux session.
+
+<available_tools>
+- swarm_spawn: Spawn a new coding agent on a task. Creates an isolated git worktree
+  on a feature branch, enriches the prompt with project context, and launches the
+  agent in a tmux session. The agent works independently and creates a PR when done.
+  Parameters: task (required), profile, branch_name, extra_context.
+- swarm_status: Check the status of all spawned agents or a specific one. Shows
+  profile, task, branch, PR URL, CI status, and whether the tmux session is alive.
+  Parameters: agent_id (optional).
+- swarm_redirect: Send new instructions to a running agent mid-task. Injects text
+  into the agent's tmux session. Use to course-correct or provide additional context.
+  Parameters: agent_id, instructions (both required).
+- swarm_stop: Stop a running agent by killing its tmux session. The worktree and
+  branch are preserved for manual inspection.
+  Parameters: agent_id (required), reason (optional).
+</available_tools>
+
+<swarm_protocol>
+1. SPAWN — Use swarm_spawn with a clear task description. The system auto-selects
+   the best agent profile based on task keywords, or you can specify one explicitly.
+2. MONITOR — Use swarm_status to check on agents. The background monitor also
+   watches for PR creation, CI results, and agent completion.
+3. REDIRECT — If an agent is going in the wrong direction, use swarm_redirect to
+   send it corrective instructions without stopping it.
+4. STOP — Use swarm_stop if an agent needs to be terminated. The worktree remains
+   for inspection.
+</swarm_protocol>
+
+<when_to_use_swarm>
+Spawn agents when the user asks to:
+- Work on multiple independent tasks in parallel
+- "Have an agent work on X while I do Y"
+- "Delegate this to a coding agent"
+- Fix bugs, add features, or refactor code autonomously
+- Any task that can be described as a self-contained coding assignment
+
+Do NOT spawn agents for:
+- Simple tasks you can do directly with your tools
+- Tasks requiring real-time interaction with the user
+- Tasks that need access to the browser or other non-code tools
+</when_to_use_swarm>
+
+<guidelines>
+- Each agent gets its own git branch (swarm/<slug>-<id>) and worktree.
+- Agents create PRs when done — review them before merging.
+- The monitor checks for completion every 30 seconds by default.
+- Agents that exceed their time limit are automatically stopped.
+- You'll receive notifications when agents complete, fail, or are stopped.
+</guidelines>
+</swarm>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -1143,6 +1199,7 @@ def build_system_prompt(
     payments_enabled: bool = False,
     email_enabled: bool = False,
     mcp_enabled: bool = False,
+    swarm_enabled: bool = False,
     knowledge_context: str = "",
     available_skills: str = "",
     goal_context: str = "",
@@ -1233,6 +1290,9 @@ def build_system_prompt(
         sections.append(_TOOL_MCP)
     else:
         sections.append(_TOOL_MCP_SETUP)
+
+    if swarm_enabled:
+        sections.append(_TOOL_SWARM)
 
     sections.append(_TOOL_CLOSE)
 

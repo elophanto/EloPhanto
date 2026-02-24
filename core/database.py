@@ -276,6 +276,35 @@ _SCHEMA = [
         uploaded_at TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS swarm_agents (
+        agent_id TEXT PRIMARY KEY,
+        profile TEXT NOT NULL,
+        task TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        tmux_session TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        done_criteria TEXT NOT NULL DEFAULT 'pr_created',
+        pr_url TEXT,
+        pr_number INTEGER,
+        ci_status TEXT,
+        enriched_prompt TEXT,
+        spawned_at TEXT NOT NULL,
+        completed_at TEXT,
+        stopped_reason TEXT,
+        metadata_json TEXT DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS swarm_activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id TEXT NOT NULL,
+        event TEXT NOT NULL,
+        detail TEXT,
+        timestamp TEXT NOT NULL
+    )
+    """,
 ]
 
 

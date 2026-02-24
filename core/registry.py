@@ -187,3 +187,14 @@ class ToolRegistry:
         self.register(TotpEnrollTool())
         self.register(TotpListTool())
         self.register(TotpDeleteTool())
+
+        # Swarm tools (agent orchestration)
+        from tools.swarm.redirect_tool import SwarmRedirectTool
+        from tools.swarm.spawn_tool import SwarmSpawnTool
+        from tools.swarm.status_tool import SwarmStatusTool
+        from tools.swarm.stop_tool import SwarmStopTool
+
+        self.register(SwarmSpawnTool())
+        self.register(SwarmStatusTool())
+        self.register(SwarmRedirectTool())
+        self.register(SwarmStopTool())
