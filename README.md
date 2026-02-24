@@ -50,7 +50,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 - **Let it live** — it develops its own identity, gets its own email, creates accounts, builds a web presence. Leave it running and it grows on its own
 - **Make it earn money** — it has its own crypto wallet, email, and web presence. Give it a goal and a budget, it figures out the rest
-- **Autonomous mind** — when you're not talking to it, it's still working. Background thinking loop pursues revenue, goals, and maintenance on its own. Pauses when you speak, resumes when you're done. Every tool call visible in real-time in the terminal. Budget-isolated, purpose-driven — not random reflection
+- **Autonomous mind** — when you're not talking to it, it's still working. Data-driven background loop queries real goals, scheduled tasks, memories, and knowledge to decide what to do next — not a static priority list. Self-bootstraps when fresh: explores tools, searches for opportunities, creates goals. Pauses when you speak, resets timer on resume. Every tool call visible in real-time. Budget-isolated, purpose-driven
 - **Autonomous long-term goals** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates and adjusts. Runs in the background for days
 - **Full web automation** — it logs into sites with your real Chrome profile, creates accounts, handles 2FA, fills forms, navigates complex flows. Not a toy browser — your actual sessions
 - **Run a dev team from chat** — "Spawn Claude Code on the billing bug and Codex on the new API endpoint" — it creates isolated git worktrees, writes context-enriched prompts from your knowledge vault, launches agents in tmux, monitors PRs and CI, redirects agents that go off track, and pings you when PRs are ready to merge. You talk to EloPhanto, EloPhanto manages the fleet
@@ -157,7 +157,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Multi-channel gateway** — WebSocket control plane with CLI, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, self-evaluate and revise plans. Background execution with auto-resume on restart
-- **Autonomous mind** — purpose-driven background thinking loop that runs between user interactions. Pursues revenue, active goals, and maintenance. Every tool call visible in real-time in the terminal. LLM-controlled wakeup interval, persistent scratchpad, budget-isolated from user tasks. `/mind` command shows live status
+- **Autonomous mind** — data-driven background thinking loop that runs between user interactions. Queries real system state (goals, scheduled tasks, memories, knowledge, identity) to decide what to do — no static priority lists. Self-bootstraps on first run. Every tool call visible in real-time. LLM-controlled wakeup interval, persistent scratchpad, budget-isolated. Timer resets after user interaction. `/mind` command shows live status
 - **Document & media analysis** — PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel. Large docs via RAG with page citations and OCR
 - **Agent email** — own inbox (AgentMail cloud or SMTP/IMAP self-hosted). Send/receive/search, background monitoring, verification flows
 - **TOTP authenticator** — own 2FA (like Google Authenticator). Enroll secrets, generate codes, handle verification autonomously
@@ -373,7 +373,7 @@ Configure LLM provider, browser mode, channels, email, payments, MCP servers, an
 
 ## What's New
 
-- **Autonomous mind** — purpose-driven background thinking loop between user interactions, with real-time tool visibility in terminal, revenue pursuit, budget isolation, and `/mind` status
+- **Autonomous mind** — data-driven background thinking loop that queries real goals, tasks, memories, and knowledge. Self-bootstraps when fresh, resets timer after user interaction, real-time tool visibility in terminal, budget-isolated
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team through conversation
 - **TOTP authenticator** — handle 2FA challenges autonomously
 - **Background email monitoring** — get notified on any channel when new emails arrive

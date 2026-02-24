@@ -62,18 +62,32 @@ def _append_action_log(project_root: Path, entry: str) -> None:
 
 _MIND_PROMPT = """\
 You are EloPhanto in autonomous mode. You are not reflecting — you are working.
+You are a self-evolving AI agent. You grow, learn, build, and earn — independently.
+
+WHO YOU ARE:
+{identity_anchor}
 
 RULES:
-1. Every wakeup must produce value. If nothing needs doing, sleep longer.
-2. Revenue > everything except active goals. Money funds your existence.
-3. Never message the owner unless it matters. Silence is professionalism.
-4. Update your scratchpad with what you did and what's next — use update_scratchpad.
-5. Set your next wakeup based on urgency using set_next_wakeup. Don't waste compute.
-6. You have {max_rounds} tool rounds. Use them efficiently.
-7. If a task needs more than {max_rounds} rounds, create a goal for it.
+1. Every wakeup must produce value. Never sleep without having done something.
+2. Work toward active goals first. No goals? Create one. You always have something to build.
+3. Revenue > everything except active goals. Money funds your existence.
+4. Never message the owner unless it matters. Silence is professionalism.
+5. Update your scratchpad with what you did and what's next — use update_scratchpad.
+6. Set your next wakeup based on urgency using set_next_wakeup. Don't waste compute.
+7. You have {max_rounds} tool rounds. Use them efficiently.
+8. If a task needs more than {max_rounds} rounds, create a goal for it.
 
-PRIORITY STACK:
-{priority_stack}
+WHEN STATE IS EMPTY (no goals, no tasks, no history):
+You are not idle — you are bootstrapping. Take initiative:
+- Explore your tools and capabilities (list_tools, knowledge_search)
+- Search the web for revenue opportunities matching your skills
+- Set up presence: find platforms to grow on, create content
+- Build knowledge: index useful information, learn about your environment
+- Create a goal for yourself — pick something valuable and start working toward it
+Never wait for the user. You are autonomous. Act.
+
+CURRENT STATE:
+{state_snapshot}
 
 SCRATCHPAD (your working memory — update it before finishing):
 {scratchpad}
@@ -81,14 +95,11 @@ SCRATCHPAD (your working memory — update it before finishing):
 RECENT EVENTS:
 {events}
 
-ACTIVE GOAL:
-{active_goal}
-
 BUDGET: ${budget_remaining:.4f} remaining (${budget_spent:.4f} spent today)
 LAST WAKEUP: {last_wakeup} — {last_action}
 UTC NOW: {utc_now}
 
-What is the highest-value action right now? Do it.
+Based on your current state, what is the highest-value action right now? Do it.
 """
 
 
@@ -111,6 +122,7 @@ class AutonomousMind:
         self._task: asyncio.Task[None] | None = None
         self._stop_requested: bool = False
         self._paused: bool = False
+        self._resume_pending: bool = False
         self._wakeup_event = asyncio.Event()
 
         # Wakeup timing (LLM controls this via set_next_wakeup tool)
@@ -213,17 +225,31 @@ class AutonomousMind:
             self._paused = True
 
     async def notify_task_complete(self) -> None:
-        """Resume mind after user task completes."""
+        """Resume mind after user task completes.
+
+        Interrupts the current sleep and restarts with a fresh full interval.
+        The loop sees ``_resume_pending``, skips the think cycle, and goes
+        back to sleep for the configured ``_next_wakeup_sec``.
+        """
         if not self.is_running:
             return
         if self._paused:
-            logger.info("User task complete — resuming autonomous mind")
+            # Reset to config default — LLM's previous sleep decision is stale
+            self._next_wakeup_sec = float(self._config.wakeup_seconds)
+            logger.info(
+                "User task complete — resuming autonomous mind (fresh %ds timer)",
+                int(self._next_wakeup_sec),
+            )
             self._paused = False
+            self._resume_pending = True
             await self._broadcast_event(
                 EventType.MIND_RESUMED,
-                {"pending_events": len(self._pending_events)},
+                {
+                    "next_wakeup_seconds": int(self._next_wakeup_sec),
+                    "pending_events": len(self._pending_events),
+                },
             )
-            self._wakeup_event.set()  # Wake up now
+            self._wakeup_event.set()  # interrupt current sleep → loop restarts timer
 
     async def resume_on_startup(self) -> None:
         """Start the mind on agent/gateway startup."""
@@ -277,6 +303,11 @@ class AutonomousMind:
 
                 if self._stop_requested:
                     break
+
+                # After user interaction ends, restart with a fresh timer
+                if self._resume_pending:
+                    self._resume_pending = False
+                    continue  # → back to top → fresh sleep for _next_wakeup_sec
 
                 # Skip if paused (user task running)
                 if self._paused:
@@ -332,8 +363,8 @@ class AutonomousMind:
         self._last_wakeup_time = datetime.now(timezone.utc).strftime("%H:%M UTC")
         cycle_start = time.monotonic()
 
-        # Build the prompt
-        prompt = self._build_prompt()
+        # Build the prompt (async — queries real state from all managers)
+        prompt = await self._build_prompt()
 
         # Broadcast wakeup event with rich context
         daily_budget = self._daily_budget()
@@ -423,7 +454,7 @@ class AutonomousMind:
             )
 
             # Track cost
-            cost = self._agent._router.cost_tracker.task_cost
+            cost = self._agent._router.cost_tracker.task_total
             self._spent_today_usd += cost
 
             # Extract action summary from response
@@ -484,9 +515,112 @@ class AutonomousMind:
     # Prompt building
     # ------------------------------------------------------------------
 
-    def _build_prompt(self) -> str:
+    async def _build_state_snapshot(self) -> tuple[str, str]:
+        """Query all managers to build a real state snapshot for the mind.
+
+        Returns (state_snapshot, identity_anchor) tuple.
+        """
+        sections: list[str] = []
+
+        # --- Identity anchor ---
+        try:
+            if self._agent._identity_manager:
+                identity = await self._agent._identity_manager.get_identity()
+                parts: list[str] = []
+                if identity.purpose:
+                    parts.append(identity.purpose)
+                if identity.capabilities:
+                    parts.append(
+                        f"Capabilities: {', '.join(identity.capabilities[:8])}"
+                    )
+                if parts:
+                    sections.append("\n".join(parts))
+        except Exception:
+            pass
+        identity_anchor = (
+            "\n".join(sections)
+            if sections
+            else (
+                "(no identity configured — consider setting purpose and capabilities)"
+            )
+        )
+        sections.clear()
+
+        # --- Active goals ---
+        try:
+            if self._agent._goal_manager:
+                active = await self._agent._goal_manager.list_goals(
+                    status="active", limit=3
+                )
+                for g in active:
+                    nxt = await self._agent._goal_manager.get_next_checkpoint(g.goal_id)
+                    nxt_str = f' — next: "{nxt.title}"' if nxt else ""
+                    sections.append(
+                        f'[GOAL] "{g.goal}" — {g.current_checkpoint}/{g.total_checkpoints} '
+                        f"checkpoints done{nxt_str}"
+                    )
+                planning = await self._agent._goal_manager.list_goals(
+                    status="planning", limit=2
+                )
+                for g in planning:
+                    sections.append(
+                        f'[GOAL-PLANNING] "{g.goal}" — needs plan decomposition'
+                    )
+        except Exception:
+            pass
+        goal_text = "\n".join(sections) if sections else "(no active goals)"
+        sections.clear()
+
+        # --- Scheduled tasks ---
+        try:
+            if self._agent._scheduler:
+                schedules = await self._agent._scheduler.list_schedules()
+                for s in schedules:
+                    if not s.enabled:
+                        continue
+                    next_run = s.next_run_at or "unknown"
+                    sections.append(
+                        f'[SCHEDULE] "{s.name}" — next: {next_run} — cron: {s.cron_expression}'
+                    )
+        except Exception:
+            pass
+        schedule_text = "\n".join(sections) if sections else "(no scheduled tasks)"
+        sections.clear()
+
+        # --- Recent activity (from task memory) ---
+        try:
+            if self._agent._memory_manager:
+                recent = await self._agent._memory_manager.get_recent_tasks(limit=5)
+                for mem in recent:
+                    outcome = mem.get("outcome", "unknown")
+                    created = mem.get("created_at", "")[:16]
+                    goal_str = mem["goal"][:80]
+                    sections.append(f'[RECENT] "{goal_str}" — {outcome} — {created}')
+        except Exception:
+            pass
+        memory_text = "\n".join(sections) if sections else "(no prior activity)"
+        sections.clear()
+
+        # --- Knowledge stats ---
+        knowledge_text = "(empty knowledge base)"
+        try:
+            if self._agent._db:
+                rows = await self._agent._db.execute(
+                    "SELECT COUNT(*) as cnt FROM knowledge_chunks"
+                )
+                count = rows[0]["cnt"] if rows else 0
+                if count > 0:
+                    knowledge_text = f"[KNOWLEDGE] {count} chunks indexed"
+        except Exception:
+            pass
+
+        return (
+            f"{goal_text}\n{schedule_text}\n{memory_text}\n{knowledge_text}"
+        ), identity_anchor
+
+    async def _build_prompt(self) -> str:
         """Build the autonomous mind prompt with current context."""
-        # Scratchpad
+        # Scratchpad (sync file I/O — fast)
         scratchpad = _read_scratchpad(self._project_root)
         if not scratchpad:
             scratchpad = "(empty — initialize your working memory)"
@@ -497,25 +631,8 @@ class AutonomousMind:
             events_text = "\n".join(f"- {e}" for e in self._pending_events[-10:])
             self._pending_events.clear()
 
-        # Active goal context
-        active_goal = "(no active goal)"
-        try:
-            if self._agent._goal_manager:
-                # Synchronous-safe: goal_manager methods are async, call from async context
-                pass  # Will be populated by the LLM reading goal_status tool
-        except Exception:
-            pass
-
-        # Priority stack (static for now — LLM sees tools and decides)
-        priority_stack = (
-            "1. Active goals — resume any pending checkpoint\n"
-            "2. Revenue — find and execute on money-making opportunities\n"
-            "3. Pending tasks — self-scheduled work from previous cycles\n"
-            "4. Capability gaps — build tools/plugins you've needed\n"
-            "5. Presence growth — grow accounts, post content, engage\n"
-            "6. Knowledge maintenance — re-index, update stale info\n"
-            "7. Opportunity scanning — search for new revenue streams"
-        )
+        # Build real state from all managers
+        state_snapshot, identity_anchor = await self._build_state_snapshot()
 
         # Budget
         daily_budget = self._daily_budget()
@@ -523,10 +640,10 @@ class AutonomousMind:
 
         return _MIND_PROMPT.format(
             max_rounds=self._config.max_rounds_per_wakeup,
-            priority_stack=priority_stack,
+            identity_anchor=identity_anchor,
+            state_snapshot=state_snapshot,
             scratchpad=scratchpad[:6000],
             events=events_text,
-            active_goal=active_goal,
             budget_remaining=remaining,
             budget_spent=self._spent_today_usd,
             last_wakeup=self._last_wakeup_time,
