@@ -592,6 +592,45 @@ class Gateway:
                 response_message(session_id, text, done=True).to_json()
             )
 
+        elif command == "tools":
+            # Return structured JSON of all registered tools
+            import json as _json
+
+            tools_data = []
+            for t in self._agent._registry.all_tools():
+                tools_data.append(
+                    {
+                        "name": t.name,
+                        "description": t.description,
+                        "permission": t.permission_level.value,
+                        "parameters": t.input_schema.get("properties", {}),
+                        "required": t.input_schema.get("required", []),
+                    }
+                )
+            payload = _json.dumps({"tools": tools_data})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "skills":
+            # Return structured JSON of all discovered skills
+            import json as _json
+
+            skills_data = []
+            for s in self._agent._skill_manager.list_skills():
+                skills_data.append(
+                    {
+                        "name": s.name,
+                        "description": s.description,
+                        "triggers": s.triggers,
+                        "source": s.source,
+                    }
+                )
+            payload = _json.dumps({"skills": skills_data})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
         else:
             # Try recovery handler — pure Python, no LLM
             if self._recovery:

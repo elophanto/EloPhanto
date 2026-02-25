@@ -228,7 +228,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 | **Agent swarm** | ✅ Orchestrates others | ❌ | ❌ | Single | ❌ |
 | **Own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
 | **Own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
-| **Multi-channel** | ✅ CLI+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
+| **Multi-channel** | ✅ CLI+Web+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
 | **Free local models** | ✅ Ollama, Z.ai | ❌ | ❌ | ❌ | ❌ |
 | **Self-improves** | ✅ Learns from corrections | ❌ | ❌ | ❌ | ❌ |
 
@@ -248,7 +248,8 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team. Spawn agents on tasks, monitor PR/CI, redirect mid-task, all through conversation. Each agent gets an isolated git worktree and tmux session
 - **Browser automation** — real Chrome browser with 49 tools (navigate, click, type, screenshot, extract data, upload files, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
-- **Multi-channel gateway** — WebSocket control plane with CLI, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
+- **Web dashboard** — real-time chat UI at `localhost:3000` with markdown rendering, tool execution indicators, approval cards, and sci-fi aesthetics. Launch with `./start.sh --web`
+- **Multi-channel gateway** — WebSocket control plane with CLI, Web, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, self-evaluate and revise plans. Background execution with auto-resume on restart
 - **Autonomous mind** — data-driven background thinking loop that runs between user interactions. Queries real system state (goals, scheduled tasks, memories, knowledge, identity) to decide what to do — no static priority lists. Self-bootstraps on first run. Every tool call visible in real-time. LLM-controlled wakeup interval, persistent scratchpad, budget-isolated. Timer resets after user interaction. `/mind` command shows live status
 - **Document & media analysis** — PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel. Large docs via RAG with page citations and OCR
@@ -292,7 +293,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  CLI │ Telegram │ Discord │ Slack │ Web (planned)│  Channel Adapters
+│  CLI │ Telegram │ Discord │ Slack │ Web Dashboard│  Channel Adapters
 ├──────────────────────────────────────────────────────────────┤
 │         WebSocket Gateway (ws://:18789)          │  Control Plane
 ├──────────────────────────────────────────────────────────────┤
@@ -351,6 +352,7 @@ EloPhanto/
 │   ├── identity.py      # Evolving agent identity
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
+├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 101+ built-in tools
 ├── skills/              # 28 bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
@@ -378,8 +380,9 @@ Dangerous commands (`rm -rf /`, `mkfs`, `DROP DATABASE`) are always blocked rega
 ## Multi-Channel Support
 
 ```bash
+./start.sh --web             # Gateway + web dashboard (http://localhost:3000)
 elophanto gateway            # Gateway + CLI + all enabled channels
-elophanto gateway --no-cli   # Headless mode (Telegram/Discord/Slack only)
+elophanto gateway --no-cli   # Headless mode (channels only)
 elophanto chat               # CLI only (direct mode)
 ```
 
@@ -454,6 +457,7 @@ Configure LLM provider, browser mode, channels, email, payments, MCP servers, an
 
 ```bash
 ./start.sh                     # Chat (default)
+./start.sh --web               # Gateway + web dashboard
 ./start.sh init                # Setup wizard
 ./start.sh gateway             # Start gateway + all channels
 ./start.sh vault set KEY VAL   # Store a credential
@@ -467,6 +471,7 @@ Configure LLM provider, browser mode, channels, email, payments, MCP servers, an
 
 ## What's New
 
+- **Web dashboard** — beautiful real-time chat UI with markdown rendering, streaming text, tool indicators, and approval cards. `./start.sh --web` to launch
 - **Security hardening** — all 7 security gaps closed: PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env/workspace isolation, kill switch), provider transparency (truncation/censorship detection, fallback tracking), runtime self-model, authority tiers, resource exhaustion protection
 - **Autonomous mind** — data-driven background thinking loop that queries real goals, tasks, memories, and knowledge. Self-bootstraps when fresh, resets timer after user interaction, real-time tool visibility in terminal, budget-isolated
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team through conversation
