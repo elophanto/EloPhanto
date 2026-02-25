@@ -45,6 +45,10 @@ bridge/*/dist/
 bridge/*/node_modules/
 bridge/*/data/
 
+# Web dashboard
+web/node_modules/
+web/dist/
+
 # uv
 .python-version
 
