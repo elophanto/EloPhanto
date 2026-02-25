@@ -13,7 +13,6 @@ from core.authority import (
 from core.config import AuthorityConfig, AuthorityTierConfig
 from tools.base import PermissionLevel
 
-
 # ---------------------------------------------------------------------------
 # Helper to create mock tools
 # ---------------------------------------------------------------------------
