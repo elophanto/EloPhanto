@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import time
-
 from core.provider_tracker import (
     ProviderEvent,
     ProviderStats,
     ProviderTracker,
     detect_truncation,
 )
-
 
 # ---------------------------------------------------------------------------
 # detect_truncation

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,7 +15,6 @@ from core.swarm_security import (
     scan_diff_for_suspicious_patterns,
     validate_agent_output,
 )
-
 
 # ---------------------------------------------------------------------------
 # sanitize_enrichment_context

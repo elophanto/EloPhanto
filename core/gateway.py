@@ -966,7 +966,6 @@ class Gateway:
         elif command == "channels":
             # Return connected clients and gateway info
             import json as _json
-            import time
 
             clients_data = [
                 {
