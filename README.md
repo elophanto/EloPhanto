@@ -260,6 +260,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Scheduling** — cron-based recurring tasks with natural language schedules
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 - **Prompt injection defense** — multi-layer guard against injection attacks via websites, emails, and documents
+- **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
 
 <details>
 <summary>Built-in Tools (107+)</summary>
@@ -353,7 +354,7 @@ EloPhanto/
 ├── tools/               # 101+ built-in tools
 ├── skills/              # 28 bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
-├── tests/               # Test suite (838 tests)
+├── tests/               # Test suite (978 tests)
 ├── setup.sh             # One-command install
 └── docs/                # Full specification (20+ docs)
 ```
@@ -466,6 +467,7 @@ Configure LLM provider, browser mode, channels, email, payments, MCP servers, an
 
 ## What's New
 
+- **Security hardening** — all 7 security gaps closed: PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env/workspace isolation, kill switch), provider transparency (truncation/censorship detection, fallback tracking), runtime self-model, authority tiers, resource exhaustion protection
 - **Autonomous mind** — data-driven background thinking loop that queries real goals, tasks, memories, and knowledge. Self-bootstraps when fresh, resets timer after user interaction, real-time tool visibility in terminal, budget-isolated
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team through conversation
 - **TOTP authenticator** — handle 2FA challenges autonomously
@@ -484,7 +486,7 @@ Configure LLM provider, browser mode, channels, email, payments, MCP servers, an
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (838 passing)
+pytest tests/ -v                   # Run tests (978 passing)
 ruff check .                       # Lint
 ```
 

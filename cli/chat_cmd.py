@@ -527,6 +527,7 @@ async def _chat_gateway(cfg: Any) -> None:
         port=cfg.gateway.port,
         max_sessions=cfg.gateway.max_sessions,
         unified_sessions=cfg.gateway.unified_sessions,
+        authority_config=cfg.authority,
     )
     await gateway.start()
     agent._gateway = gateway  # Enable scheduled task notifications

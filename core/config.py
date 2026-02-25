@@ -67,6 +67,7 @@ class ShellConfig:
     timeout: int = 30
     blacklist_patterns: list[str] = field(default_factory=list)
     safe_commands: list[str] = field(default_factory=list)
+    max_concurrent_processes: int = 10
 
 
 @dataclass
@@ -220,6 +221,8 @@ class StorageConfig:
     upload_retention_hours: int = 72
     cache_max_mb: int = 500
     max_file_size_mb: int = 100
+    workspace_quota_mb: int = 2000
+    alert_threshold_pct: float = 80.0
 
 
 @dataclass
@@ -478,7 +481,32 @@ class SwarmConfig:
     default_done_criteria: str = "pr_created"
     prompt_enrichment: bool = True
     max_enrichment_chunks: int = 5
+    spawn_cooldown_seconds: int = 60
+    workspace_isolation: bool = True
+    output_validation: bool = True
+    auto_block_suspicious: bool = True
+    max_diff_lines: int = 5000
     profiles: dict[str, AgentProfileConfig] = field(default_factory=dict)
+
+
+@dataclass
+class AuthorityTierConfig:
+    """Configuration for a single authority tier."""
+
+    user_ids: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=lambda: ["chat"])
+
+
+@dataclass
+class AuthorityConfig:
+    """Authority tier configuration for multi-user access control.
+
+    See docs/27-SECURITY-HARDENING.md (Gap 1).
+    """
+
+    owner: AuthorityTierConfig = field(default_factory=AuthorityTierConfig)
+    trusted: AuthorityTierConfig = field(default_factory=AuthorityTierConfig)
+    public: AuthorityTierConfig = field(default_factory=AuthorityTierConfig)
 
 
 @dataclass
@@ -513,6 +541,7 @@ class Config:
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
     autonomous_mind: AutonomousMindConfig = field(default_factory=AutonomousMindConfig)
+    authority: AuthorityConfig | None = None
     workspace: str = ""
     project_root: Path = field(default_factory=Path.cwd)
 
@@ -640,6 +669,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         timeout=shell_raw.get("timeout", 30),
         blacklist_patterns=shell_raw.get("blacklist_patterns", []),
         safe_commands=shell_raw.get("safe_commands", []),
+        max_concurrent_processes=shell_raw.get("max_concurrent_processes", 10),
     )
 
     # Parse knowledge section
@@ -776,6 +806,8 @@ def load_config(config_path: Path | str | None = None) -> Config:
         upload_retention_hours=storage_raw.get("upload_retention_hours", 72),
         cache_max_mb=storage_raw.get("cache_max_mb", 500),
         max_file_size_mb=storage_raw.get("max_file_size_mb", 100),
+        workspace_quota_mb=storage_raw.get("workspace_quota_mb", 2000),
+        alert_threshold_pct=storage_raw.get("alert_threshold_pct", 80.0),
     )
 
     # Parse documents section
@@ -990,6 +1022,11 @@ def load_config(config_path: Path | str | None = None) -> Config:
         default_done_criteria=swarm_raw.get("default_done_criteria", "pr_created"),
         prompt_enrichment=swarm_raw.get("prompt_enrichment", True),
         max_enrichment_chunks=swarm_raw.get("max_enrichment_chunks", 5),
+        spawn_cooldown_seconds=swarm_raw.get("spawn_cooldown_seconds", 60),
+        workspace_isolation=swarm_raw.get("workspace_isolation", True),
+        output_validation=swarm_raw.get("output_validation", True),
+        auto_block_suspicious=swarm_raw.get("auto_block_suspicious", True),
+        max_diff_lines=swarm_raw.get("max_diff_lines", 5000),
         profiles=swarm_profiles,
     )
 
@@ -1005,6 +1042,29 @@ def load_config(config_path: Path | str | None = None) -> Config:
         max_rounds_per_wakeup=am_raw.get("max_rounds_per_wakeup", 8),
         verbosity=am_raw.get("verbosity", "normal"),
     )
+
+    # Parse authority section (optional — None means all users are owner)
+    authority_raw = raw.get("authority")
+    authority_config: AuthorityConfig | None = None
+    if authority_raw and isinstance(authority_raw, dict):
+        owner_raw = authority_raw.get("owner", {}) or {}
+        trusted_raw = authority_raw.get("trusted", {}) or {}
+        public_raw = authority_raw.get("public", {}) or {}
+        authority_config = AuthorityConfig(
+            owner=AuthorityTierConfig(
+                user_ids=[str(uid) for uid in (owner_raw.get("user_ids") or [])],
+                capabilities=owner_raw.get("capabilities") or ["all"],
+            ),
+            trusted=AuthorityTierConfig(
+                user_ids=[str(uid) for uid in (trusted_raw.get("user_ids") or [])],
+                capabilities=trusted_raw.get("capabilities")
+                or ["chat", "read_tools", "safe_tools"],
+            ),
+            public=AuthorityTierConfig(
+                user_ids=[str(uid) for uid in (public_raw.get("user_ids") or [])],
+                capabilities=public_raw.get("capabilities") or ["chat"],
+            ),
+        )
 
     config = Config(
         agent_name=agent_name,
@@ -1036,6 +1096,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         self_learning=self_learning_config,
         swarm=swarm_config,
         autonomous_mind=autonomous_mind_config,
+        authority=authority_config,
         project_root=config_path.parent,
     )
 

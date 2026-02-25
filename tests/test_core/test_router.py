@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from core.config import BudgetConfig, Config, LLMConfig, ProviderConfig, RoutingConfig
-from core.router import LLMRouter
+from core.router import LLMResponse, LLMRouter
 
 
 class TestRouterSelection:
@@ -268,3 +268,95 @@ class TestLegacyRoutingCompat:
         provider, model = router._select_provider_and_model("simple", None)
         assert provider == "zai"
         assert model == "glm-4.7"
+
+
+class TestLLMResponseFields:
+    """LLMResponse dataclass should have correct defaults for new transparency fields."""
+
+    def test_default_finish_reason(self) -> None:
+        resp = LLMResponse(
+            content="hi",
+            model_used="m",
+            provider="p",
+            input_tokens=0,
+            output_tokens=0,
+            cost_estimate=0.0,
+        )
+        assert resp.finish_reason == "stop"
+
+    def test_default_latency(self) -> None:
+        resp = LLMResponse(
+            content="hi",
+            model_used="m",
+            provider="p",
+            input_tokens=0,
+            output_tokens=0,
+            cost_estimate=0.0,
+        )
+        assert resp.latency_ms == 0
+
+    def test_default_fallback_from(self) -> None:
+        resp = LLMResponse(
+            content="hi",
+            model_used="m",
+            provider="p",
+            input_tokens=0,
+            output_tokens=0,
+            cost_estimate=0.0,
+        )
+        assert resp.fallback_from == ""
+
+    def test_default_suspected_truncated(self) -> None:
+        resp = LLMResponse(
+            content="hi",
+            model_used="m",
+            provider="p",
+            input_tokens=0,
+            output_tokens=0,
+            cost_estimate=0.0,
+        )
+        assert resp.suspected_truncated is False
+
+    def test_custom_transparency_fields(self) -> None:
+        resp = LLMResponse(
+            content="hi",
+            model_used="m",
+            provider="p",
+            input_tokens=100,
+            output_tokens=50,
+            cost_estimate=0.01,
+            finish_reason="length",
+            latency_ms=1500,
+            fallback_from="openrouter",
+            suspected_truncated=True,
+        )
+        assert resp.finish_reason == "length"
+        assert resp.latency_ms == 1500
+        assert resp.fallback_from == "openrouter"
+        assert resp.suspected_truncated is True
+
+
+class TestProviderTrackerIntegration:
+    """Router should initialize a ProviderTracker."""
+
+    def _make_config(self) -> Config:
+        return Config(
+            llm=LLMConfig(
+                providers={
+                    "ollama": ProviderConfig(
+                        enabled=True, base_url="http://localhost:11434"
+                    ),
+                },
+                provider_priority=["ollama"],
+                budget=BudgetConfig(daily_limit_usd=10.0, per_task_limit_usd=2.0),
+            ),
+        )
+
+    def test_tracker_exists(self) -> None:
+        router = LLMRouter(self._make_config())
+        assert router.provider_tracker is not None
+
+    def test_tracker_empty_by_default(self) -> None:
+        router = LLMRouter(self._make_config())
+        assert router.provider_tracker.get_provider_stats() == {}
+        assert router.provider_tracker.get_recent_events() == []

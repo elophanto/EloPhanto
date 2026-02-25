@@ -85,14 +85,16 @@ class MemoryManager:
         tools_used: list[str] | None = None,
     ) -> int:
         """Store a completed task's summary for future recall."""
+        from core.pii_guard import redact_pii
+
         now = datetime.now(UTC).isoformat()
         return await self._db.execute_insert(
             "INSERT INTO memory (session_id, task_goal, task_summary, outcome, "
             "tools_used, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (
                 session_id,
-                goal,
-                summary,
+                redact_pii(goal),
+                redact_pii(summary),
                 outcome,
                 json.dumps(tools_used or []),
                 now,

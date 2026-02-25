@@ -51,6 +51,7 @@ class EventType(StrEnum):
     AGENT_FAILED = "agent_failed"
     AGENT_REDIRECTED = "agent_redirected"
     AGENT_STOPPED = "agent_stopped"
+    AGENT_SECURITY_ALERT = "agent_security_alert"
     MIND_WAKEUP = "mind_wakeup"
     MIND_ACTION = "mind_action"
     MIND_TOOL_USE = "mind_tool_use"

@@ -17,6 +17,7 @@ import httpx
 import litellm
 
 from core.config import Config
+from core.provider_tracker import ProviderEvent, ProviderTracker, detect_truncation
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,10 @@ class LLMResponse:
     output_tokens: int
     cost_estimate: float
     tool_calls: list[dict[str, Any]] | None = None
+    finish_reason: str = "stop"
+    latency_ms: int = 0
+    fallback_from: str = ""
+    suspected_truncated: bool = False
 
 
 @dataclass
@@ -126,10 +131,16 @@ class LLMRouter:
         self._provider_failed_at: dict[str, float] = {}
         # Lazy singleton — avoids re-creating HTTP client per call
         self._zai_adapter: Any = None
+        # Provider transparency tracker (Gap 5)
+        self._provider_tracker = ProviderTracker()
 
     @property
     def cost_tracker(self) -> CostTracker:
         return self._cost_tracker
+
+    @property
+    def provider_tracker(self) -> ProviderTracker:
+        return self._provider_tracker
 
     def _mark_unhealthy(self, provider: str) -> None:
         """Mark a provider as unhealthy with a recovery timer."""
@@ -169,6 +180,7 @@ class LLMRouter:
                     result = await self._call_litellm(
                         messages, model, provider, tools, temperature, max_tokens
                     )
+                result.latency_ms = int((time.monotonic() - _attempt_start) * 1000)
                 logger.info(
                     "[TIMING] %s/%s attempt %d: %.2fs",
                     provider,
@@ -268,6 +280,24 @@ class LLMRouter:
                     model,
                     time.monotonic() - _route_start,
                 )
+                # Track fallback origin
+                failed_providers = tried - {provider}
+                if failed_providers:
+                    result.fallback_from = ",".join(sorted(failed_providers))
+                # Record provider event for transparency
+                self._provider_tracker.record(
+                    ProviderEvent(
+                        provider=provider,
+                        model=model,
+                        task_type=task_type,
+                        finish_reason=result.finish_reason,
+                        latency_ms=result.latency_ms,
+                        fallback_from=result.fallback_from,
+                        suspected_truncated=result.suspected_truncated,
+                        input_tokens=result.input_tokens,
+                        output_tokens=result.output_tokens,
+                    )
+                )
                 return result
             except Exception as e:
                 logger.warning(
@@ -276,6 +306,17 @@ class LLMRouter:
                     model,
                     time.monotonic() - _route_start,
                     e,
+                )
+                # Record failure event
+                self._provider_tracker.record(
+                    ProviderEvent(
+                        provider=provider,
+                        model=model,
+                        task_type=task_type,
+                        finish_reason="error",
+                        latency_ms=int((time.monotonic() - _route_start) * 1000),
+                        error_message=str(e)[:200],
+                    )
                 )
                 last_error = e
                 # If model_override was given, don't try other providers
@@ -409,6 +450,7 @@ class LLMRouter:
 
         choice = response.choices[0]
         message = choice.message
+        finish_reason = getattr(choice, "finish_reason", "stop") or "stop"
 
         # Parse tool calls
         tool_calls = None
@@ -436,6 +478,8 @@ class LLMRouter:
 
         self._cost_tracker.record(provider, model, input_tokens, output_tokens, cost)
 
+        truncated = detect_truncation(finish_reason, output_tokens, message.content)
+
         return LLMResponse(
             content=message.content,
             model_used=model,
@@ -444,6 +488,8 @@ class LLMRouter:
             output_tokens=output_tokens,
             cost_estimate=cost,
             tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            suspected_truncated=truncated,
         )
 
     def _get_zai_adapter(self) -> Any:

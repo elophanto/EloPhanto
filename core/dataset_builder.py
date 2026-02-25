@@ -148,6 +148,10 @@ class DataSanitizer:
         if self._config.privacy.strip_pii:
             text = _PATH_PATTERN.sub("/REDACTED_PATH", text)
             text = _EMAIL_PATTERN.sub("[EMAIL]", text)
+            # PII guard patterns (SSN, credit card, phone, bank account, API keys)
+            from core.pii_guard import redact_pii
+
+            text = redact_pii(text)
 
         if (
             self._config.privacy.strip_file_contents

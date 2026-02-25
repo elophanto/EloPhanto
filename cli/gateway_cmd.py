@@ -135,6 +135,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
         port=cfg.gateway.port,
         max_sessions=cfg.gateway.max_sessions,
         unified_sessions=cfg.gateway.unified_sessions,
+        authority_config=cfg.authority,
     )
 
     await gateway.start()

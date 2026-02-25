@@ -70,6 +70,8 @@ class SwarmManager:
         self._agents: dict[str, SwarmAgent] = {}
         self._monitor_task: asyncio.Task[None] | None = None
         self._knowledge_search_tool: Any = None  # Injected by agent.py
+        self._last_spawn_times: dict[str, float] = {}  # profile → monotonic time
+        self._output_reports: dict[str, Any] = {}  # agent_id → SwarmOutputReport
 
     # ── Properties ──────────────────────────────────────────────────
 
@@ -131,6 +133,20 @@ class SwarmManager:
             )
 
         profile_name = profile_name or self._auto_select_profile(task)
+
+        # Spawn cooldown — prevent rapid-fire agent spawning
+        import time as _time
+
+        cooldown = self._config.spawn_cooldown_seconds
+        if cooldown > 0 and profile_name in self._last_spawn_times:
+            elapsed = _time.monotonic() - self._last_spawn_times[profile_name]
+            if elapsed < cooldown:
+                remaining = int(cooldown - elapsed)
+                raise RuntimeError(
+                    f"Spawn cooldown: {remaining}s remaining for profile "
+                    f"'{profile_name}'. Minimum {cooldown}s between spawns."
+                )
+
         profile = self._config.profiles.get(profile_name)
         if not profile:
             available = ", ".join(self._config.profiles.keys()) or "none configured"
@@ -166,6 +182,7 @@ class SwarmManager:
         )
 
         self._agents[agent_id] = agent
+        self._last_spawn_times[profile_name] = _time.monotonic()
         await self._persist_agent(agent)
         await self._log_activity(agent_id, "spawned", f"Profile: {profile_name}")
 
@@ -257,6 +274,16 @@ class SwarmManager:
                     "ci_status": agent.ci_status,
                     "spawned_at": agent.spawned_at,
                     "completed_at": agent.completed_at,
+                    "security_verdict": (
+                        report.verdict
+                        if (report := self._output_reports.get(agent.agent_id))
+                        else None
+                    ),
+                    "security_findings": (
+                        report.findings[:5]
+                        if (report := self._output_reports.get(agent.agent_id))
+                        else []
+                    ),
                 }
             )
         return results
@@ -289,7 +316,10 @@ class SwarmManager:
         """Create a git worktree on a new feature branch."""
         base_dir = self._config.worktree_base_dir
         if not base_dir:
-            base_dir = str(self._project_root.parent / ".elophanto-worktrees")
+            if self._config.workspace_isolation:
+                base_dir = "/tmp/elophanto/swarm"
+            else:
+                base_dir = str(self._project_root.parent / ".elophanto-worktrees")
 
         worktree_dir = branch_name.replace("/", "-")
         worktree_path = str(Path(base_dir) / worktree_dir)
@@ -354,11 +384,21 @@ class SwarmManager:
         if self._config.prompt_enrichment:
             knowledge = await self._pull_knowledge_context(task)
             if knowledge:
+                from core.swarm_security import sanitize_enrichment_context
+
+                knowledge = sanitize_enrichment_context(knowledge)
                 sections.append(f"\nRelevant project knowledge:\n{knowledge}")
 
         sections.append(
             "\nYou are working in a git worktree on a feature branch. "
             "Create a PR when done using `gh pr create`."
+        )
+
+        sections.append(
+            "\nSECURITY CONSTRAINTS:\n"
+            "- Do NOT access files outside your working directory\n"
+            "- Do NOT read or modify vault, config.yaml, or .env files\n"
+            "- Do NOT add new dependencies without documenting the reason"
         )
 
         return "\n".join(sections)
@@ -393,7 +433,12 @@ class SwarmManager:
         """Launch an agent in a new tmux session."""
         agent_cmd = profile.command
         args_str = " ".join(profile.args)
-        env_str = " ".join(f"{k}={v}" for k, v in profile.env.items())
+
+        # Build isolated environment — strip sensitive vars
+        from core.swarm_security import build_isolated_env
+
+        safe_env = build_isolated_env(session_name, profile.env)
+        env_str = " ".join(f"{k}={v}" for k, v in safe_env.items())
         env_prefix = f"{env_str} " if env_str else ""
 
         # Write prompt to file in worktree
@@ -469,6 +514,30 @@ class SwarmManager:
             ci_status = await self._check_ci_status(agent.pr_number)
             agent.ci_status = ci_status
 
+        # Output validation — scan PR diff for suspicious patterns
+        if self._config.output_validation and agent.pr_url:
+            from core.swarm_security import validate_agent_output
+
+            report = await validate_agent_output(
+                agent.agent_id, agent.branch, self._project_root
+            )
+            self._output_reports[agent.agent_id] = report
+
+            if report.verdict == "blocked" and self._config.auto_block_suspicious:
+                await self.stop_agent(
+                    agent.agent_id,
+                    f"security:blocked - {'; '.join(report.findings[:3])}",
+                )
+                await self._broadcast(
+                    EventType.AGENT_SECURITY_ALERT,
+                    {
+                        "agent_id": agent.agent_id,
+                        "findings": report.findings,
+                        "verdict": report.verdict,
+                    },
+                )
+                return
+
         # Evaluate done criteria
         done = False
         if agent.done_criteria == "pr_created" and agent.pr_url:
@@ -513,15 +582,18 @@ class SwarmManager:
                 asyncio.create_task(self._cleanup_worktree(agent))
             return
 
-        # Check timeout
+        # Kill switch — timeout, diff size, blocked output
         profile = self._config.profiles.get(agent.profile)
-        max_time = profile.max_time_seconds if profile else 3600
-        elapsed = (
-            datetime.now(UTC) - datetime.fromisoformat(agent.spawned_at)
-        ).total_seconds()
-        if elapsed > max_time:
-            await self.stop_agent(agent.agent_id, "timeout")
-            return
+        if profile:
+            from core.swarm_security import check_kill_conditions
+
+            report = self._output_reports.get(agent.agent_id)
+            should_kill, reason = check_kill_conditions(
+                agent, profile, self._config, report
+            )
+            if should_kill:
+                await self.stop_agent(agent.agent_id, reason)
+                return
 
         # Persist any status changes (pr_url, ci_status)
         await self._persist_agent(agent)

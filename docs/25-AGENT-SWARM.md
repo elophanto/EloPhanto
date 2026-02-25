@@ -276,10 +276,45 @@ You take a walk after a customer call. Come back to Telegram: *"7 PRs ready for 
 | **Mid-task steering** | Copy-paste into terminal | Automatic redirection with business context |
 | **Code review** | Manual or single model | Multi-model parallel review |
 
+## Security
+
+Sub-agents are opaque external processes — we can't modify their internals. Security is enforced at the boundaries via `core/swarm_security.py`:
+
+| Layer | What happens |
+|-------|-------------|
+| **Context sanitization** | Knowledge vault chunks are PII-redacted and stripped of vault references, credential patterns, config paths, and database paths before being shared with sub-agents |
+| **Environment isolation** | Sensitive env vars (VAULT, SECRET, TOKEN, API_KEY, PASSWORD, CREDENTIAL, PRIVATE_KEY) are stripped from sub-agent tmux environments |
+| **Workspace isolation** | Sub-agents work under `/tmp/elophanto/swarm/<agent-id>/` by default (configurable via `workspace_isolation: true` in swarm config) |
+| **Output validation** | When a PR is detected, `git diff` is scanned for credential access, network calls, file traversal, system commands, and new dependencies. Injection guard also runs on the diff |
+| **Auto-block** | If injection is detected OR 3+ suspicious patterns found, the agent is killed immediately and an `AGENT_SECURITY_ALERT` event is broadcast to all channels |
+| **Kill switch** | Consolidated check: timeout exceeded, diff too large, or blocked verdict — any condition triggers immediate termination |
+
+### Security Prompt Constraints
+
+Sub-agent prompts include explicit instructions not to:
+- Access files outside the worktree
+- Make network requests unless task-required
+- Modify CI/CD configuration or dependency files without justification
+- Access environment variables or system credentials
+
+### Configuration
+
+```yaml
+swarm:
+  workspace_isolation: true      # Sub-agents work in /tmp/elophanto/swarm/
+  output_validation: true        # Scan PR diffs for suspicious patterns
+  auto_block_suspicious: true    # Auto-kill agents with blocked output
+  max_diff_lines: 5000           # Kill agents with excessively large diffs
+```
+
+See [27-SECURITY-HARDENING.md](27-SECURITY-HARDENING.md) (Gap 7) for the full design rationale.
+
 ## Related
 
 - [02-ARCHITECTURE.md](02-ARCHITECTURE.md) — EloPhanto system layers
 - [03-TOOLS.md](03-TOOLS.md) — Shell execution and tool system
 - [05-KNOWLEDGE-SYSTEM.md](05-KNOWLEDGE-SYSTEM.md) — Knowledge vault for business context
+- [07-SECURITY.md](07-SECURITY.md) — Security architecture (swarm boundary security)
 - [13-GOAL-LOOP.md](13-GOAL-LOOP.md) — Background goal execution
 - [22-RECOVERY-MODE.md](22-RECOVERY-MODE.md) — Agent health monitoring
+- [27-SECURITY-HARDENING.md](27-SECURITY-HARDENING.md) — Security hardening roadmap (Gap 7)

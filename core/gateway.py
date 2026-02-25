@@ -61,6 +61,7 @@ class Gateway:
         auth_token: str | None = None,
         max_sessions: int = 50,
         unified_sessions: bool = True,
+        authority_config: Any | None = None,
     ) -> None:
         self._agent = agent
         self._sessions = session_manager
@@ -69,6 +70,7 @@ class Gateway:
         self._auth_token = auth_token
         self._max_sessions = max_sessions
         self._unified_sessions = unified_sessions
+        self._authority_config = authority_config  # AuthorityConfig | None
 
         self._clients: dict[str, ClientConnection] = {}
         self._server: Any = None
@@ -254,6 +256,12 @@ class Gateway:
         client.channel = channel
         client.user_id = user_id
 
+        # Resolve authority tier for this user
+        from core.authority import resolve_authority
+
+        authority = resolve_authority(channel, user_id, self._authority_config)
+        logger.info("Authority: %s for %s:%s", authority.value, channel, user_id[:8])
+
         # Get or create session — unified mode shares one session across channels
         if self._unified_sessions:
             session = await self._sessions.get_or_create("unified", "owner")
@@ -264,6 +272,9 @@ class Gateway:
             session = await self._sessions.get_or_create(channel, user_id)
 
         client.session_id = session.session_id
+
+        # Store authority for observability
+        session.metadata["authority_level"] = authority.value
 
         # Subscribe client to session events
         if session.session_id not in self._session_clients:
@@ -351,6 +362,7 @@ class Gateway:
                 session=session,
                 approval_callback=session_approval_callback,
                 on_step=on_step,
+                authority=authority,
             )
 
             # Persist session
