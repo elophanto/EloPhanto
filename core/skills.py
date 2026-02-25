@@ -285,6 +285,23 @@ class SkillManager:
         description = ""
         triggers: list[str] = []
 
+        # Try YAML frontmatter first (--- block at top of file)
+        fm_match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+        if fm_match:
+            fm_block = fm_match.group(1)
+            for fm_line in fm_block.splitlines():
+                fm_line = fm_line.strip()
+                if fm_line.startswith("description:"):
+                    description = fm_line.split(":", 1)[1].strip().strip('"').strip("'")
+                elif fm_line.startswith("triggers:"):
+                    # Inline YAML list: triggers: [a, b, c]
+                    val = fm_line.split(":", 1)[1].strip()
+                    if val.startswith("["):
+                        for t in val.strip("[]").split(","):
+                            t = t.strip().strip('"').strip("'")
+                            if t:
+                                triggers.append(t)
+
         # Extract description from the first ## Description section
         desc_match = re.search(
             r"##\s*Description\s*\n+(.*?)(?=\n##|\Z)", content, re.DOTALL

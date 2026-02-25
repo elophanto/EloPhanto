@@ -1,0 +1,189 @@
+import {
+  MessageSquare,
+  Wrench,
+  Sparkles,
+  BookOpen,
+  Calendar,
+  Radio,
+  Settings,
+  History,
+  ChevronLeft,
+  ChevronRight,
+  Sun,
+  Moon,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useTheme } from "@/components/theme-provider";
+import { useConnectionStore } from "@/stores/connection";
+import { useNavigationStore, type Page } from "@/stores/navigation";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+interface SidebarProps {
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+}
+
+const navItems: {
+  id: Page;
+  label: string;
+  icon: typeof MessageSquare;
+  enabled: boolean;
+}[] = [
+  { id: "chat", label: "Chat", icon: MessageSquare, enabled: true },
+  { id: "tools", label: "Tools", icon: Wrench, enabled: true },
+  { id: "skills", label: "Skills", icon: Sparkles, enabled: true },
+  { id: "knowledge", label: "Knowledge", icon: BookOpen, enabled: false },
+  { id: "schedule", label: "Schedule", icon: Calendar, enabled: false },
+  { id: "channels", label: "Channels", icon: Radio, enabled: false },
+  { id: "settings", label: "Settings", icon: Settings, enabled: false },
+  { id: "history", label: "History", icon: History, enabled: false },
+];
+
+export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
+  const { theme, toggleTheme } = useTheme();
+  const status = useConnectionStore((s) => s.status);
+  const activePage = useNavigationStore((s) => s.activePage);
+  const navigate = useNavigationStore((s) => s.navigate);
+
+  const statusClass =
+    status === "connected"
+      ? "status-connected"
+      : status === "reconnecting"
+        ? "status-reconnecting"
+        : "status-disconnected";
+
+  const statusLabel =
+    status === "connected"
+      ? "Connected"
+      : status === "reconnecting"
+        ? "Reconnecting"
+        : status === "connecting"
+          ? "Connecting"
+          : "Disconnected";
+
+  return (
+    <aside
+      className={cn(
+        "relative flex h-screen flex-col border-r border-border/50 bg-sidebar transition-all duration-200",
+        collapsed ? "w-16" : "w-56"
+      )}
+    >
+      {/* Geometric decoration */}
+      <div
+        className="geo-circle"
+        style={{ width: 200, height: 200, top: -80, left: -80 }}
+      />
+
+      {/* Logo */}
+      <div className="flex h-16 items-center gap-3 px-4">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-card">
+          <span className="font-mono text-xs font-bold">E</span>
+        </div>
+        {!collapsed && (
+          <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/80">
+            EloPhanto
+          </span>
+        )}
+      </div>
+
+      <Separator className="opacity-50" />
+
+      {/* Navigation */}
+      <nav className="flex-1 space-y-1 px-2 py-3">
+        {navItems.map((item) => {
+          const isActive = item.id === activePage;
+          const Icon = item.icon;
+
+          const button = (
+            <button
+              key={item.id}
+              onClick={() => item.enabled && navigate(item.id)}
+              disabled={!item.enabled}
+              className={cn(
+                "nav-item flex w-full items-center gap-3 rounded-md px-3 py-2",
+                isActive && "active",
+                !item.enabled && "pointer-events-none opacity-30"
+              )}
+            >
+              <Icon className="size-4 shrink-0" />
+              {!collapsed && (
+                <span className="font-mono text-[11px] uppercase tracking-[0.1em]">
+                  {item.label}
+                </span>
+              )}
+            </button>
+          );
+
+          if (collapsed && item.enabled) {
+            return (
+              <Tooltip key={item.id}>
+                <TooltipTrigger asChild>{button}</TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            );
+          }
+
+          return button;
+        })}
+      </nav>
+
+      {/* Bottom section */}
+      <div className="space-y-3 px-3 pb-4">
+        {/* Connection status */}
+        <div className="flex items-center gap-2.5">
+          <span className={cn("status-dot shrink-0", statusClass)} />
+          {!collapsed && (
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+              {statusLabel}
+            </span>
+          )}
+        </div>
+
+        <Separator className="opacity-50" />
+
+        {/* Theme toggle */}
+        <Button
+          variant="ghost"
+          size={collapsed ? "icon-xs" : "sm"}
+          onClick={toggleTheme}
+          className="w-full justify-start gap-2"
+        >
+          <div className="relative size-3.5">
+            <Sun className="absolute size-3.5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute size-3.5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+          </div>
+          {!collapsed && (
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em]">
+              {theme === "dark" ? "Dark" : "Light"}
+            </span>
+          )}
+        </Button>
+
+        {/* Collapse toggle */}
+        <Button
+          variant="ghost"
+          size={collapsed ? "icon-xs" : "sm"}
+          onClick={onToggleCollapse}
+          className="w-full justify-start gap-2"
+        >
+          {collapsed ? (
+            <ChevronRight className="size-3.5" />
+          ) : (
+            <>
+              <ChevronLeft className="size-3.5" />
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em]">
+                Collapse
+              </span>
+            </>
+          )}
+        </Button>
+      </div>
+    </aside>
+  );
+}
