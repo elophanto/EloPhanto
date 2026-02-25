@@ -24,7 +24,8 @@ Runs locally. Works with free local models, Z.ai coding plan, or OpenRouter. You
 
 ```bash
 git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh
-./start.sh
+./start.sh            # terminal chat
+./start.sh --web      # web dashboard at localhost:3000
 ```
 
 That's it. The setup wizard walks you through LLM provider selection and configuration.
