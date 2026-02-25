@@ -4,6 +4,13 @@ import { Shell } from "@/components/layout/Shell";
 import { ChatPage } from "@/components/chat/ChatPage";
 import { ToolsPage } from "@/components/tools/ToolsPage";
 import { SkillsPage } from "@/components/skills/SkillsPage";
+import { DashboardPage } from "@/components/dashboard/DashboardPage";
+import { KnowledgePage } from "@/components/knowledge/KnowledgePage";
+import { SchedulePage } from "@/components/schedule/SchedulePage";
+import { ChannelsPage } from "@/components/channels/ChannelsPage";
+import { SettingsPage } from "@/components/settings/SettingsPage";
+import { HistoryPage } from "@/components/history/HistoryPage";
+import { MindPage } from "@/components/mind/MindPage";
 import { gateway } from "@/lib/gateway";
 import { MessageType, type ResponseData, generateId } from "@/lib/protocol";
 import { useConnectionStore } from "@/stores/connection";
@@ -34,7 +41,7 @@ function GatewayWiring() {
         const data = msg.data as unknown as ResponseData;
         const content = data.content ?? "";
 
-        // Check if this is a structured command response (tools/skills JSON)
+        // Check if this is a structured command response (JSON)
         if (content.startsWith("{")) {
           try {
             const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -53,6 +60,82 @@ function GatewayWiring() {
                 parsed.skills as ReturnType<
                   typeof useDataStore.getState
                 >["skills"]
+              );
+              return;
+            }
+            if (parsed.dashboard != null) {
+              dataStore.setDashboard(
+                parsed.dashboard as ReturnType<
+                  typeof useDataStore.getState
+                >["dashboard"] &
+                  object
+              );
+              return;
+            }
+            if (parsed.knowledge != null) {
+              dataStore.setKnowledge(
+                parsed.knowledge as ReturnType<
+                  typeof useDataStore.getState
+                >["knowledge"] &
+                  object
+              );
+              return;
+            }
+            if (Array.isArray(parsed.schedules)) {
+              dataStore.setSchedules(
+                parsed.schedules as ReturnType<
+                  typeof useDataStore.getState
+                >["schedules"]
+              );
+              return;
+            }
+            if (parsed.channels != null) {
+              dataStore.setChannels(
+                parsed.channels as ReturnType<
+                  typeof useDataStore.getState
+                >["channels"] &
+                  object
+              );
+              return;
+            }
+            if (parsed.config != null) {
+              dataStore.setConfig(
+                parsed.config as ReturnType<
+                  typeof useDataStore.getState
+                >["config"] &
+                  object
+              );
+              return;
+            }
+            if (parsed.knowledge_detail != null) {
+              dataStore.setKnowledgeDetail(
+                parsed.knowledge_detail as ReturnType<
+                  typeof useDataStore.getState
+                >["knowledgeDetail"] &
+                  object
+              );
+              return;
+            }
+            if (parsed.mind_status != null) {
+              dataStore.setMind(
+                parsed.mind_status as ReturnType<
+                  typeof useDataStore.getState
+                >["mind"] &
+                  object
+              );
+              return;
+            }
+            if (parsed.mind_control != null) {
+              // After a control action, refresh mind status
+              setTimeout(() => dataStore.fetchMind(), 300);
+              return;
+            }
+            if (parsed.history != null) {
+              dataStore.setHistory(
+                parsed.history as ReturnType<
+                  typeof useDataStore.getState
+                >["history"] &
+                  object
               );
               return;
             }
@@ -99,6 +182,12 @@ function GatewayWiring() {
           if (msg.session_id) {
             chat.setSessionId(msg.session_id);
           }
+        } else if (event.startsWith("mind_")) {
+          useDataStore.getState().addMindEvent({
+            type: event,
+            data: msg.data as Record<string, unknown>,
+            timestamp: Date.now(),
+          });
         }
       }),
 
@@ -125,12 +214,28 @@ function PageRouter() {
   const activePage = useNavigationStore((s) => s.activePage);
 
   switch (activePage) {
+    case "dashboard":
+      return <DashboardPage />;
     case "tools":
       return <ToolsPage />;
     case "skills":
       return <SkillsPage />;
-    default:
+    case "knowledge":
+      return <KnowledgePage />;
+    case "schedule":
+      return <SchedulePage />;
+    case "channels":
+      return <ChannelsPage />;
+    case "settings":
+      return <SettingsPage />;
+    case "mind":
+      return <MindPage />;
+    case "history":
+      return <HistoryPage />;
+    case "chat":
       return <ChatPage />;
+    default:
+      return <DashboardPage />;
   }
 }
 

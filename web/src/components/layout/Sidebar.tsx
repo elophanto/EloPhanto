@@ -1,8 +1,10 @@
 import {
+  LayoutDashboard,
   MessageSquare,
   Wrench,
   Sparkles,
   BookOpen,
+  Brain,
   Calendar,
   Radio,
   Settings,
@@ -35,14 +37,16 @@ const navItems: {
   icon: typeof MessageSquare;
   enabled: boolean;
 }[] = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
   { id: "chat", label: "Chat", icon: MessageSquare, enabled: true },
   { id: "tools", label: "Tools", icon: Wrench, enabled: true },
   { id: "skills", label: "Skills", icon: Sparkles, enabled: true },
-  { id: "knowledge", label: "Knowledge", icon: BookOpen, enabled: false },
-  { id: "schedule", label: "Schedule", icon: Calendar, enabled: false },
-  { id: "channels", label: "Channels", icon: Radio, enabled: false },
-  { id: "settings", label: "Settings", icon: Settings, enabled: false },
-  { id: "history", label: "History", icon: History, enabled: false },
+  { id: "knowledge", label: "Knowledge", icon: BookOpen, enabled: true },
+  { id: "mind", label: "Mind", icon: Brain, enabled: true },
+  { id: "schedule", label: "Schedule", icon: Calendar, enabled: true },
+  { id: "channels", label: "Channels", icon: Radio, enabled: true },
+  { id: "settings", label: "Settings", icon: Settings, enabled: true },
+  { id: "history", label: "History", icon: History, enabled: true },
 ];
 
 export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
@@ -82,9 +86,11 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
 
       {/* Logo */}
       <div className="flex h-16 items-center gap-3 px-4">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-card">
-          <span className="font-mono text-xs font-bold">E</span>
-        </div>
+        <img
+          src="/logo.webp"
+          alt="EloPhanto"
+          className="size-8 shrink-0 rounded-md"
+        />
         {!collapsed && (
           <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/80">
             EloPhanto

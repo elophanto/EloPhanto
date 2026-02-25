@@ -15,7 +15,7 @@ An open-source AI agent that can do anything you can do on a computer — and it
 Runs locally. Works with free local models, Z.ai coding plan, or OpenRouter. Your data stays on your machine.
 
 <p align="center">
-  <img src="misc/screenshots/terminal-demo.png" alt="Terminal Demo" width="600">
+  <img src="misc/screenshots/dashboard.png" alt="Web Dashboard" width="700">
 </p>
 
 > It's already out there on the internet doing its own thing.
@@ -45,6 +45,15 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 **As your assistant** — give it tasks, it executes. Automate workflows, build software, research topics, manage accounts.
 
 **As its own thing** — let it run. It builds its own identity on first boot. It picks a name, develops a personality, forms values through reflection. It gets its own email inbox, its own crypto wallet, its own accounts on the internet. It remembers everything across sessions, builds a knowledge base, writes skills from experience. It's a digital creature that grows the more it runs — like a pet that learns, except this one can browse web, write code, and make money.
+
+<p align="center">
+  <img src="misc/screenshots/chat.png" alt="Chat Interface" width="340">
+  <img src="misc/screenshots/tools.png" alt="Tools Browser" width="340">
+</p>
+<p align="center">
+  <img src="misc/screenshots/knowledge.png" alt="Knowledge Base" width="340">
+  <img src="misc/screenshots/terminal.png" alt="Terminal CLI" width="340">
+</p>
 
 ## What Can You Do With It?
 
@@ -248,7 +257,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team. Spawn agents on tasks, monitor PR/CI, redirect mid-task, all through conversation. Each agent gets an isolated git worktree and tmux session
 - **Browser automation** — real Chrome browser with 49 tools (navigate, click, type, screenshot, extract data, upload files, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
-- **Web dashboard** — real-time chat UI at `localhost:3000` with markdown rendering, tool execution indicators, approval cards, and sci-fi aesthetics. Launch with `./start.sh --web`
+- **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat, tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
 - **Multi-channel gateway** — WebSocket control plane with CLI, Web, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, self-evaluate and revise plans. Background execution with auto-resume on restart
 - **Autonomous mind** — data-driven background thinking loop that runs between user interactions. Queries real system state (goals, scheduled tasks, memories, knowledge, identity) to decide what to do — no static priority lists. Self-bootstraps on first run. Every tool call visible in real-time. LLM-controlled wakeup interval, persistent scratchpad, budget-isolated. Timer resets after user interaction. `/mind` command shows live status
@@ -471,7 +480,7 @@ Configure LLM provider, browser mode, channels, email, payments, MCP servers, an
 
 ## What's New
 
-- **Web dashboard** — beautiful real-time chat UI with markdown rendering, streaming text, tool indicators, and approval cards. `./start.sh --web` to launch
+- **Full web dashboard** — 10-page monitoring UI: dashboard overview with agent identity/mind/goals/budget, real-time chat, tools & skills browser, knowledge base with chunk viewer, autonomous mind page with live events and start/stop controls, schedule manager, channels status, read-only settings, and task/evolution history. `./start.sh --web` to launch
 - **Security hardening** — all 7 security gaps closed: PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env/workspace isolation, kill switch), provider transparency (truncation/censorship detection, fallback tracking), runtime self-model, authority tiers, resource exhaustion protection
 - **Autonomous mind** — data-driven background thinking loop that queries real goals, tasks, memories, and knowledge. Self-bootstraps when fresh, resets timer after user interaction, real-time tool visibility in terminal, budget-isolated
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team through conversation
