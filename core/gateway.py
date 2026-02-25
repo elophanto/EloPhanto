@@ -533,7 +533,19 @@ class Gateway:
 
         elif command == "mind":
             mind = getattr(self._agent, "_autonomous_mind", None)
-            if mind:
+            sub = (msg.data.get("args") or {}).get("subcommand", "").strip()
+            if not mind:
+                text = "Autonomous mind is not enabled. Set `autonomous_mind.enabled: true` in config.yaml."
+            elif sub == "stop":
+                await mind.cancel()
+                text = "Autonomous mind stopped."
+            elif sub == "start":
+                if mind.is_running:
+                    text = "Autonomous mind is already running."
+                else:
+                    mind.start()
+                    text = "Autonomous mind started."
+            else:
                 status = mind.get_status()
                 state = (
                     "paused"
@@ -564,8 +576,6 @@ class Gateway:
                 if sp:
                     lines.append(f"\n**Scratchpad:**\n{sp[:1000]}")
                 text = "\n".join(lines)
-            else:
-                text = "Autonomous mind is not enabled. Set `autonomous_mind.enabled: true` in config.yaml."
             await client.websocket.send(
                 response_message(session_id, text, done=True).to_json()
             )

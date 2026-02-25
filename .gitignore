@@ -37,6 +37,9 @@ logs/
 /data/
 *.db
 
+# Agent-generated knowledge (instance-specific)
+knowledge/
+
 # Node.js bridge plugins
 bridge/*/dist/
 bridge/*/node_modules/
