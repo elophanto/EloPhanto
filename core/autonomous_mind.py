@@ -328,6 +328,12 @@ class AutonomousMind:
                     )
                     continue
 
+                # Periodic maintenance before think cycle
+                try:
+                    await self._run_maintenance()
+                except Exception as e:
+                    logger.debug("Mind maintenance error: %s", e)
+
                 # Execute think cycle
                 try:
                     await self._think()
@@ -349,6 +355,33 @@ class AutonomousMind:
             raise
         finally:
             self._task = None
+
+    # ------------------------------------------------------------------
+    # Periodic maintenance
+    # ------------------------------------------------------------------
+
+    async def _run_maintenance(self) -> None:
+        """Run periodic maintenance tasks (process reaping, storage quota check)."""
+        agent = self._agent
+
+        # Reap expired child processes
+        if hasattr(agent, "_process_registry") and agent._process_registry:
+            reaped = agent._process_registry.reap_expired(max_age_seconds=300)
+            if reaped:
+                logger.info("Mind maintenance: reaped %d expired processes", reaped)
+
+        # Storage quota check — trigger cleanup on warning/exceeded
+        if hasattr(agent, "_storage_manager") and agent._storage_manager:
+            try:
+                used, quota, status = await agent._storage_manager.check_quota_async()
+                if status == "warning":
+                    logger.warning("Storage quota warning: %.0f/%.0f MB", used, quota)
+                    await agent._storage_manager.cleanup_expired()
+                elif status == "exceeded":
+                    logger.error("Storage quota exceeded: %.0f/%.0f MB", used, quota)
+                    await agent._storage_manager.cleanup_expired()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Think cycle

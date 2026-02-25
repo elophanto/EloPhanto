@@ -92,6 +92,7 @@ class ZaiAdapter:
 
         choice = data["choices"][0]
         message = choice["message"]
+        finish_reason = choice.get("finish_reason", "stop") or "stop"
 
         # Parse tool calls
         tool_calls = None
@@ -121,6 +122,12 @@ class ZaiAdapter:
             + output_tokens * costs["output"] / 1_000_000
         )
 
+        from core.provider_tracker import detect_truncation
+
+        truncated = detect_truncation(
+            finish_reason, output_tokens, message.get("content")
+        )
+
         return LLMResponse(
             content=message.get("content"),
             model_used=model,
@@ -129,6 +136,8 @@ class ZaiAdapter:
             output_tokens=output_tokens,
             cost_estimate=cost_estimate,
             tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            suspected_truncated=truncated,
         )
 
     async def health_check(self) -> bool:

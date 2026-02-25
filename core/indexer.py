@@ -426,6 +426,11 @@ class KnowledgeIndexer:
                 )
 
         for chunk in chunks:
+            # Redact PII before any storage — embeddings are permanent
+            from core.pii_guard import redact_pii
+
+            clean_content = redact_pii(chunk.content)
+
             # Insert into knowledge_chunks
             chunk_id = await self._db.execute_insert(
                 "INSERT INTO knowledge_chunks "
@@ -435,7 +440,7 @@ class KnowledgeIndexer:
                 (
                     file_path,
                     chunk.heading_path,
-                    chunk.content,
+                    clean_content,
                     json.dumps(chunk.tags),
                     chunk.scope,
                     chunk.token_count,
@@ -448,7 +453,7 @@ class KnowledgeIndexer:
             if self._db.vec_available:
                 try:
                     embedding = await self._embedder.embed(
-                        chunk.content, self._embedding_model
+                        clean_content, self._embedding_model
                     )
                     await self._db.execute_insert(
                         "INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",

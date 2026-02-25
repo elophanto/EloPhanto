@@ -44,9 +44,7 @@ class DocumentStore:
         self._storage = storage
         self._config = config
 
-    async def create_collection(
-        self, name: str, session_id: str | None = None
-    ) -> str:
+    async def create_collection(self, name: str, session_id: str | None = None) -> str:
         """Create a new collection, return collection_id."""
         collection_id = uuid.uuid4().hex[:16]
         now = datetime.now(UTC).isoformat()
@@ -80,8 +78,17 @@ class DocumentStore:
             "(file_id, collection_id, filename, mime_type, size_bytes, page_count, "
             "local_path, content_hash, processed_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (file_id, collection_id, filename, mime_type, size_bytes, page_count,
-             str(file_path), content_hash, now),
+            (
+                file_id,
+                collection_id,
+                filename,
+                mime_type,
+                size_bytes,
+                page_count,
+                str(file_path),
+                content_hash,
+                now,
+            ),
         )
 
         # Insert chunks and embed
@@ -90,28 +97,43 @@ class DocumentStore:
             chunk_id = uuid.uuid4().hex[:16]
             total_tokens += chunk.token_count
 
+            # Redact PII before any storage — embeddings are permanent
+            from core.pii_guard import redact_pii
+
+            clean_content = redact_pii(chunk.content)
+
             await self._db.execute_insert(
                 "INSERT INTO document_chunks "
                 "(chunk_id, collection_id, file_id, chunk_index, content, "
                 "token_count, page_number, section_title, metadata) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (chunk_id, collection_id, file_id, chunk.chunk_index,
-                 chunk.content, chunk.token_count, chunk.page_number,
-                 chunk.section_title, json.dumps(chunk.metadata)),
+                (
+                    chunk_id,
+                    collection_id,
+                    file_id,
+                    chunk.chunk_index,
+                    clean_content,
+                    chunk.token_count,
+                    chunk.page_number,
+                    chunk.section_title,
+                    json.dumps(chunk.metadata),
+                ),
             )
 
             # Embed and store vector
             if self._db.vec_available and self._embedding_model:
                 try:
                     embedding = await self._embedder.embed(
-                        chunk.content, self._embedding_model
+                        clean_content, self._embedding_model
                     )
                     await self._db.execute_insert(
                         "INSERT INTO document_chunks_vec (chunk_id, embedding) VALUES (?, ?)",
                         (chunk_id, _serialize_vector(embedding.vector)),
                     )
                 except Exception as e:
-                    logger.debug("Failed to embed document chunk %s: %s", chunk_id[:8], e)
+                    logger.debug(
+                        "Failed to embed document chunk %s: %s", chunk_id[:8], e
+                    )
 
         # Update collection counters
         await self._db.execute_insert(
@@ -125,7 +147,10 @@ class DocumentStore:
 
         logger.info(
             "Added '%s' to collection %s (%d chunks, %d tokens)",
-            filename, collection_id[:8], len(chunks), total_tokens,
+            filename,
+            collection_id[:8],
+            len(chunks),
+            total_tokens,
         )
         return file_id
 
@@ -182,15 +207,17 @@ class DocumentStore:
                             if word in content_lower:
                                 score += 0.1
 
-                        results.append({
-                            "chunk_id": cid,
-                            "content": row["content"],
-                            "filename": row["filename"],
-                            "page_number": row["page_number"],
-                            "section_title": row["section_title"],
-                            "token_count": row["token_count"],
-                            "score": round(score, 4),
-                        })
+                        results.append(
+                            {
+                                "chunk_id": cid,
+                                "content": row["content"],
+                                "filename": row["filename"],
+                                "page_number": row["page_number"],
+                                "section_title": row["section_title"],
+                                "token_count": row["token_count"],
+                                "score": round(score, 4),
+                            }
+                        )
 
                     results.sort(key=lambda x: x["score"], reverse=True)
                     return results[:top_k]
@@ -222,15 +249,17 @@ class DocumentStore:
             content_lower = row["content"].lower()
             score = sum(0.2 for w in words if w in content_lower)
             if score > 0:
-                scored.append({
-                    "chunk_id": row["chunk_id"],
-                    "content": row["content"],
-                    "filename": row["filename"],
-                    "page_number": row["page_number"],
-                    "section_title": row["section_title"],
-                    "token_count": row["token_count"],
-                    "score": round(score, 4),
-                })
+                scored.append(
+                    {
+                        "chunk_id": row["chunk_id"],
+                        "content": row["content"],
+                        "filename": row["filename"],
+                        "page_number": row["page_number"],
+                        "section_title": row["section_title"],
+                        "token_count": row["token_count"],
+                        "score": round(score, 4),
+                    }
+                )
 
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored[:top_k]
@@ -242,7 +271,9 @@ class DocumentStore:
         )
         return [dict(row) for row in rows]
 
-    async def get_collection_info(self, collection_id_or_name: str) -> dict[str, Any] | None:
+    async def get_collection_info(
+        self, collection_id_or_name: str
+    ) -> dict[str, Any] | None:
         """Get detailed info about a collection including file list."""
         col = await self._resolve_collection(collection_id_or_name)
         if not col:

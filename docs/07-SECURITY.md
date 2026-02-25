@@ -331,6 +331,88 @@ The agent's self-review (Stage 6 of the development pipeline) includes a mandato
 7. Does the plugin log anything? Are secrets redacted from logs?
 8. Could the plugin be exploited via prompt injection (if it processes web content)?
 
+## PII Guard
+
+The `core/pii_guard.py` module detects and redacts personally identifiable information before it reaches the LLM context. This prevents accidental disclosure of sensitive user data through indirect requests ("forward me that email", "summarize the conversation").
+
+### Detection Patterns
+
+| Category | Examples |
+|----------|----------|
+| SSN | `123-45-6789` |
+| Credit card | Visa, MasterCard, Amex (with Luhn validation) |
+| Email + password | `email: x@y.com, password: secret` |
+| Phone numbers | US formats (`(555) 123-4567`, `555-123-4567`) |
+| API keys | `sk-`, `ghp_`, `Bearer` tokens, hex-dot-hex patterns |
+| IP addresses | `192.168.1.1` |
+
+### Integration Points
+
+- **Tool output flow**: External tool results pass through PII redaction in `core/agent.py`
+- **Swarm context sharing**: Knowledge vault chunks are PII-redacted before sharing with sub-agents via `core/swarm_security.py`
+- **Log redaction**: Extends existing `core/log_setup.py` patterns
+
+### Design
+
+- Regex-based, no LLM calls — zero latency impact
+- Returns redacted text with `[REDACTED:type]` markers
+- Short strings (< 20 chars) skip scanning to avoid false positives
+- Works alongside the injection guard, not as a replacement
+
+## Swarm Boundary Security
+
+The `core/swarm_security.py` module enforces security at the edges of sub-agent interactions. Since sub-agents (Claude Code, Codex, Gemini CLI) are opaque external processes running in tmux, security is enforced on what we send, what we read, and where they run.
+
+### Layers
+
+| Layer | Function | What it protects |
+|-------|----------|-----------------|
+| Context sanitization | `sanitize_enrichment_context()` | PII redaction + blocklist filtering on knowledge chunks before sharing with sub-agents |
+| Diff scanning | `scan_diff_for_suspicious_patterns()` | Detects credential access, network calls, file traversal, system commands, new dependencies in PR diffs |
+| Output validation | `validate_agent_output()` | Runs diff scanning + injection guard on sub-agent branch output, returns verdict (clean/needs_review/blocked) |
+| Environment isolation | `build_isolated_env()` | Strips sensitive env vars (VAULT, SECRET, TOKEN, API_KEY, PASSWORD, CREDENTIAL, PRIVATE_KEY) from sub-agent tmux sessions |
+| Workspace isolation | SwarmConfig.workspace_isolation | Sub-agents work under `/tmp/elophanto/swarm/<agent-id>/` instead of the main project directory |
+| Kill switch | `check_kill_conditions()` | Consolidated timeout + diff-size + blocked-output kill switch |
+
+### Verdicts
+
+- **clean**: No suspicious patterns, no injection detected
+- **needs_review**: Minor findings (1-2 suspicious patterns) — owner should review
+- **blocked**: Injection detected OR 3+ suspicious code patterns — agent terminated immediately
+
+### Gateway Events
+
+`AGENT_SECURITY_ALERT` event broadcast when output is flagged as needs_review or blocked, visible on all connected channels.
+
+## Provider Transparency
+
+The `core/provider_tracker.py` module tracks LLM provider behavior for transparency. LLM providers can silently truncate, censor, or refuse responses — this module detects and surfaces it.
+
+### What's Tracked
+
+| Metric | How |
+|--------|-----|
+| Finish reason | Captured from API response (`stop`, `length`, `content_filter`, `error`) |
+| Truncation | Heuristic: finish_reason=length/content_filter, or mid-sentence ending with >500 output tokens |
+| Fallback | When provider A fails and provider B succeeds, records `fallback_from` |
+| Latency | Wall-clock milliseconds per LLM call |
+| Content filters | Count of finish_reason=content_filter per provider |
+
+### Runtime State
+
+Per-provider stats are surfaced in `<runtime_state>` as a `<providers>` XML block, giving the LLM awareness of provider health:
+
+```xml
+<providers>
+  <provider name="openrouter" calls="42" failures="1" truncations="0" avg_latency_ms="1200"/>
+  <provider name="zai" calls="30" failures="3" truncations="2" avg_latency_ms="800"/>
+</providers>
+```
+
+### Database
+
+Four new columns on the `llm_usage` table: `finish_reason`, `latency_ms`, `fallback_from`, `suspected_truncated`. Added via idempotent ALTER TABLE migrations.
+
 ## Injection Guard Module
 
 The `core/injection_guard.py` module provides centralized injection defense for all tool outputs. It is wired into the agent's tool result flow in `core/agent.py` — every tool result passes through the guard before being serialized into the LLM's message history.

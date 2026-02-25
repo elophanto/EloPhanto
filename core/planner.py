@@ -1222,6 +1222,7 @@ def build_system_prompt(
     available_skills: str = "",
     goal_context: str = "",
     identity_context: str = "",
+    runtime_state: str = "",
     current_goal: str = "",
     workspace: str = "",
 ) -> str:
@@ -1239,6 +1240,7 @@ def build_system_prompt(
         available_skills: Pre-formatted XML block from SkillManager.
         goal_context: Pre-built XML from GoalManager.build_goal_context().
         identity_context: Pre-built XML from IdentityManager.build_identity_context().
+        runtime_state: Pre-built ``<runtime_state>`` XML from runtime_state.build_runtime_state().
         current_goal: The user's current task/goal (anchored in system prompt for persistence).
 
     Returns:
@@ -1270,6 +1272,10 @@ def build_system_prompt(
         identity_section = _IDENTITY + "\n\n" + identity_context
     else:
         identity_section = _IDENTITY
+
+    # Append runtime state (code-enforced self-model) after identity
+    if runtime_state:
+        identity_section = identity_section + "\n\n" + runtime_state
 
     sections = [
         identity_section,

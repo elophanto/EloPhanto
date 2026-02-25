@@ -42,6 +42,7 @@ class StorageManager:
 
     async def initialize(self) -> None:
         """Create all data/ subdirectories. Called during agent.initialize()."""
+
         def _create_dirs() -> None:
             for subdir in _DIRS:
                 (self._base / subdir).mkdir(parents=True, exist_ok=True)
@@ -73,6 +74,59 @@ class StorageManager:
         """Check against max_file_size_mb."""
         max_bytes = self._config.max_file_size_mb * 1024 * 1024
         return size_bytes <= max_bytes
+
+    def validate_write(self, size_bytes: int) -> tuple[bool, str]:
+        """Check if a write of *size_bytes* is allowed (file size + quota)."""
+        max_bytes = self._config.max_file_size_mb * 1024 * 1024
+        if size_bytes > max_bytes:
+            return (False, f"File exceeds max size ({self._config.max_file_size_mb}MB)")
+
+        used_mb, quota_mb, status = self.check_quota()
+        if status == "exceeded":
+            return (False, f"Storage quota exceeded ({used_mb:.0f}/{quota_mb:.0f}MB)")
+
+        return (True, "ok")
+
+    def check_quota(self) -> tuple[float, float, str]:
+        """Check workspace disk usage against quota.
+
+        Returns:
+            ``(used_mb, quota_mb, status)`` where status is
+            ``"ok"``, ``"warning"``, or ``"exceeded"``.
+        """
+        quota_mb = self._config.workspace_quota_mb
+        if quota_mb <= 0:
+            return (0.0, 0.0, "ok")  # Quota disabled
+
+        used_bytes = self._calculate_usage_sync()
+        used_mb = used_bytes / (1024 * 1024)
+
+        pct = (used_mb / quota_mb) * 100 if quota_mb > 0 else 0
+        if pct >= 100:
+            status = "exceeded"
+        elif pct >= self._config.alert_threshold_pct:
+            status = "warning"
+        else:
+            status = "ok"
+
+        return (round(used_mb, 1), float(quota_mb), status)
+
+    def _calculate_usage_sync(self) -> int:
+        """Calculate total bytes used in the data directory."""
+        if not self._base.exists():
+            return 0
+        total = 0
+        for root, _dirs, files in os.walk(self._base):
+            for f in files:
+                try:
+                    total += (Path(root) / f).stat().st_size
+                except OSError:
+                    pass
+        return total
+
+    async def check_quota_async(self) -> tuple[float, float, str]:
+        """Async wrapper for :meth:`check_quota`."""
+        return await asyncio.to_thread(self.check_quota)
 
     async def cleanup_expired(self) -> dict[str, int]:
         """Remove files exceeding retention. Returns counts per category."""

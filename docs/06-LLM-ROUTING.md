@@ -282,6 +282,51 @@ The `cross_provider` review strategy deserves special attention. When the self-d
 
 This maximizes the chance of catching bugs because different model architectures have different failure modes.
 
+## Provider Transparency
+
+The router tracks per-provider behavior via `core/provider_tracker.py` (see [27-SECURITY-HARDENING.md](27-SECURITY-HARDENING.md) Gap 5). LLM providers can silently truncate, censor, or refuse responses — the transparency layer detects and surfaces this.
+
+### What's Tracked
+
+Every LLM call records a `ProviderEvent` with:
+
+- **finish_reason**: `stop` (normal), `length` (truncated), `content_filter` (censored), `error` (failed)
+- **latency_ms**: Wall-clock time for the call
+- **fallback_from**: Which provider(s) failed before this one succeeded
+- **suspected_truncated**: Heuristic detection — true if finish_reason=length/content_filter, or if response ends mid-sentence with >500 output tokens
+
+### Per-Provider Stats
+
+The `ProviderTracker` aggregates events into per-provider summaries:
+
+| Stat | Description |
+|------|-------------|
+| `total_calls` | Total LLM calls to this provider |
+| `failures` | Calls with finish_reason=error |
+| `truncations` | Calls flagged as suspected_truncated |
+| `content_filters` | Calls with finish_reason=content_filter |
+| `fallbacks_to` | Times this provider was the fallback target |
+| `avg_latency_ms` | Average wall-clock latency |
+
+### Runtime State
+
+Provider stats are surfaced in `<runtime_state>` as a `<providers>` XML block, giving the LLM ground truth about provider health:
+
+```xml
+<providers>
+  <provider name="openrouter" calls="42" failures="1" truncations="0" avg_latency_ms="1200"/>
+  <provider name="zai" calls="30" failures="3" truncations="2" avg_latency_ms="800"/>
+</providers>
+```
+
+### Database Persistence
+
+Four columns on the `llm_usage` table store per-call transparency data: `finish_reason`, `latency_ms`, `fallback_from`, `suspected_truncated`. Added via idempotent ALTER TABLE migrations in `core/database.py`.
+
+### Fallback Recording
+
+When the router falls back from one provider to another (e.g., Z.ai fails then OpenRouter succeeds), the successful `LLMResponse` carries `fallback_from="zai"` and a failure `ProviderEvent` is recorded for the failed provider.
+
 ## Adaptive Routing (Future Enhancement)
 
 Over time, EloPhanto can learn which models perform best for which tasks based on outcomes:

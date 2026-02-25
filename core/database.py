@@ -307,6 +307,16 @@ _SCHEMA = [
     """,
 ]
 
+# Idempotent ALTER TABLE migrations — SQLite raises OperationalError
+# ("duplicate column name") if the column already exists, which we catch.
+_MIGRATIONS = [
+    # Gap 5: Provider transparency columns on llm_usage
+    "ALTER TABLE llm_usage ADD COLUMN finish_reason TEXT DEFAULT 'unknown'",
+    "ALTER TABLE llm_usage ADD COLUMN latency_ms INTEGER DEFAULT 0",
+    "ALTER TABLE llm_usage ADD COLUMN fallback_from TEXT DEFAULT ''",
+    "ALTER TABLE llm_usage ADD COLUMN suspected_truncated INTEGER DEFAULT 0",
+]
+
 
 class Database:
     """SQLite database with optional sqlite-vec vector search."""
@@ -336,6 +346,15 @@ class Database:
         for ddl in _SCHEMA:
             self._conn.execute(ddl)
         self._conn.commit()
+
+        # Schema migrations — ALTER TABLE additions (safe to re-run; SQLite
+        # raises "duplicate column name" which we silently ignore)
+        for migration in _MIGRATIONS:
+            try:
+                self._conn.execute(migration)
+                self._conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
         # Try loading sqlite-vec
         self._load_vec_extension()

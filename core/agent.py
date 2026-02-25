@@ -37,7 +37,7 @@ class StatusCallback(Protocol):
 from core.config import Config
 from core.database import Database
 from core.embeddings import create_embedder
-from core.executor import Executor
+from core.executor import ExecutionResult, Executor
 from core.indexer import KnowledgeIndexer
 from core.injection_guard import wrap_tool_result
 from core.memory import MemoryManager, WorkingMemory
@@ -185,6 +185,17 @@ class Agent:
         # Conversation history across turns (user + assistant messages only)
         self._conversation_history: list[dict[str, Any]] = []
 
+        # Security: agent fingerprint (set during initialize if vault available)
+        self._fingerprint: str = ""
+        self._fingerprint_status: str = "unavailable"
+
+        # Resource exhaustion: process registry for shell subprocess tracking
+        from core.process_registry import ProcessRegistry
+
+        self._process_registry = ProcessRegistry(
+            max_concurrent=self._config.shell.max_concurrent_processes
+        )
+
     async def initialize(self, on_status: StatusCallback | None = None) -> None:
         """One-time setup: load tools, init DB, index knowledge, check health.
 
@@ -289,6 +300,11 @@ class Agent:
 
         # Inject self-dev tool dependencies
         self._inject_self_dev_deps()
+
+        # Inject process registry into shell tool for resource tracking
+        shell_tool = self._registry.get("shell_execute")
+        if shell_tool and hasattr(shell_tool, "set_process_registry"):
+            shell_tool.set_process_registry(self._process_registry)
 
         # Create browser manager (if enabled) — lazy init, Chrome opens on first use
         if self._config.browser.enabled:
@@ -634,6 +650,23 @@ class Agent:
         data_dir = self._config.project_root / self._config.storage.data_dir
         asyncio.create_task(send_heartbeat(data_dir))
 
+        # Security: compute agent fingerprint (if vault is available)
+        if self._vault:
+            try:
+                from core.fingerprint import (
+                    compute_config_hash,
+                    compute_vault_salt_hash,
+                    get_or_create_fingerprint,
+                )
+
+                config_hash = compute_config_hash(self._config)
+                vault_salt_hash = compute_vault_salt_hash(self._config.project_root)
+                self._fingerprint, self._fingerprint_status = get_or_create_fingerprint(
+                    self._vault, config_hash, vault_salt_hash
+                )
+            except Exception as e:
+                logger.debug("Fingerprint initialization failed: %s", e)
+
         # Self-learning dataset collection (opt-in)
         if self._config.self_learning.enabled:
             try:
@@ -893,6 +926,7 @@ class Agent:
         session: Session,
         approval_callback: Callable[..., Any] | None = None,
         on_step: Callable[..., Any] | None = None,
+        authority: Any | None = None,
     ) -> AgentResponse:
         """Execute a goal with session-scoped conversation history.
 
@@ -906,6 +940,7 @@ class Agent:
             approval_callback: Async callback for tool approval (routed
                 to the correct channel via gateway).
             on_step: Async callback for step progress reporting.
+            authority: AuthorityLevel for the requesting user (from gateway).
         """
 
         # Pause background execution if user sends a message
@@ -928,6 +963,8 @@ class Agent:
                 goal,
                 session.conversation_history,
                 session.append_conversation_turn,
+                authority=authority,
+                session=session,
             )
             session.touch()
             return response
@@ -951,11 +988,14 @@ class Agent:
             max_steps_override: If set, overrides the global max_steps config
                 for this run only (used by AutonomousMind to enforce max_rounds).
         """
+        from core.authority import AuthorityLevel
+
         return await self._run_with_history(
             goal,
             self._conversation_history,
             self._append_conversation_turn,
             max_steps_override=max_steps_override,
+            authority=AuthorityLevel.OWNER,
         )
 
     async def _run_with_history(
@@ -965,6 +1005,8 @@ class Agent:
         append_turn: Callable[[str, str], None],
         *,
         max_steps_override: int | None = None,
+        authority: Any | None = None,
+        session: Any | None = None,
     ) -> AgentResponse:
         """Core plan-execute-reflect loop, parameterized on history source."""
         logger.info("[TIMING] _run_with_history entered for: %s", goal[:80])
@@ -983,6 +1025,12 @@ class Agent:
         recent_calls: list[str] = []
         _STAGNATION_WINDOW = 8
         _MAX_CONSECUTIVE_ERRORS = 5
+
+        # Response hash dedup — catch repeating LLM outputs even across tools
+        recent_response_hashes: list[int] = []
+        _RESPONSE_HASH_CHARS = 200
+        _RESPONSE_DEDUP_THRESHOLD = 3  # N identical in last window
+        _RESPONSE_DEDUP_WINDOW = 5
 
         # --- Pre-loop context (non-blocking) ---
         # Knowledge retrieval is fire-and-forget: results populate working
@@ -1024,6 +1072,47 @@ class Agent:
         knowledge_context = self._working_memory.format_context()
         available_skills = self._skill_manager.format_available_skills()
 
+        # --- Authority: resolve and filter tools ---
+        from core.authority import (
+            AuthorityLevel,
+            check_tool_authority,
+            filter_tools_for_authority,
+        )
+        from core.runtime_state import build_runtime_state
+
+        _authority = authority if authority is not None else AuthorityLevel.OWNER
+        all_tool_objs = self._registry.all_tools()
+        authorized_tools = filter_tools_for_authority(all_tool_objs, _authority)
+
+        # Build runtime state XML for the system prompt
+        _channel = "cli"
+        if session is not None:
+            _channel = getattr(session, "channel", "cli") or "cli"
+
+        # Storage quota snapshot (quick sync check)
+        _storage_used, _storage_quota, _storage_status = 0.0, 0.0, ""
+        if hasattr(self, "_storage_manager") and self._storage_manager:
+            try:
+                _storage_used, _storage_quota, _storage_status = (
+                    self._storage_manager.check_quota()
+                )
+            except Exception:
+                pass
+
+        _runtime_state = build_runtime_state(
+            fingerprint=self._fingerprint,
+            fingerprint_status=self._fingerprint_status,
+            tools=authorized_tools,
+            authority=_authority.value,
+            channel=_channel,
+            storage_status=_storage_status,
+            storage_used_mb=_storage_used,
+            storage_quota_mb=_storage_quota,
+            active_processes=self._process_registry.count,
+            max_processes=self._config.shell.max_concurrent_processes,
+            provider_stats=self._router.provider_tracker.get_provider_stats(),
+        )
+
         system_content = build_system_prompt(
             permission_mode=self._config.permission_mode,
             browser_enabled=self._config.browser.enabled,
@@ -1038,6 +1127,7 @@ class Agent:
             available_skills=available_skills,
             goal_context=goal_context,
             identity_context=identity_context,
+            runtime_state=_runtime_state,
             current_goal=goal,
             workspace=self._config.workspace,
         )
@@ -1053,7 +1143,7 @@ class Agent:
         messages: list[dict[str, Any]] = list(conversation_history)
         messages.append({"role": "user", "content": goal})
 
-        _tools = self._registry.list_tools()
+        _tools = [t.to_llm_schema() for t in authorized_tools]
         logger.info(
             "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d | messages=%d",
             _time.monotonic() - _prompt_start,
@@ -1082,6 +1172,32 @@ class Agent:
                     )
                     logger.info("Stagnation: %s", stagnation_reason)
                     break
+            # Response hash dedup — agent repeating itself
+            if len(recent_response_hashes) >= _RESPONSE_DEDUP_WINDOW:
+                from collections import Counter as _Counter
+
+                _hash_counts = _Counter(
+                    recent_response_hashes[-_RESPONSE_DEDUP_WINDOW:]
+                )
+                _most_common = _hash_counts.most_common(1)[0][1]
+                if _most_common >= _RESPONSE_DEDUP_THRESHOLD:
+                    stagnation_reason = (
+                        f"LLM repeating same response "
+                        f"({_most_common}/{_RESPONSE_DEDUP_WINDOW})"
+                    )
+                    logger.info("Stagnation: %s", stagnation_reason)
+                    break
+            # Budget guard — stop if per-task or daily budget exceeded
+            if not self._router.cost_tracker.within_budget(
+                self._config.llm.budget.daily_limit_usd,
+                self._config.llm.budget.per_task_limit_usd,
+            ):
+                stagnation_reason = (
+                    f"budget exceeded "
+                    f"(task=${self._router.cost_tracker.task_total:.2f})"
+                )
+                logger.warning("Stagnation: %s", stagnation_reason)
+                break
             step += 1
             logger.info("Step %d", step)
 
@@ -1109,7 +1225,24 @@ class Agent:
                 response.provider,
                 response.model_used,
             )
+            if response.suspected_truncated:
+                logger.warning(
+                    "Truncated response from %s/%s (finish_reason=%s, tokens=%d)",
+                    response.provider,
+                    response.model_used,
+                    response.finish_reason,
+                    response.output_tokens,
+                )
             last_model_used = response.model_used
+
+            # Track response hash for dedup detection
+            _resp_text = (response.content or "")[:_RESPONSE_HASH_CHARS]
+            if _resp_text:
+                recent_response_hashes.append(hash(_resp_text))
+                if len(recent_response_hashes) > _RESPONSE_DEDUP_WINDOW:
+                    recent_response_hashes = recent_response_hashes[
+                        -_RESPONSE_DEDUP_WINDOW:
+                    ]
 
             # Check if LLM responded with text (no tool calls) = task complete
             if not response.tool_calls:
@@ -1194,13 +1327,45 @@ class Agent:
                         except Exception:
                             pass
 
-                # Execute: parallel for safe groups, sequential for single/unsafe
-                if len(group) > 1:
-                    exec_results = await asyncio.gather(
-                        *(self._executor.execute(tc) for tc in group)
+                # Authority pre-check: block tools not allowed for this tier
+                # (safety net in case LLM hallucinates a tool not in its schema)
+                authority_blocked: list[tuple[dict, ExecutionResult]] = []
+                allowed_group: list[dict] = []
+                for tc in group:
+                    _tc_name = tc.get("function", {}).get("name", "")
+                    if not check_tool_authority(_tc_name, _authority):
+                        authority_blocked.append(
+                            (
+                                tc,
+                                ExecutionResult(
+                                    tool_name=_tc_name,
+                                    tool_call_id=tc.get("id", ""),
+                                    error=f"Tool '{_tc_name}' is not available for {_authority.value} users.",
+                                ),
+                            )
+                        )
+                    else:
+                        allowed_group.append(tc)
+
+                # Execute allowed tools
+                if len(allowed_group) > 1:
+                    exec_results_raw = await asyncio.gather(
+                        *(self._executor.execute(tc) for tc in allowed_group)
                     )
+                elif allowed_group:
+                    exec_results_raw = [await self._executor.execute(allowed_group[0])]
                 else:
-                    exec_results = [await self._executor.execute(group[0])]
+                    exec_results_raw = []
+
+                # Merge: blocked results in original order, then allowed results
+                exec_results: list[ExecutionResult] = []
+                allowed_iter = iter(exec_results_raw)
+                blocked_map = {id(tc): er for tc, er in authority_blocked}
+                for tc in group:
+                    if id(tc) in blocked_map:
+                        exec_results.append(blocked_map[id(tc)])
+                    else:
+                        exec_results.append(next(allowed_iter))
 
                 # Process results in original order
                 for tc, exec_result in zip(group, exec_results, strict=True):
@@ -1236,6 +1401,11 @@ class Agent:
                             if isinstance(_data, dict):
                                 _data.pop("imageBase64", None)
                                 _data.pop("imageType", None)
+                        # PII redaction — non-owner users get PII stripped
+                        if _authority != AuthorityLevel.OWNER:
+                            from core.pii_guard import redact_pii_in_dict
+
+                            raw_result = redact_pii_in_dict(raw_result)
                         tool_content = json.dumps(raw_result)
                     else:
                         tool_content = json.dumps({"error": "No result returned"})

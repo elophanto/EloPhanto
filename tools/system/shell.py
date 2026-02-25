@@ -15,6 +15,11 @@ class ShellExecuteTool(BaseTool):
 
     def __init__(self, config: Config) -> None:
         self._config = config
+        self._process_registry: Any | None = None
+
+    def set_process_registry(self, registry: Any) -> None:
+        """Inject process registry for resource tracking."""
+        self._process_registry = registry
 
     @property
     def name(self) -> str:
@@ -85,6 +90,19 @@ class ShellExecuteTool(BaseTool):
         if protected_msg:
             return ToolResult(success=False, error=protected_msg)
 
+        # Process registry: prune dead entries and check capacity
+        if self._process_registry:
+            self._process_registry.cleanup_dead()
+            if self._process_registry.at_capacity:
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"Too many concurrent processes "
+                        f"({self._process_registry.count}). "
+                        f"Wait for running commands to complete."
+                    ),
+                )
+
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -92,6 +110,9 @@ class ShellExecuteTool(BaseTool):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=working_dir,
             )
+
+            if self._process_registry and process.pid:
+                self._process_registry.register(process.pid, command[:100])
 
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -101,6 +122,8 @@ class ShellExecuteTool(BaseTool):
             except TimeoutError:
                 process.kill()
                 await process.communicate()
+                if self._process_registry and process.pid:
+                    self._process_registry.unregister(process.pid)
                 return ToolResult(
                     success=True,
                     data={
@@ -110,6 +133,9 @@ class ShellExecuteTool(BaseTool):
                         "timed_out": True,
                     },
                 )
+
+            if self._process_registry and process.pid:
+                self._process_registry.unregister(process.pid)
 
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
