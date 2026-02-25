@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from core.config import GoalsConfig
@@ -128,7 +129,7 @@ class GoalRunner:
         return await self.start_goal(goal_id)
 
     async def cancel(self) -> None:
-        """Cancel the current background goal execution."""
+        """Cancel the current background goal execution and clear scratchpad."""
         self._stop_requested = True
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
@@ -138,6 +139,7 @@ class GoalRunner:
                 pass
         self._current_task = None
         self._current_goal_id = None
+        self._clear_scratchpad()
 
     def notify_user_interaction(self) -> None:
         """Signal that a user sent a message — pause after current checkpoint."""
@@ -271,6 +273,7 @@ class GoalRunner:
 
         except asyncio.CancelledError:
             logger.info("Goal %s execution cancelled", goal_id)
+            self._clear_scratchpad()
             raise
         except Exception as e:
             logger.error("Goal %s execution error: %s", goal_id, e, exc_info=True)
@@ -400,6 +403,17 @@ class GoalRunner:
                 gateway._pending_approvals.pop(msg.id, None)
 
         return _approval
+
+    def _clear_scratchpad(self) -> None:
+        """Clear the mind's scratchpad so stale goal state doesn't persist."""
+        try:
+            project_root = self._agent._config.project_root
+            path = project_root / Path("data/scratchpad.md")
+            if path.exists():
+                path.write_text("", encoding="utf-8")
+                logger.info("Scratchpad cleared after goal cancellation")
+        except Exception as e:
+            logger.warning("Failed to clear scratchpad: %s", e)
 
     async def _pause_goal(self, goal_id: str, reason: str) -> None:
         """Pause a goal and broadcast the event."""

@@ -443,10 +443,10 @@ class AutonomousMind:
         self._agent._executor._on_tool_executed = _on_tool
 
         try:
-            # Run through the agent's normal pipeline
-            response = await asyncio.wait_for(
-                self._agent.run(prompt),
-                timeout=300,  # 5 min max per think cycle
+            # Run through the agent's normal pipeline with max_rounds as step limit
+            response = await self._agent.run(
+                prompt,
+                max_steps_override=self._config.max_rounds_per_wakeup,
             )
 
             # Track cost
@@ -492,14 +492,6 @@ class AutonomousMind:
                     "cycle_number": self._cycle_count + 1,
                     "tools_used": len(_tool_uses),
                 },
-            )
-
-        except TimeoutError:
-            logger.warning("Mind think cycle timed out (300s)")
-            self._last_action = "(timed out)"
-            await self._broadcast_event(
-                EventType.MIND_ERROR,
-                {"error": "Think cycle timed out", "recovery": "will retry"},
             )
         finally:
             # Restore conversation history, approval callback, and tool callback

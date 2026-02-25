@@ -939,16 +939,23 @@ class Agent:
             if self._autonomous_mind and self._autonomous_mind.is_paused:
                 asyncio.create_task(self._autonomous_mind.notify_task_complete())
 
-    async def run(self, goal: str) -> AgentResponse:
+    async def run(
+        self, goal: str, *, max_steps_override: int | None = None
+    ) -> AgentResponse:
         """Execute the plan-execute-reflect loop for a user goal.
 
         Legacy direct mode — uses internal conversation history.
         For gateway mode, use run_session() instead.
+
+        Args:
+            max_steps_override: If set, overrides the global max_steps config
+                for this run only (used by AutonomousMind to enforce max_rounds).
         """
         return await self._run_with_history(
             goal,
             self._conversation_history,
             self._append_conversation_turn,
+            max_steps_override=max_steps_override,
         )
 
     async def _run_with_history(
@@ -956,6 +963,8 @@ class Agent:
         goal: str,
         conversation_history: list[dict[str, Any]],
         append_turn: Callable[[str, str], None],
+        *,
+        max_steps_override: int | None = None,
     ) -> AgentResponse:
         """Core plan-execute-reflect loop, parameterized on history source."""
         logger.info("[TIMING] _run_with_history entered for: %s", goal[:80])
@@ -964,7 +973,7 @@ class Agent:
 
         tool_calls_made: list[str] = []
         step = 0
-        hard_limit = self._config.max_steps or 500
+        hard_limit = max_steps_override or self._config.max_steps or 500
         max_time = self._config.max_time_seconds
         start_time = _time.monotonic()
         last_model_used = "unknown"

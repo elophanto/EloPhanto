@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class GoalManageTool(BaseTool):
@@ -104,6 +108,8 @@ class GoalManageTool(BaseTool):
                 ok = await self._goal_manager.cancel_goal(goal_id)
                 if not ok:
                     return ToolResult(success=False, error="Goal not found")
+                # Clear scratchpad so the mind doesn't act on stale goal state
+                self._clear_scratchpad()
                 return ToolResult(
                     success=True, data={"goal_id": goal_id, "action": "cancelled"}
                 )
@@ -146,3 +152,17 @@ class GoalManageTool(BaseTool):
 
         except Exception as e:
             return ToolResult(success=False, error=f"Goal management failed: {e}")
+
+    def _clear_scratchpad(self) -> None:
+        """Clear the mind's scratchpad after goal cancellation."""
+        try:
+            if self._goal_manager and self._goal_manager._db:
+                # Access project root from goal_runner's agent config
+                if self._goal_runner and hasattr(self._goal_runner, "_agent"):
+                    project_root = self._goal_runner._agent._config.project_root
+                    path = project_root / Path("data/scratchpad.md")
+                    if path.exists():
+                        path.write_text("", encoding="utf-8")
+                        logger.info("Scratchpad cleared after goal cancellation")
+        except Exception as e:
+            logger.warning("Failed to clear scratchpad: %s", e)

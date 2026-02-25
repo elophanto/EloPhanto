@@ -177,14 +177,12 @@ class CLIAdapter(ChannelAdapter):
             if not user_input.strip():
                 continue
 
-            # Slash commands: /clear, /status, etc.
+            # Slash commands: /clear, /status, /mind stop, etc.
             # Skip paths like /Users/... or /tmp/... (contain "/" after first char)
-            if (
-                stripped.startswith("/")
-                and "/" not in stripped[1:]
-                and " " not in stripped
-            ):
-                cmd = stripped[1:]
+            if stripped.startswith("/") and "/" not in stripped[1:]:
+                parts = stripped[1:].split(None, 1)
+                cmd = parts[0]
+                cmd_args = parts[1] if len(parts) > 1 else ""
 
                 # Handle local-only commands
                 if cmd == "clear":
@@ -213,7 +211,9 @@ class CLIAdapter(ChannelAdapter):
                         f"  /clear      — Reset session and wipe task memory\n"
                         f"  /stop       — Cancel running request (or Ctrl+C)\n"
                         f"  /status     — Show gateway status\n"
-                        f"  /mind       — Autonomous mind status & actions\n"
+                        f"  /mind       — Autonomous mind status\n"
+                        f"  /mind stop  — Stop the autonomous mind\n"
+                        f"  /mind start — Start the autonomous mind\n"
                         f"  /health     — Provider health report\n"
                         f"  /config     — Read/update config\n"
                         f"  /provider   — Enable/disable providers\n"
@@ -225,7 +225,10 @@ class CLIAdapter(ChannelAdapter):
                     continue
 
                 await self.send_command(
-                    cmd, user_id=self._user_id, session_id=self._session_id
+                    cmd,
+                    args={"subcommand": cmd_args} if cmd_args else None,
+                    user_id=self._user_id,
+                    session_id=self._session_id,
                 )
                 continue
 
