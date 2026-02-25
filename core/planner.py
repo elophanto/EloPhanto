@@ -152,6 +152,18 @@ find answers, not apologize for not knowing them.
   even if you recovered from them.
 </error_handling>
 
+<workspace_rule>
+When you create files, apps, projects, downloads, exports, or any artifacts that are NOT
+modifications to existing files, you MUST place them in the configured workspace directory.
+NEVER create new directories or files in the project root or random locations.
+
+This applies to: generated apps, scraped data, downloaded files, article drafts, exported
+reports, temporary scripts, media files, and any other output. The workspace is your
+designated output area — keep everything else clean.
+
+If no workspace is configured, use a "workspace" subdirectory under the project root.
+</workspace_rule>
+
 <learning_from_corrections>
 When the user corrects you — points out a mistake, says "that's wrong", tells you
 to do something differently, or shows you a better approach:
@@ -1211,6 +1223,7 @@ def build_system_prompt(
     goal_context: str = "",
     identity_context: str = "",
     current_goal: str = "",
+    workspace: str = "",
 ) -> str:
     """Assemble the full system prompt from XML-structured sections.
 
@@ -1234,6 +1247,7 @@ def build_system_prompt(
     now = datetime.now(UTC).strftime("%A, %B %d, %Y %H:%M UTC")
 
     goal_line = f"\nCURRENT TASK: {current_goal}\n" if current_goal else ""
+    workspace_line = f"\nWorkspace directory: {workspace}\n" if workspace else ""
     runtime = (
         f"<runtime_context>\n"
         f"Current date and time: {now}\n"
@@ -1241,6 +1255,7 @@ def build_system_prompt(
         f"Browser available: {'yes' if browser_enabled else 'no'}\n"
         f"Scheduler available: {'yes' if scheduler_enabled else 'no'}\n"
         f"{goal_line}"
+        f"{workspace_line}"
         f"</runtime_context>"
     )
 

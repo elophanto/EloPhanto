@@ -513,6 +513,7 @@ class Config:
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
     autonomous_mind: AutonomousMindConfig = field(default_factory=AutonomousMindConfig)
+    workspace: str = ""
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -605,6 +606,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
     permission_mode = agent.get("permission_mode", "ask_always")
     max_steps = agent.get("max_steps", 0)
     max_time_seconds = agent.get("max_time_seconds", 0)
+    workspace = agent.get("workspace", "")
 
     # Parse LLM section
     llm_raw = raw.get("llm", {})
@@ -1009,6 +1011,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         permission_mode=permission_mode,
         max_steps=max_steps,
         max_time_seconds=max_time_seconds,
+        workspace=workspace,
         llm=llm_config,
         shell=shell_config,
         knowledge=knowledge_config,

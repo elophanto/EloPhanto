@@ -1030,6 +1030,7 @@ class Agent:
             goal_context=goal_context,
             identity_context=identity_context,
             current_goal=goal,
+            workspace=self._config.workspace,
         )
 
         # Forward task context to browser bridge for goal-aware vision analysis
