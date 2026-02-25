@@ -1089,10 +1089,12 @@ class Gateway:
         else:
             # Try recovery handler — pure Python, no LLM
             if self._recovery:
-                result = await self._recovery.handle(command, user_id=user_id)
-                if result is not None:
+                recovery_result = await self._recovery.handle(command, user_id=user_id)
+                if recovery_result is not None:
                     await client.websocket.send(
-                        response_message(session_id, result, done=True).to_json()
+                        response_message(
+                            session_id, recovery_result, done=True
+                        ).to_json()
                     )
                     return
 
