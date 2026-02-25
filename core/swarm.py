@@ -27,6 +27,7 @@ from core.protocol import EventType, event_message
 if TYPE_CHECKING:
     from core.database import Database
     from core.gateway import Gateway
+    from core.swarm_security import SwarmOutputReport
 
 logger = logging.getLogger(__name__)
 
@@ -587,9 +588,11 @@ class SwarmManager:
         if profile:
             from core.swarm_security import check_kill_conditions
 
-            report = self._output_reports.get(agent.agent_id)
+            kill_report: SwarmOutputReport | None = self._output_reports.get(
+                agent.agent_id
+            )
             should_kill, reason = check_kill_conditions(
-                agent, profile, self._config, report
+                agent, profile, self._config, kill_report
             )
             if should_kill:
                 await self.stop_agent(agent.agent_id, reason)
