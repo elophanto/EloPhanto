@@ -20,20 +20,20 @@ else
     exit 1
 fi
 
+# Kill any leftover gateway from a previous unclean shutdown
+STALE_PID=$(lsof -ti :18789 2>/dev/null || true)
+if [ -n "$STALE_PID" ]; then
+    echo "Killing stale gateway on port 18789 (pid $STALE_PID)..."
+    kill -KILL $STALE_PID 2>/dev/null || true
+    sleep 0.5
+fi
+
 # --web flag: start gateway + web dashboard together
 if [ "$1" = "--web" ]; then
     WEB_DIR="$SCRIPT_DIR/web"
     if [ ! -d "$WEB_DIR/node_modules" ]; then
         echo "Web dashboard dependencies not installed. Running npm install..."
         (cd "$WEB_DIR" && npm install)
-    fi
-
-    # Kill any leftover gateway from a previous unclean shutdown
-    STALE_PID=$(lsof -ti :18789 2>/dev/null || true)
-    if [ -n "$STALE_PID" ]; then
-        echo "Killing stale gateway on port 18789 (pid $STALE_PID)..."
-        kill -KILL $STALE_PID 2>/dev/null || true
-        sleep 0.5
     fi
 
     echo "Starting EloPhanto gateway + web dashboard..."

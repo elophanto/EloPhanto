@@ -358,34 +358,31 @@ Start the gateway, connect with a WebSocket client, send a chat message, and get
 
 ---
 
-## Phase 8: Web UI (Week 15-17)
+## Phase 8: Web UI (Week 15-17) — **Done**
 
 **Goal**: A browser-based interface for configuration and monitoring.
 
 ### Deliverables
 
-- FastAPI backend with routes for all CLI functionality
-- WebSocket endpoint for real-time updates
-- React frontend with pages for:
-  - Dashboard (current status, recent activity, running tasks)
-  - Chat interface (conversation with the agent)
-  - Plugin manager (list, enable/disable, view source, trigger)
-  - Knowledge browser (view/edit markdown files)
-  - Configuration (LLM routing, permissions, integrations)
-  - Approval queue (pending actions, approve/deny)
-  - Logs and history
-  - Cost tracking and usage stats
-- Authentication (local only, simple password or token)
-
-### Tests
-
-- API endpoint tests
-- WebSocket message delivery
-- Frontend renders correctly
+- Gateway-based architecture: web sends commands via WebSocket, gateway queries managers and returns JSON
+- React 19 + Vite 6 + Tailwind v4 + Zustand + shadcn/ui frontend (10 pages):
+  - Dashboard (agent identity, mind status with budget bar, active goals, schedule summary, channels, swarm, stats, capabilities)
+  - Chat (real-time streaming with markdown, tool execution steps, approval cards)
+  - Tools (browse all registered tools with parameters and permissions)
+  - Skills (browse skills with triggers and source)
+  - Knowledge (file browser with scope filters, expandable chunk viewer with markdown content)
+  - Mind (autonomous mind monitor: status/budget/config cards, scratchpad, recent actions timeline, live event stream, start/stop controls)
+  - Schedule (search + filter, expandable rows with cron expressions and task goals)
+  - Channels (gateway info, connected clients grouped by type)
+  - Settings (read-only config viewer with collapsible sections)
+  - History (tasks/evolution tabs with expandable rows, markdown summaries, relative timestamps)
+- 10+ gateway commands (dashboard, knowledge, knowledge_detail, schedules, channels, config, history, mind_status, mind_control, tools, skills)
+- Real-time mind event streaming (wakeup, action, sleep, paused, resumed, error)
+- Launch with `./start.sh --web` (gateway + Vite dev server at localhost:3000)
 
 ### Exit Criteria
 
-A user who prefers GUIs can set up, configure, and interact with EloPhanto entirely through the web interface.
+A user who prefers GUIs can monitor, inspect, and interact with EloPhanto entirely through the web interface.
 
 ---
 
@@ -430,7 +427,7 @@ A developer who has never seen EloPhanto can clone the repo, run `elophanto init
 | Phase 7.7: Gateway Architecture | **Done** — WebSocket control plane, unified cross-channel sessions, protocol |
 | Phase 7.8: Channel Adapters | **Done** — CLI, Telegram, Discord, Slack via gateway |
 | Phase 7.9: EloPhantoHub | **Done** — Skill registry, search, install, update, agent auto-discovery |
-| Phase 8: Web UI | Planned |
+| Phase 8: Web UI | **Done** — 10-page React dashboard (Dashboard, Chat, Tools, Skills, Knowledge, Mind, Schedule, Channels, Settings, History) via gateway WebSocket |
 | Phase 9: Polish & Release | Planned |
 | Phase 10: Self-Learning Model | **Dataset Builder Done** — Training pipeline in idea phase |
 | Phase 11: Agent Payments | **Phase 1 Done** — Crypto wallet (local + Coinbase AgentKit), 7 tools, spending limits, audit trail |

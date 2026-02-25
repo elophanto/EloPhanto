@@ -6,7 +6,7 @@ EloPhanto is organized into seven layers. Each layer has a clear responsibility 
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  CLI │ Telegram │ Discord │ Slack │ Web (planned)│  Layer 7: Channel Adapters
+│  CLI │ Telegram │ Discord │ Slack │ Web Dashboard│  Layer 7: Channel Adapters
 ├─────────────────────────────────────────────────┤
 │       WebSocket Gateway (ws://:18789)            │  Layer 6: Control Plane
 ├─────────────────────────────────────────────────┤
@@ -234,7 +234,7 @@ JSON messages over WebSocket:
 | `approval_response` | client → gateway | User approves/denies |
 | `event` | gateway → client(s) | Broadcast (task_complete, error, notification) |
 | `status` | both | Connection status, heartbeat |
-| `command` | client → gateway | Slash commands (/status, /tasks, /budget) |
+| `command` | client → gateway | Slash commands (/mind, /clear) and data queries (tools, skills, dashboard, knowledge, knowledge_detail, schedules, channels, config, history, mind_status, mind_control) |
 | `error` | gateway → client | Error messages |
 
 ### Message Flow

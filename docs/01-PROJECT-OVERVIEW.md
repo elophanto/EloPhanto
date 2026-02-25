@@ -35,5 +35,5 @@ Most AI agents are sandboxed tools that call APIs. EloPhanto is different in thr
 - **Name**: EloPhanto
 - **Domain**: elophanto.com
 - **License**: Apache 2.0
-- **Language**: Python (agent core) + TypeScript (Node.js browser bridge, optional web UI)
+- **Language**: Python (agent core) + TypeScript (Node.js browser bridge + React web dashboard)
 - **Repository**: To be created on GitHub

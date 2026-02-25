@@ -1,10 +1,12 @@
 import { create } from "zustand";
 
 export type Page =
+  | "dashboard"
   | "chat"
   | "tools"
   | "skills"
   | "knowledge"
+  | "mind"
   | "schedule"
   | "channels"
   | "settings"
@@ -16,6 +18,6 @@ interface NavigationState {
 }
 
 export const useNavigationStore = create<NavigationState>((set) => ({
-  activePage: "chat",
+  activePage: "dashboard",
   navigate: (page) => set({ activePage: page }),
 }));

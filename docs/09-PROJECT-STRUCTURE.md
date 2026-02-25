@@ -217,13 +217,26 @@ elophanto/
 │       └── dist/                       # Built output (gitignored)
 │           └── server.js               # Bundled bridge server
 │
-├── web/                                # Web UI (Phase 2)
-│   ├── api/                            # FastAPI backend
-│   │   ├── main.py                     # FastAPI app
-│   │   ├── routes/                     # API routes
-│   │   └── websocket.py                # Real-time updates to frontend
-│   └── frontend/                       # React frontend
-│       └── ...
+├── web/                                # Web dashboard (React + Vite + Tailwind v4)
+│   ├── src/
+│   │   ├── App.tsx                     # Page router + gateway wiring
+│   │   ├── stores/                     # Zustand stores (connection, chat, data, navigation)
+│   │   ├── lib/                        # Gateway client, protocol, utils
+│   │   └── components/
+│   │       ├── layout/                 # Shell, Sidebar
+│   │       ├── dashboard/              # Dashboard overview page
+│   │       ├── chat/                   # Real-time chat page
+│   │       ├── tools/                  # Tools browser page
+│   │       ├── skills/                 # Skills browser page
+│   │       ├── knowledge/              # Knowledge base viewer page
+│   │       ├── mind/                   # Autonomous mind monitor page
+│   │       ├── schedule/               # Schedule manager page
+│   │       ├── channels/               # Channels status page
+│   │       ├── settings/               # Read-only config viewer page
+│   │       ├── history/                # Task/evolution history page
+│   │       └── ui/                     # shadcn/ui primitives
+│   ├── public/                         # Static assets (logo.webp)
+│   └── package.json                    # React 19, Vite 6, Tailwind v4, Zustand
 │
 ├── cli/                                # Command-line interface
 │   ├── __init__.py

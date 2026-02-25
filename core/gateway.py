@@ -592,6 +592,79 @@ class Gateway:
                 response_message(session_id, text, done=True).to_json()
             )
 
+        elif command == "mind_status":
+            # Return structured JSON of autonomous mind state
+            import json as _json
+
+            mind = getattr(self._agent, "_autonomous_mind", None)
+            if mind:
+                try:
+                    status = mind.get_status()
+                    # Add config info
+                    cfg = getattr(self._agent, "_config", None)
+                    mind_cfg = getattr(cfg, "autonomous_mind", None) if cfg else None
+                    config_data: dict[str, Any] = {}
+                    if mind_cfg:
+                        config_data = {
+                            "wakeup_seconds": mind_cfg.wakeup_seconds,
+                            "min_wakeup_seconds": mind_cfg.min_wakeup_seconds,
+                            "max_wakeup_seconds": mind_cfg.max_wakeup_seconds,
+                            "budget_pct": mind_cfg.budget_pct,
+                            "max_rounds_per_wakeup": mind_cfg.max_rounds_per_wakeup,
+                            "verbosity": mind_cfg.verbosity,
+                        }
+                    payload = _json.dumps(
+                        {
+                            "mind_status": {
+                                **status,
+                                "config": config_data,
+                            }
+                        }
+                    )
+                except Exception:
+                    logger.debug("Mind status error", exc_info=True)
+                    payload = _json.dumps(
+                        {
+                            "mind_status": {
+                                "enabled": False,
+                                "error": "Failed to get status",
+                            }
+                        }
+                    )
+            else:
+                payload = _json.dumps({"mind_status": {"enabled": False}})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "mind_control":
+            # Start/stop/inject event into the autonomous mind
+            import json as _json
+
+            mind = getattr(self._agent, "_autonomous_mind", None)
+            args = msg.data.get("args") or {}
+            action = args.get("action", "")
+            result: dict[str, Any] = {"ok": False}
+
+            if not mind:
+                result["error"] = "Autonomous mind is not enabled"
+            elif action == "start":
+                if mind.is_running:
+                    result = {"ok": True, "message": "Already running"}
+                else:
+                    mind.start()
+                    result = {"ok": True, "message": "Mind started"}
+            elif action == "stop":
+                await mind.cancel()
+                result = {"ok": True, "message": "Mind stopped"}
+            else:
+                result["error"] = f"Unknown action: {action}"
+
+            payload = _json.dumps({"mind_control": result})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
         elif command == "tools":
             # Return structured JSON of all registered tools
             import json as _json
@@ -627,6 +700,389 @@ class Gateway:
                     }
                 )
             payload = _json.dumps({"skills": skills_data})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "dashboard":
+            # Return aggregated dashboard overview data
+            import json as _json
+
+            dashboard: dict[str, Any] = {}
+
+            # Identity
+            identity_mgr = getattr(self._agent, "_identity_manager", None)
+            if identity_mgr:
+                try:
+                    ident = await identity_mgr.get_identity()
+                    dashboard["identity"] = {
+                        "display_name": ident.display_name,
+                        "purpose": ident.purpose or "",
+                        "capabilities": ident.capabilities[:10],
+                    }
+                except Exception:
+                    dashboard["identity"] = None
+            else:
+                dashboard["identity"] = None
+
+            # Mind
+            mind = getattr(self._agent, "_autonomous_mind", None)
+            if mind:
+                try:
+                    dashboard["mind"] = mind.get_status()
+                except Exception:
+                    dashboard["mind"] = None
+            else:
+                dashboard["mind"] = None
+
+            # Goals
+            goal_mgr = getattr(self._agent, "_goal_manager", None)
+            if goal_mgr:
+                try:
+                    goals = await goal_mgr.list_goals(limit=10)
+                    dashboard["goals"] = [
+                        {
+                            "goal_id": g.goal_id,
+                            "goal": g.goal[:120],
+                            "status": g.status,
+                            "current_checkpoint": g.current_checkpoint,
+                            "total_checkpoints": g.total_checkpoints,
+                            "cost_usd": g.cost_usd,
+                            "created_at": g.created_at,
+                        }
+                        for g in goals
+                    ]
+                except Exception:
+                    dashboard["goals"] = []
+            else:
+                dashboard["goals"] = []
+
+            # Schedules summary
+            scheduler = getattr(self._agent, "_scheduler", None)
+            if scheduler:
+                try:
+                    schedules = await scheduler.list_schedules()
+                    enabled_count = sum(1 for s in schedules if s.enabled)
+                    next_runs = [
+                        s.next_run_at for s in schedules if s.enabled and s.next_run_at
+                    ]
+                    dashboard["schedules"] = {
+                        "total": len(schedules),
+                        "enabled": enabled_count,
+                        "next_run": min(next_runs) if next_runs else None,
+                    }
+                except Exception:
+                    dashboard["schedules"] = {
+                        "total": 0,
+                        "enabled": 0,
+                        "next_run": None,
+                    }
+            else:
+                dashboard["schedules"] = {"total": 0, "enabled": 0, "next_run": None}
+
+            # Swarm
+            swarm_mgr = getattr(self._agent, "_swarm_manager", None)
+            if swarm_mgr:
+                try:
+                    agents = await swarm_mgr.get_status()
+                    dashboard["swarm"] = agents
+                except Exception:
+                    dashboard["swarm"] = []
+            else:
+                dashboard["swarm"] = []
+
+            # Connected channels
+            dashboard["channels"] = [
+                {
+                    "client_id": c.client_id[:8],
+                    "channel": c.channel or "web",
+                    "user_id": c.user_id or "owner",
+                }
+                for c in self._clients.values()
+            ]
+
+            # Stats
+            tools_count = len(self._agent._registry.all_tools())
+            skills_count = len(self._agent._skill_manager.list_skills())
+            knowledge_chunks = 0
+            try:
+                db = getattr(self._agent, "_db", None)
+                if db:
+                    rows = await db.execute(
+                        "SELECT COUNT(*) as cnt FROM knowledge_chunks"
+                    )
+                    knowledge_chunks = rows[0]["cnt"] if rows else 0
+            except Exception:
+                pass
+            dashboard["stats"] = {
+                "tools_count": tools_count,
+                "skills_count": skills_count,
+                "knowledge_chunks": knowledge_chunks,
+            }
+
+            payload = _json.dumps({"dashboard": dashboard})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "knowledge":
+            # Return knowledge base stats and file listing
+            import json as _json
+
+            knowledge: dict[str, Any] = {"stats": {}, "files": []}
+            try:
+                db = getattr(self._agent, "_db", None)
+                if db:
+                    # Stats
+                    chunk_rows = await db.execute(
+                        "SELECT COUNT(*) as cnt FROM knowledge_chunks"
+                    )
+                    chunks = chunk_rows[0]["cnt"] if chunk_rows else 0
+
+                    embed_count = 0
+                    try:
+                        vec_rows = await db.execute(
+                            "SELECT COUNT(*) as cnt FROM vec_chunks"
+                        )
+                        embed_count = vec_rows[0]["cnt"] if vec_rows else 0
+                    except Exception:
+                        pass
+
+                    # Files grouped
+                    file_rows = await db.execute(
+                        "SELECT file_path, scope, COUNT(*) as chunks, "
+                        "GROUP_CONCAT(DISTINCT tags) as all_tags, "
+                        "MAX(indexed_at) as updated_at "
+                        "FROM knowledge_chunks GROUP BY file_path "
+                        "ORDER BY updated_at DESC"
+                    )
+
+                    scopes: dict[str, int] = {}
+                    files = []
+                    for row in file_rows:
+                        scope = row["scope"] or "unknown"
+                        scopes[scope] = scopes.get(scope, 0) + 1
+                        # Parse tags from concatenated JSON arrays
+                        raw_tags = row["all_tags"] or ""
+                        tags: list[str] = []
+                        for part in raw_tags.split(","):
+                            part = part.strip().strip('"[]')
+                            if part and part not in tags:
+                                tags.append(part)
+                        files.append(
+                            {
+                                "path": row["file_path"],
+                                "scope": scope,
+                                "chunks": row["chunks"],
+                                "tags": tags[:10],
+                                "updated_at": row["updated_at"] or "",
+                            }
+                        )
+
+                    knowledge["stats"] = {
+                        "chunks": chunks,
+                        "embeddings": embed_count,
+                        "files": len(files),
+                        "scopes": scopes,
+                    }
+                    knowledge["files"] = files
+            except Exception:
+                logger.debug("Knowledge command error", exc_info=True)
+
+            payload = _json.dumps({"knowledge": knowledge})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "knowledge_detail":
+            # Return chunks for a specific knowledge file
+            import json as _json
+
+            file_path = (msg.data.get("args") or {}).get("file_path", "")
+            chunks_data: list[dict[str, Any]] = []
+            if file_path:
+                try:
+                    db = getattr(self._agent, "_db", None)
+                    if db:
+                        rows = await db.execute(
+                            "SELECT heading_path, content, scope, tags, "
+                            "token_count, indexed_at "
+                            "FROM knowledge_chunks WHERE file_path = ? "
+                            "ORDER BY id ASC",
+                            (file_path,),
+                        )
+                        for row in rows:
+                            chunks_data.append(
+                                {
+                                    "heading": row["heading_path"] or "",
+                                    "content": row["content"],
+                                    "scope": row["scope"],
+                                    "tags": row["tags"],
+                                    "tokens": row["token_count"],
+                                }
+                            )
+                except Exception:
+                    logger.debug("Knowledge detail error", exc_info=True)
+
+            payload = _json.dumps(
+                {"knowledge_detail": {"file_path": file_path, "chunks": chunks_data}}
+            )
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "schedules":
+            # Return all scheduled tasks
+            import json as _json
+
+            scheduler = getattr(self._agent, "_scheduler", None)
+            schedules_data: list[dict[str, Any]] = []
+            if scheduler:
+                try:
+                    entries = await scheduler.list_schedules()
+                    for s in entries:
+                        schedules_data.append(
+                            {
+                                "id": s.id,
+                                "name": s.name,
+                                "description": s.description,
+                                "cron_expression": s.cron_expression,
+                                "task_goal": s.task_goal,
+                                "enabled": s.enabled,
+                                "last_run_at": s.last_run_at,
+                                "next_run_at": s.next_run_at,
+                                "last_status": s.last_status,
+                                "created_at": s.created_at,
+                            }
+                        )
+                except Exception:
+                    logger.debug("Schedules command error", exc_info=True)
+
+            payload = _json.dumps({"schedules": schedules_data})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "channels":
+            # Return connected clients and gateway info
+            import json as _json
+            import time
+
+            clients_data = [
+                {
+                    "client_id": c.client_id[:8],
+                    "channel": c.channel or "web",
+                    "user_id": c.user_id or "owner",
+                    "session_id": (c.session_id or "")[:8],
+                }
+                for c in self._clients.values()
+            ]
+
+            active_sessions = await self._sessions.list_active(limit=50)
+
+            channels_data: dict[str, Any] = {
+                "clients": clients_data,
+                "sessions": {
+                    "active": len(active_sessions),
+                    "unified_mode": self._unified_sessions,
+                },
+                "gateway": {
+                    "host": self._host,
+                    "port": self._port,
+                },
+            }
+
+            payload = _json.dumps({"channels": channels_data})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "config":
+            # Return sanitized read-only configuration
+            import json as _json
+            from dataclasses import asdict
+
+            config = getattr(self._agent, "_config", None)
+            if config:
+                # Serialize config, redacting secrets
+                raw = asdict(config)
+
+                # Remove sensitive fields and internal paths
+                def _redact(d: dict[str, Any]) -> dict[str, Any]:
+                    redacted: dict[str, Any] = {}
+                    for k, v in d.items():
+                        if any(
+                            s in k.lower()
+                            for s in (
+                                "api_key",
+                                "token",
+                                "password",
+                                "secret",
+                                "_ref",
+                                "private",
+                            )
+                        ):
+                            continue
+                        if k == "project_root":
+                            continue
+                        if isinstance(v, dict):
+                            redacted[k] = _redact(v)
+                        else:
+                            redacted[k] = v
+                    return redacted
+
+                sanitized = _redact(raw)
+                payload = _json.dumps({"config": sanitized})
+            else:
+                payload = _json.dumps({"config": {}})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "history":
+            # Return task memories and identity evolution
+            import json as _json
+
+            history: dict[str, Any] = {"tasks": [], "evolution": []}
+
+            # Task memories
+            mem_mgr = getattr(self._agent, "_memory_manager", None)
+            if mem_mgr:
+                try:
+                    tasks = await mem_mgr.get_recent_tasks(limit=50)
+                    history["tasks"] = [
+                        {
+                            "goal": t.get("goal", ""),
+                            "summary": t.get("summary", ""),
+                            "outcome": t.get("outcome", ""),
+                            "tools_used": t.get("tools_used", []),
+                            "created_at": t.get("created_at", ""),
+                        }
+                        for t in tasks
+                    ]
+                except Exception:
+                    logger.debug("History tasks error", exc_info=True)
+
+            # Identity evolution
+            identity_mgr = getattr(self._agent, "_identity_manager", None)
+            if identity_mgr:
+                try:
+                    evolution = await identity_mgr.get_evolution_history(limit=50)
+                    history["evolution"] = [
+                        {
+                            "trigger": e.get("trigger", ""),
+                            "field": e.get("field", ""),
+                            "old_value": str(e.get("old_value", ""))[:200],
+                            "new_value": str(e.get("new_value", ""))[:200],
+                            "reason": e.get("reason", ""),
+                            "created_at": e.get("created_at", ""),
+                        }
+                        for e in evolution
+                    ]
+                except Exception:
+                    logger.debug("History evolution error", exc_info=True)
+
+            payload = _json.dumps({"history": history})
             await client.websocket.send(
                 response_message(session_id, payload, done=True).to_json()
             )
