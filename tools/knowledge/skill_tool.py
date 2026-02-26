@@ -57,9 +57,21 @@ class SkillReadTool(BaseTool):
                 error=f"Skill '{skill_name}' not found. Available: {', '.join(available)}",
             )
 
+        skill = self._skill_manager.get_skill(skill_name)
+        skill_dir = str(skill.path) if skill else ""
+
         return ToolResult(
             success=True,
-            data={"skill_name": skill_name, "content": content},
+            data={
+                "skill_name": skill_name,
+                "content": content,
+                "skill_dir": skill_dir,
+                "hint": (
+                    f"Rule files referenced in the skill (e.g. rules/xyz.md) "
+                    f"are located at {skill_dir}/rules/. "
+                    f"Use file_read to load them."
+                ),
+            },
         )
 
 

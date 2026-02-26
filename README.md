@@ -251,7 +251,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Self-development** — when the agent encounters a task it lacks tools for, it builds one: research → design → implement → test → review → deploy. Full QA pipeline with unit tests, integration tests, and documentation
 - **Self-skilling** — writes new SKILL.md files from experience, teaching itself best practices for future tasks
 - **Core self-modification** — can modify its own source code with impact analysis, test verification, and automatic rollback
-- **Skills + EloPhantoHub** — 28 bundled best-practice skills, plus a public skill registry for searching, installing, and sharing skills
+- **Skills + EloPhantoHub** — 60+ bundled best-practice skills, plus a public skill registry for searching, installing, and sharing skills
 
 ### Everything Else
 
@@ -364,11 +364,11 @@ EloPhanto/
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 101+ built-in tools
-├── skills/              # 28 bundled SKILL.md files
+├── skills/              # 60+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
-├── tests/               # Test suite (978 tests)
+├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (20+ docs)
+└── docs/                # Full specification (28+ docs)
 ```
 
 </details>
@@ -411,7 +411,7 @@ elophanto chat               # CLI only (direct mode)
 
 ## Skills System
 
-28 bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, and more. Plus a public skill registry:
+60+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), and more. Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -489,6 +489,7 @@ Configure LLM provider, browser mode, channels, email, payments, MCP servers, an
 - **Background email monitoring** — get notified on any channel when new emails arrive
 - **Prompt injection defense** — multi-layer security for external content
 - **Unified cross-channel sessions** — chat from CLI, continue on Telegram
+- **Video creation (Remotion)** — create videos programmatically from conversation. 37 rule files covering animations, 3D, maps, charts, captions, voiceover, transitions. Agent scaffolds, builds, and renders real MP4 files
 - **MCP integration** — connect any MCP server through conversation
 - **Autonomous background goals** — goals execute checkpoint-by-checkpoint without waiting
 

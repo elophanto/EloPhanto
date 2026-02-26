@@ -16,7 +16,7 @@ uv sync --all-extras               # Install with dev dependencies
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) package manager
-- Node.js 18+ (for the browser bridge)
+- Node.js 22+ (for the browser bridge)
 
 ## Running Tests
 
