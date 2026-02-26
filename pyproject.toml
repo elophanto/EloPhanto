@@ -1,6 +1,6 @@
 [project]
 name = "elophanto"
-version = "2026.02.24.2"
+version = "2026.02.26.2"
 description = "A self-evolving AI agent that acts as a personal AI operating system"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
