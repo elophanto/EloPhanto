@@ -28,12 +28,33 @@ export interface ToolStep {
   timestamp: number;
 }
 
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  msgCount: number;
+}
+
+interface HistoryMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: string;
+}
+
 interface ChatStore {
   messages: Message[];
   approvalRequests: ApprovalRequest[];
   activeToolSteps: ToolStep[];
   sessionId: string | null;
   isAgentTyping: boolean;
+  historyLoaded: boolean;
+
+  // Conversations
+  conversations: Conversation[];
+  currentConversationId: string | null;
+  conversationsLoaded: boolean;
 
   sendMessage: (content: string) => void;
   appendAgentChunk: (replyTo: string, content: string, done: boolean) => void;
@@ -44,6 +65,17 @@ interface ChatStore {
   addSystemMessage: (content: string) => void;
   clearMessages: () => void;
   setSessionId: (id: string) => void;
+  loadHistory: (data: {
+    messages: HistoryMessage[];
+    conversation_id?: string;
+  }) => void;
+  setConversations: (
+    convs: Conversation[],
+    currentId?: string | null
+  ) => void;
+  switchConversation: (id: string) => void;
+  removeConversation: (id: string) => void;
+  startNewChat: () => void;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -52,6 +84,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   activeToolSteps: [],
   sessionId: null,
   isAgentTyping: false,
+  historyLoaded: false,
+  conversations: [],
+  currentConversationId: null,
+  conversationsLoaded: false,
 
   sendMessage: (content: string) => {
     const userMsg: Message = {
@@ -82,7 +118,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   appendAgentChunk: (replyTo, content, done) => {
     set((s) => {
-      // Find existing placeholder by replyTo
       const hasPlaceholder = s.messages.some(
         (m) => m.replyTo === replyTo && m.type === "agent"
       );
@@ -98,7 +133,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         };
       }
 
-      // No placeholder found — create a new agent message
       return {
         messages: [
           ...s.messages,
@@ -161,7 +195,60 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       messages: [],
       approvalRequests: [],
       activeToolSteps: [],
+      historyLoaded: false,
+      currentConversationId: null,
     }),
 
   setSessionId: (id) => set({ sessionId: id }),
+
+  loadHistory: (data) => {
+    const loaded: Message[] = data.messages.map((m) => ({
+      id: m.id,
+      type: m.role === "user" ? ("user" as const) : ("agent" as const),
+      content: m.content,
+      timestamp: new Date(m.timestamp).getTime(),
+      isStreaming: false,
+    }));
+    set({
+      messages: loaded,
+      currentConversationId: data.conversation_id ?? null,
+      historyLoaded: true,
+    });
+  },
+
+  setConversations: (convs, currentId) => {
+    set((s) => ({
+      conversations: convs,
+      conversationsLoaded: true,
+      currentConversationId: currentId ?? s.currentConversationId,
+    }));
+  },
+
+  switchConversation: (id) => {
+    set({
+      messages: [],
+      historyLoaded: false,
+      currentConversationId: id,
+      approvalRequests: [],
+      activeToolSteps: [],
+    });
+    gateway.sendCommand("chat_history", { conversation_id: id });
+  },
+
+  removeConversation: (id) => {
+    set((s) => ({
+      conversations: s.conversations.filter((c) => c.id !== id),
+    }));
+  },
+
+  startNewChat: () => {
+    gateway.sendCommand("clear");
+    set({
+      messages: [],
+      approvalRequests: [],
+      activeToolSteps: [],
+      historyLoaded: false,
+      currentConversationId: null,
+    });
+  },
 }));

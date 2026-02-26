@@ -13,11 +13,15 @@ import {
   ChevronRight,
   Sun,
   Moon,
+  Plus,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 import { useConnectionStore } from "@/stores/connection";
 import { useNavigationStore, type Page } from "@/stores/navigation";
+import { useChatStore } from "@/stores/chat";
+import { gateway } from "@/lib/gateway";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -54,6 +58,18 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const status = useConnectionStore((s) => s.status);
   const activePage = useNavigationStore((s) => s.activePage);
   const navigate = useNavigationStore((s) => s.navigate);
+  const conversations = useChatStore((s) => s.conversations);
+  const currentConvId = useChatStore((s) => s.currentConversationId);
+  const switchConversation = useChatStore((s) => s.switchConversation);
+
+  const handleDeleteConversation = (id: string) => {
+    gateway.sendCommand("delete_conversation", { conversation_id: id });
+    const store = useChatStore.getState();
+    store.removeConversation(id);
+    if (store.currentConversationId === id) {
+      store.clearMessages();
+    }
+  };
 
   const statusClass =
     status === "connected"
@@ -101,7 +117,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
       <Separator className="opacity-50" />
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-2 py-3">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
         {navItems.map((item) => {
           const isActive = item.id === activePage;
           const Icon = item.icon;
@@ -125,6 +141,51 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               )}
             </button>
           );
+
+          // Show conversation list under Chat when active and expanded
+          if (item.id === "chat" && isActive && !collapsed) {
+            return (
+              <div key={item.id}>
+                {button}
+                <div className="ml-7 mt-1 max-h-48 space-y-px overflow-y-auto pr-1">
+                  <button
+                    onClick={() => useChatStore.getState().startNewChat()}
+                    className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-muted-foreground/50 transition-colors hover:text-foreground"
+                  >
+                    <Plus className="size-3" />
+                    <span className="text-[10px] tracking-wide">New chat</span>
+                  </button>
+                  {conversations.slice(0, 15).map((conv) => (
+                    <div
+                      key={conv.id}
+                      className={cn(
+                        "group flex items-center gap-1 rounded px-2 py-1 transition-colors",
+                        conv.id === currentConvId
+                          ? "bg-accent/50 text-foreground"
+                          : "text-muted-foreground/60 hover:bg-accent/30 hover:text-foreground"
+                      )}
+                    >
+                      <button
+                        onClick={() => switchConversation(conv.id)}
+                        className="min-w-0 flex-1 truncate text-left text-[11px] leading-tight"
+                      >
+                        {conv.title}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteConversation(conv.id);
+                        }}
+                        className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                      >
+                        <X className="size-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
 
           if (collapsed && item.enabled) {
             return (

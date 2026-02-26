@@ -8,12 +8,18 @@ interface StreamingTextProps {
 }
 
 export function StreamingText({ content, isStreaming }: StreamingTextProps) {
-  const [displayLength, setDisplayLength] = useState(0);
-  const prevContentRef = useRef("");
+  const [displayLength, setDisplayLength] = useState(content.length);
+  const prevContentRef = useRef(content);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const wasStreamingRef = useRef(isStreaming);
 
   useEffect(() => {
-    if (content.length > prevContentRef.current.length && content.length > 0) {
+    // Only animate when new content arrives during/after streaming
+    if (
+      content.length > prevContentRef.current.length &&
+      content.length > 0 &&
+      wasStreamingRef.current
+    ) {
       const startFrom = prevContentRef.current.length;
       setDisplayLength(startFrom);
 
@@ -31,14 +37,18 @@ export function StreamingText({ content, isStreaming }: StreamingTextProps) {
           return next;
         });
       }, 16);
+    } else {
+      // History-loaded messages — show full content immediately
+      setDisplayLength(content.length);
     }
 
     prevContentRef.current = content;
+    wasStreamingRef.current = isStreaming;
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [content]);
+  }, [content, isStreaming]);
 
   if (!content) {
     return isStreaming ? (

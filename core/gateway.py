@@ -47,6 +47,7 @@ class ClientConnection:
     channel: str = ""
     user_id: str = ""
     session_id: str = ""
+    conversation_id: str = ""
 
 
 class Gateway:
@@ -410,6 +411,49 @@ class Gateway:
             # Persist session
             await self._sessions.save(session)
 
+            # Persist chat messages + conversation tracking
+            import uuid as _uuid
+            from datetime import UTC
+            from datetime import datetime as _dt
+
+            _now = _dt.now(UTC).isoformat()
+            _conv_id = client.conversation_id
+
+            # Create conversation on first message if none active
+            if not _conv_id:
+                _conv_id = str(_uuid.uuid4())
+                client.conversation_id = _conv_id
+                _title = content[:50].replace("\n", " ").strip() or "New conversation"
+                await self._agent._db.execute_insert(
+                    "INSERT INTO conversations (conversation_id, title, created_at, updated_at)"
+                    " VALUES (?, ?, ?, ?)",
+                    (_conv_id, _title, _now, _now),
+                )
+            else:
+                # Update conversation timestamp
+                await self._agent._db.execute_insert(
+                    "UPDATE conversations SET updated_at = ? WHERE conversation_id = ?",
+                    (_now, _conv_id),
+                )
+
+            await self._agent._db.execute_insert(
+                "INSERT INTO chat_messages (session_id, msg_id, role, content, created_at, conversation_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (session.session_id, msg.id, "user", content, _now, _conv_id),
+            )
+            await self._agent._db.execute_insert(
+                "INSERT INTO chat_messages (session_id, msg_id, role, content, created_at, conversation_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    session.session_id,
+                    str(_uuid.uuid4()),
+                    "assistant",
+                    agent_response.content,
+                    _now,
+                    _conv_id,
+                ),
+            )
+
             # Send response — broadcast to all session subscribers in unified
             # mode so other channels see the answer. The requesting client
             # resolves via reply_to match; others call on_response().
@@ -565,25 +609,31 @@ class Gateway:
                 )
 
         elif command == "clear":
-            # Delete the current session to wipe conversation history
+            # Clear LLM context but preserve chat history for sidebar
             old_session_id = client.session_id
             if old_session_id:
                 await self._sessions.delete(old_session_id)
                 # Remove stale subscription set for the deleted session
                 self._session_clients.pop(old_session_id, None)
             client.session_id = ""
+            client.conversation_id = ""  # Next message starts new conversation
             # Clear task memory so the agent doesn't recall old tasks
+            import json as _json
+
             mem_mgr = getattr(self._agent, "_memory_manager", None)
+            memories_cleared = 0
             if mem_mgr:
-                count = await mem_mgr.clear_all()
-                text = f"Session cleared. {count} task memories wiped."
-            else:
-                text = "Session cleared."
+                memories_cleared = await mem_mgr.clear_all()
             # Re-subscribe all connected clients to the new unified session
             if self._unified_sessions:
                 for _cid, c in self._clients.items():
                     await self._subscribe_to_unified(c)
-            await client.websocket.send(response_message("", text, done=True).to_json())
+            payload = _json.dumps(
+                {"cleared": {"ok": True, "memories": memories_cleared}}
+            )
+            await client.websocket.send(
+                response_message("", payload, done=True).to_json()
+            )
 
         elif command == "mind":
             mind = getattr(self._agent, "_autonomous_mind", None)
@@ -1124,6 +1174,110 @@ class Gateway:
                     logger.debug("History evolution error", exc_info=True)
 
             payload = _json.dumps({"history": history})
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "chat_history":
+            # Return chat messages for a specific conversation (or current)
+            import json as _json
+
+            args = msg.data.get("args") or {}
+            conv_id = args.get("conversation_id", "") or client.conversation_id
+
+            if conv_id:
+                rows = await self._agent._db.execute(
+                    "SELECT msg_id, role, content, created_at FROM chat_messages "
+                    "WHERE conversation_id = ? ORDER BY id ASC LIMIT 500",
+                    (conv_id,),
+                )
+            else:
+                # No conversation yet — load latest conversation's messages
+                latest = await self._agent._db.execute(
+                    "SELECT conversation_id FROM conversations "
+                    "ORDER BY updated_at DESC LIMIT 1",
+                )
+                if latest:
+                    conv_id = latest[0]["conversation_id"]
+                    client.conversation_id = conv_id
+                    rows = await self._agent._db.execute(
+                        "SELECT msg_id, role, content, created_at FROM chat_messages "
+                        "WHERE conversation_id = ? ORDER BY id ASC LIMIT 500",
+                        (conv_id,),
+                    )
+                else:
+                    rows = []
+
+            messages = [
+                {
+                    "id": r["msg_id"],
+                    "role": r["role"],
+                    "content": r["content"],
+                    "timestamp": r["created_at"],
+                }
+                for r in rows
+            ]
+            payload = _json.dumps(
+                {
+                    "chat_history": {
+                        "messages": messages,
+                        "conversation_id": conv_id,
+                    }
+                }
+            )
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "conversations":
+            # List all conversations for sidebar
+            import json as _json
+
+            rows = await self._agent._db.execute(
+                "SELECT c.conversation_id, c.title, c.created_at, c.updated_at, "
+                "(SELECT COUNT(*) FROM chat_messages m "
+                " WHERE m.conversation_id = c.conversation_id) as msg_count "
+                "FROM conversations c ORDER BY c.updated_at DESC LIMIT 50",
+            )
+            convs = [
+                {
+                    "id": r["conversation_id"],
+                    "title": r["title"],
+                    "created_at": r["created_at"],
+                    "updated_at": r["updated_at"],
+                    "msg_count": r["msg_count"],
+                }
+                for r in rows
+            ]
+            payload = _json.dumps(
+                {
+                    "conversations": convs,
+                    "current_id": client.conversation_id,
+                }
+            )
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "delete_conversation":
+            # Delete a specific conversation and its messages
+            import json as _json
+
+            args = msg.data.get("args") or {}
+            del_id = args.get("conversation_id", "")
+            if del_id:
+                await self._agent._db.execute_insert(
+                    "DELETE FROM chat_messages WHERE conversation_id = ?",
+                    (del_id,),
+                )
+                await self._agent._db.execute_insert(
+                    "DELETE FROM conversations WHERE conversation_id = ?",
+                    (del_id,),
+                )
+                # Reset current if deleted
+                if client.conversation_id == del_id:
+                    client.conversation_id = ""
+            payload = _json.dumps({"deleted_conversation": {"ok": True, "id": del_id}})
             await client.websocket.send(
                 response_message(session_id, payload, done=True).to_json()
             )
