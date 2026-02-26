@@ -1175,9 +1175,10 @@ do specific types of work well. Each skill is a SKILL.md file containing
 triggers, step-by-step instructions, and examples.
 
 <skill_protocol>
-Before starting any non-trivial task, check if a relevant skill exists:
-1. Review the <available_skills> list below for matching triggers.
-2. If a skill matches, use skill_read to load it BEFORE doing any work.
+Before starting any non-trivial task, use relevant skills:
+1. If <recommended> skills appear below, they match the current task —
+   use skill_read to load them BEFORE doing any work.
+2. Also review the other available skills for additional matches.
 3. Follow the skill's instructions throughout the task.
 4. Multiple skills can apply to a single task — read all relevant ones.
 </skill_protocol>
