@@ -7,6 +7,22 @@ description: Fix accessibility issues.
 
 Fix accessibility issues.
 
+
+## Triggers
+
+- accessibility
+- a11y
+- aria
+- screen reader
+- keyboard navigation
+- focus
+- contrast
+- alt text
+- semantic html
+- tab order
+- fix accessibility
+- accessible
+
 ## how to use
 
 - `/fixing-accessibility`

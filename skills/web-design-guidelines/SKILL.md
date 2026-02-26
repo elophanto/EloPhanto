@@ -11,6 +11,19 @@ metadata:
 
 Review files for compliance with Web Interface Guidelines.
 
+
+## Triggers
+
+- web design review
+- ui review
+- web interface
+- design review
+- web guidelines
+- vercel guidelines
+- check my ui
+- review my site
+- design compliance
+
 ## How It Works
 
 1. Fetch the latest guidelines from the source URL below

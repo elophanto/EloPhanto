@@ -12,6 +12,24 @@ metadata:
 
 Review animation code for compliance with Disney's 12 principles adapted for web interfaces.
 
+
+## Triggers
+
+- animation
+- motion
+- transition
+- keyframe
+- spring
+- ease
+- timing
+- squash
+- stretch
+- anticipation
+- animate
+- css animation
+- framer motion
+- gsap
+
 ## How It Works
 
 1. Read the specified files (or prompt user for files/pattern)

@@ -3,6 +3,20 @@ name: prisma-orm-v7-skills
 description: Key facts and breaking changes for upgrading to Prisma ORM 7. Consider version 7 changes before generation or troubleshooting
 ---
 
+
+## Triggers
+
+- prisma
+- orm
+- database
+- schema
+- migration
+- prisma client
+- prisma migrate
+- prisma studio
+- db schema
+- data model
+
 ## Links
 
 - Upgrade guide (v7): https://www.prisma.io/docs/orm/more/upgrade-guides/upgrading-versions/upgrading-to-prisma-7

@@ -5,6 +5,23 @@ description: Best practices and example-driven guidance for building SwiftUI vie
 
 # SwiftUI UI Patterns
 
+
+## Triggers
+
+- swiftui
+- swift
+- ios
+- macos
+- apple
+- xcode
+- swift ui
+- ios app
+- mac app
+- watchos
+- tvos
+- swift view
+- modifier
+
 ## Quick start
 
 Choose a track based on your goal:

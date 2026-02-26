@@ -7,6 +7,22 @@ description: Ship correct, complete metadata.
 
 Ship correct, complete metadata.
 
+
+## Triggers
+
+- metadata
+- meta tags
+- og tags
+- open graph
+- seo
+- title tag
+- description tag
+- social preview
+- twitter card
+- favicon
+- structured data
+- schema.org
+
 ## how to use
 
 - `/fixing-metadata`

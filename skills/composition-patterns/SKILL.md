@@ -19,6 +19,22 @@ boolean prop proliferation by using compound components, lifting state, and
 composing internals. These patterns make codebases easier for both humans and AI
 agents to work with as they scale.
 
+
+## Triggers
+
+- composition
+- layout
+- grid
+- flexbox
+- responsive
+- breakpoint
+- container
+- spacing
+- alignment
+- structure
+- page layout
+- component composition
+
 ## When to Apply
 
 Reference these guidelines when:

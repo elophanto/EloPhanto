@@ -12,6 +12,25 @@ Complete this in two steps:
 
 First, undertake this task:
 
+
+## Triggers
+
+- canvas
+- poster
+- flyer
+- banner
+- infographic
+- illustration
+- graphic design
+- image
+- diagram
+- visual
+- png
+- pdf
+- art
+- design document
+- certificate
+
 ## DESIGN PHILOSOPHY CREATION
 
 To begin, create a VISUAL PHILOSOPHY (not layouts or templates) that will be interpreted through:
