@@ -22,6 +22,7 @@ from rich.status import Status
 from rich.table import Table
 from rich.text import Text
 
+from core import __version__
 from core.agent import Agent
 from core.config import load_config
 from core.log_setup import setup_logging
@@ -211,7 +212,7 @@ def _build_welcome_panel(
     return Panel(
         content,
         title=f"[bold {_C_PRIMARY}]System[/]",
-        subtitle=f"[{_C_DIM}]v0.1.0[/]",
+        subtitle=f"[{_C_DIM}]v{__version__}[/]",
         border_style=_C_BORDER,
         padding=(1, 2),
     )
@@ -654,7 +655,7 @@ async def _chat_gateway(cfg: Any) -> None:
     welcome = Panel(
         content,
         title=f"[bold {_C_PRIMARY}]System[/]",
-        subtitle=f"[{_C_DIM}]v0.1.0 · gateway {gw_url}[/]",
+        subtitle=f"[{_C_DIM}]v{__version__} · gateway {gw_url}[/]",
         border_style=_C_BORDER,
         padding=(1, 2),
     )

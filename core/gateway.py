@@ -60,6 +60,7 @@ class Gateway:
         port: int = 18789,
         auth_token: str | None = None,
         max_sessions: int = 50,
+        session_timeout_hours: int = 24,
         unified_sessions: bool = True,
         authority_config: Any | None = None,
     ) -> None:
@@ -69,6 +70,7 @@ class Gateway:
         self._port = port
         self._auth_token = auth_token
         self._max_sessions = max_sessions
+        self._session_timeout_hours = session_timeout_hours
         self._unified_sessions = unified_sessions
         self._authority_config = authority_config  # AuthorityConfig | None
 
@@ -81,6 +83,8 @@ class Gateway:
 
         # Active chat tasks: client_id → asyncio.Task (for cancellation)
         self._active_chat_tasks: dict[str, asyncio.Task[None]] = {}
+
+        self._session_cleanup_task: asyncio.Task[None] | None = None
 
         # Map session_id → set of client_ids subscribed to that session
         self._session_clients: dict[str, set[str]] = {}
@@ -120,8 +124,14 @@ class Gateway:
         if self._recovery:
             self._health_monitor_task = asyncio.create_task(self._health_monitor_loop())
 
+        # Start session cleanup loop
+        self._session_cleanup_task = asyncio.create_task(self._session_cleanup_loop())
+
     async def stop(self) -> None:
         """Gracefully shut down the gateway."""
+        if self._session_cleanup_task:
+            self._session_cleanup_task.cancel()
+            self._session_cleanup_task = None
         if self._health_monitor_task:
             self._health_monitor_task.cancel()
             self._health_monitor_task = None
@@ -172,6 +182,38 @@ class Gateway:
     async def _handle_connection(self, websocket: Any) -> None:
         """Handle a single WebSocket client connection lifecycle."""
         import uuid
+
+        # --- Auth check ---
+        if self._auth_token:
+            # Expect token in first message, Sec-WebSocket-Protocol header,
+            # or query string (?token=...).
+            token_ok = False
+            # Check query string (ws://host:port/?token=xxx)
+            req = getattr(websocket, "request", None)
+            if req:
+                path = getattr(req, "path", "") or ""
+                if f"token={self._auth_token}" in path:
+                    token_ok = True
+                # Check Authorization header
+                headers = getattr(req, "headers", {})
+                auth_header = (
+                    headers.get("Authorization", "") if hasattr(headers, "get") else ""
+                )
+                if auth_header == f"Bearer {self._auth_token}":
+                    token_ok = True
+
+            if not token_ok:
+                logger.warning("Rejected unauthenticated connection")
+                await websocket.close(4401, "Authentication required")
+                return
+
+        # --- Max clients check ---
+        if len(self._clients) >= self._max_sessions:
+            logger.warning(
+                "Rejected connection: max sessions reached (%d)", self._max_sessions
+            )
+            await websocket.close(4429, "Too many connections")
+            return
 
         client_id = str(uuid.uuid4())
         client = ClientConnection(client_id=client_id, websocket=websocket)
@@ -1109,6 +1151,36 @@ class Gateway:
         await client.websocket.send(
             status_message("ok", {"client_id": client.client_id}).to_json()
         )
+
+    async def _session_cleanup_loop(self) -> None:
+        """Periodically evict sessions that exceed session_timeout_hours."""
+        from datetime import UTC, datetime, timedelta
+
+        timeout = timedelta(hours=self._session_timeout_hours)
+
+        while True:
+            try:
+                await asyncio.sleep(600)  # check every 10 minutes
+                now = datetime.now(UTC)
+                stale: list[str] = []
+                for sid, _clients in self._session_clients.items():
+                    session = await self._sessions.get(sid)
+                    if session and (now - session.last_active) > timeout:
+                        stale.append(sid)
+
+                for sid in stale:
+                    # Remove session subscription and evict from cache
+                    client_ids = self._session_clients.pop(sid, set())
+                    self._sessions._cache.pop(sid, None)
+                    logger.info(
+                        "Evicted stale session %s (%d clients)",
+                        sid[:8],
+                        len(client_ids),
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.debug("Session cleanup tick error", exc_info=True)
 
     async def _health_monitor_loop(self) -> None:
         """Periodically check provider health; auto-enter recovery if all down."""
