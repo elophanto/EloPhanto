@@ -239,7 +239,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 | **Own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
 | **Own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
 | **Multi-channel** | ✅ CLI+Web+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
-| **Free local models** | ✅ Ollama, Z.ai | ❌ | ❌ | ❌ | ❌ |
+| **Any LLM provider** | ✅ Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
 | **Self-improves** | ✅ Learns from corrections | ❌ | ❌ | ❌ | ❌ |
 
 ---
