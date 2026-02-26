@@ -184,24 +184,63 @@ class SkillManager:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [s for _, s in scored[:max_results]]
 
-    def format_available_skills(self) -> str:
-        """Format all skills as an XML block for the system prompt."""
+    def format_available_skills(self, query: str = "") -> str:
+        """Format skills as an XML block for the system prompt.
+
+        When a query is provided, pre-matches relevant skills and shows them
+        with full detail (triggers included). Remaining skills are listed as
+        a compact name-only index so the agent can still discover them via
+        skill_list / skill_read if needed. This keeps prompt size bounded
+        even with hundreds of skills.
+        """
         if not self._skills:
             return ""
 
+        matched = self.match_skills(query, max_results=5) if query else []
+        matched_names = {s.name for s in matched}
+
         lines = ["<available_skills>"]
-        for skill in self._skills.values():
-            warn_attr = ",".join(skill.warnings) if skill.warnings else "none"
-            lines.append(
-                f'<skill source="{skill.source}" tier="{skill.author_tier or "local"}"'
-                f' warnings="{warn_attr}">'
-            )
-            lines.append(f"<name>{skill.name}</name>")
-            lines.append(f"<description>{skill.description}</description>")
-            lines.append(f"<location>{skill.location}</location>")
-            lines.append("</skill>")
+
+        # Recommended skills (full detail with triggers)
+        if matched:
+            lines.append("<recommended>")
+            for skill in matched:
+                self._format_skill_xml(skill, lines)
+            lines.append("</recommended>")
+
+        # Remaining skills — full XML if few enough, compact index otherwise
+        others = [s for s in self._skills.values() if s.name not in matched_names]
+        if others:
+            if len(others) <= 30:
+                for skill in others:
+                    self._format_skill_xml(skill, lines)
+            else:
+                lines.append("<all_skills>")
+                for skill in others:
+                    desc = skill.description[:80] if skill.description else ""
+                    lines.append(f"  {skill.name} — {desc}")
+                lines.append("</all_skills>")
+
+        lines.append(
+            f"<total>{len(self._skills)} skills available. "
+            "Use skill_read to load any skill by name.</total>"
+        )
         lines.append("</available_skills>")
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_skill_xml(skill: Skill, lines: list[str]) -> None:
+        """Append a single skill's XML representation to lines."""
+        warn_attr = ",".join(skill.warnings) if skill.warnings else "none"
+        lines.append(
+            f'<skill source="{skill.source}" tier="{skill.author_tier or "local"}"'
+            f' warnings="{warn_attr}">'
+        )
+        lines.append(f"<name>{skill.name}</name>")
+        lines.append(f"<description>{skill.description}</description>")
+        if skill.triggers:
+            lines.append(f"<triggers>{', '.join(skill.triggers)}</triggers>")
+        lines.append("</skill>")
 
     def install_from_directory(self, source: Path, name: str | None = None) -> str:
         """Install a skill from a local directory containing SKILL.md.

@@ -1070,7 +1070,7 @@ class Agent:
         # Build system prompt with XML-structured sections, skills, and knowledge
         _prompt_start = _time.monotonic()
         knowledge_context = self._working_memory.format_context()
-        available_skills = self._skill_manager.format_available_skills()
+        available_skills = self._skill_manager.format_available_skills(goal)
 
         # --- Authority: resolve and filter tools ---
         from core.authority import (
