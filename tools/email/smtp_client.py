@@ -204,9 +204,8 @@ def send_email(
 
     ``attachments`` is an optional list of absolute file paths to attach.
     """
-    has_attachments = bool(attachments)
-
-    if has_attachments:
+    msg: MIMEMultipart | MIMEText
+    if attachments:
         # mixed = body + attachments
         msg = MIMEMultipart("mixed")
         if html:
