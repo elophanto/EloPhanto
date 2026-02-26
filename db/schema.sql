@@ -140,6 +140,27 @@ CREATE TABLE IF NOT EXISTS goal_checkpoints (
     UNIQUE(goal_id, checkpoint_order)
 );
 
+-- Chat message history (full, not capped like sessions.conversation_json)
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    msg_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    conversation_id TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session
+    ON chat_messages(session_id, created_at);
+
+-- Conversations (display-layer grouping of chat_messages)
+CREATE TABLE IF NOT EXISTS conversations (
+    conversation_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT 'New conversation',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- sqlite-vec virtual table for vector search (created only if extension is available)
 -- CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 --     chunk_id INTEGER PRIMARY KEY,

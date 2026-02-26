@@ -305,6 +305,28 @@ _SCHEMA = [
         timestamp TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        msg_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_session
+        ON chat_messages(session_id, created_at)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS conversations (
+        conversation_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT 'New conversation',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
 ]
 
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError
@@ -315,6 +337,8 @@ _MIGRATIONS = [
     "ALTER TABLE llm_usage ADD COLUMN latency_ms INTEGER DEFAULT 0",
     "ALTER TABLE llm_usage ADD COLUMN fallback_from TEXT DEFAULT ''",
     "ALTER TABLE llm_usage ADD COLUMN suspected_truncated INTEGER DEFAULT 0",
+    # Chat conversations
+    "ALTER TABLE chat_messages ADD COLUMN conversation_id TEXT DEFAULT ''",
 ]
 
 

@@ -219,8 +219,18 @@ Each `Session` has:
 - Unique `session_id` (UUID)
 - Channel identifier (`unified` in unified mode, or `cli`/`telegram`/etc.)
 - User identifier (`owner` in unified mode, or channel-specific)
-- Shared `conversation_history` (max 20 messages, auto-trimmed)
+- Shared `conversation_history` (max 20 messages, auto-trimmed — LLM context window)
 - Persistence to SQLite (survives restarts)
+
+### Conversation History
+
+Sessions manage LLM context (capped at 20 messages). **Conversations** are a separate display-layer concept for the web dashboard's chat history:
+
+- `conversations` table: `conversation_id`, `title` (auto-generated from first message), `created_at`, `updated_at`
+- `chat_messages` table: full message history grouped by `conversation_id` (unlimited, not capped)
+- "New Chat" preserves existing conversation history, only resets LLM context and starts a new conversation
+- Sidebar shows recent conversations with click-to-switch, delete, and create new
+- Gateway commands: `conversations` (list), `chat_history` (load by conversation_id), `delete_conversation`
 
 ### Gateway Protocol
 
@@ -234,7 +244,7 @@ JSON messages over WebSocket:
 | `approval_response` | client → gateway | User approves/denies |
 | `event` | gateway → client(s) | Broadcast (task_complete, error, notification) |
 | `status` | both | Connection status, heartbeat |
-| `command` | client → gateway | Slash commands (/mind, /clear) and data queries (tools, skills, dashboard, knowledge, knowledge_detail, schedules, channels, config, history, mind_status, mind_control) |
+| `command` | client → gateway | Slash commands (/mind, /clear) and data queries (tools, skills, dashboard, knowledge, knowledge_detail, schedules, channels, config, history, mind_status, mind_control, chat_history, conversations, delete_conversation) |
 | `error` | gateway → client | Error messages |
 
 ### Message Flow

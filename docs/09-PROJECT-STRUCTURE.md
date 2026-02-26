@@ -220,12 +220,12 @@ elophanto/
 ├── web/                                # Web dashboard (React + Vite + Tailwind v4)
 │   ├── src/
 │   │   ├── App.tsx                     # Page router + gateway wiring
-│   │   ├── stores/                     # Zustand stores (connection, chat, data, navigation)
+│   │   ├── stores/                     # Zustand stores (connection, chat w/ conversations, data, navigation)
 │   │   ├── lib/                        # Gateway client, protocol, utils
 │   │   └── components/
 │   │       ├── layout/                 # Shell, Sidebar
 │   │       ├── dashboard/              # Dashboard overview page
-│   │       ├── chat/                   # Real-time chat page
+│   │       ├── chat/                   # Real-time chat page with multi-conversation history
 │   │       ├── tools/                  # Tools browser page
 │   │       ├── skills/                 # Skills browser page
 │   │       ├── knowledge/              # Knowledge base viewer page
@@ -354,7 +354,7 @@ CREATE TABLE llm_usage (
     created_at DATETIME
 );
 
--- Gateway sessions
+-- Gateway sessions (LLM context — capped at 20 messages)
 CREATE TABLE sessions (
     session_id TEXT PRIMARY KEY,
     channel TEXT NOT NULL,
@@ -364,6 +364,25 @@ CREATE TABLE sessions (
     last_active TEXT NOT NULL,
     metadata_json TEXT DEFAULT '{}',
     UNIQUE(channel, user_id)
+);
+
+-- Chat message history (full, not capped like sessions.conversation_json)
+CREATE TABLE chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    msg_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    conversation_id TEXT DEFAULT ''
+);
+
+-- Conversations (display-layer grouping of chat_messages)
+CREATE TABLE conversations (
+    conversation_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT 'New conversation',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 
 -- Document collections (RAG)

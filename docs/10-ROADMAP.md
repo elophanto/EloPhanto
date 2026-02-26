@@ -367,7 +367,7 @@ Start the gateway, connect with a WebSocket client, send a chat message, and get
 - Gateway-based architecture: web sends commands via WebSocket, gateway queries managers and returns JSON
 - React 19 + Vite 6 + Tailwind v4 + Zustand + shadcn/ui frontend (10 pages):
   - Dashboard (agent identity, mind status with budget bar, active goals, schedule summary, channels, swarm, stats, capabilities)
-  - Chat (real-time streaming with markdown, tool execution steps, approval cards)
+  - Chat (real-time streaming with markdown, tool execution steps, approval cards, multi-conversation sidebar history with create/switch/delete)
   - Tools (browse all registered tools with parameters and permissions)
   - Skills (browse skills with triggers and source)
   - Knowledge (file browser with scope filters, expandable chunk viewer with markdown content)
