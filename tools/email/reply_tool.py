@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import logging
+import mimetypes
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
@@ -27,7 +30,7 @@ class EmailReplyTool(BaseTool):
     def description(self) -> str:
         return (
             "Reply to an email by message ID. Maintains threading. "
-            "Supports reply-all for multi-recipient threads."
+            "Supports reply-all for multi-recipient threads. Supports file attachments."
         )
 
     @property
@@ -46,6 +49,14 @@ class EmailReplyTool(BaseTool):
                 "reply_all": {
                     "type": "boolean",
                     "description": "Reply to all recipients (default: false)",
+                },
+                "attachments": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "List of absolute file paths to attach "
+                        '(e.g. ["/tmp/report.pdf"]). Max 25 MB total.'
+                    ),
                 },
             },
             "required": ["message_id", "body"],
@@ -88,20 +99,25 @@ class EmailReplyTool(BaseTool):
         message_id = params["message_id"]
         body = params["body"]
         reply_all = params.get("reply_all", False)
+        file_paths: list[str] = params.get("attachments") or []
 
         try:
             from agentmail import AgentMail
 
             client = AgentMail(api_key=api_key)
 
+            reply_kwargs: dict[str, Any] = {
+                "inbox_id": inbox_id,
+                "message_id": message_id,
+                "text": body,
+            }
+            if file_paths:
+                reply_kwargs["attachments"] = self._encode_attachments(file_paths)
+
             if reply_all:
-                response = client.inboxes.messages.reply_all(
-                    inbox_id=inbox_id, message_id=message_id, text=body
-                )
+                response = client.inboxes.messages.reply_all(**reply_kwargs)
             else:
-                response = client.inboxes.messages.reply(
-                    inbox_id=inbox_id, message_id=message_id, text=body
-                )
+                response = client.inboxes.messages.reply(**reply_kwargs)
 
             reply_id = getattr(response, "message_id", None) or str(response)
             thread_id = getattr(response, "thread_id", None) or ""
@@ -125,6 +141,34 @@ class EmailReplyTool(BaseTool):
             )
         except Exception as e:
             return ToolResult(success=False, error=f"Failed to reply: {e}")
+
+    @staticmethod
+    def _encode_attachments(file_paths: list[str]) -> list[dict[str, str]]:
+        """Encode files as base64 attachment dicts for AgentMail."""
+        max_total = 25 * 1024 * 1024
+        total_size = 0
+        attachments: list[dict[str, str]] = []
+        for fp in file_paths:
+            path = Path(fp)
+            if not path.is_file():
+                raise FileNotFoundError(f"Attachment not found: {fp}")
+            size = path.stat().st_size
+            total_size += size
+            if total_size > max_total:
+                raise ValueError(
+                    f"Total attachment size exceeds 25 MB limit "
+                    f"(at file: {path.name})"
+                )
+            content_type, _ = mimetypes.guess_type(fp)
+            encoded = base64.b64encode(path.read_bytes()).decode()
+            att: dict[str, str] = {
+                "content": encoded,
+                "filename": path.name,
+            }
+            if content_type:
+                att["content_type"] = content_type
+            attachments.append(att)
+        return attachments
 
     async def _execute_smtp(self, params: dict[str, Any]) -> ToolResult:
         smtp_cfg = self._config.smtp
@@ -194,6 +238,7 @@ class EmailReplyTool(BaseTool):
                 or smtp_user
             )
             reply_all = params.get("reply_all", False)
+            file_paths_smtp: list[str] = params.get("attachments") or []
 
             if reply_all:
                 # Combine original From + To + CC, remove our own address
@@ -223,6 +268,7 @@ class EmailReplyTool(BaseTool):
                 body=params["body"],
                 in_reply_to=original_msg_id,
                 references=references,
+                attachments=file_paths_smtp or None,
             )
 
             await self._log_reply(

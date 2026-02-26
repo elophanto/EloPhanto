@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import logging
+import mimetypes
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
@@ -27,7 +30,7 @@ class EmailSendTool(BaseTool):
     def description(self) -> str:
         return (
             "Send an email from the agent's inbox. Requires an inbox to be created first. "
-            "Supports plain text and HTML body."
+            "Supports plain text and HTML body. Supports file attachments."
         )
 
     @property
@@ -50,6 +53,15 @@ class EmailSendTool(BaseTool):
                 "html": {
                     "type": "boolean",
                     "description": "Whether body is HTML (default: false)",
+                },
+                "attachments": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "List of absolute file paths to attach "
+                        '(e.g. ["/tmp/report.pdf", "/tmp/data.csv"]). '
+                        "Max 25 MB total."
+                    ),
                 },
             },
             "required": ["to", "subject", "body"],
@@ -93,6 +105,7 @@ class EmailSendTool(BaseTool):
         subject = params["subject"]
         body = params["body"]
         is_html = params.get("html", False)
+        file_paths: list[str] = params.get("attachments") or []
 
         try:
             from agentmail import AgentMail
@@ -108,6 +121,9 @@ class EmailSendTool(BaseTool):
                 send_kwargs["html"] = body
             else:
                 send_kwargs["text"] = body
+
+            if file_paths:
+                send_kwargs["attachments"] = self._encode_attachments(file_paths)
 
             message = client.inboxes.messages.send(**send_kwargs)
             message_id = getattr(message, "message_id", None) or str(message)
@@ -155,6 +171,7 @@ class EmailSendTool(BaseTool):
         subject = params["subject"]
         body = params["body"]
         is_html = params.get("html", False)
+        file_paths: list[str] = params.get("attachments") or []
 
         try:
             from tools.email.smtp_client import send_email
@@ -171,6 +188,7 @@ class EmailSendTool(BaseTool):
                 subject=subject,
                 body=body,
                 html=is_html,
+                attachments=file_paths or None,
             )
 
             await self._log_send(
@@ -190,6 +208,34 @@ class EmailSendTool(BaseTool):
         except Exception as e:
             await self._log_send(from_address, to_addr, subject, "", "failed", str(e))
             return ToolResult(success=False, error=f"Failed to send email: {e}")
+
+    @staticmethod
+    def _encode_attachments(file_paths: list[str]) -> list[dict[str, str]]:
+        """Encode files as base64 attachment dicts for AgentMail."""
+        max_total = 25 * 1024 * 1024
+        total_size = 0
+        attachments: list[dict[str, str]] = []
+        for fp in file_paths:
+            path = Path(fp)
+            if not path.is_file():
+                raise FileNotFoundError(f"Attachment not found: {fp}")
+            size = path.stat().st_size
+            total_size += size
+            if total_size > max_total:
+                raise ValueError(
+                    f"Total attachment size exceeds 25 MB limit "
+                    f"(at file: {path.name})"
+                )
+            content_type, _ = mimetypes.guess_type(fp)
+            encoded = base64.b64encode(path.read_bytes()).decode()
+            att: dict[str, str] = {
+                "content": encoded,
+                "filename": path.name,
+            }
+            if content_type:
+                att["content_type"] = content_type
+            attachments.append(att)
+        return attachments
 
     async def _log_send(
         self,

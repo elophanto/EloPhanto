@@ -216,9 +216,9 @@ class EmailCreateInboxTool(BaseTool):
 ### `email_send` (`tools/email/send_tool.py`)
 
 - **Permission:** MODERATE
-- **Params:** `to` (string — recipient email), `subject` (string), `body` (string — plain text or HTML), `html` (boolean, default false), `reply_to` (string, optional — message ID for threading)
+- **Params:** `to` (string — recipient email), `subject` (string), `body` (string — plain text or HTML), `html` (boolean, default false), `attachments` (array of strings, optional — absolute file paths to attach, max 25 MB total)
 - **Returns:** `message_id` (string), `to` (string), `subject` (string), `status` (string)
-- **Note:** Uses the agent's default inbox. If no inbox exists, returns error prompting to create one first.
+- **Note:** Uses the agent's default inbox. If no inbox exists, returns error prompting to create one first. Attachments are base64-encoded for AgentMail or MIME-encoded for SMTP.
 
 ### `email_list` (`tools/email/list_tool.py`)
 
@@ -237,7 +237,7 @@ class EmailCreateInboxTool(BaseTool):
 ### `email_reply` (`tools/email/reply_tool.py`)
 
 - **Permission:** MODERATE
-- **Params:** `message_id` (string — the message to reply to), `body` (string), `reply_all` (boolean, default false)
+- **Params:** `message_id` (string — the message to reply to), `body` (string), `reply_all` (boolean, default false), `attachments` (array of strings, optional — absolute file paths to attach, max 25 MB total)
 - **Returns:** `message_id` (string), `thread_id` (string), `status` (string)
 
 ### `email_search` (`tools/email/search_tool.py`)
