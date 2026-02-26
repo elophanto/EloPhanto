@@ -16,9 +16,11 @@ from typing import Any
 import click
 from rich.console import Console
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.status import Status
 from rich.table import Table
 
+from cli.chat_cmd import _build_banner
 from core.agent import Agent
 from core.config import load_config
 from core.log_setup import setup_logging
@@ -27,22 +29,12 @@ from core.vault import Vault, VaultError
 console = Console()
 logger = logging.getLogger(__name__)
 
-_C_PRIMARY = "bright_cyan"
-_C_ACCENT = "bright_magenta"
+_C_PRIMARY = "bright_white"
+_C_ACCENT = "grey74"
 _C_SUCCESS = "bright_green"
 _C_WARN = "bright_yellow"
 _C_DIM = "dim"
-_C_BORDER = "bright_cyan"
-
-_BANNER = f"""\
-[{_C_PRIMARY}]
-  ███████╗██╗      ██████╗ ██████╗ ██╗  ██╗ █████╗ ███╗   ██╗████████╗ ██████╗
-  ██╔════╝██║     ██╔═══██╗██╔══██╗██║  ██║██╔══██╗████╗  ██║╚══██╔══╝██╔═══██╗
-  █████╗  ██║     ██║   ██║██████╔╝███████║███████║██╔██╗ ██║   ██║   ██║   ██║
-  ██╔══╝  ██║     ██║   ██║██╔═══╝ ██╔══██║██╔══██║██║╚██╗██║   ██║   ██║   ██║
-  ███████╗███████╗╚██████╔╝██║     ██║  ██║██║  ██║██║ ╚████║   ██║   ╚██████╔╝
-  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝[/]
-"""
+_C_BORDER = "grey50"
 
 
 @click.command()
@@ -89,7 +81,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
         )
         return
 
-    console.print(_BANNER)
+    console.print(_build_banner())
 
     # Initialize agent
     agent = Agent(cfg)
@@ -242,16 +234,19 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     info.add_column(style=_C_DIM, justify="right", min_width=14)
     info.add_column()
     info.add_row("Gateway", f"[{_C_SUCCESS}]{gw_url}[/]")
-    info.add_row(
-        "Providers",
-        " ".join(f"[{_C_SUCCESS}]{p}[/]" for p in providers) or "[red]none[/]",
-    )
-    info.add_row("Tools", f"[bold]{tool_count}[/]")
-    info.add_row("Skills", f"[bold]{skill_count}[/]")
+
+    prov_parts = [f"[{_C_SUCCESS}]●[/] {p}" for p in providers] or ["[red]● none[/]"]
+    info.add_row("Providers", "  ".join(prov_parts))
+    info.add_row("Tools", f"[bold]{tool_count}[/] registered")
+    info.add_row("Skills", f"[bold]{skill_count}[/] loaded")
+
+    # Channel badges
+    channel_badges = []
+    for a in adapters_started:
+        channel_badges.append(f"[black on {_C_SUCCESS}] {a} [/]")
     info.add_row(
         "Channels",
-        " ".join(f"[{_C_SUCCESS}]{a}[/]" for a in adapters_started)
-        or f"[{_C_DIM}]none[/]",
+        "  ".join(channel_badges) if channel_badges else f"[{_C_DIM}]none[/]",
     )
     info.add_row("Mode", f"[{_C_ACCENT}]{cfg.permission_mode}[/]")
 
@@ -259,6 +254,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
         Panel(
             info,
             title=f"[bold {_C_PRIMARY}]Gateway Running[/]",
+            subtitle=f"[{_C_DIM}]{gw_url}[/]",
             border_style=_C_BORDER,
             padding=(1, 2),
         )
