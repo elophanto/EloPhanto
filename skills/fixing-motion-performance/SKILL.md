@@ -7,6 +7,22 @@ description: Fix animation performance issues.
 
 Fix animation performance issues.
 
+
+## Triggers
+
+- animation performance
+- jank
+- fps
+- reflow
+- repaint
+- will-change
+- gpu
+- composite
+- 60fps
+- smooth animation
+- laggy animation
+- slow animation
+
 ## how to use
 
 - `/fixing-motion-performance`

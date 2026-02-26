@@ -8,6 +8,24 @@ This skill guides creation of distinctive, production-grade frontend interfaces 
 
 The user provides frontend requirements: a component, page, application, or interface to build. They may include context about the purpose, audience, or technical constraints.
 
+
+## Triggers
+
+- frontend
+- front-end
+- web app
+- website
+- site
+- landing page
+- dashboard
+- html
+- css
+- tailwind
+- web design
+- page
+- webapp
+- web application
+
 ## Design Thinking
 
 Before coding, understand the context and commit to a BOLD aesthetic direction:

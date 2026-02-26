@@ -11,6 +11,24 @@ metadata:
 
 Comprehensive performance optimization guide for React and Next.js applications, maintained by Vercel. Contains 57 rules across 8 categories, prioritized by impact to guide automated refactoring and code generation.
 
+
+## Triggers
+
+- react
+- component
+- hook
+- useState
+- useEffect
+- jsx
+- tsx
+- react performance
+- memo
+- useMemo
+- useCallback
+- react render
+- virtual dom
+- react app
+
 ## When to Apply
 
 Reference these guidelines when:

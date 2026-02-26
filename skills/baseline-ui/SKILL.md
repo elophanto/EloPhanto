@@ -7,6 +7,22 @@ description: Enforces an opinionated UI baseline to prevent AI-generated interfa
 
 Enforces an opinionated UI baseline to prevent AI-generated interface slop.
 
+
+## Triggers
+
+- ui
+- interface
+- component
+- layout
+- design system
+- build ui
+- create ui
+- frontend
+- visual design
+- ui slop
+- design quality
+- ui review
+
 ## How to use
 
 - `/baseline-ui`

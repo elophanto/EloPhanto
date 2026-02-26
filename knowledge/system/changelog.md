@@ -1,12 +1,26 @@
 ---
 title: Changelog
 created: 2026-02-17
-updated: 2026-02-18
+updated: 2026-02-26
 tags: changelog, history, releases
 scope: system
 ---
 
 # Changelog
+
+## 2026-02-26 — Smart Skill Matching, Security Hardening, Prompt Optimization
+
+- Redesigned skill matching: scores by triggers (+3), name (+2), description (+1), substring (+1)
+- Added stop-word filtering to prevent false matches on common words
+- Added triggers to all 22 skills that were missing them (278 triggers total)
+- Prompt optimization: no-match queries (e.g. "hello") inject ~130 chars instead of ~12K
+- Non-matching skills capped at 20 compact one-liners regardless of total count
+- Scalable to 500+ skills — prompt stays bounded at ~5KB max
+- Gateway auth enforcement: WebSocket handshake checks token (query string + Bearer header)
+- max_sessions enforcement: rejects connections at capacity (4429)
+- Session timeout cleanup loop: evicts stale sessions every 10 minutes
+- Dynamic version from importlib.metadata (replaces hardcoded v0.1.0)
+- Created SKILL_GUIDE.md — author guide for writing skills, triggers, and matching
 
 ## 2026-02-18 — Skills, Security, Telegram, Self-Modification
 

@@ -7,6 +7,22 @@ description: Design and implement microinteractions, motion design, transitions,
 
 Create engaging, intuitive interactions through motion, feedback, and thoughtful state transitions that enhance usability and delight users.
 
+
+## Triggers
+
+- interaction
+- microinteraction
+- hover effect
+- click feedback
+- transition
+- gesture
+- scroll animation
+- loading state
+- skeleton
+- toast
+- notification
+- user feedback
+
 ## When to Use This Skill
 
 - Adding microinteractions to enhance user feedback

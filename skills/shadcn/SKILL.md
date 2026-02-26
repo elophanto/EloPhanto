@@ -20,6 +20,20 @@ keywords: ["shadcn", "ui", "Next.js", "pnpm", "blocks", "sonner", "forms", "dark
 
 ---
 
+
+## Triggers
+
+- shadcn
+- shadcn/ui
+- radix
+- ui components
+- component library
+- tailwind components
+- button component
+- dialog component
+- form component
+- data table
+
 ## Table of Contents
 
 1. [Installation & Setup](#installation--setup)

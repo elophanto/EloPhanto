@@ -7,6 +7,31 @@ description: "UI/UX design intelligence. 50 styles, 21 palettes, 50 font pairing
 
 Comprehensive design guide for web and mobile applications. Contains 50+ styles, 97 color palettes, 57 font pairings, 99 UX guidelines, and 25 chart types across 9 technology stacks. Searchable database with priority-based recommendations.
 
+
+## Triggers
+
+- ui
+- ux
+- design
+- website
+- landing page
+- dashboard
+- color palette
+- typography
+- font
+- style
+- responsive
+- dark mode
+- glassmorphism
+- bento
+- e-commerce
+- portfolio
+- blog
+- saas
+- mobile app
+- web app
+- app
+
 ## When to Apply
 
 Reference these guidelines when:

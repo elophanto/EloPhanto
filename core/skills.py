@@ -160,24 +160,88 @@ class SkillManager:
         except Exception:
             return skill.content
 
-    def match_skills(self, query: str, max_results: int = 3) -> list[Skill]:
-        """Find skills whose triggers match the query.
+    def match_skills(self, query: str, max_results: int = 5) -> list[Skill]:
+        """Find skills matching the query by triggers, name, and description.
 
-        Uses simple keyword matching against the trigger list.
-        Returns skills sorted by match quality (number of triggers hit).
+        Scoring priority:
+        - Trigger phrase match: +3 (highest signal — skill author defined these)
+        - Trigger word overlap: +2
+        - Name word overlap: +2 (skill name is a strong signal)
+        - Description word overlap: +1 per word (broad net for skills without triggers)
+
+        Returns skills sorted by score, capped at max_results.
         """
         query_lower = query.lower()
         query_words = set(re.findall(r"\w+", query_lower))
+        # Filter out very common words that would match too broadly
+        stop_words = {
+            "a",
+            "an",
+            "the",
+            "me",
+            "my",
+            "i",
+            "is",
+            "it",
+            "to",
+            "for",
+            "of",
+            "in",
+            "on",
+            "and",
+            "or",
+            "do",
+            "be",
+            "this",
+            "that",
+            "with",
+            "from",
+            "can",
+            "you",
+            "your",
+            "we",
+            "our",
+            "how",
+            "what",
+            "make",
+            "build",
+            "create",
+            "please",
+            "help",
+            "want",
+        }
+        query_keywords = query_words - stop_words
 
         scored: list[tuple[int, Skill]] = []
         for skill in self._skills.values():
             score = 0
+
+            # Triggers (highest priority — author-defined relevance signals)
             for trigger in skill.triggers:
                 trigger_lower = trigger.lower().strip()
                 if trigger_lower in query_lower:
+                    score += 3
+                elif any(w in query_keywords for w in trigger_lower.split()):
                     score += 2
-                elif any(w in query_words for w in trigger_lower.split()):
-                    score += 1
+
+            # Skill name — exact word match + substring match
+            # e.g. "website" contains "web" → matches "web-design-guidelines"
+            name_words = set(skill.name.lower().replace("-", " ").split())
+            name_overlap = query_keywords & name_words
+            score += len(name_overlap) * 2
+            if not name_overlap:
+                for nw in name_words:
+                    for qw in query_keywords:
+                        if len(nw) >= 3 and (nw in qw or qw in nw):
+                            score += 1
+                            break
+
+            # Description keywords (broad matching for skills without triggers)
+            if skill.description and query_keywords:
+                desc_words = set(re.findall(r"\w+", skill.description.lower()))
+                desc_overlap = query_keywords & desc_words
+                score += len(desc_overlap)
+
             if score > 0:
                 scored.append((score, skill))
 
@@ -188,38 +252,47 @@ class SkillManager:
         """Format skills as an XML block for the system prompt.
 
         When a query is provided, pre-matches relevant skills and shows them
-        with full detail (triggers included). Remaining skills are listed as
-        a compact name-only index so the agent can still discover them via
-        skill_list / skill_read if needed. This keeps prompt size bounded
-        even with hundreds of skills.
+        with full detail (triggers included). Non-matching skills use a compact
+        one-liner format to keep prompt size bounded.
+
+        When nothing matches (e.g. greetings), only a brief count is injected
+        so the LLM isn't slowed by irrelevant skill data.
         """
         if not self._skills:
             return ""
 
         matched = self.match_skills(query, max_results=5) if query else []
+
+        # No matches — minimal footprint (saves ~10K chars vs full XML)
+        if not matched:
+            return (
+                f"<available_skills>\n"
+                f"<total>{len(self._skills)} skills available. "
+                f"Use skill_list to browse or skill_read to load by name.</total>\n"
+                f"</available_skills>"
+            )
+
+        # Has matches — show recommended with full detail
         matched_names = {s.name for s in matched}
-
         lines = ["<available_skills>"]
+        lines.append("<recommended>")
+        for skill in matched:
+            self._format_skill_xml(skill, lines)
+        lines.append("</recommended>")
 
-        # Recommended skills (full detail with triggers)
-        if matched:
-            lines.append("<recommended>")
-            for skill in matched:
-                self._format_skill_xml(skill, lines)
-            lines.append("</recommended>")
-
-        # Remaining skills — full XML if few enough, compact index otherwise
+        # Remaining skills — show up to 20 compact one-liners, then just count
         others = [s for s in self._skills.values() if s.name not in matched_names]
         if others:
-            if len(others) <= 30:
-                for skill in others:
-                    self._format_skill_xml(skill, lines)
-            else:
-                lines.append("<all_skills>")
-                for skill in others:
-                    desc = skill.description[:80] if skill.description else ""
-                    lines.append(f"  {skill.name} — {desc}")
-                lines.append("</all_skills>")
+            shown = others[:20]
+            lines.append("<other_skills>")
+            for skill in shown:
+                desc = skill.description[:80] if skill.description else ""
+                lines.append(f"  {skill.name} — {desc}")
+            if len(others) > 20:
+                lines.append(
+                    f"  ... and {len(others) - 20} more (use skill_list to browse)"
+                )
+            lines.append("</other_skills>")
 
         lines.append(
             f"<total>{len(self._skills)} skills available. "

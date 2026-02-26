@@ -7,6 +7,20 @@ description: Conduct design interviews, generate five distinct UI variations in 
 
 This skill implements a complete design exploration workflow: interview, generate variations, collect feedback, refine, preview, and finalize.
 
+
+## Triggers
+
+- design lab
+- prototype
+- mockup
+- wireframe
+- variation
+- design interview
+- ui exploration
+- design options
+- design feedback
+- compare designs
+
 ## CRITICAL: Cleanup Behavior
 
 **All temporary files MUST be deleted when the process ends, whether by:**

@@ -7,6 +7,20 @@ description: Conduct WCAG 2.2 accessibility audits with automated testing, manua
 
 Comprehensive guide to auditing web content against WCAG 2.2 guidelines with actionable remediation strategies.
 
+
+## Triggers
+
+- wcag
+- accessibility audit
+- a11y audit
+- compliance
+- section 508
+- ada
+- inclusive design
+- wcag 2.2
+- accessibility testing
+- audit
+
 ## When to Use This Skill
 
 - Conducting accessibility audits

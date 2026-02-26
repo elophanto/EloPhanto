@@ -7,6 +7,22 @@ description: This skill is for interface design — dashboards, admin panels, ap
 
 Build interface design with craft and consistency.
 
+
+## Triggers
+
+- interface
+- dashboard
+- admin panel
+- admin
+- app design
+- tool ui
+- interactive
+- saas
+- portal
+- control panel
+- backoffice
+- crud
+
 ## Scope
 
 **Use for:** Dashboards, admin panels, SaaS apps, tools, settings pages, data interfaces.

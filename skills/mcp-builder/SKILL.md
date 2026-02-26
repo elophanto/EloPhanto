@@ -6,6 +6,20 @@ license: Complete terms in LICENSE.txt
 
 # MCP Server Development Guide
 
+
+## Triggers
+
+- mcp
+- model context protocol
+- mcp server
+- build mcp
+- create mcp
+- tool server
+- mcp tool
+- stdio server
+- sse server
+- mcp protocol
+
 ## Overview
 
 Create MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. The quality of an MCP server is measured by how well it enables LLMs to accomplish real-world tasks.

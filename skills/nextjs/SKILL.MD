@@ -3,6 +3,22 @@ name: nextjs16-skills
 description: Key facts and links for Next.js 16. Use for planning, writing, and troubleshooting Next.js 16 changes.
 ---
 
+
+## Triggers
+
+- nextjs
+- next.js
+- next
+- app router
+- server component
+- ssr
+- ssg
+- vercel
+- next 16
+- pages router
+- middleware
+- next api
+
 ## Links
 
 - Docs: https://nextjs.org/docs

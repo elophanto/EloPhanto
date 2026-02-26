@@ -14,6 +14,21 @@ metadata:
 
 Comprehensive performance optimization guide for Postgres, maintained by Supabase. Contains rules across 8 categories, prioritized by impact to guide automated query optimization and schema design.
 
+
+## Triggers
+
+- supabase
+- postgres
+- postgresql
+- sql
+- database query
+- rls
+- row level security
+- realtime
+- supabase auth
+- pg
+- query optimization
+
 ## When to Apply
 
 Reference these guidelines when:
