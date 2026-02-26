@@ -8,12 +8,16 @@ from __future__ import annotations
 import email as email_lib
 import imaplib
 import logging
+import mimetypes
 import smtplib
 import ssl
+from email import encoders
 from email.header import decode_header as _decode_header
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, make_msgid
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -194,12 +198,28 @@ def send_email(
     html: bool = False,
     in_reply_to: str | None = None,
     references: str | None = None,
+    attachments: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Send an email via SMTP. Returns {"message_id": str, "status": "sent"}."""
-    msg = MIMEMultipart("alternative") if html else MIMEText(body, "plain", "utf-8")
+    """Send an email via SMTP. Returns {"message_id": str, "status": "sent"}.
 
-    if html:
+    ``attachments`` is an optional list of absolute file paths to attach.
+    """
+    has_attachments = bool(attachments)
+
+    if has_attachments:
+        # mixed = body + attachments
+        msg = MIMEMultipart("mixed")
+        if html:
+            msg.attach(MIMEText(body, "html", "utf-8"))
+        else:
+            msg.attach(MIMEText(body, "plain", "utf-8"))
+        for filepath in attachments:
+            msg.attach(_make_attachment(filepath))
+    elif html:
+        msg = MIMEMultipart("alternative")
         msg.attach(MIMEText(body, "html", "utf-8"))
+    else:
+        msg = MIMEText(body, "plain", "utf-8")
 
     msg["From"] = formataddr((from_name, from_address))
     msg["To"] = to
@@ -221,6 +241,33 @@ def send_email(
         conn.quit()
 
     return {"message_id": msg["Message-ID"], "status": "sent"}
+
+
+# Max total attachment size (25 MB — common email provider limit)
+_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+
+
+def _make_attachment(filepath: str) -> MIMEBase:
+    """Create a MIME attachment from a file path."""
+    path = Path(filepath)
+    if not path.is_file():
+        raise FileNotFoundError(f"Attachment not found: {filepath}")
+    if path.stat().st_size > _MAX_ATTACHMENT_BYTES:
+        raise ValueError(
+            f"Attachment too large: {path.name} "
+            f"({path.stat().st_size // 1024 // 1024}MB, max 25MB)"
+        )
+
+    content_type, _ = mimetypes.guess_type(filepath)
+    if not content_type:
+        content_type = "application/octet-stream"
+    maintype, subtype = content_type.split("/", 1)
+
+    part = MIMEBase(maintype, subtype)
+    part.set_payload(path.read_bytes())
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=path.name)
+    return part
 
 
 def list_messages(
