@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import signal
 import time
 from typing import Any
 
@@ -122,6 +124,7 @@ class ShellExecuteTool(BaseTool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=working_dir,
+                start_new_session=True,
             )
 
             if self._process_registry and process.pid:
@@ -134,7 +137,11 @@ class ShellExecuteTool(BaseTool):
                 timed_out = False
             except TimeoutError:
                 elapsed = time.monotonic() - t0
-                process.kill()
+                # Kill entire process group (shell + all children)
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    process.kill()
                 await process.communicate()
                 if self._process_registry and process.pid:
                     self._process_registry.unregister(process.pid)
