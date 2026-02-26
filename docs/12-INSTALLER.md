@@ -54,7 +54,7 @@ Checking dependencies...
   → Install Python 3.12? [Y/n]: y
   Installing Python 3.12 via apt...
   ✓ Python 3.12.1 installed
-✓ Node.js 18+ — already installed (v20.11.0)
+✓ Node.js 22+ — already installed (v22.19.0)
 ✗ uv (Python package manager) — not found
   → Install uv? [Y/n]: y
   Installing uv...
@@ -67,7 +67,7 @@ Checking dependencies...
 | Dependency | Why | Install Method |
 |---|---|---|
 | Python 3.12+ | Agent core runtime | System package manager or pyenv |
-| Node.js 18+ | Chrome extension build, optional JS plugins | System package manager or nvm |
+| Node.js 22+ | Browser bridge, web dashboard, optional JS plugins | System package manager or nvm |
 | git | Version control for self-modifications | System package manager |
 | curl | Downloading resources | System package manager |
 | uv | Fast Python package manager | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |

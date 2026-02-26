@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from typing import Any
 
 from core.config import Config
 from core.protected import check_command_for_protected
 from tools.base import BaseTool, PermissionLevel, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class ShellExecuteTool(BaseTool):
@@ -103,6 +107,15 @@ class ShellExecuteTool(BaseTool):
                     ),
                 )
 
+        cmd_short = command[:120] + ("…" if len(command) > 120 else "")
+        logger.info(
+            "[shell] START: %s (timeout=%ss, cwd=%s)",
+            cmd_short,
+            timeout,
+            working_dir or ".",
+        )
+        t0 = time.monotonic()
+
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -120,10 +133,17 @@ class ShellExecuteTool(BaseTool):
                 )
                 timed_out = False
             except TimeoutError:
+                elapsed = time.monotonic() - t0
                 process.kill()
                 await process.communicate()
                 if self._process_registry and process.pid:
                     self._process_registry.unregister(process.pid)
+                logger.warning(
+                    "[shell] TIMEOUT after %.1fs: %s (pid=%s)",
+                    elapsed,
+                    cmd_short,
+                    process.pid,
+                )
                 return ToolResult(
                     success=True,
                     data={
@@ -137,9 +157,23 @@ class ShellExecuteTool(BaseTool):
             if self._process_registry and process.pid:
                 self._process_registry.unregister(process.pid)
 
+            elapsed = time.monotonic() - t0
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
             exit_code = process.returncode or 0
+
+            # Log completion with key details
+            stdout_preview = stdout.strip()[-200:] if stdout.strip() else "(empty)"
+            stderr_preview = stderr.strip()[-200:] if stderr.strip() else "(empty)"
+            logger.info(
+                "[shell] DONE in %.1fs: exit_code=%d | %s",
+                elapsed,
+                exit_code,
+                cmd_short,
+            )
+            if exit_code != 0 or stderr.strip():
+                logger.info("[shell] stderr: %s", stderr_preview)
+            logger.debug("[shell] stdout: %s", stdout_preview)
 
             return ToolResult(
                 success=True,
@@ -152,4 +186,6 @@ class ShellExecuteTool(BaseTool):
             )
 
         except Exception as e:
+            elapsed = time.monotonic() - t0
+            logger.error("[shell] FAILED after %.1fs: %s — %s", elapsed, cmd_short, e)
             return ToolResult(success=False, error=f"Failed to execute command: {e}")
