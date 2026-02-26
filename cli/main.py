@@ -19,7 +19,7 @@ from cli.vault_cmd import vault_cmd
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="EloPhanto")
+@click.version_option(package_name="elophanto", prog_name="EloPhanto")
 def cli() -> None:
     """EloPhanto — A self-evolving AI agent."""
 

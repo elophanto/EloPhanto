@@ -128,12 +128,19 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     from core.session import SessionManager
 
     session_mgr = SessionManager(agent._db)
+    # Resolve auth token from vault if configured
+    auth_token: str | None = None
+    if cfg.gateway.auth_token_ref and agent._vault:
+        auth_token = agent._vault.get(cfg.gateway.auth_token_ref)
+
     gateway = Gateway(
         agent=agent,
         session_manager=session_mgr,
         host=cfg.gateway.host,
         port=cfg.gateway.port,
+        auth_token=auth_token,
         max_sessions=cfg.gateway.max_sessions,
+        session_timeout_hours=cfg.gateway.session_timeout_hours,
         unified_sessions=cfg.gateway.unified_sessions,
         authority_config=cfg.authority,
     )
