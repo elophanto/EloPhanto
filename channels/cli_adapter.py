@@ -17,22 +17,25 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
+from rich.rule import Rule
 from rich.status import Status
+from rich.text import Text
 
 from channels.base import ChannelAdapter
+from cli.chat_cmd import _tool_risk_level, _visual_bar
 from core.protocol import GatewayMessage
 
 logger = logging.getLogger(__name__)
 console = Console()
 
-# Palette (matches chat_cmd.py)
-_C_PRIMARY = "bright_cyan"
-_C_ACCENT = "bright_magenta"
+# Palette (matches chat_cmd.py — monochrome, elophanto.com brand)
+_C_PRIMARY = "bright_white"
+_C_ACCENT = "grey74"
 _C_SUCCESS = "bright_green"
 _C_WARN = "bright_yellow"
 _C_DIM = "dim"
-_C_USER = "bold bright_blue"
-_C_BORDER = "bright_cyan"
+_C_USER = "bold bright_white"
+_C_BORDER = "grey50"
 
 _LOGO_SMALL = f"[{_C_PRIMARY}]◆[/] [{_C_ACCENT}]EloPhanto[/]"
 
@@ -84,17 +87,19 @@ class CLIAdapter(ChannelAdapter):
             )
 
     async def on_approval_request(self, msg: GatewayMessage) -> None:
-        """Show approval prompt in terminal."""
+        """Show approval prompt in terminal with risk-colored borders."""
         tool_name = msg.data.get("tool_name", "?")
         description = msg.data.get("description", "")
         msg.data.get("params", {})
+
+        border_color, title_label = _tool_risk_level(tool_name)
 
         console.print()
         console.print(
             Panel(
                 f"[{_C_WARN}]Tool:[/] [bold]{tool_name}[/]\n[{_C_WARN}]Action:[/] {description}",
-                title="[bold red]Approval Required[/]",
-                border_style="red",
+                title=title_label,
+                border_style=border_color,
                 padding=(0, 2),
             )
         )
@@ -235,7 +240,7 @@ class CLIAdapter(ChannelAdapter):
             # Send chat message and wait for response
             console.print()
             self._status = Status(
-                f"  [{_C_DIM}]Thinking...[/]", console=console, spinner="dots"
+                f"  [{_C_DIM}]Thinking...[/]", console=console, spinner="moon"
             )
             self._status.start()
 
@@ -329,45 +334,46 @@ class CLIAdapter(ChannelAdapter):
                     pass
 
     def _display_goal_event(self, event: str, data: dict) -> None:
-        """Display a goal lifecycle event in the terminal."""
+        """Display a goal lifecycle event with styled badges."""
         goal_text = data.get("goal", "")
         goal_id = data.get("goal_id", "")[:8]
 
         if event == "goal_started":
             console.print(
-                f"\n  [{_C_ACCENT}]\u25b6 Goal started[/] [{_C_DIM}]({goal_id})[/]"
+                f"\n  [white on blue] \u25b6 STARTED [/] [{_C_DIM}]({goal_id})[/]"
                 f"  {goal_text[:80]}"
             )
         elif event == "goal_checkpoint_complete":
             title = data.get("checkpoint_title", "")
             order = data.get("checkpoint_order", "")
-            console.print(f"  [{_C_SUCCESS}]\u2713 Checkpoint {order}[/] {title}")
+            console.print(
+                f"  [black on {_C_SUCCESS}] \u2713 CHECKPOINT {order} [/] {title}"
+            )
         elif event == "goal_completed":
             console.print(
-                f"\n  [{_C_SUCCESS}]\u2714 Goal completed[/] [{_C_DIM}]({goal_id})[/]"
+                f"\n  [black on {_C_SUCCESS}] \u2714 COMPLETED [/] [{_C_DIM}]({goal_id})[/]"
                 f"  {goal_text[:80]}\n"
             )
         elif event == "goal_failed":
             error = data.get("error", "")
             console.print(
-                f"\n  [bold red]\u2716 Goal failed[/] [{_C_DIM}]({goal_id})[/]"
+                f"\n  [white on red] \u2716 FAILED [/] [{_C_DIM}]({goal_id})[/]"
                 f"  {error[:100]}\n"
             )
         elif event == "goal_paused":
             reason = data.get("reason", "")
             console.print(
-                f"\n  [{_C_WARN}]\u23f8 Goal paused[/] [{_C_DIM}]({goal_id})[/]"
+                f"\n  [black on {_C_WARN}] \u23f8 PAUSED [/] [{_C_DIM}]({goal_id})[/]"
                 f"  {reason[:100]}\n"
             )
         elif event == "goal_resumed":
             console.print(
-                f"\n  [{_C_ACCENT}]\u25b6 Goal resumed[/] [{_C_DIM}]({goal_id})[/]\n"
+                f"\n  [white on blue] \u25b6 RESUMED [/] [{_C_DIM}]({goal_id})[/]\n"
             )
 
     def _display_mind_event(self, event: str, data: dict) -> None:
-        """Display autonomous mind events in the terminal."""
-        _M = "bright_magenta"  # Mind accent color
-        _MD = "dim magenta"  # Mind dim
+        """Display autonomous mind events with enhanced styling."""
+        _M = "grey82"  # Mind accent color (brand-aligned)
 
         if event == "mind_wakeup":
             cycle = data.get("cycle", "")
@@ -377,17 +383,29 @@ class CLIAdapter(ChannelAdapter):
             total = data.get("total_cycles_today", 0)
             scratchpad = data.get("scratchpad_preview", "")
 
-            console.print(f"\n  [{_M}]{'─' * 60}[/]")
+            console.print()
             console.print(
-                f"  [{_M}]◆ MIND WAKEUP[/] [{_C_DIM}]cycle #{cycle}[/]"
-                f"  [{_C_DIM}]({total} today)[/]"
+                Rule(
+                    f"[bold {_M}]MIND[/] [{_C_DIM}]cycle #{cycle} · {total} today[/]",
+                    style=_M,
+                )
             )
-            console.print(f"  [{_C_DIM}]  Budget: {budget} / {budget_total}[/]")
+            # Budget visual bar
+            try:
+                b_rem = float(str(budget).replace("$", ""))
+                b_tot = float(str(budget_total).replace("$", ""))
+                b_pct = min(100, int(((b_tot - b_rem) / max(b_tot, 0.01)) * 100))
+                bar = Text("  Budget: ")
+                bar.append_text(_visual_bar(b_pct, width=15))
+                bar.append(f"  {budget} / {budget_total}", style=_C_DIM)
+                console.print(bar)
+            except (ValueError, TypeError):
+                console.print(f"  [{_C_DIM}]Budget: {budget} / {budget_total}[/]")
             if last and last != "(not started)":
-                console.print(f"  [{_C_DIM}]  Last: {last[:100]}[/]")
+                console.print(f"  [{_C_DIM}]Last: {last[:100]}[/]")
             if scratchpad and scratchpad != "(empty)":
                 preview = scratchpad.replace("\n", " ")[:100]
-                console.print(f"  [{_C_DIM}]  Memory: {preview}[/]")
+                console.print(f"  [{_C_DIM}]Memory: {preview}[/]")
 
         elif event == "mind_tool_use":
             tool = data.get("tool", "")
@@ -397,11 +415,11 @@ class CLIAdapter(ChannelAdapter):
 
             if status == "error":
                 console.print(
-                    f"  [{_C_WARN}]  ✗ {tool}[/]" f" [{_C_DIM}]{error[:80]}[/]"
+                    f"  [red]●[/] [{_C_WARN}]{tool}[/] [{_C_DIM}]{error[:80]}[/]"
                 )
             else:
                 param_display = f" [{_C_DIM}]{params[:80]}[/]" if params else ""
-                console.print(f"  [{_M}]  → {tool}[/]{param_display}")
+                console.print(f"  [{_C_SUCCESS}]●[/] [{_M}]{tool}[/]{param_display}")
 
         elif event == "mind_action":
             summary = data.get("summary", "")
@@ -409,7 +427,7 @@ class CLIAdapter(ChannelAdapter):
             elapsed = data.get("elapsed", "")
             tool_count = data.get("tool_count", 0)
 
-            console.print(f"  [{_M}]  ◆ Result:[/] {summary[:200]}")
+            console.print(f"  [{_M}]◆ Result:[/] {summary[:200]}")
             parts = []
             if cost:
                 parts.append(cost)
@@ -418,7 +436,7 @@ class CLIAdapter(ChannelAdapter):
             if tool_count:
                 parts.append(f"{tool_count} tools")
             if parts:
-                console.print(f"  [{_C_DIM}]  {' · '.join(parts)}[/]")
+                console.print(f"  [{_C_DIM}]{' · '.join(parts)}[/]")
 
         elif event == "mind_sleep":
             secs = data.get("next_wakeup_seconds", 300)
@@ -436,32 +454,37 @@ class CLIAdapter(ChannelAdapter):
                 time_str = f"{secs}s"
 
             console.print(
-                f"  [{_C_DIM}]  Sleeping · next in {time_str}"
+                f"  [{_C_DIM}]Sleeping · next in {time_str}"
                 f" · cost {cost} · {elapsed}s · {tools_n} tools"
                 f" · budget left {remaining}[/]"
             )
-            console.print(f"  [{_M}]{'─' * 60}[/]\n")
+            console.print(Rule(style="grey35"))
 
         elif event == "mind_paused":
-            console.print(f"  [{_C_DIM}]  ◇ Mind paused (you're talking)[/]")
+            console.print(f"  [{_C_DIM}]◇ Mind paused (you're talking)[/]")
 
         elif event == "mind_resumed":
             pending = data.get("pending_events", 0)
             extra = f" · {pending} events queued" if pending else ""
-            console.print(f"  [{_M}]  ◇ Mind resumed{extra}[/]")
+            console.print(f"  [{_M}]◇ Mind resumed{extra}[/]")
 
         elif event == "mind_revenue":
             rtype = data.get("type", "")
             amount = data.get("amount", "")
             source = data.get("source", "")
+            console.print()
             console.print(
-                f"\n  [{_C_SUCCESS}]  💰 REVENUE: {rtype}[/]"
-                f" [{_C_SUCCESS}]{amount}[/] — {source}\n"
+                Panel(
+                    f"[bold {_C_SUCCESS}]{rtype}[/]  [{_C_SUCCESS}]{amount}[/]  [{_C_DIM}]{source}[/]",
+                    title=f"[bold {_C_SUCCESS}]REVENUE[/]",
+                    border_style=_C_SUCCESS,
+                    padding=(0, 2),
+                )
             )
 
         elif event == "mind_error":
             error = data.get("error", "")
             recovery = data.get("recovery", "")
-            console.print(f"  [{_C_WARN}]  ⚠ Mind error: {error[:150]}[/]")
+            console.print(f"  [red]●[/] [{_C_WARN}]Mind error: {error[:150]}[/]")
             if recovery:
-                console.print(f"  [{_C_DIM}]  Recovery: {recovery}[/]")
+                console.print(f"  [{_C_DIM}]Recovery: {recovery}[/]")

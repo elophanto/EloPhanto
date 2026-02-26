@@ -18,9 +18,11 @@ from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
+from rich.rule import Rule
 from rich.status import Status
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
 
 from core import __version__
 from core.agent import Agent
@@ -32,31 +34,107 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────
-# Palette
+# Palette — monochrome, aligned with elophanto.com brand
+# (warm cream on deep charcoal, "ex machina" aesthetic)
 # ──────────────────────────────────────────────────────────────────
-_C_PRIMARY = "bright_cyan"
-_C_ACCENT = "bright_magenta"
+_C_PRIMARY = "bright_white"
+_C_ACCENT = "grey74"
 _C_SUCCESS = "bright_green"
 _C_WARN = "bright_yellow"
 _C_DIM = "dim"
-_C_USER = "bold bright_blue"
+_C_USER = "bold bright_white"
 _C_AGENT = "bold bright_green"
-_C_BORDER = "bright_cyan"
+_C_BORDER = "grey50"
 
 # ──────────────────────────────────────────────────────────────────
-# ASCII Art
+# ASCII Art — Monochrome gradient (dark grey → bright white)
 # ──────────────────────────────────────────────────────────────────
-_BANNER = f"""\
-[{_C_PRIMARY}]
-  ███████╗██╗      ██████╗ ██████╗ ██╗  ██╗ █████╗ ███╗   ██╗████████╗ ██████╗
-  ██╔════╝██║     ██╔═══██╗██╔══██╗██║  ██║██╔══██╗████╗  ██║╚══██╔══╝██╔═══██╗
-  █████╗  ██║     ██║   ██║██████╔╝███████║███████║██╔██╗ ██║   ██║   ██║   ██║
-  ██╔══╝  ██║     ██║   ██║██╔═══╝ ██╔══██║██╔══██║██║╚██╗██║   ██║   ██║   ██║
-  ███████╗███████╗╚██████╔╝██║     ██║  ██║██║  ██║██║ ╚████║   ██║   ╚██████╔╝
-  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝[/]
-"""
+_BANNER_LINES: list[tuple[str, str]] = [
+    (
+        "grey35",
+        "  ███████╗██╗      ██████╗ ██████╗ ██╗  ██╗ █████╗ ███╗   ██╗████████╗ ██████╗",
+    ),
+    (
+        "grey46",
+        "  ██╔════╝██║     ██╔═══██╗██╔══██╗██║  ██║██╔══██╗████╗  ██║╚══██╔══╝██╔═══██╗",
+    ),
+    (
+        "grey58",
+        "  █████╗  ██║     ██║   ██║██████╔╝███████║███████║██╔██╗ ██║   ██║   ██║   ██║",
+    ),
+    (
+        "grey70",
+        "  ██╔══╝  ██║     ██║   ██║██╔═══╝ ██╔══██║██╔══██║██║╚██╗██║   ██║   ██║   ██║",
+    ),
+    (
+        "grey82",
+        "  ███████╗███████╗╚██████╔╝██║     ██║  ██║██║  ██║██║ ╚████║   ██║   ╚██████╔╝",
+    ),
+    (
+        "bright_white",
+        "  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝",
+    ),
+]
+
+
+def _build_banner() -> Text:
+    """Build the gradient ASCII banner."""
+    banner = Text()
+    banner.append("\n")
+    for color, line in _BANNER_LINES:
+        banner.append(line + "\n", style=color)
+    return banner
+
 
 _LOGO_SMALL = f"[{_C_PRIMARY}]◆[/] [{_C_ACCENT}]EloPhanto[/]"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Shared helpers
+# ──────────────────────────────────────────────────────────────────
+
+
+def _visual_bar(pct: int, width: int = 10) -> Text:
+    """Build a colored visual bar like [████░░░░░░]."""
+    filled = max(0, min(width, int(pct / 100 * width)))
+    empty = width - filled
+    color = _C_SUCCESS if pct < 60 else (_C_WARN if pct < 85 else "red")
+    bar = Text()
+    bar.append("█" * filled, style=color)
+    bar.append("░" * empty, style=_C_DIM)
+    return bar
+
+
+def _tool_risk_level(tool_name: str) -> tuple[str, str]:
+    """Return (border_color, title_label) based on tool risk."""
+    _SAFE = {
+        "file_read",
+        "file_list",
+        "knowledge_search",
+        "browser_navigate",
+        "browser_extract",
+        "browser_get_elements",
+        "browser_screenshot",
+        "skill_read",
+        "skill_list",
+        "document_analyze",
+        "vault_list",
+    }
+    _MODERATE = {
+        "file_write",
+        "email_send",
+        "email_reply",
+        "vault_set",
+        "knowledge_write",
+        "browser_click_text",
+        "browser_type",
+        "self_create_plugin",
+    }
+    if tool_name in _SAFE:
+        return "green", "[bold green]Review Required[/]"
+    if tool_name in _MODERATE:
+        return "yellow", "[bold yellow]Approval Required[/]"
+    return "red", "[bold red]⚠ Approval Required[/]"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -131,6 +209,34 @@ def _format_tokens(n: int) -> str:
 # ──────────────────────────────────────────────────────────────────
 
 
+def _build_feature_badges(
+    agent: Agent,
+    cfg: Any,
+    telegram_running: bool = False,
+    extra: list[str] | None = None,
+) -> str:
+    """Build feature badges like [on green] browser [/]."""
+    badges: list[str] = []
+    if extra:
+        for e in extra:
+            badges.append(f"[black on {_C_SUCCESS}] {e} [/]")
+    if agent._browser_manager:
+        badges.append(f"[black on {_C_SUCCESS}] browser [/]")
+    if agent._scheduler:
+        badges.append(f"[black on {_C_SUCCESS}] scheduler [/]")
+    if agent._mcp_manager and agent._mcp_manager.connected_servers:
+        n = len(agent._mcp_manager.connected_servers)
+        badges.append(f"[black on {_C_SUCCESS}] mcp ({n}) [/]")
+    extra_set = set(extra) if extra else set()
+    if "telegram" not in extra_set:
+        if telegram_running:
+            badges.append(f"[black on {_C_SUCCESS}] telegram [/]")
+        elif cfg.telegram.enabled:
+            badges.append(f"[black on {_C_WARN}] telegram (no token) [/]")
+    badges.append(f"[black on {_C_SUCCESS}] vault [/]")
+    return "  ".join(badges)
+
+
 def _build_welcome_panel(
     cfg: Any, agent: Agent, skill_count: int, telegram_running: bool = False
 ) -> Panel:
@@ -138,20 +244,6 @@ def _build_welcome_panel(
     health = getattr(agent, "_provider_health", {})
     providers = [k for k, v in health.items() if v]
     tool_count = len(agent._registry.list_tools())
-
-    features: list[str] = []
-    if agent._browser_manager:
-        features.append(f"[{_C_SUCCESS}]browser[/]")
-    if agent._scheduler:
-        features.append(f"[{_C_SUCCESS}]scheduler[/]")
-    if agent._mcp_manager and agent._mcp_manager.connected_servers:
-        n = len(agent._mcp_manager.connected_servers)
-        features.append(f"[{_C_SUCCESS}]mcp ({n})[/]")
-    if telegram_running:
-        features.append(f"[{_C_SUCCESS}]telegram[/]")
-    elif cfg.telegram.enabled:
-        features.append(f"[{_C_WARN}]telegram (no token)[/]")
-    features.append(f"[{_C_SUCCESS}]vault[/]")
 
     # Build info table
     info = Table.grid(padding=(0, 2))
@@ -167,10 +259,13 @@ def _build_welcome_panel(
     info.add_row("Providers", "  ".join(prov_parts))
     info.add_row("Tools", f"[bold]{tool_count}[/] registered")
     info.add_row("Skills", f"[bold]{skill_count}[/] loaded")
-    info.add_row("Features", "  ".join(features))
+    info.add_row(
+        "Features",
+        _build_feature_badges(agent, cfg, telegram_running=telegram_running),
+    )
     info.add_row("Mode", f"[{_C_ACCENT}]{cfg.permission_mode}[/]")
 
-    # Knowledge / embedding health
+    # Knowledge / embedding health with visual bar
     try:
         _db = agent._db
         if _db:
@@ -194,25 +289,37 @@ def _build_welcome_panel(
             elif _vn == 0:
                 kb_label = f"[red]{_cn} chunks, 0 embeddings — search broken![/]"
             else:
-                kb_label = f"[{_C_SUCCESS}]{_cn} chunks, {_vn} embeddings[/]"
-            info.add_row("Knowledge", kb_label)
+                pct = min(100, int((_vn / max(_cn, 1)) * 100))
+                bar = _visual_bar(pct, width=8)
+                kb_text = Text()
+                kb_text.append_text(bar)
+                kb_text.append(f" {_cn} chunks, {_vn} embeddings", style=_C_SUCCESS)
+                info.add_row("Knowledge", kb_text)
+                _cn = -1  # skip the plain label below
+            if _cn >= 0:
+                info.add_row("Knowledge", kb_label)
     except Exception:
         pass
 
-    commands = Text()
-    commands.append("\n")
-    commands.append("  /clear", style="bold")
-    commands.append(" reset context  ", style=_C_DIM)
-    commands.append("  /stats", style="bold")
-    commands.append(" session info  ", style=_C_DIM)
-    commands.append("  exit", style="bold")
-    commands.append(" quit", style=_C_DIM)
+    # Divider + commands
+    divider = Rule(style=_C_DIM)
 
-    content = Group(info, commands)
+    cmd_grid = Table.grid(padding=(0, 3))
+    cmd_grid.add_column(style="bold", min_width=10)
+    cmd_grid.add_column(style=_C_DIM)
+    cmd_grid.add_column(style="bold", min_width=10)
+    cmd_grid.add_column(style=_C_DIM)
+    cmd_grid.add_column(style="bold", min_width=10)
+    cmd_grid.add_column(style=_C_DIM)
+    cmd_grid.add_row(
+        "/clear", "reset context", "/stats", "session info", "exit", "quit"
+    )
+
+    content = Group(info, divider, cmd_grid)
     return Panel(
         content,
         title=f"[bold {_C_PRIMARY}]System[/]",
-        subtitle=f"[{_C_DIM}]v{__version__}[/]",
+        subtitle=f"[{_C_DIM}]v{__version__} · {cfg.permission_mode}[/]",
         border_style=_C_BORDER,
         padding=(1, 2),
     )
@@ -231,14 +338,13 @@ def _build_stats_bar(stats: SessionStats, cfg: Any) -> Text:
 
     bar.append("  │  ", style=_C_DIM)
 
-    # Context
+    # Context — visual bar
     ctx_msgs = stats.context_messages
     max_ctx = 20  # _MAX_CONVERSATION_HISTORY from agent.py
     ctx_pct = min(100, int((ctx_msgs / max_ctx) * 100)) if max_ctx > 0 else 0
-    ctx_color = _C_SUCCESS if ctx_pct < 60 else (_C_WARN if ctx_pct < 85 else "red")
     bar.append("ctx ", style=_C_DIM)
-    bar.append(f"{ctx_msgs}/{max_ctx}", style=ctx_color)
-    bar.append(f" ({ctx_pct}%)", style=_C_DIM)
+    bar.append_text(_visual_bar(ctx_pct, width=10))
+    bar.append(f" {ctx_pct}%", style=_C_DIM)
 
     bar.append("  │  ", style=_C_DIM)
 
@@ -275,12 +381,27 @@ def _build_session_stats_panel(stats: SessionStats, cfg: Any) -> Panel:
     )
     info.add_row("Total tokens", f"[bold]{_format_tokens(stats.total_tokens)}[/]")
     info.add_row("", "")
-    info.add_row("Context messages", f"{stats.context_messages} / 20")
+
+    # Context with visual bar
+    ctx_pct = min(100, int((stats.context_messages / 20) * 100)) if 20 > 0 else 0
+    ctx_bar = Text()
+    ctx_bar.append_text(_visual_bar(ctx_pct, width=15))
+    ctx_bar.append(f"  {stats.context_messages}/20 ({ctx_pct}%)", style=_C_DIM)
+    info.add_row("Context", ctx_bar)
+
     info.add_row("Session cost", f"[{_C_WARN}]${stats.session_cost:.4f}[/]")
-    info.add_row(
-        "Budget remaining",
-        f"[{_C_SUCCESS}]${max(0, cfg.llm.budget.daily_limit_usd - stats.session_cost):.2f}[/]",
+
+    # Budget with visual bar
+    budget_limit = cfg.llm.budget.daily_limit_usd
+    budget_remaining = max(0, budget_limit - stats.session_cost)
+    budget_used_pct = min(
+        100, int((stats.session_cost / max(budget_limit, 0.01)) * 100)
     )
+    budget_bar = Text()
+    budget_bar.append_text(_visual_bar(budget_used_pct, width=15))
+    budget_bar.append(f"  ${budget_remaining:.2f} remaining", style=_C_SUCCESS)
+    info.add_row("Budget", budget_bar)
+
     info.add_row("", "")
     info.add_row("Last model", f"{stats.last_model or 'n/a'}")
     info.add_row("Last provider", f"{stats.last_provider or 'n/a'}")
@@ -298,18 +419,40 @@ def _build_session_stats_panel(stats: SessionStats, cfg: Any) -> Panel:
 # ──────────────────────────────────────────────────────────────────
 
 
+# Spinner selection by tool type
+_SPINNER_MAP: dict[str, str] = {
+    "shell_execute": "bouncingBar",
+    "file_read": "bouncingBar",
+    "file_write": "bouncingBar",
+    "file_list": "bouncingBar",
+    "file_delete": "bouncingBar",
+    "file_move": "bouncingBar",
+    "browser_navigate": "earth",
+    "browser_click_text": "earth",
+    "browser_type": "earth",
+    "browser_extract": "earth",
+    "browser_get_elements": "earth",
+    "browser_screenshot": "earth",
+    "browser_wait_for_selector": "earth",
+    "knowledge_search": "dots2",
+    "knowledge_write": "dots2",
+}
+_DEFAULT_SPINNER = "moon"
+
+
 class _LiveProgress:
     """Shows real-time step-by-step progress during agent execution."""
 
     def __init__(self, con: Console) -> None:
         self._console = con
+        self._current_spinner = _DEFAULT_SPINNER
         self._status = Status(
-            f"  [{_C_DIM}]Planning...[/]",
+            f"  [{_C_DIM}]Thinking...[/]",
             console=con,
-            spinner="dots",
+            spinner=_DEFAULT_SPINNER,
         )
         self._current_step = 0
-        self._steps_log: list[str] = []
+        self._steps_log: list[tuple[str, str]] = []  # (tool, detail)
 
     def start(self) -> None:
         self._status.start()
@@ -317,22 +460,32 @@ class _LiveProgress:
     def stop(self) -> None:
         self._status.stop()
         if self._steps_log:
-            for line in self._steps_log:
-                self._console.print(line)
+            tree = Tree(f"  [{_C_DIM}]Execution[/]", guide_style=_C_DIM)
+            for tool, detail in self._steps_log:
+                label = f"[{_C_PRIMARY}]{tool}[/]"
+                if detail:
+                    label += f"  [{_C_DIM}]{detail}[/]"
+                tree.add(label)
+            self._console.print(tree)
 
     def update(self, step: int, tool: str, detail: str) -> None:
         self._current_step = step
         detail_str = f" [{_C_DIM}]{detail}[/]" if detail else ""
 
-        self._status.update(
-            f"  [{_C_PRIMARY}]Step {step}[/] [{_C_DIM}]│[/] [bold]{tool}[/]{detail_str}"
-        )
+        # Switch spinner based on tool type
+        new_spinner = _SPINNER_MAP.get(tool, _DEFAULT_SPINNER)
+        if new_spinner != self._current_spinner:
+            self._current_spinner = new_spinner
+            self._status.update(
+                f"  [{_C_PRIMARY}]Step {step}[/] [{_C_DIM}]│[/] [bold]{tool}[/]{detail_str}",
+                spinner=new_spinner,
+            )
+        else:
+            self._status.update(
+                f"  [{_C_PRIMARY}]Step {step}[/] [{_C_DIM}]│[/] [bold]{tool}[/]{detail_str}"
+            )
 
-        log_line = (
-            f"  [{_C_DIM}]  step {step}[/] [{_C_PRIMARY}]{tool}[/]"
-            f"{f' [{_C_DIM}]{detail}[/]' if detail else ''}"
-        )
-        self._steps_log.append(log_line)
+        self._steps_log.append((tool, detail))
 
 
 def _summarize_params(tool: str, params: dict[str, Any]) -> str:
@@ -389,13 +542,15 @@ def approval_callback(tool_name: str, description: str, params: dict[str, Any]) 
     else:
         param_display = f"  {json.dumps(params, indent=2)}"
 
+    border_color, title_label = _tool_risk_level(tool_name)
+
     console.print(
         Panel(
             f"[{_C_WARN}]Tool:[/] [bold]{tool_name}[/]\n"
             f"[{_C_WARN}]Action:[/] {description}\n"
             f"{param_display}",
-            title="[bold red]⚠ Approval Required[/]",
-            border_style="red",
+            title=title_label,
+            border_style=border_color,
             padding=(0, 2),
         )
     )
@@ -495,7 +650,7 @@ async def _chat_gateway(cfg: Any) -> None:
     from core.gateway import Gateway
     from core.session import SessionManager
 
-    console.print(_BANNER)
+    console.print(_build_banner())
 
     # Initialize agent (same as direct mode)
     agent = Agent(cfg)
@@ -613,24 +768,13 @@ async def _chat_gateway(cfg: Any) -> None:
         except Exception as e:
             console.print(f"  [{_C_WARN}]Slack: {e}[/]")
 
-    # Show status panel
+    # Show status panel — reuse shared builder with gateway extras
     skill_count = len(agent._skill_manager.list_skills())
     health = getattr(agent, "_provider_health", {})
     providers = [k for k, v in health.items() if v]
     tool_count = len(agent._registry.list_tools())
 
-    features: list[str] = [f"[{_C_SUCCESS}]gateway[/]"]
-    for a in adapters_started:
-        features.append(f"[{_C_SUCCESS}]{a}[/]")
-    if agent._browser_manager:
-        features.append(f"[{_C_SUCCESS}]browser[/]")
-    if agent._scheduler:
-        features.append(f"[{_C_SUCCESS}]scheduler[/]")
-    if agent._mcp_manager and agent._mcp_manager.connected_servers:
-        n = len(agent._mcp_manager.connected_servers)
-        features.append(f"[{_C_SUCCESS}]mcp ({n})[/]")
-    features.append(f"[{_C_SUCCESS}]vault[/]")
-
+    # Build info table
     info = Table.grid(padding=(0, 2))
     info.add_column(style=_C_DIM, justify="right", min_width=14)
     info.add_column()
@@ -639,19 +783,26 @@ async def _chat_gateway(cfg: Any) -> None:
     info.add_row("Providers", "  ".join(prov_parts))
     info.add_row("Tools", f"[bold]{tool_count}[/] registered")
     info.add_row("Skills", f"[bold]{skill_count}[/] loaded")
-    info.add_row("Features", "  ".join(features))
+    info.add_row(
+        "Features",
+        _build_feature_badges(agent, cfg, extra=["gateway"] + adapters_started),
+    )
     info.add_row("Mode", f"[{_C_ACCENT}]{cfg.permission_mode}[/]")
 
-    commands = Text()
-    commands.append("\n")
-    commands.append("  /clear", style="bold")
-    commands.append(" reset context  ", style=_C_DIM)
-    commands.append("  /stats", style="bold")
-    commands.append(" session info  ", style=_C_DIM)
-    commands.append("  exit", style="bold")
-    commands.append(" quit", style=_C_DIM)
+    # Divider + commands
+    divider = Rule(style=_C_DIM)
+    cmd_grid = Table.grid(padding=(0, 3))
+    cmd_grid.add_column(style="bold", min_width=10)
+    cmd_grid.add_column(style=_C_DIM)
+    cmd_grid.add_column(style="bold", min_width=10)
+    cmd_grid.add_column(style=_C_DIM)
+    cmd_grid.add_column(style="bold", min_width=10)
+    cmd_grid.add_column(style=_C_DIM)
+    cmd_grid.add_row(
+        "/clear", "reset context", "/stats", "session info", "exit", "quit"
+    )
 
-    content = Group(info, commands)
+    content = Group(info, divider, cmd_grid)
     welcome = Panel(
         content,
         title=f"[bold {_C_PRIMARY}]System[/]",
@@ -701,7 +852,7 @@ async def _chat_loop(config_path: str | None) -> None:
     stats = SessionStats()
 
     # Banner
-    console.print(_BANNER)
+    console.print(_build_banner())
 
     _try_unlock_vault(agent)
 
@@ -816,12 +967,29 @@ async def _chat_loop(config_path: str | None) -> None:
             stats.update_task_tokens(agent._router.cost_tracker)
             stats.context_messages = len(agent._conversation_history)
 
-            # Response panel
+            # Response panel with model/cost/time subtitle
+            model_short = (
+                stats.last_model.split("/")[-1][:20] if stats.last_model else ""
+            )
+            subtitle_parts = [
+                p
+                for p in [
+                    model_short,
+                    f"${stats.session_cost:.4f}" if stats.session_cost else "",
+                    f"{task_elapsed:.1f}s",
+                ]
+                if p
+            ]
+            subtitle = (
+                f"[{_C_DIM}]{' · '.join(subtitle_parts)}[/]" if subtitle_parts else None
+            )
+
             console.print()
             console.print(
                 Panel(
                     Markdown(response.content),
                     title=_LOGO_SMALL,
+                    subtitle=subtitle,
                     border_style=_C_BORDER,
                     padding=(1, 2),
                 )
