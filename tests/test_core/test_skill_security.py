@@ -234,7 +234,7 @@ class TestSkillOriginTagging:
 
         mgr = SkillManager(skills_dir)
         mgr.discover()
-        xml = mgr.format_available_skills()
+        xml = mgr.format_available_skills(query="test")
         assert 'source="hub"' in xml
         assert 'tier="verified"' in xml
 
@@ -249,7 +249,7 @@ class TestSkillOriginTagging:
 
         mgr = SkillManager(skills_dir)
         mgr.discover()
-        xml = mgr.format_available_skills()
+        xml = mgr.format_available_skills(query="test")
         assert 'source="local"' in xml
 
 
