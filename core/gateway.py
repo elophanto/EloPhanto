@@ -98,6 +98,9 @@ class Gateway:
         )
         self._health_monitor_task: asyncio.Task[None] | None = None
 
+        # Remote shutdown signal (set by exit/shutdown commands from any channel)
+        self._shutdown_event: asyncio.Event = asyncio.Event()
+
     @property
     def url(self) -> str:
         return f"ws://{self._host}:{self._port}"
@@ -127,6 +130,19 @@ class Gateway:
 
         # Start session cleanup loop
         self._session_cleanup_task = asyncio.create_task(self._session_cleanup_loop())
+
+    async def request_shutdown(self, reason: str = "Remote shutdown requested") -> None:
+        """Signal graceful shutdown from any channel."""
+        logger.info("Shutdown requested: %s", reason)
+        await self.broadcast(
+            event_message("", EventType.SHUTDOWN, {"reason": reason}),
+            session_id=None,
+        )
+        self._shutdown_event.set()
+
+    async def wait_for_shutdown(self) -> None:
+        """Block until shutdown is requested. Used by entry points."""
+        await self._shutdown_event.wait()
 
     async def stop(self) -> None:
         """Gracefully shut down the gateway."""
@@ -1281,6 +1297,41 @@ class Gateway:
             await client.websocket.send(
                 response_message(session_id, payload, done=True).to_json()
             )
+
+        elif command in ("exit", "quit", "shutdown"):
+            # Hard stop — shut down the entire agent from any channel
+            await client.websocket.send(
+                response_message(session_id, "Shutting down...", done=True).to_json()
+            )
+            await self.request_shutdown(f"{command} from {client.channel}:{user_id}")
+
+        elif command == "stop":
+            # Cancel the current task for this client
+            task = self._active_chat_tasks.get(client.client_id)
+            if task and not task.done():
+                task.cancel()
+                await client.websocket.send(
+                    response_message(session_id, "Task stopped.", done=True).to_json()
+                )
+            else:
+                await client.websocket.send(
+                    response_message(session_id, "No active task.", done=True).to_json()
+                )
+
+        elif command == "pause":
+            # Pause the autonomous mind
+            mind = getattr(self._agent, "_autonomous_mind", None)
+            if mind and mind.is_running:
+                mind.notify_user_interaction()
+                await client.websocket.send(
+                    response_message(session_id, "Mind paused.", done=True).to_json()
+                )
+            else:
+                await client.websocket.send(
+                    response_message(
+                        session_id, "Mind not running.", done=True
+                    ).to_json()
+                )
 
         else:
             # Try recovery handler — pure Python, no LLM

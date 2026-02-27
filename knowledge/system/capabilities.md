@@ -1,7 +1,7 @@
 ---
 title: EloPhanto Capabilities
 created: 2026-02-17
-updated: 2026-02-18
+updated: 2026-02-26
 tags: tools, capabilities, features
 scope: system
 ---
@@ -34,6 +34,41 @@ Real Chrome automation using the user's profile. Tools cover: navigation, clicki
 - `browser_get_console`, `browser_get_network`, `browser_get_cookies`
 - `browser_new_tab`, `browser_list_tabs`, `browser_switch_tab`
 - `browser_wait_for_selector`, `browser_eval`
+
+## Video Creation (Remotion)
+
+EloPhanto can create, edit, and render videos programmatically using Remotion - a React-based video creation framework. This capability includes:
+
+### Features
+- **React-based compositions** - Use React patterns to create videos
+- **Frame-based animations** - `useCurrentFrame()`, `useVideoConfig()`, `interpolate()`, `spring()`
+- **Map animations** - Mapbox integration with zooming, path following, camera movement
+- **3D content** - Three.js and React Three Fiber for 3D models and animations
+- **Charts & data viz** - Bar, pie, line, stock chart visualizations
+- **Text animations** - Typography effects, kinetic text, animated captions
+- **Audio & voiceover** - Background music, sound effects, TTS via ElevenLabs
+- **Transitions** - Scene wipes, fades, cross-dissolves
+- **Captions & subtitles** - Auto-transcribe, import SRT, display captions
+
+### Use Cases
+- Animated explainers and promos
+- Motion graphics and text animations
+- Map-based journey visualizations (zoom, pan, path following)
+- 3D animated content and models
+- Social media content (product promos, announcements)
+- Data visualization videos (charts, graphs)
+- Videos with captions, subtitles, and voiceover
+
+### Workflow
+1. Load Remotion best practices skill
+2. Scaffold project with npm packages
+3. Create React compositions using Remotion APIs
+4. Apply relevant rule files (maps, 3d, charts, audio, etc.)
+5. Render video to workspace directory (`/tmp/elophanto/<project>/out/video.mp4`)
+
+**Tested**: Yellow bouncing ball video (2026-02-26) - 10s, 1920x1080, physics animation, squash & stretch
+
+See: `/knowledge/system/remotion-video-creation.md` for detailed documentation.
 
 ## Knowledge & Skills Tools
 
@@ -82,9 +117,9 @@ Crypto wallet management with spending limits, audit trail, and approval flow. T
 
 Spending limits: $100/txn, $500/day, $5,000/month, $200/recipient/day, 10 txn/hour, duplicate detection.
 
-## Skills (27 loaded)
+## Skills (31 loaded)
 
-Best-practice guides loaded before tasks. Categories: Python, TypeScript/Node.js, browser automation, file management, research, Next.js, Supabase, Prisma, shadcn, React, MCP, web app testing, UI/design.
+Best-practice guides loaded before tasks. Categories: Python, TypeScript/Node.js, browser automation, file management, research, Next.js, Supabase, Prisma, shadcn, React, MCP, web app testing, UI/design, Remotion video creation, and more.
 
 ## LLM Providers
 

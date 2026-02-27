@@ -128,6 +128,18 @@ class DiscordAdapter(ChannelAdapter):
             await self.send_command("status", user_id=str(interaction.user.id))
             await interaction.followup.send("Status requested.")
 
+        @tree.command(name="stop", description="Cancel the current task")
+        async def slash_stop(interaction: discord.Interaction) -> None:
+            await interaction.response.defer()
+            await self.send_command("stop", user_id=str(interaction.user.id))
+            await interaction.followup.send("Task stopped.")
+
+        @tree.command(name="shutdown", description="Shut down the agent")
+        async def slash_shutdown(interaction: discord.Interaction) -> None:
+            await interaction.response.defer()
+            await self.send_command("exit", user_id=str(interaction.user.id))
+            await interaction.followup.send("Shutting down...")
+
         # Run both gateway listener and Discord client
         await asyncio.gather(
             self.gateway_listener(),

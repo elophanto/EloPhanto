@@ -60,6 +60,7 @@ class EventType(StrEnum):
     MIND_RESUMED = "mind_resumed"
     MIND_REVENUE = "mind_revenue"
     MIND_ERROR = "mind_error"
+    SHUTDOWN = "shutdown"
 
 
 @dataclass
