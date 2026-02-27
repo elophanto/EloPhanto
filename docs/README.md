@@ -10,6 +10,12 @@
 
 ---
 
+## Quick Start
+
+New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — Get running and complete your first task in under 5 minutes.
+
+---
+
 ## Documents
 
 | # | Document | What It Covers |
@@ -17,7 +23,7 @@
 | 01 | [Project Overview](01-PROJECT-OVERVIEW.md) | What EloPhanto is, core principles, what makes it different |
 | 02 | [Architecture](02-ARCHITECTURE.md) | System layers, agent loop, data flow, component interaction |
 | 03 | [Tool Reference](03-TOOLS.md) | Complete tool interface spec and all built-in tools |
-| 04 | [Self-Development Pipeline](04-SELF-DEVELOPMENT.md) | How the agent builds and tests new capabilities |
+| 04 | [Self-Development Pipeline](04-SELF-DEVELOPMENT.md) | How agent builds and tests new capabilities |
 | 05 | [Knowledge System](05-KNOWLEDGE-SYSTEM.md) | Markdown knowledge base, indexing, retrieval, self-documentation |
 | 06 | [LLM Routing](06-LLM-ROUTING.md) | Multi-model strategy, provider config, cost management |
 | 07 | [Security Architecture](07-SECURITY.md) | Vault, permissions, credential isolation, threat model |
@@ -41,6 +47,9 @@
 | 24 | [Verification & 2FA](24-VERIFICATION.md) | TOTP authenticator, SMS via conversation, verification priority system |
 | 25 | [Agent Swarm](25-AGENT-SWARM.md) | Orchestrate Claude Code, Codex, Gemini CLI as a coding team via conversation |
 | 26 | [Autonomous Mind](26-AUTONOMOUS-MIND.md) | Purpose-driven background thinking loop, revenue pursuit, scratchpad, budget isolation |
+| 27 | [Security Hardening](27-SECURITY-HARDENING.md) | PII redaction, swarm boundaries, provider transparency, kill switches |
+| 28 | [Remotion Video Creation](28-REMOTION.md) | Programmatic video generation with 37 rule files |
+| 30 | [Quick Start Guide](30-QUICKSTART.md) | 5-minute setup and first task walkthrough |
 
 ---
 
@@ -54,7 +63,7 @@
 
 **How it stays safe**: Encrypted credential vault. Three-tier permission system (Ask Always / Smart Auto / Full Auto) with per-tool overrides via `permissions.yaml`. Protected files system that prevents the agent from modifying its own safety-critical code. Log redaction strips API keys and secrets. Git-based rollback for all self-modifications. Full QA pipeline for self-developed code. Database-backed approval queue that works across all channels.
 
-**How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as the control plane. Channel adapters (CLI, Telegram, Discord, Slack) connect as thin WebSocket clients. By default, all channels share one unified session — chat from CLI, continue from Telegram, same conversation history. Cross-channel messages and responses are broadcast to all connected adapters. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use.
+**How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as a control plane. Channel adapters (CLI, Telegram, Discord, Slack) connect as thin WebSocket clients. By default, all channels share one unified session — chat from CLI, continue from Telegram, same conversation history. Cross-channel messages and responses are broadcast to all connected adapters. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use.
 
 **How it controls the browser**: A Node.js bridge spawns real Chrome (Playwright + stealth plugin) with the user's copied profile. In profile mode, existing sessions and cookies are preserved — no re-authentication needed. 47 browser tools cover navigation, clicking, typing, scrolling, screenshots, console/network inspection, and more.
 
@@ -65,9 +74,9 @@
 ## One-Line Architecture
 
 ```
-User ←→ Channel Adapters (CLI/Telegram/Discord/Slack) ←→ Gateway ←→ Agent Core (plan/execute/reflect) ←→ Tools ←→ System/Browser/APIs
-                                                                         ↕
+User ↞ Channel Adapters (CLI/Telegram/Discord/Slack) ↞ Gateway ↞ Agent Core (plan/execute/reflect) ↞ Tools ↞ System/Browser/APIs
+                                                                         ↗
                                                            Memory + Knowledge + Skills + LLM Router + EloPhantoHub
-                                                                         ↕
+                                                                         ↗
                                                                Self-Development Pipeline
 ```
