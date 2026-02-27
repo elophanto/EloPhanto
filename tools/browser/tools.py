@@ -252,6 +252,29 @@ _TOOL_DEFS: list[tuple[str, str, dict[str, Any], PermissionLevel]] = [
         },
         PermissionLevel.MODERATE,
     ),
+    (
+        "browser_paste_html",
+        "Paste HTML content as rich text into the focused element. "
+        "Dispatches a native paste event with text/html — the editor receives formatted content "
+        "(headings, bold, italic, links, lists) as if pasted from clipboard. "
+        "CRITICAL for platforms that don't render markdown (Medium, Substack, WordPress). "
+        "Focus the target element first (browser_click), then call this with HTML.",
+        {
+            "type": "object",
+            "properties": {
+                "html": {
+                    "type": "string",
+                    "description": "HTML content to paste",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Plain text fallback (auto-stripped from HTML if omitted)",
+                },
+            },
+            "required": ["html"],
+        },
+        PermissionLevel.MODERATE,
+    ),
     # --- Scrolling ---
     (
         "browser_scroll",
@@ -266,7 +289,7 @@ _TOOL_DEFS: list[tuple[str, str, dict[str, Any], PermissionLevel]] = [
                 },
                 "amount": {
                     "type": "number",
-                    "description": "Pixels to scroll (default: 500)",
+                    "description": "Pixels to scroll (default: 300)",
                 },
             },
             "required": ["direction"],

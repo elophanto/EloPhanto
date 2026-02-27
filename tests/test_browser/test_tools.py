@@ -38,7 +38,7 @@ class TestBrowserToolInterface:
 
     def test_tool_count(self) -> None:
         tools = create_browser_tools()
-        assert len(tools) == 46
+        assert len(tools) == 47
 
     def test_names_are_unique(self) -> None:
         tools = create_browser_tools()

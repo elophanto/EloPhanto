@@ -23,6 +23,7 @@ STATE_CHANGING_TOOLS = frozenset(
         "browser_type",
         "browser_type_text",
         "browser_press_key",
+        "browser_paste_html",
         "browser_select_option",
         "browser_scroll",
         "browser_scroll_container",
