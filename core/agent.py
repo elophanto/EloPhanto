@@ -314,10 +314,14 @@ class Agent:
 
                 self._browser_manager = BrowserManager.from_config(self._config.browser)
 
-                # Pass OpenRouter key for vision-based screenshot analysis
+                # Pass OpenRouter key + vision model for screenshot analysis
                 or_cfg = self._config.llm.providers.get("openrouter")
                 if or_cfg and or_cfg.api_key and or_cfg.enabled:
                     self._browser_manager.openrouter_key = or_cfg.api_key
+                if self._config.browser.vision_model:
+                    self._browser_manager.vision_model = (
+                        self._config.browser.vision_model
+                    )
 
                 logger.info(
                     "Browser configured (mode=%s) — will launch on first use",

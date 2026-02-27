@@ -153,6 +153,7 @@ The bridge exposes 48 browser tools from `AwareBrowserAgent`. Key categories:
 | `browser_select_option` | Select/deselect form controls |
 | `browser_drag_drop` | Drag-and-drop by index or coordinates |
 | `browser_hover_element` | Hover by index |
+| `browser_paste_html` | Paste HTML as rich text into focused element (ClipboardEvent with text/html DataTransfer) |
 | `browser_upload_file` | Upload file(s) to `<input type="file">` by element index |
 | `browser_file_chooser` | Upload file(s) via native file dialog triggered by clicking a button |
 
@@ -222,13 +223,26 @@ When clicking/typing by index, the bridge resolves elements via:
 
 ### Smart Scrolling
 
-`browser_scroll` uses EKO's dual-container strategy:
+`browser_scroll` uses EKO's dual-container strategy with direct pixel amounts (default 300px):
 
 1. Checks if the page itself is scrollable first
 2. Finds all scrollable containers (overflow-y: auto/scroll with overflowing content)
 3. Traverses into iframes to find scrollable elements
 4. Ranks containers by z-index (highest first), then by visible area
 5. Scrolls both the primary container (highest z-index — typically modals/overlays) and the secondary container (tallest — typically the main content)
+
+The `amount` parameter is in pixels (default: 300). `browser_scroll_container` also accepts pixels (default: 300) and auto-detects modals/dialogs.
+
+### Rich Text Paste
+
+`browser_paste_html` enables pasting formatted content into rich text editors that don't render markdown (Medium, Substack, WordPress visual editor, Google Docs, etc.):
+
+1. Takes `html` content and optional `text` plain-text fallback
+2. Creates a `DataTransfer` with both `text/html` and `text/plain` MIME types
+3. Dispatches a synthetic `ClipboardEvent('paste')` on the focused element
+4. The editor receives formatted rich text as if the user pasted from clipboard
+
+This bypasses the system clipboard entirely — no permissions needed, works reliably across platforms. The agent should convert markdown to HTML before calling this tool.
 
 ### File Upload
 
@@ -298,6 +312,7 @@ browser:
   use_system_chrome: true     # Use system Chrome vs Playwright Chromium
   viewport_width: 1536        # Browser viewport width
   viewport_height: 864        # Browser viewport height
+  vision_model: google/gemini-2.0-flash-001  # OpenRouter model for screenshot analysis
 ```
 
 ## Setup
