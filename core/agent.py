@@ -1260,6 +1260,9 @@ class Agent:
                     )
                 )
 
+                # Auto-detect owner directives in user message
+                asyncio.create_task(self._detect_and_store_directive(goal))
+
                 if self._identity_manager:
                     asyncio.create_task(
                         self._identity_manager.reflect_on_task(
@@ -1565,3 +1568,91 @@ class Agent:
             )
         except Exception as e:
             logger.debug(f"Failed to store task memory: {e}")
+
+    # ------------------------------------------------------------------
+    # Automatic directive detection
+    # ------------------------------------------------------------------
+
+    _DIRECTIVE_CLASSIFY_PROMPT = """\
+You are a classifier. Given a user message sent to an AI agent, determine if it \
+contains an OWNER DIRECTIVE — a standing instruction, preference, or rule that \
+should be remembered across all future interactions.
+
+Examples of directives:
+- "Don't ever post on Reddit"
+- "Always use Python 3.12"
+- "Never spend more than $5 per task"
+- "My name is Alex"
+- "Use dark mode in all UIs you build"
+- "I prefer concise answers"
+
+Examples of NON-directives (regular chat):
+- "What's the weather today?"
+- "Fix the bug in auth.py"
+- "How does the indexer work?"
+- "Thanks, that looks good"
+- "Run the tests"
+
+Respond with EXACTLY this JSON (no other text):
+{"is_directive": true/false, "directive": "...", "key": "..."}
+
+- "is_directive": true only if the message contains a standing instruction/preference
+- "directive": the directive rephrased as a clear, concise rule (empty string if not a directive)
+- "key": a short kebab-case identifier for the directive (e.g. "no-reddit", "prefer-python312")
+
+User message:
+{user_message}"""
+
+    async def _detect_and_store_directive(self, user_message: str) -> None:
+        """Classify whether user_message contains a directive and persist it.
+
+        Runs a cheap, fast LLM call in the background. Failures are silently
+        logged — this must never block or break the main chat flow.
+        """
+        try:
+            prompt = self._DIRECTIVE_CLASSIFY_PROMPT.format(
+                user_message=user_message[:1000]
+            )
+            response = await self._router.complete(
+                messages=[{"role": "user", "content": prompt}],
+                task_type="simple",
+                temperature=0.0,
+                max_tokens=200,
+            )
+            text = (response.content or "").strip()
+            # Parse JSON from the response
+            # Handle models that wrap in ```json ... ```
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            result = json.loads(text)
+
+            if not result.get("is_directive"):
+                return
+
+            directive_text = result.get("directive", "").strip()
+            key = result.get("key", "directive").strip()
+            if not directive_text:
+                return
+
+            # Persist via knowledge_write tool (already has deps injected)
+            write_tool = self._registry.get("knowledge_write")
+            if not write_tool:
+                logger.debug("knowledge_write tool not available for directive storage")
+                return
+
+            await write_tool.execute(
+                {
+                    "path": f"user/directives/{key}.md",
+                    "content": f"## Directive\n\n{directive_text}\n\n"
+                    f"## Original message\n\n> {user_message[:500]}\n",
+                    "title": directive_text[:100],
+                    "tags": "directive,owner,auto-detected",
+                    "scope": "user",
+                }
+            )
+            logger.info("Auto-stored owner directive: %s -> %s", key, directive_text)
+
+        except json.JSONDecodeError:
+            logger.debug("Directive classifier returned non-JSON: %s", text[:200])
+        except Exception as e:
+            logger.debug("Directive detection failed (non-fatal): %s", e)
