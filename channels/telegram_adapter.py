@@ -100,6 +100,9 @@ class TelegramChannelAdapter(ChannelAdapter):
                 _escape_md2(
                     "*Commands*\n\n"
                     "/status — Agent status\n"
+                    "/stop — Cancel current task\n"
+                    "/pause — Pause autonomous mind\n"
+                    "/shutdown — Shut down the agent\n"
                     "/health — Provider health report\n"
                     "/config — Read/update config\n"
                     "/provider — Enable/disable providers\n"
@@ -153,6 +156,26 @@ class TelegramChannelAdapter(ChannelAdapter):
             # Forward full command text: "/health recheck" → "health recheck"
             text = (message.text or "").lstrip("/")
             await self.send_command(text, user_id=user_id)
+
+        # Control commands — forwarded to gateway
+        @self._dp.message(Command("stop"))
+        async def cmd_stop(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            await self.send_command("stop", user_id=str(message.from_user.id))
+
+        @self._dp.message(Command("pause"))
+        async def cmd_pause(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            await self.send_command("pause", user_id=str(message.from_user.id))
+
+        @self._dp.message(Command("shutdown"))
+        async def cmd_shutdown(message: types.Message) -> None:
+            if not self._is_authorized(message.from_user.id):
+                return
+            await message.answer("Shutting down...")
+            await self.send_command("exit", user_id=str(message.from_user.id))
 
         @self._dp.message()
         async def handle_message(message: types.Message) -> None:

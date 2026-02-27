@@ -813,10 +813,17 @@ async def _chat_gateway(cfg: Any) -> None:
     console.print(welcome)
     console.print()
 
-    # Run CLI adapter connected to local gateway
+    # Run CLI adapter — race against remote shutdown signal
     cli = CLIAdapter(gateway_url=gw_url)
+    cli_task = asyncio.create_task(cli.start())
+    shutdown_task = asyncio.create_task(gateway.wait_for_shutdown())
     try:
-        await cli.start()
+        done, pending = await asyncio.wait(
+            [cli_task, shutdown_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
     except (KeyboardInterrupt, EOFError):
         pass
 

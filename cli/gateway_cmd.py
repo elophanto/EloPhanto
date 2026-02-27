@@ -259,19 +259,27 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
         )
     )
 
-    # Start CLI adapter inline (or just wait)
+    # Start CLI adapter inline (or just wait) — race against remote shutdown
+    shutdown_task = asyncio.create_task(gateway.wait_for_shutdown())
+
     if not no_cli:
         from channels.cli_adapter import CLIAdapter
 
         cli = CLIAdapter(gateway_url=gw_url)
+        cli_task = asyncio.create_task(cli.start())
         try:
-            await cli.start()
+            done, pending = await asyncio.wait(
+                [cli_task, shutdown_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
         except (KeyboardInterrupt, EOFError):
             pass
     else:
         console.print(f"\n  [{_C_DIM}]Gateway running. Press Ctrl+C to stop.[/]\n")
         try:
-            await asyncio.Event().wait()
+            await shutdown_task
         except (KeyboardInterrupt, asyncio.CancelledError):
             pass
 

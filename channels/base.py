@@ -22,6 +22,16 @@ from core.protocol import (
 
 logger = logging.getLogger(__name__)
 
+# Control words intercepted before reaching the LLM — mapped to gateway commands
+_CONTROL_WORDS: dict[str, str] = {
+    "exit": "exit",
+    "quit": "exit",
+    "q": "exit",
+    "stop": "stop",
+    "shutdown": "exit",
+    "pause": "pause",
+}
+
 
 class ChannelAdapter(ABC):
     """Base class for all channel adapters.
@@ -115,6 +125,19 @@ class ChannelAdapter(ABC):
         attachments: list[dict] | None = None,
     ) -> GatewayMessage:
         """Send a chat message and wait for the response."""
+        # Intercept control words — send as command instead of chat
+        stripped = content.strip().lower()
+        if stripped in _CONTROL_WORDS and not attachments:
+            await self.send_command(
+                _CONTROL_WORDS[stripped], user_id=user_id, session_id=session_id
+            )
+            # Return a synthetic response so callers don't hang
+            return GatewayMessage(
+                type=MessageType.RESPONSE,
+                session_id=session_id,
+                data={"content": "", "done": True, "reply_to": ""},
+            )
+
         msg = chat_message(
             content=content,
             channel=self.name,
