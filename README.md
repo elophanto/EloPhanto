@@ -440,6 +440,7 @@ llm:
 browser:
   enabled: true
   mode: profile        # Uses your real Chrome sessions
+  vision_model: google/gemini-2.0-flash-001  # Screenshot analysis model (OpenRouter)
 
 gateway:
   enabled: true

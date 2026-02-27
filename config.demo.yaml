@@ -103,6 +103,7 @@ browser:
   viewport_width: 1280
   viewport_height: 720
   profile_directory: ""                 # e.g. "Profile 1"
+  vision_model: google/gemini-2.0-flash-001  # OpenRouter model for screenshot analysis
 
 scheduler:
   enabled: true

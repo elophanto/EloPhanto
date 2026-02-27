@@ -128,6 +128,7 @@ class BrowserConfig:
     use_system_chrome: bool = True
     viewport_width: int = 1280
     viewport_height: int = 720
+    vision_model: str = "google/gemini-2.0-flash-001"
 
 
 @dataclass
@@ -725,6 +726,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         use_system_chrome=browser_raw.get("use_system_chrome", True),
         viewport_width=browser_raw.get("viewport_width", 1280),
         viewport_height=browser_raw.get("viewport_height", 720),
+        vision_model=browser_raw.get("vision_model", "google/gemini-2.0-flash-001"),
     )
 
     # Parse scheduler section

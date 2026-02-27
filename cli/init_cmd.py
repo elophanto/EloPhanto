@@ -493,11 +493,20 @@ def _edit_browser(config: dict) -> None:
 
         browser_cfg.setdefault("cdp_port", 9222)
         browser_cfg.setdefault("cdp_ws_endpoint", "")
+
+        # Vision model for screenshot analysis (via OpenRouter)
+        current_vision = browser_cfg.get("vision_model", "google/gemini-2.0-flash-001")
+        vision_model = Prompt.ask(
+            "  Vision model for screenshot analysis (OpenRouter)",
+            default=current_vision,
+        )
+        browser_cfg["vision_model"] = vision_model
     else:
         browser_cfg["mode"] = "fresh"
         browser_cfg["user_data_dir"] = ""
         browser_cfg.setdefault("cdp_port", 9222)
         browser_cfg.setdefault("cdp_ws_endpoint", "")
+        browser_cfg.setdefault("vision_model", "google/gemini-2.0-flash-001")
         console.print("  [dim]Disabled.[/dim]")
 
 
@@ -1151,6 +1160,7 @@ def _default_config() -> dict:
             "use_system_chrome": True,
             "viewport_width": 1280,
             "viewport_height": 720,
+            "vision_model": "google/gemini-2.0-flash-001",
         },
         "scheduler": {
             "enabled": False,
