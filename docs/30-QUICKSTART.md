@@ -62,7 +62,11 @@ Select **OpenRouter** in the wizard.
 
 ---
 
-## Step 3: First Run (30 seconds)
+## Step 3: Launch EloPhanto (30 seconds)
+
+Choose your preferred interface:
+
+### Option A: Terminal Interface
 
 ```bash
 ./start.sh
@@ -71,15 +75,32 @@ Select **OpenRouter** in the wizard.
 You'll see welcome prompt:
 
 ```
-┌─────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────┐
 │  Welcome to EloPhanto                                   │
 │  117 tools available | Mode: ask_always                  │
-└─────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────┘
 You: _
 ```
 
+### Option B: Web Dashboard
+
+```bash
+./start.sh --web
+```
+
+Open http://localhost:3000 in your browser.
+
+The web dashboard includes:
+- Real-time chat with conversation history
+- Tools & skills browser
+- Knowledge base viewer
+- Autonomous mind monitor
+- Schedule manager
+- Channels status (Telegram, Discord, Slack)
+
 <p align="center">
   <img src="../misc/screenshots/chat.png" alt="Chat Interface" width="500">
+  <img src="../misc/screenshots/dashboard.png" alt="Web Dashboard" width="500">
 </p>
 
 ---
@@ -106,10 +127,6 @@ The agent:
 2. Navigated to GitHub (using your existing session if logged in)
 3. Extracted star count from page
 4. Reported answer
-
-<p align="center">
-  <img src="../misc/screenshots/dashboard.png" alt="Web Dashboard" width="600">
-</p>
 
 ---
 
@@ -160,26 +177,6 @@ Here are more first tasks to explore:
 # System tasks
 "Check my disk usage"
 ```
-
----
-
-## Optional: Web Dashboard
-
-For a visual interface with monitoring and multi-channel support:
-
-```bash
-./start.sh --web
-```
-
-Open http://localhost:3000 in your browser.
-
-Features:
-- Real-time chat with conversation history
-- Tools & skills browser
-- Knowledge base viewer
-- Autonomous mind monitor
-- Schedule manager
-- Channels status (Telegram, Discord, Slack)
 
 ---
 
