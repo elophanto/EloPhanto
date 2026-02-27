@@ -3497,6 +3497,34 @@ export class AwareBrowserAgent {
   }
 
   /**
+   * Paste HTML content as rich text into the focused element.
+   * Dispatches a synthetic ClipboardEvent with DataTransfer containing text/html.
+   * Works with contenteditable editors (Medium, Substack, WordPress, etc.).
+   */
+  async pasteHTML(html: string, text?: string): Promise<{ success: boolean; htmlLength: number; textLength: number }> {
+    this.invalidateElementsCache();
+    const page = await this.getPage();
+    const plainText = text ?? html.replace(/<[^>]*>/g, '');
+
+    await page.evaluate(({ h, t }) => {
+      const el = document.activeElement;
+      if (!el) throw new Error('No focused element to paste into');
+
+      const dt = new DataTransfer();
+      dt.setData('text/html', h);
+      dt.setData('text/plain', t);
+      const evt = new ClipboardEvent('paste', {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      });
+      el.dispatchEvent(evt);
+    }, { h: html, t: plainText });
+
+    return { success: true, htmlLength: html.length, textLength: plainText.length };
+  }
+
+  /**
    * Upload file(s) to an <input type="file"> element by index.
    * Uses Playwright's setInputFiles() — works for standard file inputs.
    */
@@ -3620,23 +3648,22 @@ export class AwareBrowserAgent {
   /**
    * Scroll the page
    */
-  async scroll(direction: 'up' | 'down', amount = 3): Promise<void> {
+  async scroll(direction: 'up' | 'down', amount = 300): Promise<void> {
     this.invalidateElementsCache();
     const page = await this.getPage();
-    const scrollAmount = direction === 'down' ? amount : -amount;
+    // amount is pixels — positive for down, negative for up
+    const pixels = direction === 'down' ? amount : -amount;
 
     // Smart scroll: finds scrollable containers, ranks by z-index + visible area,
     // scrolls both primary (highest z-index) and secondary (tallest) containers.
-    // Same approach as EKO's browser-labels.ts scroll_by().
     await page.evaluate(`
       (function() {
-        var amount = ${scrollAmount};
+        var pixels = ${pixels};
         var documentElement = document.documentElement || document.body;
 
         // If the page itself is scrollable, just scroll the window
         if (documentElement.scrollHeight > window.innerHeight * 1.2) {
-          var y = Math.max(20, Math.min((window.innerHeight || documentElement.clientHeight) / 10, 200));
-          window.scrollBy(0, y * amount);
+          window.scrollBy({ top: pixels, behavior: 'auto' });
           return;
         }
 
@@ -3675,8 +3702,7 @@ export class AwareBrowserAgent {
         }
 
         if (scrollable.length === 0) {
-          var y = Math.max(20, Math.min((window.innerHeight || documentElement.clientHeight) / 10, 200));
-          window.scrollBy(0, y * amount);
+          window.scrollBy({ top: pixels, behavior: 'auto' });
           return;
         }
 
@@ -3712,8 +3738,7 @@ export class AwareBrowserAgent {
 
         // Scroll primary container (highest z-index / largest visible)
         var primary = sorted[0];
-        var py = Math.max(20, Math.min(primary.clientHeight / 10, 200));
-        primary.scrollBy(0, py * amount);
+        primary.scrollBy({ top: pixels, behavior: 'auto' });
 
         // Also scroll secondary container (tallest) if different from primary
         var byHeight = sorted.slice().sort(function(a, b) {
@@ -3721,8 +3746,7 @@ export class AwareBrowserAgent {
         });
         var secondary = byHeight[0];
         if (secondary !== primary) {
-          var sy = Math.max(20, Math.min(secondary.clientHeight / 10, 200));
-          secondary.scrollBy(0, sy * amount);
+          secondary.scrollBy({ top: pixels, behavior: 'auto' });
         }
       })()
     `);

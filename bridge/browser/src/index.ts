@@ -220,7 +220,7 @@ Set 'enter' to true to submit forms after typing.`,
         type: 'object',
         properties: {
           direction: { type: 'string', enum: ['up', 'down'], description: 'Scroll direction' },
-          amount: { type: 'number', description: 'Pixels to scroll (default: 500)' },
+          amount: { type: 'number', description: 'Pixels to scroll (default: 300)' },
         },
         required: ['direction'],
       },
@@ -729,6 +729,29 @@ This is similar to DevTools Elements search (Ctrl+F).`,
         const browser = await this.ensureBrowser();
         await browser.typeText(text, pressEnter ?? false);
         return { success: true, typed: text };
+      },
+    },
+    {
+      type: 'tool',
+      name: 'browser_paste_html',
+      description: `Paste HTML content as rich text into the currently focused element.
+Dispatches a native paste event with text/html MIME type — the editor receives formatted content
+(headings, bold, italic, links, lists) as if the user pasted rich text from the clipboard.
+CRITICAL for platforms that don't render markdown (Medium, Substack, WordPress visual editor).
+Focus the target element first (browser_click), then call this tool with your HTML content.
+Optionally provide a plain text fallback; if omitted, HTML tags are stripped automatically.`,
+      schema: {
+        type: 'object',
+        properties: {
+          html: { type: 'string', description: 'HTML content to paste (e.g. "<h2>Title</h2><p>Body with <strong>bold</strong></p>")' },
+          text: { type: 'string', description: 'Plain text fallback (auto-generated from HTML if omitted)' },
+        },
+        required: ['html'],
+      },
+      execute: async (params: unknown) => {
+        const { html, text } = params as { html: string; text?: string };
+        const browser = await this.ensureBrowser();
+        return browser.pasteHTML(html, text);
       },
     },
     {

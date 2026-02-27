@@ -102,7 +102,7 @@ class TestToolInterface:
 
     def test_expected_tool_count(self, test_config: Config) -> None:
         tools = _make_tools(test_config)
-        assert len(tools) == 67  # 6 + 3 + 4 + 46 + 2 + 3 + 3
+        assert len(tools) == 68  # 6 + 3 + 4 + 47 + 2 + 3 + 3
 
     def test_expected_permission_levels(self, test_config: Config) -> None:
         tool_map = {t.name: t for t in _make_tools(test_config)}
@@ -119,13 +119,19 @@ class TestToolInterface:
         # Self-dev
         assert tool_map["self_read_source"].permission_level == PermissionLevel.SAFE
         assert tool_map["self_run_tests"].permission_level == PermissionLevel.MODERATE
-        assert tool_map["self_list_capabilities"].permission_level == PermissionLevel.SAFE
-        assert tool_map["self_create_plugin"].permission_level == PermissionLevel.CRITICAL
+        assert (
+            tool_map["self_list_capabilities"].permission_level == PermissionLevel.SAFE
+        )
+        assert (
+            tool_map["self_create_plugin"].permission_level == PermissionLevel.CRITICAL
+        )
         # Browser (key tools)
         assert tool_map["browser_navigate"].permission_level == PermissionLevel.MODERATE
         assert tool_map["browser_extract"].permission_level == PermissionLevel.SAFE
         assert tool_map["browser_click"].permission_level == PermissionLevel.MODERATE
-        assert tool_map["browser_click_text"].permission_level == PermissionLevel.MODERATE
+        assert (
+            tool_map["browser_click_text"].permission_level == PermissionLevel.MODERATE
+        )
         assert tool_map["browser_type"].permission_level == PermissionLevel.MODERATE
         assert tool_map["browser_screenshot"].permission_level == PermissionLevel.SAFE
         assert tool_map["browser_get_elements"].permission_level == PermissionLevel.SAFE
@@ -133,7 +139,9 @@ class TestToolInterface:
         assert tool_map["browser_inject"].permission_level == PermissionLevel.CRITICAL
         assert tool_map["browser_close"].permission_level == PermissionLevel.CRITICAL
         assert tool_map["browser_list_tabs"].permission_level == PermissionLevel.SAFE
-        assert tool_map["browser_read_semantic"].permission_level == PermissionLevel.SAFE
+        assert (
+            tool_map["browser_read_semantic"].permission_level == PermissionLevel.SAFE
+        )
         assert tool_map["browser_full_audit"].permission_level == PermissionLevel.SAFE
         # Scheduling
         assert tool_map["schedule_task"].permission_level == PermissionLevel.MODERATE
