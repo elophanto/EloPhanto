@@ -29,15 +29,22 @@ The setup script handles everything:
 The wizard will prompt you to configure an LLM provider. Choose one:
 
 ### Option A: Ollama (Free, Local)
+
+**Recommended models for 2026:**
+- **Qwen 3** (8B) - Latest generation, strong reasoning, great for agents
+- **Gemma 3** (12B/27B) - Most capable model that runs on single GPU
+- **Llama 4** (16x17B) - Meta's latest multimodal model
+- **Phi 4** (14B) - State-of-the-art open model from Microsoft
+
 ```bash
 # Install Ollama first
 curl -fsSL https://ollama.ai/install.sh | sh
 
-# Pull a model
-ollama pull llama3.1
+# Pull a recommended model (Qwen 3 is great for agents)
+ollama pull qwen3:8b
 ```
 
-Select **Ollama** in the wizard, confirm `llama3.1` (or any installed model).
+Select **Ollama** in the wizard, confirm your model name.
 
 ### Option B: Z.ai / GLM (Cheap, Cloud)
 1. Go to https://z.ai/manage-apikey/apikey-list
@@ -61,14 +68,13 @@ Select **OpenRouter** in the wizard.
 ./start.sh
 ```
 
-You'll see the welcome prompt:
+You'll see welcome prompt:
 
 ```
-┌────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────┐
 │  Welcome to EloPhanto                                   │
 │  117 tools available | Mode: ask_always                  │
-└────────────────────────────────────────────────────────────┘
-
+└─────────────────────────────────────────────────┘
 You: _
 ```
 
@@ -83,11 +89,10 @@ You: _
 Try this simple task to see EloPhanto in action:
 
 ```
-Navigate to GitHub and tell me how many stars the elophanto/EloPhanto repo has
+Navigate to GitHub and tell me how many stars elophanto/EloPhanto repo has
 ```
 
 **What you'll see happening in real-time:**
-
 ```
 ✓ browser_navigate https://github.com/elophanto/EloPhanto
 ✓ browser_extract
@@ -99,8 +104,8 @@ The EloPhanto repository has 18 GitHub stars.
 The agent:
 1. Opened your real Chrome browser
 2. Navigated to GitHub (using your existing session if logged in)
-3. Extracted the star count from the page
-4. Reported the answer
+3. Extracted star count from page
+4. Reported answer
 
 <p align="center">
   <img src="../misc/screenshots/dashboard.png" alt="Web Dashboard" width="600">
@@ -113,7 +118,7 @@ The agent:
 Now try a task that shows off EloPhanto's autonomy:
 
 ```
-Research the latest post on Hacker News and summarize it
+Research latest post on Hacker News and summarize it
 ```
 
 **Watch it work:**
@@ -124,7 +129,7 @@ Research the latest post on Hacker News and summarize it
 ✓ Reading article...
 ✓ Summarizing...
 
-Summary: [2-3 sentence summary of the article]
+Summary: [2-3 sentence summary of article]
 ```
 
 <p align="center">
@@ -143,10 +148,10 @@ Here are more first tasks to explore:
 "Log into Twitter/X and tell me my follower count"
 
 # File management
-"List all Python files in the current directory"
+"List all Python files in current directory"
 
 # Research
-"Search for 'EloPhanto AI agent' and summarize the top 3 results"
+"Search for 'EloPhanto AI agent' and summarize top 3 results"
 
 # Knowledge building
 "Remember this: my favorite color is blue"
@@ -222,10 +227,10 @@ sudo apt install -y nodejs
 
 ## Next Steps
 
-- **Read [01-PROJECT-OVERVIEW.md](01-PROJECT-OVERVIEW.md)** — Understand the architecture
+- **Read [01-PROJECT-OVERVIEW.md](01-PROJECT-OVERVIEW.md)** — Understand architecture
 - **Explore tools** — Run `./start.sh` and type "list tools"
 - **Try skills** — Run `./start.sh skills list` to see 60+ bundled skills
-- **Join the community** — Star the repo on GitHub, report issues, contribute
+- **Join community** — Star repo on GitHub, report issues, contribute
 
 ---
 
