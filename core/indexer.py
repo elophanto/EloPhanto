@@ -409,21 +409,22 @@ class KnowledgeIndexer:
         """Delete old chunks for this file, insert new ones with embeddings."""
         now = datetime.now(UTC).isoformat()
 
+        # Collect chunk IDs BEFORE deleting (needed for vec cleanup)
+        old_chunk_ids: list[int] = []
+        if self._db.vec_available:
+            existing = await self._db.execute(
+                "SELECT id FROM knowledge_chunks WHERE file_path = ?", (file_path,)
+            )
+            old_chunk_ids = [row["id"] for row in existing]
+
         # Delete existing chunks for this file
         await self._db.execute(
             "DELETE FROM knowledge_chunks WHERE file_path = ?", (file_path,)
         )
 
-        # Delete from vec table too
-        if self._db.vec_available:
-            # Get IDs to delete from vec table
-            existing = await self._db.execute(
-                "SELECT id FROM knowledge_chunks WHERE file_path = ?", (file_path,)
-            )
-            for row in existing:
-                await self._db.execute(
-                    "DELETE FROM vec_chunks WHERE chunk_id = ?", (row["id"],)
-                )
+        # Delete stale embeddings from vec table
+        for cid in old_chunk_ids:
+            await self._db.execute("DELETE FROM vec_chunks WHERE chunk_id = ?", (cid,))
 
         for chunk in chunks:
             # Redact PII before any storage — embeddings are permanent

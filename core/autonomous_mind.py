@@ -622,7 +622,7 @@ class AutonomousMind:
         memory_text = "\n".join(sections) if sections else "(no prior activity)"
         sections.clear()
 
-        # --- Knowledge stats ---
+        # --- Knowledge stats + user directives ---
         knowledge_text = "(empty knowledge base)"
         try:
             if self._agent._db:
@@ -632,6 +632,29 @@ class AutonomousMind:
                 count = rows[0]["cnt"] if rows else 0
                 if count > 0:
                     knowledge_text = f"[KNOWLEDGE] {count} chunks indexed"
+
+                # Surface user-scoped knowledge as direct owner directives.
+                # These are instructions/preferences the owner has stored —
+                # the mind MUST see them every cycle to respect boundaries.
+                user_rows = await self._agent._db.execute(
+                    "SELECT content, heading_path FROM knowledge_chunks "
+                    "WHERE scope = 'user' ORDER BY indexed_at DESC LIMIT 10"
+                )
+                if user_rows:
+                    directives = []
+                    for r in user_rows:
+                        heading = r["heading_path"]
+                        content = r["content"][:500]
+                        label = (
+                            f"[OWNER DIRECTIVE: {heading}] "
+                            if heading
+                            else "[OWNER DIRECTIVE] "
+                        )
+                        directives.append(f"{label}{content}")
+                    knowledge_text += (
+                        "\n\nOWNER DIRECTIVES (MUST OBEY — these override all other priorities):\n"
+                        + "\n".join(directives)
+                    )
         except Exception:
             pass
 
