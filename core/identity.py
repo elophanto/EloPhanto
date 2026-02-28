@@ -164,7 +164,9 @@ class IdentityManager:
         if rows:
             self._identity = self._row_to_identity(rows[0])
             logger.info(
-                "Identity loaded: %s (v%d)", self._identity.display_name, self._identity.version
+                "Identity loaded: %s (v%d)",
+                self._identity.display_name,
+                self._identity.version,
             )
             return self._identity
 
@@ -255,7 +257,9 @@ class IdentityManager:
     # Reflection
     # ------------------------------------------------------------------
 
-    async def reflect_on_task(self, goal: str, outcome: str, tools_used: list[str]) -> list[dict]:
+    async def reflect_on_task(
+        self, goal: str, outcome: str, tools_used: list[str]
+    ) -> list[dict]:
         """Light reflection after task completion. Returns list of updates made."""
         if not self._config.auto_evolve:
             return []
@@ -266,7 +270,10 @@ class IdentityManager:
         try:
             response = await self._router.complete(
                 messages=[
-                    {"role": "system", "content": _REFLECT_SYSTEM.format(identity_summary=summary)},
+                    {
+                        "role": "system",
+                        "content": _REFLECT_SYSTEM.format(identity_summary=summary),
+                    },
                     {
                         "role": "user",
                         "content": (
@@ -293,7 +300,9 @@ class IdentityManager:
             action = upd.get("action", "set")
 
             if field_name in _UPDATABLE_FIELDS and value:
-                if action == "add" and isinstance(getattr(identity, field_name, None), list):
+                if action == "add" and isinstance(
+                    getattr(identity, field_name, None), list
+                ):
                     ok = await self.update_field(
                         field_name, value, reason, trigger="task_reflection"
                     )
@@ -357,7 +366,9 @@ class IdentityManager:
             value = upd.get("value", "")
             reason = upd.get("reason", "deep reflection")
             if field_name in _UPDATABLE_FIELDS and value:
-                ok = await self.update_field(field_name, value, reason, trigger="deep_reflection")
+                ok = await self.update_field(
+                    field_name, value, reason, trigger="deep_reflection"
+                )
                 if ok:
                     applied.append(upd)
 
@@ -396,7 +407,9 @@ class IdentityManager:
             )
         if identity.beliefs:
             accounts = {
-                k: v for k, v in identity.beliefs.items() if k in ("email", "github", "username")
+                k: v
+                for k, v in identity.beliefs.items()
+                if k in ("email", "github", "username")
             }
             if accounts:
                 acct_str = ", ".join(f"{k}: {v}" for k, v in accounts.items())
@@ -454,7 +467,11 @@ class IdentityManager:
             ]
 
         def _bullets(items: list[str]) -> str:
-            return "\n".join(f"- {item}" for item in items) if items else "- (discovering...)"
+            return (
+                "\n".join(f"- {item}" for item in items)
+                if items
+                else "- (discovering...)"
+            )
 
         content = f"""\
 ---
@@ -525,7 +542,10 @@ updated: {now}
             display_name="EloPhanto",
             purpose="Help users accomplish complex tasks autonomously",
             values=["persistence", "accuracy", "learning"],
-            boundaries=["Never delete data without confirmation", "Never expose credentials"],
+            boundaries=[
+                "Never delete data without confirmation",
+                "Never expose credentials",
+            ],
             created_at=now,
             updated_at=now,
         )
@@ -622,9 +642,12 @@ updated: {now}
         if identity.capabilities:
             parts.append(f"Capabilities: {', '.join(identity.capabilities)}")
         if identity.personality:
-            parts.append(
-                f"Personality: {', '.join(f'{k}={v}' for k, v in identity.personality.items())}"
-            )
+            if isinstance(identity.personality, dict):
+                parts.append(
+                    f"Personality: {', '.join(f'{k}={v}' for k, v in identity.personality.items())}"
+                )
+            else:
+                parts.append(f"Personality: {identity.personality}")
         if identity.communication_style:
             parts.append(f"Communication style: {identity.communication_style}")
         if identity.curiosities:

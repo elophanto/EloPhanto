@@ -21,10 +21,11 @@ class SwarmSpawnTool(BaseTool):
     def description(self) -> str:
         return (
             "Spawn an external coding agent (Claude Code, Codex, etc.) to work "
-            "on a task in parallel. Creates an isolated git worktree on a feature "
-            "branch, enriches the prompt with project context, and launches the "
-            "agent in a tmux session. The agent works independently and creates "
-            "a PR when done."
+            "on a task in parallel. By default works on the current project "
+            "(self-dev). Use the 'repo' parameter to target a different GitHub "
+            "repo (cloned), a local repo path, or 'new' for a fresh project. "
+            "IMPORTANT: Always set 'repo' for tasks unrelated to this codebase — "
+            "never mix external work into the main project."
         )
 
     @property
@@ -35,6 +36,15 @@ class SwarmSpawnTool(BaseTool):
                 "task": {
                     "type": "string",
                     "description": "Description of the task for the agent",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": (
+                        "Target repository. Can be a GitHub URL "
+                        "(e.g. 'https://github.com/org/repo'), a local path, "
+                        "or 'new' to create a fresh project. "
+                        "Omit to work on the current project (self-dev)."
+                    ),
                 },
                 "profile": {
                     "type": "string",
@@ -85,6 +95,7 @@ class SwarmSpawnTool(BaseTool):
         try:
             agent = await self._swarm_manager.spawn(
                 task=task,
+                repo=params.get("repo"),
                 profile_name=params.get("profile"),
                 branch_name=params.get("branch_name"),
                 extra_context=params.get("extra_context", ""),
@@ -95,10 +106,12 @@ class SwarmSpawnTool(BaseTool):
                     "agent_id": agent.agent_id,
                     "profile": agent.profile,
                     "branch": agent.branch,
+                    "worktree_path": agent.worktree_path,
                     "tmux_session": agent.tmux_session,
                     "message": (
                         f"Agent '{agent.profile}' spawned on branch "
-                        f"'{agent.branch}'. I'll notify you when it completes."
+                        f"'{agent.branch}' at {agent.worktree_path}. "
+                        f"I'll notify you when it completes."
                     ),
                 },
             )
