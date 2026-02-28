@@ -125,15 +125,16 @@ class SwarmManager:
     async def spawn(
         self,
         task: str,
+        repo: str | None = None,
         profile_name: str | None = None,
         branch_name: str | None = None,
         extra_context: str = "",
     ) -> SwarmAgent:
         """Spawn a new external agent.
 
-        1. Auto-select profile if not specified
-        2. Create git worktree on feature branch
-        3. Enrich prompt with knowledge vault context
+        1. Resolve target repo (current project, GitHub clone, or fresh dir)
+        2. Create isolated working directory
+        3. Enrich prompt with context
         4. Launch tmux session
         5. Persist to DB and broadcast event
         """
@@ -171,21 +172,23 @@ class SwarmManager:
             slug = self._slugify(task)[:40]
             branch_name = f"swarm/{slug}-{agent_id}"
 
-        worktree_path = await self._create_worktree(branch_name)
+        # Resolve working directory based on repo parameter
+        is_external = bool(repo)
+        work_dir = await self._resolve_work_dir(repo, branch_name, agent_id)
 
         enriched_prompt = await self._build_enriched_prompt(
-            task, extra_context, profile
+            task, extra_context, profile, is_external=is_external
         )
 
         tmux_session = f"{self._config.tmux_session_prefix}-{agent_id}"
-        await self._launch_tmux(tmux_session, worktree_path, profile, enriched_prompt)
+        await self._launch_tmux(tmux_session, work_dir, profile, enriched_prompt)
 
         agent = SwarmAgent(
             agent_id=agent_id,
             profile=profile_name,
             task=task,
             branch=branch_name,
-            worktree_path=worktree_path,
+            worktree_path=work_dir,
             tmux_session=tmux_session,
             done_criteria=profile.done_criteria or self._config.default_done_criteria,
             enriched_prompt=enriched_prompt,
@@ -279,6 +282,7 @@ class SwarmManager:
                     "profile": agent.profile,
                     "task": agent.task[:100],
                     "branch": agent.branch,
+                    "worktree_path": agent.worktree_path,
                     "status": agent.status,
                     "tmux_alive": tmux_alive,
                     "pr_url": agent.pr_url,
@@ -321,41 +325,129 @@ class SwarmManager:
 
         return best_profile
 
-    # ── Git Worktree Management ─────────────────────────────────────
+    # ── Working Directory Resolution ────────────────────────────────
 
-    async def _create_worktree(self, branch_name: str) -> str:
-        """Create a git worktree on a new feature branch."""
+    async def _resolve_work_dir(
+        self, repo: str | None, branch_name: str, agent_id: str
+    ) -> str:
+        """Resolve the working directory for the agent.
+
+        - ``None`` / empty → git worktree off current project (self-dev)
+        - GitHub URL → clone into a unique directory
+        - Local path → git worktree off that repo
+        - ``"new"`` → create a fresh empty directory with ``git init``
+        """
+        if not repo:
+            # Self-dev: worktree off current project
+            return await self._create_worktree(branch_name)
+
         base_dir = self._config.worktree_base_dir
         if not base_dir:
-            if self._config.workspace_isolation:
-                base_dir = "/tmp/elophanto/swarm"
-            else:
-                base_dir = str(self._project_root.parent / ".elophanto-worktrees")
+            base_dir = str(self._project_root.parent / ".elophanto-worktrees")
 
-        worktree_dir = branch_name.replace("/", "-")
-        worktree_path = str(Path(base_dir) / worktree_dir)
+        if repo.lower() == "new":
+            # Fresh project — unique dir with git init
+            slug = branch_name.replace("/", "-")
+            work_dir = str(Path(base_dir) / f"{slug}-{agent_id}")
+            await self._run_shell(f"mkdir -p {work_dir}")
+            await self._run_shell(f"git -C {work_dir} init")
+            return work_dir
 
-        proc = await asyncio.create_subprocess_shell(
-            f"mkdir -p {base_dir}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await proc.communicate()
+        if repo.startswith("https://") or repo.startswith("git@"):
+            # GitHub/remote URL — clone into unique dir
+            repo_name = repo.rstrip("/").rsplit("/", 1)[-1].replace(".git", "")
+            work_dir = str(Path(base_dir) / f"{repo_name}-{agent_id}")
+            proc = await asyncio.create_subprocess_shell(
+                f"git clone {repo} {work_dir}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                raise RuntimeError(f"git clone failed: {stderr.decode().strip()}")
+            # Create feature branch
+            await self._run_shell(f"git -C {work_dir} checkout -b {branch_name}")
+            return work_dir
 
-        cmd = (
-            f"git -C {self._project_root} worktree add "
-            f"-b {branch_name} {worktree_path}"
-        )
+        # Local path — create worktree off that repo
+        local_repo = Path(repo).expanduser().resolve()
+        if not (local_repo / ".git").exists():
+            raise RuntimeError(f"Not a git repository: {repo}")
+        return await self._create_worktree(branch_name, project_root=local_repo)
+
+    async def _run_shell(self, cmd: str) -> tuple[int, str, str]:
+        """Run a shell command and return (returncode, stdout, stderr)."""
         proc = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"git worktree add failed: {stderr.decode().strip()}")
+        return proc.returncode, stdout.decode().strip(), stderr.decode().strip()
+
+    # ── Git Worktree Management ─────────────────────────────────────
+
+    async def _create_worktree(
+        self, branch_name: str, project_root: Path | None = None
+    ) -> str:
+        """Create a git worktree on a new feature branch.
+
+        The directory name always includes a unique suffix (from the branch name
+        which contains the agent_id) so it never collides with existing dirs.
+
+        Handles stale leftovers from previous runs:
+        - Prunes dead worktree entries from git's tracking
+        - Removes leftover directories that block creation
+        - Falls back to an existing branch instead of ``-b`` if the branch exists
+        """
+        root = project_root or self._project_root
+
+        base_dir = self._config.worktree_base_dir
+        if not base_dir:
+            if self._config.workspace_isolation:
+                base_dir = "/tmp/elophanto/swarm"
+            else:
+                base_dir = str(root.parent / ".elophanto-worktrees")
+
+        worktree_dir = branch_name.replace("/", "-")
+        worktree_path = str(Path(base_dir) / worktree_dir)
+
+        await self._run_shell(f"mkdir -p {base_dir}")
+
+        # Prune stale worktree entries (e.g. from a crashed previous run)
+        await self._run_shell(f"git -C {root} worktree prune")
+
+        # If the directory already exists, remove it so git worktree add succeeds
+        wt = Path(worktree_path)
+        if wt.exists():
+            logger.info("Removing stale worktree directory: %s", worktree_path)
+            import shutil
+
+            shutil.rmtree(worktree_path, ignore_errors=True)
+
+        # Check if the branch already exists
+        branch_exists = await self._branch_exists(branch_name, root)
+
+        if branch_exists:
+            cmd = f"git -C {root} worktree add {worktree_path} {branch_name}"
+        else:
+            cmd = f"git -C {root} worktree add -b {branch_name} {worktree_path}"
+
+        rc, _, stderr = await self._run_shell(cmd)
+        if rc != 0:
+            raise RuntimeError(f"git worktree add failed: {stderr}")
 
         return worktree_path
+
+    async def _branch_exists(
+        self, branch_name: str, project_root: Path | None = None
+    ) -> bool:
+        """Check if a git branch already exists."""
+        root = project_root or self._project_root
+        rc, _, _ = await self._run_shell(
+            f"git -C {root} rev-parse --verify {branch_name} 2>/dev/null"
+        )
+        return rc == 0
 
     async def _cleanup_worktree(self, agent: SwarmAgent) -> None:
         """Remove a worktree after its branch is merged."""
@@ -385,14 +477,22 @@ class SwarmManager:
         task: str,
         extra_context: str,
         profile: AgentProfileConfig,
+        *,
+        is_external: bool = False,
     ) -> str:
-        """Build a context-enriched prompt for the external agent."""
+        """Build a context-enriched prompt for the external agent.
+
+        When *is_external* is True the agent is working on a different repo
+        (cloned or fresh), so we skip EloPhanto knowledge enrichment and adjust
+        the PR instructions accordingly.
+        """
         sections = [task]
 
         if extra_context:
             sections.append(f"\nAdditional context:\n{extra_context}")
 
-        if self._config.prompt_enrichment:
+        # Only inject EloPhanto knowledge for self-dev tasks
+        if not is_external and self._config.prompt_enrichment:
             knowledge = await self._pull_knowledge_context(task)
             if knowledge:
                 from core.swarm_security import sanitize_enrichment_context
@@ -400,10 +500,17 @@ class SwarmManager:
                 knowledge = sanitize_enrichment_context(knowledge)
                 sections.append(f"\nRelevant project knowledge:\n{knowledge}")
 
-        sections.append(
-            "\nYou are working in a git worktree on a feature branch. "
-            "Create a PR when done using `gh pr create`."
-        )
+        if is_external:
+            sections.append(
+                "\nYou are working in an isolated project directory on a feature branch. "
+                "When done, commit your work and create a PR using `gh pr create`. "
+                "Do NOT push to or create PRs against any other repository."
+            )
+        else:
+            sections.append(
+                "\nYou are working in a git worktree on a feature branch. "
+                "Create a PR when done using `gh pr create`."
+            )
 
         sections.append(
             "\nSECURITY CONSTRAINTS:\n"
@@ -441,9 +548,17 @@ class SwarmManager:
         profile: AgentProfileConfig,
         prompt: str,
     ) -> None:
-        """Launch an agent in a new tmux session."""
+        """Launch an agent in a new tmux session.
+
+        Supports two modes:
+        - **Headless** (args contain ``-p``): The prompt is read from
+          ``.elophanto-prompt.md`` via ``cat`` and piped as a CLI argument.
+          No interactive acceptance prompts, no ``send-keys`` timing issues.
+        - **Interactive** (legacy): The agent CLI starts first, then the
+          prompt is sent via ``tmux send-keys`` after a short delay.
+        """
         agent_cmd = profile.command
-        args_str = " ".join(profile.args)
+        args = list(profile.args)
 
         # Build isolated environment — strip sensitive vars
         from core.swarm_security import build_isolated_env
@@ -452,12 +567,32 @@ class SwarmManager:
         env_str = " ".join(f"{k}={v}" for k, v in safe_env.items())
         env_prefix = f"{env_str} " if env_str else ""
 
-        # Write prompt to file in worktree
+        # Write prompt to file in worktree (used by both modes)
         prompt_file = Path(worktree_path) / ".elophanto-prompt.md"
         prompt_file.write_text(prompt, encoding="utf-8")
 
+        # Detect headless mode: -p flag means prompt is a CLI argument
+        is_headless = "-p" in args
+
+        if is_headless:
+            # Headless mode — embed prompt file read in the command.
+            # This avoids interactive acceptance prompts entirely.
+            # Remove -p from args; we'll reconstruct it with the prompt file.
+            args_without_p = [a for a in args if a != "-p"]
+            args_str = " ".join(args_without_p)
+            prompt_path = str(prompt_file)
+            # Use shell substitution to read prompt from file
+            full_cmd = (
+                f"{env_prefix}{agent_cmd} -p "
+                f'"$(cat {prompt_path})" '
+                f"{args_str}".strip()
+            )
+        else:
+            # Interactive mode — start CLI, then send prompt via send-keys
+            args_str = " ".join(args)
+            full_cmd = f"{env_prefix}{agent_cmd} {args_str}".strip()
+
         # Create tmux session running the agent command
-        full_cmd = f"{env_prefix}{agent_cmd} {args_str}".strip()
         tmux_cmd = (
             f"tmux new-session -d -s {session_name} " f"-c {worktree_path} '{full_cmd}'"
         )
@@ -470,16 +605,18 @@ class SwarmManager:
         if proc.returncode != 0:
             raise RuntimeError(f"tmux launch failed: {stderr.decode().strip()}")
 
-        # Give the agent CLI a moment to start, then send the prompt
-        await asyncio.sleep(2)
-        escaped = prompt.replace("'", "'\\''")
-        send_cmd = f"tmux send-keys -t {session_name} '{escaped}' Enter"
-        proc = await asyncio.create_subprocess_shell(
-            send_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await proc.communicate()
+        if not is_headless:
+            # Interactive mode: give the agent CLI a moment to start,
+            # then send the prompt via tmux send-keys
+            await asyncio.sleep(2)
+            escaped = prompt.replace("'", "'\\''")
+            send_cmd = f"tmux send-keys -t {session_name} '{escaped}' Enter"
+            proc = await asyncio.create_subprocess_shell(
+                send_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
 
     async def _is_tmux_alive(self, session_name: str) -> bool:
         """Check if a tmux session is still running."""
@@ -569,6 +706,7 @@ class SwarmManager:
                     "agent_id": agent.agent_id,
                     "task": agent.task[:200],
                     "reason": agent.stopped_reason,
+                    "worktree_path": agent.worktree_path,
                 },
             )
             return
@@ -587,6 +725,7 @@ class SwarmManager:
                     "pr_url": agent.pr_url,
                     "ci_status": agent.ci_status,
                     "branch": agent.branch,
+                    "worktree_path": agent.worktree_path,
                 },
             )
             if self._config.cleanup_merged_worktrees and agent.ci_status == "success":

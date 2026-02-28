@@ -43,7 +43,8 @@ EloPhanto holds your knowledge vault — meeting notes, customer data, past deci
 │ Claude   │ Codex    │ Gemini   │                     │
 │ Code     │          │ CLI      │                     │
 ├──────────┴──────────┴──────────┴────────────────────┤
-│  git worktree per agent → isolated branches → PRs    │
+│  Isolation: worktree (self-dev) | clone | fresh dir  │
+│  Each agent gets unique dir → isolated branch → PR   │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -64,36 +65,54 @@ npm install -g @anthropic-ai/gemini-cli    # Gemini CLI
 Then enable the swarm in `config.yaml`:
 
 ```yaml
-agents:
+swarm:
   enabled: true
-  worktree_base: ../worktrees        # where to create isolated branches
-  max_concurrent: 4                  # limited by RAM (~3GB per agent)
-  monitor_interval: 600              # check every 10 minutes
-  max_retries: 3                     # auto-respawn on failure
-  notify_channels: [telegram, cli]   # where to send "PR ready" notifications
-
+  max_concurrent_agents: 3
+  monitor_interval_seconds: 30
+  tmux_session_prefix: "elo-swarm"
+  default_done_criteria: pr_created
   profiles:
-    claude:
-      command: "claude --model claude-opus-4-6 --dangerously-skip-permissions -p"
-      strengths: [frontend, git-operations, fast-iteration, quick-fixes]
-    codex:
-      command: "codex --model gpt-5.3-codex -c 'model_reasoning_effort=high' --dangerously-bypass-approvals-and-sandbox"
-      strengths: [backend, complex-bugs, multi-file-refactors, reasoning]
-    gemini:
-      command: "gemini --model gemini-2.5-flash -p"
-      strengths: [ui-design, css, visual-polish]
-
-  done_criteria:
-    pr_created: true
-    ci_passed: true
-    review_passed: true
+    claude-code:
+      command: claude
+      args: ["-p", "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"]
+      done_criteria: pr_created
+      max_time_seconds: 3600
+    # codex:
+    #   command: codex
+    #   args: ["--approval-mode", "full-auto"]
+    #   done_criteria: pr_created
+    # gemini:
+    #   command: gemini
+    #   args: []
+    #   done_criteria: pr_created
 ```
+
+> **Note:** Claude Code uses `-p` (headless/print) mode with explicit `--allowedTools`.
+> Do NOT use `--dangerously-skip-permissions` — it shows an interactive acceptance prompt
+> that blocks forever in tmux. The `-p` flag avoids this entirely.
 
 Start EloPhanto and chat. That's it.
 
 ```bash
 ./start.sh
 ```
+
+## Repo Isolation
+
+By default, swarm agents work on the current project (self-dev tasks like "fix bug X" or "add feature Y"). For tasks unrelated to this codebase, the `swarm_spawn` tool accepts a **`repo`** parameter:
+
+| `repo` value | What happens |
+|---|---|
+| *(omitted)* | Git worktree off current project — for self-dev |
+| GitHub URL | `git clone` into isolated dir (`{repo-name}-{agent_id}`) |
+| Local path | Git worktree off that local repo |
+| `"new"` | Fresh empty directory with `git init` |
+
+Every working directory includes the agent's unique ID, so directories never collide — even across multiple spawns for the same task. Stale worktrees from crashed previous runs are auto-pruned and cleaned on spawn.
+
+When `repo` is set, EloPhanto skips injecting its own knowledge context into the agent's prompt and adjusts PR instructions to target the correct repository. The main project is never impacted.
+
+The local path is reported in all events (spawn, status, completion, failure), so the agent always tells you where the code lives on disk.
 
 ## Workflow
 
@@ -230,9 +249,10 @@ Each agent needs ~3GB RAM (worktree + dependencies + build + tests):
 
 For those who want to understand the internals:
 
-- **tmux** — Each agent runs in a persistent tmux session. This gives EloPhanto three things: sessions survive if EloPhanto restarts, full terminal logging for debugging, and mid-task redirection via `tmux send-keys` (inject new instructions into a running agent without killing it).
-- **Git worktrees** — Each agent gets its own worktree on a separate branch. No merge conflicts between parallel agents, no shared state.
-- **Task registry** — JSON file tracking all active agents (branch, session, status, retries). The monitoring loop reads this, not the agents directly.
+- **tmux** — Each agent runs in a persistent tmux session. Sessions survive if EloPhanto restarts, provide full terminal logging for debugging, and support mid-task redirection via `tmux send-keys`.
+- **Headless launch** — Agents using `-p` (headless) mode get the prompt embedded directly in the tmux command via `$(cat .elophanto-prompt.md)`. No interactive prompts, no `send-keys` timing issues. Interactive agents (without `-p`) fall back to the `send-keys` approach.
+- **Repo isolation** — Self-dev tasks use git worktrees. External tasks use `git clone` or fresh `git init` dirs. Every directory name includes the agent's UUID, guaranteeing uniqueness. Stale worktrees from crashed runs are auto-pruned.
+- **Task registry** — SQLite table tracking all active agents (branch, session, status, worktree path, PR URL). The monitoring loop reads this, not the agents directly.
 - **`gh` CLI** — PR creation, CI status checks, and code review comments all go through GitHub CLI.
 
 ## Self-Improving Prompts

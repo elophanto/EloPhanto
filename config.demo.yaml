@@ -176,6 +176,35 @@ mcp:
   #       GITHUB_PERSONAL_ACCESS_TOKEN: "vault:github_token"
   #     permission_level: destructive
 
+# --- Agent Swarm ---
+# Spawn external coding agents (Claude Code, Codex, Gemini CLI) on tasks.
+# Requires: tmux (brew install tmux), git
+# The swarm_spawn tool accepts a 'repo' parameter:
+#   - omitted  → works on this project (self-dev, creates worktree)
+#   - GitHub URL → clones the repo into an isolated directory
+#   - local path → creates worktree off that repo
+#   - "new"     → fresh empty project with git init
+swarm:
+  enabled: true
+  max_concurrent_agents: 3
+  monitor_interval_seconds: 30
+  tmux_session_prefix: "elo-swarm"
+  default_done_criteria: pr_created
+  profiles:
+    claude-code:
+      command: claude
+      args: ["-p", "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"]
+      done_criteria: pr_created
+      max_time_seconds: 3600
+    # codex:
+    #   command: codex
+    #   args: ["--approval-mode", "full-auto"]
+    #   done_criteria: pr_created
+    # gemini:
+    #   command: gemini
+    #   args: []
+    #   done_criteria: pr_created
+
 # --- Channels ---
 
 telegram:
