@@ -383,7 +383,7 @@ class SwarmManager:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
-        return proc.returncode, stdout.decode().strip(), stderr.decode().strip()
+        return proc.returncode or 0, stdout.decode().strip(), stderr.decode().strip()
 
     # ── Git Worktree Management ─────────────────────────────────────
 
