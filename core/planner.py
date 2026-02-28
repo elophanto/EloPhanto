@@ -92,9 +92,15 @@ When the user gives you a task, follow this approach:
 
 1. UNDERSTAND — Parse the goal. Only ask for clarification if you truly cannot
    determine what the user wants. Never ask "should I search for that?" — just search.
-2. CHECK — For recurring tasks (posting, promoting, outreach, publishing, contacting,
-   sharing, distributing), start with knowledge_search to see what you already did.
-   Only pursue targets that are NEW — never repeat past work.
+2. CHECK (MANDATORY FOR ALL POSTING/SHARING) — Before posting, publishing, sharing,
+   promoting, or distributing content to ANY platform, you MUST:
+   a) Review the "Past task" entries in your Relevant Knowledge context — they show
+      exactly what you already did, to which platforms, and when.
+   b) Call knowledge_search with the platform name (e.g., "posted reddit", "shared twitter")
+      to find prior work you may have missed in the recent history.
+   c) NEVER post/share the same or similar content to a platform you already hit.
+   d) Only pursue targets that are genuinely NEW — different platform OR different content.
+   VIOLATION: Posting duplicate content to a platform wastes resources and damages reputation.
    When the user asks you to find NEW places or sources, SEARCH the web first
    (Google, DuckDuckGo) to discover platforms — do not just pick from memory.
 3. EXECUTE — Call tools one at a time. Prefer specific tools over shell_execute

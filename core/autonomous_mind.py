@@ -76,6 +76,10 @@ RULES:
 6. Set your next wakeup based on urgency using set_next_wakeup. Don't waste compute.
 7. You have {max_rounds} tool rounds. Use them efficiently.
 8. If a task needs more than {max_rounds} rounds, create a goal for it.
+9. NEVER REPEAT PAST WORK. Review [RECENT] entries below carefully before acting.
+   If you already posted/shared/published content to a platform, DO NOT do it again.
+   Use knowledge_search to verify before any posting/promoting/sharing action.
+   Repetition wastes budget and damages reputation.
 
 WHEN STATE IS EMPTY (no goals, no tasks, no history):
 You are not idle — you are bootstrapping. Take initiative:
@@ -609,14 +613,23 @@ class AutonomousMind:
         sections.clear()
 
         # --- Recent activity (from task memory) ---
+        # Show full summaries so the mind knows EXACTLY what was done and where,
+        # preventing duplicate posts/actions across platforms.
         try:
             if self._agent._memory_manager:
-                recent = await self._agent._memory_manager.get_recent_tasks(limit=5)
+                recent = await self._agent._memory_manager.get_recent_tasks(limit=10)
                 for mem in recent:
                     outcome = mem.get("outcome", "unknown")
                     created = mem.get("created_at", "")[:16]
-                    goal_str = mem["goal"][:80]
-                    sections.append(f'[RECENT] "{goal_str}" — {outcome} — {created}')
+                    goal_str = mem["goal"][:120]
+                    summary = mem.get("summary", "")[:400]
+                    tools = ", ".join(mem.get("tools_used", [])[:8])
+                    entry = f'[RECENT] "{goal_str}" — {outcome} — {created}'
+                    if summary:
+                        entry += f"\n  Summary: {summary}"
+                    if tools:
+                        entry += f"\n  Tools: {tools}"
+                    sections.append(entry)
         except Exception:
             pass
         memory_text = "\n".join(sections) if sections else "(no prior activity)"
