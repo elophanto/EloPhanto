@@ -88,6 +88,16 @@ class SwarmManager:
 
     async def start(self) -> None:
         """Start the background monitor and reload persisted agents."""
+        import shutil
+
+        if not shutil.which("tmux"):
+            raise RuntimeError(
+                "tmux is required for agent swarm but is not installed. "
+                "Install it with: brew install tmux"
+            )
+        if not shutil.which("git"):
+            raise RuntimeError("git is required for agent swarm but is not installed")
+
         await self._reload_from_db()
         if not self.is_monitoring:
             self._monitor_task = asyncio.create_task(

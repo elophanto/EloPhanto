@@ -38,7 +38,7 @@ class WorkingMemory:
             if key not in existing_keys:
                 self.relevant_chunks.append(chunk)
 
-    def format_context(self, max_tokens: int = 2000) -> str:
+    def format_context(self, max_tokens: int = 4000) -> str:
         """Format relevant chunks as markdown context for the system prompt."""
         if not self.relevant_chunks:
             return ""

@@ -61,8 +61,19 @@ class SwarmSpawnTool(BaseTool):
 
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         if not self._swarm_manager:
+            import shutil
+
+            hints: list[str] = []
+            if not shutil.which("tmux"):
+                hints.append("tmux is not installed (run: brew install tmux)")
+            if not shutil.which("git"):
+                hints.append("git is not installed")
+            hint_str = "; ".join(hints) if hints else "swarm.enabled is false in config"
             return ToolResult(
-                success=False, data={}, error="Swarm system not initialized"
+                success=False,
+                data={},
+                error=f"Swarm not available: {hint_str}. "
+                "Tell the user what's missing so they can fix it.",
             )
 
         task = params.get("task", "").strip()

@@ -1027,6 +1027,7 @@ class Agent:
         # Stagnation detection: stop when the agent is stuck, not on a clock.
         consecutive_errors = 0
         recent_calls: list[str] = []
+        recent_call_sigs: list[str] = []  # name+args hash for true dedup
         _STAGNATION_WINDOW = 8
         _MAX_CONSECUTIVE_ERRORS = 5
 
@@ -1036,19 +1037,16 @@ class Agent:
         _RESPONSE_DEDUP_THRESHOLD = 3  # N identical in last window
         _RESPONSE_DEDUP_WINDOW = 5
 
-        # --- Pre-loop context (non-blocking) ---
-        # Knowledge retrieval is fire-and-forget: results populate working
-        # memory for the *next* turn.  The LLM can call knowledge_search
-        # explicitly when it needs context — no reason to block here.
+        # --- Pre-loop context ---
+        # Memory retrieval MUST complete before the system prompt is built,
+        # otherwise the LLM starts planning without knowing what it already
+        # did (causes duplicate posts/actions).
         _ctx_start = _time.monotonic()
 
-        async def _background_retrieve() -> None:
-            try:
-                await self._auto_retrieve(goal)
-            except Exception:
-                pass
-
-        asyncio.create_task(_background_retrieve())
+        try:
+            await self._auto_retrieve(goal)
+        except Exception:
+            pass
 
         # Goal + identity context are fast local DB reads — worth keeping.
         goal_context = ""
@@ -1169,13 +1167,22 @@ class Agent:
                 logger.info("Stagnation: %s", stagnation_reason)
                 break
             if len(recent_calls) >= _STAGNATION_WINDOW:
-                unique = set(recent_calls[-_STAGNATION_WINDOW:])
-                if len(unique) == 1:
-                    stagnation_reason = (
-                        f"repeating {next(iter(unique))} {_STAGNATION_WINDOW} times"
-                    )
-                    logger.info("Stagnation: %s", stagnation_reason)
-                    break
+                window = recent_calls[-_STAGNATION_WINDOW:]
+                unique_names = set(window)
+                if len(unique_names) == 1:
+                    # Same tool N times — but check if arguments also repeat.
+                    # Same tool with *different* args (e.g. browser_navigate to
+                    # different URLs) is progression, not stagnation.
+                    sig_window = recent_call_sigs[-_STAGNATION_WINDOW:]
+                    unique_sigs = set(sig_window)
+                    if len(unique_sigs) <= 2:
+                        # Truly stuck: same tool with same (or toggling) args
+                        stagnation_reason = (
+                            f"repeating {next(iter(unique_names))} "
+                            f"{_STAGNATION_WINDOW} times"
+                        )
+                        logger.info("Stagnation: %s", stagnation_reason)
+                        break
             # Response hash dedup — agent repeating itself
             if len(recent_response_hashes) >= _RESPONSE_DEDUP_WINDOW:
                 from collections import Counter as _Counter
@@ -1324,6 +1331,9 @@ class Agent:
                         _params = json.loads(_raw) if isinstance(_raw, str) else _raw
                     except Exception:
                         _params = {}
+                    # Track name+args signature for stagnation dedup
+                    _sig = f"{func_name}:{hash(json.dumps(_params, sort_keys=True))}"
+                    recent_call_sigs.append(_sig)
                     if self._on_step:
                         try:
                             result = self._on_step(
@@ -1504,6 +1514,7 @@ class Agent:
         """Fetch relevant knowledge chunks and recent task memory for the query.
 
         Runs knowledge search and memory search in parallel for speed.
+        Always includes recent tasks so the LLM knows what it already did.
         """
 
         async def _search_knowledge() -> list[dict[str, Any]]:
@@ -1517,34 +1528,51 @@ class Agent:
                     pass
             return []
 
-        async def _search_memory() -> list[dict[str, Any]]:
+        async def _search_memory() -> tuple[list[dict], list[dict]]:
+            """Return (keyword_matches, recent_tasks) — both, not either/or."""
+            keyword: list[dict] = []
+            recent: list[dict] = []
             try:
-                memories = await self._memory_manager.search_memory(query, limit=3)
-                if not memories:
-                    memories = await self._memory_manager.get_recent_tasks(limit=5)
-                return memories or []
+                keyword = await self._memory_manager.search_memory(query, limit=3)
             except Exception:
-                return []
+                pass
+            try:
+                recent = await self._memory_manager.get_recent_tasks(limit=10)
+            except Exception:
+                pass
+            return keyword, recent
 
-        chunks, memories = await asyncio.gather(_search_knowledge(), _search_memory())
+        chunks, (keyword_mems, recent_mems) = await asyncio.gather(
+            _search_knowledge(), _search_memory()
+        )
 
         if chunks:
             self._working_memory.add_chunks(chunks)
-        if memories:
+
+        # Merge keyword matches + recent (dedup by goal+timestamp)
+        seen: set[str] = set()
+        all_mems: list[dict[str, Any]] = []
+        for mem in keyword_mems + recent_mems:
+            key = f"{mem['goal']}:{mem.get('created_at', '')}"
+            if key not in seen:
+                seen.add(key)
+                all_mems.append(mem)
+
+        if all_mems:
             memory_chunks = []
-            for mem in memories:
-                tools = ", ".join(mem.get("tools_used", [])[:5])
+            for mem in all_mems[:10]:
+                tools = ", ".join(mem.get("tools_used", [])[:8])
                 content = (
                     f"Task: {mem['goal']}\n"
                     f"Outcome: {mem['outcome']}\n"
-                    f"Summary: {mem['summary'][:300]}\n"
+                    f"Summary: {mem['summary'][:800]}\n"
                     f"Tools used: {tools}\n"
                     f"When: {mem.get('created_at', 'unknown')}"
                 )
                 memory_chunks.append(
                     {
                         "source": "task_memory",
-                        "heading": f"Past task: {mem['goal'][:60]}",
+                        "heading": f"Past task: {mem['goal'][:100]}",
                         "content": content,
                     }
                 )
