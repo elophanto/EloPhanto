@@ -270,7 +270,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **TOTP authenticator** — own 2FA (like Google Authenticator). Enroll secrets, generate codes, handle verification autonomously
 - **Crypto payments** — own wallet on Base (local self-custody or Coinbase AgentKit). USDC/ETH, spending limits, audit trail
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document
-- **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, remembers past tasks across sessions
+- **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection (stale docs flagged when covered source files change), file-pattern routing (auto-loads relevant docs when goals mention specific files), remembers past tasks across sessions
 - **Scheduling** — cron-based recurring tasks with natural language schedules
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 - **Prompt injection defense** — multi-layer guard against injection attacks via websites, emails, and documents

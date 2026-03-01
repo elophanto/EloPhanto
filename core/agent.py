@@ -740,6 +740,7 @@ class Agent:
             search_tool._db = self._db
             search_tool._embedder = self._embedder
             search_tool._embedding_model = self._indexer._embedding_model
+            search_tool._project_root = self._config.project_root
 
         write_tool = self._registry.get("knowledge_write")
         if write_tool:
@@ -1510,10 +1511,72 @@ class Agent:
                 session_id=None,  # broadcast to ALL clients
             )
 
+    @staticmethod
+    def _extract_file_paths(text: str) -> list[str]:
+        """Extract file paths from goal text (e.g. core/gateway.py, channels/*.py)."""
+        import re
+
+        # Match paths like core/gateway.py, src/utils/foo.ts, channels/*.py
+        pattern = r'(?:^|[\s"\'`(,])([a-zA-Z0-9_.*/\-]+(?:\.[a-zA-Z]{1,5}))'
+        matches = re.findall(pattern, text)
+        # Filter to paths that look like actual file references (contain /)
+        return [m for m in matches if "/" in m]
+
+    async def _search_by_file_pattern(
+        self, file_paths: list[str]
+    ) -> list[dict[str, Any]]:
+        """Find knowledge chunks whose covers patterns match the given file paths."""
+        import fnmatch
+
+        if not file_paths or not self._db:
+            return []
+
+        rows = await self._db.execute(
+            "SELECT DISTINCT file_path, heading_path, content, covers, scope, tags "
+            "FROM knowledge_chunks WHERE covers != '[]'"
+        )
+
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for row in rows:
+            try:
+                covers = json.loads(row["covers"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not covers:
+                continue
+
+            matched = False
+            for pattern in covers:
+                for fp in file_paths:
+                    if fnmatch.fnmatch(fp, pattern):
+                        matched = True
+                        break
+                if matched:
+                    break
+
+            if matched:
+                key = f"{row['file_path']}:{row['heading_path']}"
+                if key not in seen:
+                    seen.add(key)
+                    results.append(
+                        {
+                            "content": row["content"],
+                            "source": row["file_path"],
+                            "heading": row["heading_path"],
+                            "score": 0.8,
+                            "scope": row["scope"],
+                            "tags": json.loads(row["tags"]) if row["tags"] else [],
+                        }
+                    )
+
+        return results
+
     async def _auto_retrieve(self, query: str) -> None:
         """Fetch relevant knowledge chunks and recent task memory for the query.
 
-        Runs knowledge search and memory search in parallel for speed.
+        Runs knowledge search, memory search, and file-pattern search in parallel.
         Always includes recent tasks so the LLM knows what it already did.
         """
 
@@ -1542,9 +1605,24 @@ class Agent:
                 pass
             return keyword, recent
 
-        chunks, (keyword_mems, recent_mems) = await asyncio.gather(
-            _search_knowledge(), _search_memory()
+        async def _search_file_patterns() -> list[dict[str, Any]]:
+            paths = self._extract_file_paths(query)
+            if paths:
+                return await self._search_by_file_pattern(paths)
+            return []
+
+        chunks, (keyword_mems, recent_mems), file_chunks = await asyncio.gather(
+            _search_knowledge(), _search_memory(), _search_file_patterns()
         )
+
+        # Merge file-pattern results with semantic results (dedup by source+heading)
+        if file_chunks:
+            existing = {(c.get("source", ""), c.get("heading", "")) for c in chunks}
+            for fc in file_chunks:
+                key = (fc.get("source", ""), fc.get("heading", ""))
+                if key not in existing:
+                    chunks.append(fc)
+                    existing.add(key)
 
         if chunks:
             self._working_memory.add_chunks(chunks)

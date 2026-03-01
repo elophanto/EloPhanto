@@ -41,6 +41,7 @@ class Chunk:
     tags: list[str]
     scope: str
     token_count: int
+    covers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -120,11 +121,22 @@ class KnowledgeIndexer:
             tag_list = []
 
         scope = frontmatter.get("scope", "system")
+
+        covers_raw = frontmatter.get("covers", [])
+        if isinstance(covers_raw, str):
+            covers = [c.strip() for c in covers_raw.split(",") if c.strip()]
+        elif isinstance(covers_raw, list):
+            covers = [str(c) for c in covers_raw]
+        else:
+            covers = []
+
         file_mtime = datetime.fromtimestamp(
             file_path.stat().st_mtime, tz=UTC
         ).isoformat()
 
-        chunks = self._chunk_markdown(body, frontmatter, rel_path, tag_list, scope)
+        chunks = self._chunk_markdown(
+            body, frontmatter, rel_path, tag_list, scope, covers
+        )
         chunks = self._merge_small_chunks(chunks)
 
         await self._store_chunks(chunks, rel_path, file_mtime)
@@ -174,6 +186,80 @@ class KnowledgeIndexer:
         result.duration_seconds = time.monotonic() - start
         return result
 
+    async def check_drift(self, project_root: Path) -> list[dict[str, Any]]:
+        """Check for knowledge docs whose covered source files have changed.
+
+        Returns list of {file_path, covers, stale_sources} for each stale doc.
+        """
+        rows = await self._db.execute(
+            "SELECT DISTINCT file_path, covers, file_updated_at "
+            "FROM knowledge_chunks WHERE covers != '[]'"
+        )
+
+        stale: list[dict[str, Any]] = []
+        seen_files: set[str] = set()
+
+        for row in rows:
+            fp = row["file_path"]
+            if fp in seen_files:
+                continue
+            seen_files.add(fp)
+
+            try:
+                covers = json.loads(row["covers"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not covers:
+                continue
+
+            doc_mtime = row["file_updated_at"]
+            stale_sources: list[str] = []
+
+            for pattern in covers:
+                # Glob-expand the pattern against the project root
+                matched = list(project_root.glob(pattern))
+                for source_path in matched:
+                    source_mtime = datetime.fromtimestamp(
+                        source_path.stat().st_mtime, tz=UTC
+                    ).isoformat()
+                    if source_mtime > doc_mtime:
+                        try:
+                            rel = str(source_path.relative_to(project_root))
+                        except ValueError:
+                            rel = str(source_path)
+                        stale_sources.append(rel)
+
+            if stale_sources:
+                stale.append(
+                    {
+                        "file_path": fp,
+                        "covers": covers,
+                        "stale_sources": stale_sources,
+                    }
+                )
+
+        return stale
+
+    async def health_report(self, project_root: Path) -> dict[str, Any]:
+        """Return a health summary: total chunks, files with covers, stale count."""
+        rows = await self._db.execute("SELECT COUNT(*) as cnt FROM knowledge_chunks")
+        total_chunks = rows[0]["cnt"] if rows else 0
+
+        rows = await self._db.execute(
+            "SELECT COUNT(DISTINCT file_path) as cnt "
+            "FROM knowledge_chunks WHERE covers != '[]'"
+        )
+        files_with_covers = rows[0]["cnt"] if rows else 0
+
+        stale = await self.check_drift(project_root)
+
+        return {
+            "total_chunks": total_chunks,
+            "files_with_covers": files_with_covers,
+            "stale_files": len(stale),
+            "stale_details": stale,
+        }
+
     def _parse_frontmatter(self, content: str) -> tuple[dict[str, Any], str]:
         """Parse YAML frontmatter from markdown content."""
         if not content.startswith("---"):
@@ -198,10 +284,12 @@ class KnowledgeIndexer:
         file_path: str,
         tags: list[str],
         scope: str,
+        covers: list[str] | None = None,
     ) -> list[Chunk]:
         """Split markdown into chunks following the spec strategy."""
         chunks: list[Chunk] = []
         title = frontmatter.get("title", "")
+        _covers = covers or []
 
         sections = self._split_by_heading(content, r"^## ", level=2)
 
@@ -217,6 +305,7 @@ class KnowledgeIndexer:
                         tags=tags,
                         scope=scope,
                         token_count=token_count,
+                        covers=_covers,
                     )
                 )
             return chunks
@@ -237,6 +326,7 @@ class KnowledgeIndexer:
                         tags=tags,
                         scope=scope,
                         token_count=token_count,
+                        covers=_covers,
                     )
                 )
             else:
@@ -261,6 +351,7 @@ class KnowledgeIndexer:
                                     tags=tags,
                                     scope=scope,
                                     token_count=h3_tokens,
+                                    covers=_covers,
                                 )
                             )
                         else:
@@ -273,12 +364,20 @@ class KnowledgeIndexer:
                                 file_path,
                                 tags,
                                 scope,
+                                _covers,
                             )
                             chunks.extend(para_chunks)
                 else:
                     # No H3 subdivisions — split by paragraphs
                     para_chunks = self._split_by_paragraphs(
-                        section_text, title, heading, "", file_path, tags, scope
+                        section_text,
+                        title,
+                        heading,
+                        "",
+                        file_path,
+                        tags,
+                        scope,
+                        _covers,
                     )
                     chunks.extend(para_chunks)
 
@@ -319,8 +418,10 @@ class KnowledgeIndexer:
         file_path: str,
         tags: list[str],
         scope: str,
+        covers: list[str] | None = None,
     ) -> list[Chunk]:
         """Split text into paragraph-based chunks with min ~200 tokens each."""
+        _covers = covers or []
         paragraphs = re.split(r"\n\n+", text.strip())
         chunks: list[Chunk] = []
         current_text = ""
@@ -341,6 +442,7 @@ class KnowledgeIndexer:
                         tags=tags,
                         scope=scope,
                         token_count=_estimate_tokens(current_text),
+                        covers=_covers,
                     )
                 )
                 current_text = para
@@ -360,6 +462,7 @@ class KnowledgeIndexer:
                     tags=chunks[-1].tags,
                     scope=chunks[-1].scope,
                     token_count=chunks[-1].token_count + tok,
+                    covers=chunks[-1].covers,
                 )
             else:
                 chunks.append(
@@ -370,6 +473,7 @@ class KnowledgeIndexer:
                         tags=tags,
                         scope=scope,
                         token_count=tok,
+                        covers=_covers,
                     )
                 )
 
@@ -394,6 +498,7 @@ class KnowledgeIndexer:
                     tags=chunk.tags,
                     scope=chunk.scope,
                     token_count=chunk.token_count + next_chunk.token_count,
+                    covers=chunk.covers or next_chunk.covers,
                 )
                 chunks[i + 1] = merged_chunk
                 i += 1
@@ -436,8 +541,8 @@ class KnowledgeIndexer:
             chunk_id = await self._db.execute_insert(
                 "INSERT INTO knowledge_chunks "
                 "(file_path, heading_path, content, tags, scope, "
-                "token_count, file_updated_at, indexed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "token_count, covers, file_updated_at, indexed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     file_path,
                     chunk.heading_path,
@@ -445,6 +550,7 @@ class KnowledgeIndexer:
                     json.dumps(chunk.tags),
                     chunk.scope,
                     chunk.token_count,
+                    json.dumps(chunk.covers),
                     file_mtime,
                     now,
                 ),
