@@ -439,6 +439,15 @@ settle automatically. When you observe the page afterward:
 - Do NOT click the same button again while it is in a loading/disabled state.
 - If the button text changed (e.g., "Publish" → "Published"), the action succeeded.
 
+COMPOSER ACTION TARGETING — CRITICAL: After writing content in a social media
+composer or post editor, you must click the PRIMARY action button to publish:
+- The primary button is labeled: Post, Publish, Tweet, Send, Toot, Submit.
+- Do NOT click secondary actions: "Add another post", "Save Draft", "Drafts",
+  "Schedule", "Thread" — these do NOT publish your content.
+- The primary button is usually a prominent/colored button, not a text link.
+- If you accidentally save as draft or chain-post, go back and click the
+  correct primary action button to actually publish.
+
 PUBLISH VERIFICATION — CRITICAL: Clicking a publish/send/submit button does NOT
 mean the task is done. Many platforms (Substack, WordPress, Medium, etc.) show a
 CONFIRMATION DIALOG after the first publish button. You MUST:
