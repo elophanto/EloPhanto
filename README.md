@@ -433,37 +433,135 @@ Compatible with [ui-skills.com](https://www.ui-skills.com/), [anthropics/skills]
 
 ```yaml
 agent:
-  permission_mode: full_auto
+  permission_mode: full_auto       # ask_always | smart_auto | full_auto
 
 llm:
-  provider_priority: [zai, ollama, openrouter]
+  providers:
+    zai:
+      api_key: "YOUR_ZAI_KEY"
+      enabled: true
+      coding_plan: true
+    openrouter:
+      api_key: "YOUR_OPENROUTER_KEY"
+      enabled: true
+    ollama:
+      enabled: true
+      base_url: "http://localhost:11434"
+  provider_priority: [zai, openrouter, ollama]
+  routing:                         # Per-task model routing
+    planning:
+      preferred_provider: openrouter
+      models:
+        openrouter: "anthropic/claude-sonnet-4.6"
+        zai: "glm-5"
+        ollama: "qwen2.5:14b"
+    coding:
+      preferred_provider: openrouter
+      models:
+        openrouter: "qwen/qwen3.5-plus-02-15"
+        zai: "glm-4.7"
+        ollama: "qwen2.5-coder:7b"
+    analysis:
+      preferred_provider: openrouter
+      models:
+        openrouter: "google/gemini-3.1-pro-preview"
+    simple:
+      preferred_provider: openrouter
+      models:
+        openrouter: "minimax/minimax-m2.5"
   budget:
-    daily_limit_usd: 10.00
+    daily_limit_usd: 10.0
+    per_task_limit_usd: 2.0
+
+shell:
+  timeout: 30
+  blacklist_patterns: ["rm -rf /", "mkfs", "DROP DATABASE"]
 
 browser:
   enabled: true
-  mode: profile        # Uses your real Chrome sessions
-  vision_model: google/gemini-2.0-flash-001  # Screenshot analysis model (OpenRouter)
+  mode: fresh                      # fresh | profile
+  headless: true
+  vision_model: google/gemini-2.0-flash-001
+
+knowledge:
+  embedding_provider: auto         # auto | openrouter | ollama
+  embedding_openrouter_model: "google/gemini-embedding-001"
+  embedding_model: "nomic-embed-text"
+  embedding_fallback: "mxbai-embed-large"
 
 gateway:
   enabled: true
+  host: "127.0.0.1"
+  port: 18789
   unified_sessions: true
+
+goals:
+  enabled: true
+  max_checkpoints: 20
+  max_llm_calls_per_goal: 200
+  auto_continue: true
+
+scheduler:
+  enabled: true
+  max_concurrent_tasks: 1
+  default_max_retries: 3
+
+swarm:
+  enabled: true
+  max_concurrent_agents: 3
+  profiles:
+    claude-code:
+      command: claude
+      args: ["-p", "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"]
+      done_criteria: pr_created
+      max_time_seconds: 3600
+
+autonomous_mind:
+  enabled: true
+  wakeup_seconds: 300
+  budget_pct: 100.0
+  max_rounds_per_wakeup: 8
 
 email:
   enabled: true
-  provider: agentmail
+  provider: agentmail               # agentmail | smtp
 
 payments:
   enabled: false
+  crypto:
+    enabled: true
+    default_chain: base
+    provider: local                  # local | coinbase
+
+telegram:
+  enabled: false
+  bot_token_ref: "telegram_bot_token"
+
+discord:
+  enabled: false
+  bot_token_ref: "discord_bot_token"
+
+slack:
+  enabled: false
+  bot_token_ref: "slack_bot_token"
+  app_token_ref: "slack_app_token"
 
 mcp:
   enabled: false
   servers: {}
+
+hub:
+  enabled: true
+  auto_suggest: true
+
+recovery:
+  enabled: true
+  auto_enter_on_provider_failure: true
 ```
 
 </details>
 
-Configure LLM provider, browser mode, channels, email, payments, MCP servers, and more. See [docs/configuration.md](docs/configuration.md) for full details.
+Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/configuration.md](docs/configuration.md) for full details.
 
 ---
 
