@@ -1259,8 +1259,10 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
   }
 
   /**
-   * Capture a post-action snapshot: screenshot saved to disk + pseudo-HTML.
-   * Only returns text data (pseudo-HTML + path) — no base64 in tool results.
+   * Capture a fast post-action snapshot: raw JPEG screenshot + pseudo-HTML.
+   * Uses takeScreenshotWithElements({ fast: true }) which skips Sharp
+   * resize/sharpen/WebP and uses shorter waits. This is the hot path —
+   * called on every click, navigate, type.
    * Returns null on failure so actions never break because of snapshot capture.
    */
   private async capturePostActionSnapshot(): Promise<{
@@ -1269,7 +1271,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
   } | null> {
     try {
       const browser = await this.ensureBrowser();
-      const combined = await browser.takeScreenshotWithElements();
+      const combined = await browser.takeScreenshotWithElements({ fast: true });
       const saved = await this.saveScreenshotToDisk(
         combined.imageBase64,
         combined.imageType as any,
