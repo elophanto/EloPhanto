@@ -14,6 +14,7 @@ Phase 2-4 additions: plugin system, self-dev tools, browser, scheduling.
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
 import json
 import logging
@@ -34,6 +35,7 @@ class StatusCallback(Protocol):
     def __call__(self, message: str) -> None: ...
 
 
+from core.browser_executor import STATE_CHANGING_TOOLS, BrowserExecutionState
 from core.config import Config
 from core.database import Database
 from core.embeddings import create_embedder
@@ -82,6 +84,48 @@ _PARALLEL_SAFE_TOOLS = frozenset(
         "swarm_status",
     }
 )
+
+
+_KEEP_RECENT_SCREENSHOTS = 3  # Keep last N screenshots as actual images
+
+
+def _compress_browser_context(messages: list[dict[str, Any]]) -> None:
+    """Replace old screenshot images with [screenshot] placeholder.
+
+    Keeps only the last _KEEP_RECENT_SCREENSHOTS images to prevent
+    context bloat from accumulated auto-injected screenshots.
+    """
+    screenshot_indices = [
+        i
+        for i, m in enumerate(messages)
+        if isinstance(m.get("content"), list)
+        and any(
+            p.get("type") == "image_url" for p in m["content"] if isinstance(p, dict)
+        )
+    ]
+    if len(screenshot_indices) <= _KEEP_RECENT_SCREENSHOTS:
+        return
+    for i in screenshot_indices[:-_KEEP_RECENT_SCREENSHOTS]:
+        msg = messages[i]
+        new_parts: list[dict[str, Any]] = []
+        for part in msg["content"]:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                new_parts.append({"type": "text", "text": "[screenshot]"})
+            elif isinstance(part, dict) and part.get("type") == "text":
+                text = part.get("text", "")
+                if len(text) > 500:
+                    lines = text.split("\n")
+                    new_parts.append(
+                        {
+                            "type": "text",
+                            "text": "\n".join(lines[:3]) + "\n[elements truncated]",
+                        }
+                    )
+                else:
+                    new_parts.append(part)
+            else:
+                new_parts.append(part)
+        messages[i] = {**msg, "content": new_parts}
 
 
 def _group_tool_calls(tool_calls: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -1155,6 +1199,11 @@ class Agent:
             len(messages),
         )
 
+        # Browser execution state — evidence gating + stagnation detection
+        _browser_state = BrowserExecutionState() if self._browser_manager else None
+        _verification_rounds = 0
+        _MAX_VERIFICATION_ROUNDS = 2
+
         stagnation_reason = ""
         while step < hard_limit:
             if max_time and (_time.monotonic() - start_time) > max_time:
@@ -1216,6 +1265,9 @@ class Agent:
             # === PLAN ===
             _llm_start = _time.monotonic()
             logger.info("[TIMING] LLM call starting (step %d)...", step)
+            # Compress old screenshots to prevent context bloat
+            if _browser_state:
+                _compress_browser_context(messages)
             try:
                 response = await self._router.complete(
                     messages=[{"role": "system", "content": system_content}] + messages,
@@ -1259,6 +1311,36 @@ class Agent:
             # Check if LLM responded with text (no tool calls) = task complete
             if not response.tool_calls:
                 final_content = response.content or "Task complete."
+
+                # Browser task verification — separate LLM call to check
+                # if the task is actually complete (EKO pattern).
+                _any_browser = any(tc.startswith("browser_") for tc in tool_calls_made)
+                if (
+                    _any_browser
+                    and self._browser_manager
+                    and _verification_rounds < _MAX_VERIFICATION_ROUNDS
+                ):
+                    _vr = await self._verify_browser_task(goal, final_content)
+                    if _vr and not _vr["complete"]:
+                        _verification_rounds += 1
+                        _reason = _vr.get("reason", "Unknown reason")
+                        messages.append({"role": "assistant", "content": final_content})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Task verification: The task appears "
+                                    f"incomplete. Reason: {_reason}. "
+                                    "Please continue working on it."
+                                ),
+                            }
+                        )
+                        logger.info(
+                            "Task verification round %d: incomplete (%s)",
+                            _verification_rounds,
+                            _reason[:100],
+                        )
+                        continue  # Re-enter the while loop
 
                 # Post-task housekeeping — fire-and-forget so the user
                 # gets the response immediately.
@@ -1395,6 +1477,9 @@ class Agent:
                     else:
                         consecutive_errors = 0
 
+                    _screenshot_path = None
+                    _elements_text = ""
+
                     if exec_result.denied:
                         tool_content = json.dumps(
                             {
@@ -1410,15 +1495,22 @@ class Agent:
                     elif exec_result.result:
                         raw_result = exec_result.result.to_dict()
                         func_name = tc["function"]["name"]
+                        # Extract screenshot path before injection guard wrapping
+                        if func_name in STATE_CHANGING_TOOLS:
+                            _screenshot_path = raw_result.get("screenshotPath")
+                            _elements_text = raw_result.get("elements", "")
                         raw_result = wrap_tool_result(func_name, raw_result)
                         # Strip base64 images from browser results — they bloat
                         # context for text-only LLMs. The bridge saves screenshots
-                        # to disk and returns a path instead.
+                        # to disk; auto-injection reads from disk instead.
                         if func_name.startswith("browser_"):
                             _data = raw_result.get("data")
                             if isinstance(_data, dict):
                                 _data.pop("imageBase64", None)
                                 _data.pop("imageType", None)
+                            # Also strip from top level (to_dict flattens)
+                            raw_result.pop("imageBase64", None)
+                            raw_result.pop("imageType", None)
                         # PII redaction — non-owner users get PII stripped
                         if _authority != AuthorityLevel.OWNER:
                             from core.pii_guard import redact_pii_in_dict
@@ -1435,6 +1527,67 @@ class Agent:
                             "content": tool_content,
                         }
                     )
+
+                    # --- Auto-screenshot injection (EKO pattern) ---
+                    # After state-changing browser actions, inject the saved
+                    # screenshot so the LLM always sees page state.
+                    _auto_injected = False
+                    if _screenshot_path and Path(_screenshot_path).is_file():
+                        try:
+                            _img_bytes = Path(_screenshot_path).read_bytes()
+                            _img_b64 = base64.b64encode(_img_bytes).decode("ascii")
+                            _ext = Path(_screenshot_path).suffix.lstrip(".")
+                            _mime = "image/png" if _ext == "png" else "image/jpeg"
+                            _obs_parts: list[dict[str, Any]] = [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{_mime};base64,{_img_b64}",
+                                    },
+                                },
+                            ]
+                            if _elements_text:
+                                _obs_parts.append(
+                                    {
+                                        "type": "text",
+                                        "text": f"Page after {func_name}:\n{_elements_text}",
+                                    }
+                                )
+                            messages.append({"role": "user", "content": _obs_parts})
+                            _auto_injected = True
+                            logger.debug(
+                                "Auto-injected screenshot (%d bytes) after %s",
+                                len(_img_bytes),
+                                func_name,
+                            )
+                        except Exception as _e:
+                            logger.warning("Failed to inject screenshot: %s", _e)
+                    if not _auto_injected and _elements_text:
+                        # Text-only fallback (non-vision models)
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": f"Page after {func_name}:\n{_elements_text}",
+                            }
+                        )
+                        _auto_injected = True
+
+                    # Browser execution state tracking
+                    if _browser_state and func_name.startswith("browser_"):
+                        _browser_state.after_tool(func_name, raw_result)
+                        try:
+                            _tc_raw = tc["function"].get("arguments", "{}")
+                            _tc_args = (
+                                json.loads(_tc_raw)
+                                if isinstance(_tc_raw, str)
+                                else _tc_raw
+                            )
+                        except Exception:
+                            _tc_args = {}
+                        _stag = _browser_state.check_stagnation(func_name, _tc_args)
+                        if _stag:
+                            messages.append({"role": "user", "content": _stag})
+                            logger.info("Browser stagnation: %s", _stag[:100])
 
         if stagnation_reason:
             reason = stagnation_reason
@@ -1655,6 +1808,75 @@ class Agent:
                     }
                 )
             self._working_memory.add_chunks(memory_chunks)
+
+    async def _verify_browser_task(
+        self, goal: str, agent_response: str
+    ) -> dict[str, Any] | None:
+        """Verify browser task completion with a separate LLM call.
+
+        Takes a screenshot and asks a fast model whether the task is done.
+        Returns {"complete": bool, "reason": str} or None on failure.
+        """
+        try:
+            result = await self._browser_manager.call_tool("browser_screenshot", {})
+            _saved = result.get("savedScreenshotPath") or result.get("screenshotPath")
+            if not _saved or not Path(_saved).is_file():
+                return None
+
+            _img_bytes = Path(_saved).read_bytes()
+            _img_b64 = base64.b64encode(_img_bytes).decode("ascii")
+
+            verify_messages: list[dict[str, Any]] = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You verify whether a browser task is complete. "
+                        "Look at the screenshot and answer."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{_img_b64}",
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                f"TASK: {goal}\n\n"
+                                f"AGENT SAYS: {agent_response[:500]}\n\n"
+                                "Is this task complete based on the "
+                                "screenshot? Reply EXACTLY:\n"
+                                "COMPLETE: <reason>\n"
+                                "or INCOMPLETE: <reason>"
+                            ),
+                        },
+                    ],
+                },
+            ]
+
+            resp = await self._router.complete(
+                messages=verify_messages,
+                task_type="simple",
+                tools=None,
+                temperature=0.1,
+                max_tokens=200,
+            )
+
+            text = (resp.content or "").strip()
+            if text.upper().startswith("COMPLETE"):
+                return {"complete": True, "reason": text}
+            elif text.upper().startswith("INCOMPLETE"):
+                reason = text.split(":", 1)[1].strip() if ":" in text else text
+                return {"complete": False, "reason": reason}
+            # Ambiguous — accept as complete to avoid loops
+            return {"complete": True, "reason": text}
+        except Exception as e:
+            logger.warning("Browser task verification failed: %s", e)
+            return None
 
     async def _store_task_memory(
         self,
