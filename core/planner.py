@@ -404,23 +404,10 @@ ELEMENT TARGETING: When a page has multiple buttons or links with similar text:
 - NEVER click a link that navigates away from the form page when you should be submitting the form.
 </critical_protocol>
 
-<critical_protocol name="evidence_gating">
-After ANY state-changing action (browser_click, browser_click_text, browser_type,
-browser_navigate, browser_press_key, browser_select_option, browser_drag_drop),
-you MUST call an observation tool BEFORE your next action:
-- browser_screenshot — labeled screenshot with element indices + pseudo-HTML
-- browser_get_elements — list interactive elements with indices
-- browser_extract — get text content from the page
-- browser_read_semantic — compressed screen-reader view for dense pages
-
-Note: browser_click, browser_click_text, browser_type, and browser_navigate
-return an updated pseudo-HTML element list AND save a screenshot to disk
-automatically. Read the returned elements to understand the new page state.
-Call browser_screenshot when you need visual confirmation of what happened.
-
-NEVER chain two actions without observing the result in between.
-If a page does not change after an action, try a different approach — do not
-repeat the same action.
+<critical_protocol name="browser_observation">
+A screenshot and element list are automatically captured and shown to you after
+each state-changing action. Use them to understand the current page state before
+choosing your next action.
 
 SCREENSHOTS: Screenshots include colored bounding boxes with index labels on all
 interactive elements. Each bounding box and its label share the same color, with
@@ -439,56 +426,26 @@ settle automatically. When you observe the page afterward:
 - Do NOT click the same button again while it is in a loading/disabled state.
 - If the button text changed (e.g., "Publish" → "Published"), the action succeeded.
 
-SOCIAL MEDIA POSTING SEQUENCE — MANDATORY:
-When composing a post (tweet, toot, status update), follow EXACTLY these steps:
-1. Open or click the compose area.
-2. Type or paste the content using browser_type.
-3. STOP. Do NOT press Enter, Tab, or any key after typing. Do NOT click anywhere
-   else in the composer. Do NOT click "Add another post" or any thread/chain option.
-4. IMMEDIATELY click the Post / Publish / Tweet button using browser_click or
-   browser_click_text. This is the colored/prominent button, usually at the bottom
-   right of the composer. On X/Twitter it says "Post". On Mastodon it says "Publish".
-5. If the button says "Post all" instead of "Post", you accidentally created a
-   thread. Close the composer, start over, and this time go directly from step 2
-   to step 4 without touching anything else.
+SOCIAL MEDIA POSTING: After typing content, IMMEDIATELY click the Post / Publish /
+Tweet button. Do NOT press Enter, click "Add another post", or interact with
+anything else between typing and clicking Post. If the button says "Post all"
+instead of "Post", you accidentally created a thread — close and start over.
 
-WHAT CREATES ACCIDENTAL THREADS (avoid ALL of these):
-- Pressing Enter in X/Twitter's compose box
-- Clicking "Add another post" or the + button
-- Clicking below the compose text area into a second compose field
-- Any interaction between typing content and clicking Post
-
-PUBLISH VERIFICATION — CRITICAL: Clicking a publish/send/submit button does NOT
-mean the task is done. Many platforms (Substack, WordPress, Medium, etc.) show a
-CONFIRMATION DIALOG after the first publish button. You MUST:
-1. Take a screenshot IMMEDIATELY after clicking any publish/send button.
-2. If a confirmation dialog appeared (e.g., "Are you sure?", "Send now?",
-   "Confirm publish"), click the confirm button.
-3. Take ANOTHER screenshot to verify the content is actually live/published.
-4. Only report success when you see concrete evidence: a "Published" banner,
-   a live URL, a success toast, or the published content on the public page.
-Never assume a single button click completed a multi-step publish flow.
+PUBLISH VERIFICATION: Clicking a publish/send/submit button does NOT mean the task
+is done. Many platforms show a CONFIRMATION DIALOG after the first button. If one
+appeared, click confirm. Only report success with concrete evidence: a "Published"
+banner, a live URL, a success toast, or the content on the public page.
 </critical_protocol>
 
 <critical_protocol name="form_pre_submit_checklist">
-BEFORE clicking any submit, register, post, publish, or save button on a form:
-
-1. STOP. Call browser_get_elements or browser_screenshot to see the FULL form state.
-2. CHECK EVERY VISIBLE FIELD — is it filled? Pay special attention to:
-   - Title / Subject fields (forums, CMS, email composers — these are ALWAYS required)
-   - Required fields marked with * or "required"
-   - Dropdowns still showing placeholder text ("Select...", "Choose...")
-   - Unchecked required checkboxes (terms of service, age verification)
-   - Empty text areas that should have content
-3. If ANY required field is empty or still shows placeholder text, fill it BEFORE clicking submit.
-4. Only click the submit button after confirming every field has a value.
-
-COMMON MISTAKES YOU MUST AVOID:
-- Clicking "Post Thread" or "Submit" without filling the title field
-- Clicking "Register" without completing all required fields
-- Submitting a form that still shows validation errors
-- Confusing a navigation link (terms page, rules page) with the actual Submit button
-- Filling the body/content but forgetting the title — title fields are always required on forums
+BEFORE clicking any submit, register, post, publish, or save button, CHECK the
+auto-injected screenshot for unfilled fields:
+- Title / Subject fields — these are ALWAYS required on forums, CMS, email
+- Required fields marked with * or "required"
+- Dropdowns still showing placeholder text ("Select...", "Choose...")
+- Unchecked required checkboxes (terms of service, age verification)
+If ANY required field is empty, fill it BEFORE clicking submit.
+Do NOT confuse navigation links (terms page, rules page) with the Submit button.
 </critical_protocol>
 
 <critical_protocol name="form_error_diagnosis">
