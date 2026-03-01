@@ -127,6 +127,83 @@ Re-indexing happens:
 
 Indexing is non-blocking — the agent can continue working while re-indexing happens in the background.
 
+## Drift Detection
+
+Knowledge files can declare which source files they document using the `covers:` frontmatter field:
+
+```yaml
+---
+title: Gateway Architecture
+scope: system
+covers: [core/gateway.py, core/protocol.py, channels/*.py]
+---
+```
+
+- `covers` accepts a YAML list or comma-separated string
+- Supports glob patterns via Python's `fnmatch` (e.g. `channels/*.py`)
+- Stored as JSON in the `covers` column on `knowledge_chunks`
+- Files without `covers` are unaffected (opt-in, backward compatible)
+
+### How drift is detected
+
+The `KnowledgeIndexer.check_drift(project_root)` method:
+
+1. Queries all chunks where `covers` is not empty
+2. Glob-expands each pattern against the project root
+3. Compares each source file's mtime against the knowledge doc's `file_updated_at`
+4. If any source file is newer → the knowledge doc is flagged as stale
+
+### Where stale warnings appear
+
+- **Search results**: `knowledge_search` annotates results with `stale_warning` (e.g. "STALE — source files changed: gateway.py, protocol.py")
+- **Working memory**: `format_context()` renders `**WARNING: STALE — ...**` above stale chunk content in the system prompt
+- **Autonomous mind**: `_build_state_snapshot()` includes `[STALE] knowledge/... — sources changed: ...` so the mind can use `knowledge_write` to refresh stale docs
+
+### Health report
+
+`KnowledgeIndexer.health_report(project_root)` returns:
+
+```json
+{
+  "total_chunks": 142,
+  "files_with_covers": 8,
+  "stale_files": 2,
+  "stale_details": [...]
+}
+```
+
+## File-Pattern Routing
+
+When a goal mentions specific file paths (e.g. "fix the bug in core/gateway.py"), the agent automatically loads knowledge docs that cover those files — even without a semantic match on the goal text.
+
+### How it works
+
+1. `_extract_file_paths(goal)` uses regex to find file path references in the goal text
+2. `_search_by_file_pattern(paths)` queries chunks where `covers` patterns match those paths (using `fnmatch`)
+3. Results are merged with semantic search results (deduplicated by source+heading)
+
+This runs as a third parallel search in `_auto_retrieve()`:
+
+```
+_auto_retrieve(goal)
+  ├─ _search_knowledge(goal)       # semantic search (existing)
+  ├─ _search_memory(goal)          # task memory (existing)
+  └─ _search_by_file_pattern(      # NEW: file-pattern match
+       _extract_file_paths(goal))
+```
+
+### Example
+
+Given a knowledge file:
+```yaml
+---
+title: Gateway Architecture
+covers: [core/gateway.py, core/protocol.py]
+---
+```
+
+When the user says "fix the timeout bug in core/gateway.py", the gateway architecture doc is loaded automatically — even though "fix the timeout bug" has no semantic overlap with "Gateway Architecture".
+
 ## Agent Self-Knowledge
 
 The `/knowledge/system/` directory is special. It is how EloPhanto understands itself. The agent reads these files on every startup and uses them to contextualize its actions.

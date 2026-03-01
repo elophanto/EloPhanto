@@ -50,11 +50,14 @@ class WorkingMemory:
             source = chunk.get("source", "unknown")
             heading = chunk.get("heading", "")
             content = chunk.get("content", "")
+            stale_warning = chunk.get("stale_warning", "")
 
             chunk_tokens = _estimate_tokens(content)
             if total_tokens + chunk_tokens > max_tokens:
                 break
 
+            if stale_warning:
+                lines.append(f"**WARNING: {stale_warning}**")
             header = f"### From: {source}"
             if heading:
                 header += f" > {heading}"

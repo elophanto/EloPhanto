@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import struct
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
@@ -22,6 +23,7 @@ class KnowledgeSearchTool(BaseTool):
         self._db: Any = None  # Injected by agent
         self._embedder: Any = None  # Injected by agent
         self._embedding_model: str = "nomic-embed-text"
+        self._project_root: Path | None = None  # Injected by agent
 
     @property
     def name(self) -> str:
@@ -75,6 +77,10 @@ class KnowledgeSearchTool(BaseTool):
                 results = await self._semantic_search(query, scope, limit)
             else:
                 results = await self._keyword_search(query, scope, limit)
+
+            # Annotate stale results whose covered source files changed
+            if self._project_root and results:
+                results = await self._annotate_staleness(results)
 
             return ToolResult(
                 success=True,
@@ -217,3 +223,60 @@ class KnowledgeSearchTool(BaseTool):
             return 0.05 * max(0, 1 - days_old / 365)
         except (ValueError, TypeError):
             return 0.0
+
+    async def _annotate_staleness(
+        self, results: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Add stale_warning to results whose covered source files changed."""
+        if not self._project_root or not self._db:
+            return results
+
+        # Collect unique source file paths from results
+        source_files = {r.get("source", "") for r in results}
+        if not source_files:
+            return results
+
+        # Query covers data for matching knowledge files
+        placeholders = ",".join("?" for _ in source_files)
+        rows = await self._db.execute(
+            f"SELECT DISTINCT file_path, covers, file_updated_at "
+            f"FROM knowledge_chunks WHERE file_path IN ({placeholders}) "
+            f"AND covers != '[]'",
+            tuple(source_files),
+        )
+
+        # Build staleness map: file_path → list of changed source files
+        stale_map: dict[str, list[str]] = {}
+        for row in rows:
+            try:
+                covers = json.loads(row["covers"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not covers:
+                continue
+
+            doc_mtime = row["file_updated_at"]
+            changed: list[str] = []
+            for pattern in covers:
+                for source_path in self._project_root.glob(pattern):
+                    source_mtime = datetime.fromtimestamp(
+                        source_path.stat().st_mtime, tz=UTC
+                    ).isoformat()
+                    if source_mtime > doc_mtime:
+                        try:
+                            rel = str(source_path.relative_to(self._project_root))
+                        except ValueError:
+                            rel = str(source_path)
+                        changed.append(rel)
+            if changed:
+                stale_map[row["file_path"]] = changed
+
+        # Annotate results
+        for result in results:
+            source = result.get("source", "")
+            if source in stale_map:
+                result["stale_warning"] = (
+                    f"STALE — source files changed: {', '.join(stale_map[source])}"
+                )
+
+        return results

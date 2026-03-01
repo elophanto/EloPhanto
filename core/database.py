@@ -339,6 +339,8 @@ _MIGRATIONS = [
     "ALTER TABLE llm_usage ADD COLUMN suspected_truncated INTEGER DEFAULT 0",
     # Chat conversations
     "ALTER TABLE chat_messages ADD COLUMN conversation_id TEXT DEFAULT ''",
+    # Knowledge drift detection — tracks which source files a knowledge doc covers
+    "ALTER TABLE knowledge_chunks ADD COLUMN covers TEXT DEFAULT '[]'",
 ]
 
 

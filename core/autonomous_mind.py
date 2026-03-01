@@ -635,6 +635,23 @@ class AutonomousMind:
         memory_text = "\n".join(sections) if sections else "(no prior activity)"
         sections.clear()
 
+        # --- Knowledge drift ---
+        try:
+            if self._agent._indexer:
+                stale = await self._agent._indexer.check_drift(self._project_root)
+                if stale:
+                    drift_lines: list[str] = []
+                    for entry in stale[:5]:
+                        sources = ", ".join(entry["stale_sources"][:3])
+                        drift_lines.append(
+                            f"[STALE] {entry['file_path']} — sources changed: {sources}"
+                        )
+                    sections.extend(drift_lines)
+        except Exception:
+            pass
+        drift_text = "\n".join(sections) if sections else ""
+        sections.clear()
+
         # --- Knowledge stats + user directives ---
         knowledge_text = "(empty knowledge base)"
         try:
@@ -671,9 +688,10 @@ class AutonomousMind:
         except Exception:
             pass
 
-        return (
-            f"{goal_text}\n{schedule_text}\n{memory_text}\n{knowledge_text}"
-        ), identity_anchor
+        parts = [goal_text, schedule_text, memory_text, knowledge_text]
+        if drift_text:
+            parts.append(f"\nKNOWLEDGE DRIFT DETECTED:\n{drift_text}")
+        return "\n".join(parts), identity_anchor
 
     async def _build_prompt(self) -> str:
         """Build the autonomous mind prompt with current context."""
