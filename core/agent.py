@@ -87,14 +87,19 @@ _PARALLEL_SAFE_TOOLS = frozenset(
 
 
 _KEEP_RECENT_SCREENSHOTS = 3  # Keep last N screenshots as actual images
+_MAX_ELEMENTS_CHARS = 4000  # Truncate pseudo-HTML element lists beyond this
+_MAX_CONTEXT_CHARS = 800_000  # ~200K tokens — aggressively compress above this
 
 
 def _compress_browser_context(messages: list[dict[str, Any]]) -> None:
-    """Replace old screenshot images with [screenshot] placeholder.
+    """Compress browser-injected content to prevent context bloat.
 
-    Keeps only the last _KEEP_RECENT_SCREENSHOTS images to prevent
-    context bloat from accumulated auto-injected screenshots.
+    1. Replace old screenshot images with [screenshot] placeholder (keep last N).
+    2. Truncate long element text in all non-recent browser messages.
+    3. If total estimated size still exceeds _MAX_CONTEXT_CHARS, aggressively
+       strip ALL images and truncate all element text.
     """
+    # --- Phase 1: Identify multimodal messages (screenshots + elements) ---
     screenshot_indices = [
         i
         for i, m in enumerate(messages)
@@ -103,29 +108,78 @@ def _compress_browser_context(messages: list[dict[str, Any]]) -> None:
             p.get("type") == "image_url" for p in m["content"] if isinstance(p, dict)
         )
     ]
-    if len(screenshot_indices) <= _KEEP_RECENT_SCREENSHOTS:
-        return
-    for i in screenshot_indices[:-_KEEP_RECENT_SCREENSHOTS]:
-        msg = messages[i]
-        new_parts: list[dict[str, Any]] = []
-        for part in msg["content"]:
-            if isinstance(part, dict) and part.get("type") == "image_url":
-                new_parts.append({"type": "text", "text": "[screenshot]"})
-            elif isinstance(part, dict) and part.get("type") == "text":
-                text = part.get("text", "")
-                if len(text) > 500:
+
+    # Replace old screenshots with placeholder, truncate old element text
+    if len(screenshot_indices) > _KEEP_RECENT_SCREENSHOTS:
+        for i in screenshot_indices[:-_KEEP_RECENT_SCREENSHOTS]:
+            messages[i] = _compress_multimodal_msg(messages[i], strip_images=True)
+
+    # --- Phase 2: Estimate total context size and compress further if needed ---
+    total_chars = _estimate_context_chars(messages)
+    if total_chars > _MAX_CONTEXT_CHARS:
+        logger.warning(
+            "Context too large (~%dK chars). Stripping ALL screenshots + truncating elements.",
+            total_chars // 1000,
+        )
+        # Strip ALL images, truncate all element text
+        for i in screenshot_indices:
+            messages[i] = _compress_multimodal_msg(messages[i], strip_images=True)
+        # Also truncate any long text-only browser messages (element fallbacks)
+        for i, m in enumerate(messages):
+            if m.get("role") == "user" and isinstance(m.get("content"), str):
+                text = m["content"]
+                if len(text) > 2000 and "Page after browser_" in text:
                     lines = text.split("\n")
-                    new_parts.append(
-                        {
-                            "type": "text",
-                            "text": "\n".join(lines[:3]) + "\n[elements truncated]",
-                        }
-                    )
-                else:
-                    new_parts.append(part)
+                    messages[i] = {
+                        **m,
+                        "content": "\n".join(lines[:5]) + "\n[elements truncated]",
+                    }
+
+
+def _compress_multimodal_msg(
+    msg: dict[str, Any], *, strip_images: bool
+) -> dict[str, Any]:
+    """Compress a single multimodal message."""
+    new_parts: list[dict[str, Any]] = []
+    for part in msg["content"]:
+        if not isinstance(part, dict):
+            new_parts.append(part)
+            continue
+        if part.get("type") == "image_url" and strip_images:
+            new_parts.append({"type": "text", "text": "[screenshot]"})
+        elif part.get("type") == "text":
+            text = part.get("text", "")
+            if len(text) > 500:
+                lines = text.split("\n")
+                new_parts.append(
+                    {
+                        "type": "text",
+                        "text": "\n".join(lines[:5]) + "\n[elements truncated]",
+                    }
+                )
             else:
                 new_parts.append(part)
-        messages[i] = {**msg, "content": new_parts}
+        else:
+            new_parts.append(part)
+    return {**msg, "content": new_parts}
+
+
+def _estimate_context_chars(messages: list[dict[str, Any]]) -> int:
+    """Rough estimate of total message content in characters."""
+    total = 0
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        total += len(part.get("text", ""))
+                    elif part.get("type") == "image_url":
+                        url = part.get("image_url", {}).get("url", "")
+                        total += len(url)  # base64 data URI
+    return total
 
 
 def _group_tool_calls(tool_calls: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -1265,9 +1319,9 @@ class Agent:
             # === PLAN ===
             _llm_start = _time.monotonic()
             logger.info("[TIMING] LLM call starting (step %d)...", step)
-            # Compress old screenshots to prevent context bloat
-            if _browser_state:
-                _compress_browser_context(messages)
+            # Compress old screenshots / large element text to prevent context bloat.
+            # Always run — conversation_history may carry browser content from prior turns.
+            _compress_browser_context(messages)
             try:
                 response = await self._router.complete(
                     messages=[{"role": "system", "content": system_content}] + messages,
@@ -1498,7 +1552,13 @@ class Agent:
                         # Extract screenshot path before injection guard wrapping
                         if func_name in STATE_CHANGING_TOOLS:
                             _screenshot_path = raw_result.get("screenshotPath")
-                            _elements_text = raw_result.get("elements", "")
+                            _el = raw_result.get("elements", "")
+                            # Truncate element text to prevent context bloat
+                            _elements_text = (
+                                _el[:_MAX_ELEMENTS_CHARS] + "\n[elements truncated]"
+                                if len(_el) > _MAX_ELEMENTS_CHARS
+                                else _el
+                            )
                         raw_result = wrap_tool_result(func_name, raw_result)
                         # Strip base64 images from browser results — they bloat
                         # context for text-only LLMs. The bridge saves screenshots
