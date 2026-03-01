@@ -1235,37 +1235,37 @@ export class AwareBrowserAgent {
    * Returns both the screenshot AND the pseudo-HTML element list in one call,
    * guaranteeing index consistency between visual labels and text.
    */
-  async takeScreenshotWithElements(): Promise<{
+  async takeScreenshotWithElements(opts?: { fast?: boolean }): Promise<{
     imageBase64: string;
     imageType: 'image/jpeg' | 'image/png' | 'image/webp';
     pseudoHtml: string;
     url: string;
     title: string;
   }> {
+    const fast = opts?.fast ?? false;
     const page = await this.getPage();
     const [url, title] = await Promise.all([
       Promise.resolve(page.url()).catch(() => ''),
       page.title().catch(() => ''),
     ]);
 
-    // Wait for network to settle (EKO uses 300ms sleep + networkidle)
+    // Wait for network to settle — shorter timeout in fast mode
     try {
-      await page.waitForLoadState('networkidle', { timeout: 3000 });
+      await page.waitForLoadState('networkidle', { timeout: fast ? 1000 : 3000 });
     } catch {
       // Timeout is fine
     }
 
     // Inject DOM tree builder and get elements with highlights
+    // Fast mode: single attempt with shorter delays
     let pseudoHtml = '';
     let lastError = '';
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const maxAttempts = fast ? 1 : 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        // Small delay for DOM to stabilize (EKO does 200ms)
-        await new Promise(r => setTimeout(r, 200));
-        // Inject the script
+        await new Promise(r => setTimeout(r, fast ? 80 : 200));
         await page.evaluate(BUILD_DOM_TREE_SCRIPT);
-        await new Promise(r => setTimeout(r, 50));
-        // Get elements with highlighting enabled
+        await new Promise(r => setTimeout(r, fast ? 20 : 50));
         const result = await page.evaluate('window.get_clickable_elements(true)') as {
           element_str: string;
           client_rect: { width: number; height: number };
@@ -1284,10 +1284,10 @@ export class AwareBrowserAgent {
     }
 
     // Small delay for overlay render
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, fast ? 30 : 100));
 
     // Take screenshot with overlays visible
-    const buffer = await page.screenshot({ type: 'jpeg', quality: 80 });
+    const buffer = await page.screenshot({ type: 'jpeg', quality: fast ? 70 : 80 });
 
     // Remove overlays
     try {
@@ -1296,7 +1296,18 @@ export class AwareBrowserAgent {
       // Ignore
     }
 
-    // Resize for vision API
+    // Fast mode: return raw JPEG (skip Sharp resize/sharpen/WebP)
+    if (fast) {
+      return {
+        imageBase64: buffer.toString('base64'),
+        imageType: 'image/jpeg',
+        pseudoHtml,
+        url,
+        title,
+      };
+    }
+
+    // Full mode: resize for vision API via Sharp
     try {
       if (!cachedSharp) {
         cachedSharp = (await import('sharp')).default;
@@ -3896,10 +3907,10 @@ export class AwareBrowserAgent {
    * Falls back to a short fixed wait if the page doesn't support MutationObserver
    * or if the timeout is reached.
    *
-   * @param timeoutMs  Maximum time to wait (default 2000ms)
-   * @param quietMs    How long without mutations to consider "stable" (default 150ms)
+   * @param timeoutMs  Maximum time to wait (default 500ms)
+   * @param quietMs    How long without mutations to consider "stable" (default 100ms)
    */
-  async waitForDomStable(timeoutMs = 2000, quietMs = 150): Promise<void> {
+  async waitForDomStable(timeoutMs = 500, quietMs = 100): Promise<void> {
     this.invalidateElementsCache();
     const page = await this.getPage();
     try {
