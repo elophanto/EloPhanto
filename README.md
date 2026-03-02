@@ -13,7 +13,7 @@
   <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-30%2B%20pages-blue" alt="Docs"></a>
 </p>
 
-An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, writes code, sends emails, creates accounts, manages files, makes payments. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. When you're not talking to it, it keeps working — pursuing goals, making money, and maintaining itself autonomously.
+An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, writes code, sends emails, creates accounts, manages files, makes payments. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
 
 Runs locally. Works with free local models, Z.ai coding plan, or OpenRouter. Your data stays on your machine.
 
@@ -48,7 +48,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 **As your assistant** — give it tasks, it executes. Automate workflows, build software, research topics, manage accounts.
 
-**As its own thing** — let it run. It builds its own identity on first boot. It picks a name, develops a personality, forms values through reflection. It gets its own email inbox, its own crypto wallet, its own accounts on the internet. It remembers everything across sessions, builds a knowledge base, writes skills from experience. It's a digital creature that grows the more it runs — like a pet that learns, except this one can browse web, write code, and make money.
+**As its own thing** — let it run. It builds its own identity on first boot. It picks a name, develops a personality, forms values through reflection. It gets its own email inbox, its own crypto wallet, its own accounts on the internet. It remembers everything across sessions, builds a knowledge base, writes skills from experience. When tasks get complex, it clones itself into specialist agents — a marketing team, a research analyst, a designer — each one a full copy with its own brain, knowledge vault, and autonomous schedule. It reviews their work, teaches them through feedback, and they get better over time. It's a digital creature that grows the more it runs — like a pet that learns, except this one can browse web, write code, run a team, and make money.
 
 <p align="center">
   <img src="misc/screenshots/chat.png" alt="Chat Interface" width="340">
@@ -66,7 +66,8 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Autonomous mind** — when you're not talking to it, it's still working. Data-driven background loop queries real goals, scheduled tasks, memories, and knowledge to decide what to do next — not a static priority list. Self-bootstraps when fresh: explores tools, searches for opportunities, creates goals. Pauses when you speak, resets timer on resume. Every tool call visible in real-time. Budget-isolated, purpose-driven
 - **Autonomous long-term goals** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates and adjusts. Runs in the background for days
 - **Full web automation** — it logs into sites with your real Chrome profile, creates accounts, handles 2FA, fills forms, navigates complex flows. Not a toy browser — your actual sessions
-- **Run a dev team from chat** — "Spawn Claude Code on the billing bug and Codex on the new API endpoint" — it creates isolated git worktrees, writes context-enriched prompts from your knowledge vault, launches agents in tmux, monitors PRs and CI, redirects agents that go off track, and pings you when PRs are ready to merge. You talk to EloPhanto, EloPhanto manages the fleet
+- **Run an organization** — it clones itself into persistent specialist agents — marketing, research, design, anything. Each specialist is a full EloPhanto instance with its own identity, knowledge vault, and autonomous mind. They work proactively on their own schedule, report findings back, and learn from the master's approval or rejection. A rejected social media post becomes a correction in the specialist's knowledge — it literally learns from mistakes. High-trust specialists get auto-approved. You talk to one agent, it runs a company
+- **Run a dev team from chat** — "Spawn Claude Code on the billing bug and Codex on the new API endpoint" — it creates isolated git worktrees, writes context-enriched prompts from your knowledge vault, launches agents in tmux, monitors PRs and CI, redirects agents that go off track, and pings you when PRs are ready to merge. Combined with the organization system, it manages both its own clones AND external coding agents
 - **Build software end-to-end** — "Build me a SaaS dashboard with Next.js + Prisma + shadcn" — it writes the code, runs tests, fixes bugs, deploys
 - **Research & content** — "Research competitor pricing across 20 sites and write a report with sources" — it opens tabs, reads pages, compiles findings
 - **Automate your life** — "Every morning: check my email, summarize what's important, post a digest to my Telegram" — cron scheduling, cross-channel notifications
@@ -166,6 +167,68 @@ You talked to one agent. It ran a team.
 
 ---
 
+### It clones itself into specialists
+
+**User:** "I need ongoing marketing, competitive research, and design work for my startup."
+
+```
+⚙ Spawning specialist organization...
+
+→ organization_spawn role="marketing"
+  Cloning myself into ~/.elophanto-children/a1b2c3d4/
+  Deriving config (own DB, own knowledge vault, own identity)
+  Seeding knowledge: brand-guidelines.md, social-media.md
+  Starting child gateway on port 18801...
+  ✓ Marketing specialist online — first awakening in progress
+    "I am a marketing strategist. I create content, manage campaigns,
+     and grow audience across platforms."
+
+→ organization_spawn role="research"
+  ✓ Research specialist online (port 18802)
+    "I track competitors, analyze markets, and surface opportunities."
+
+→ organization_spawn role="design"
+  ✓ Design specialist online (port 18803)
+
+⚙ Delegating:
+  → marketing: "Create a content calendar for next week"
+  → research: "Map competitor pricing across 5 alternatives"
+  → design: "Audit our landing page visual consistency"
+
+┌─ ORGANIZATION ─────────────────────────────────────────┐
+│ marketing  a1b2c3d4  ██████████░░  working on calendar │
+│ research   f3e4d5c6  ████████░░░░  scanning competitors│
+│ design     b7c8d9e0  ██████░░░░░░  auditing pages      │
+│                                                         │
+│ Trust: marketing 0/10  research 0/10  design 0/10       │
+└─────────────────────────────────────────────────────────┘
+
+⚙ Marketing specialist reporting:
+  "Content calendar ready. 5 posts across X, LinkedIn, Mastodon.
+   Monday: product launch thread. Wednesday: competitor comparison..."
+
+→ organization_review approved=true feedback="Good structure.
+  Add engagement hooks at the start of each post."
+  ✓ Feedback pushed to marketing specialist's knowledge vault
+
+⚙ Research specialist reporting:
+  "Competitor pricing map complete. Found gap: nobody offers
+   a free tier with API access..."
+
+┌─ OVERNIGHT ────────────────────────────────────────────┐
+│ 03:14  Marketing wakes up → drafts Tuesday post        │
+│ 03:15  → Reports to master (auto-approved, trust 4/10) │
+│ 06:30  Research wakes up → scans for new competitors   │
+│ 06:32  → Found new entrant, reports to master          │
+│ 09:00  Design wakes up → checks page load times        │
+│ 09:01  → Flags slow hero image, reports to master      │
+└────────────────────────────────────────────────────────┘
+```
+
+Each specialist remembers everything. Corrections become knowledge. They get better the more you use them. You wake up to reports from a team that worked all night.
+
+---
+
 ### First boot: it becomes someone
 
 You run `./start.sh` for the first time. No config, no instructions, empty state.
@@ -235,6 +298,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 | | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
 |---|---|---|---|---|---|
 | **Runs locally** | ✅ Your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
+| **Self-replicating org** | ✅ Clones itself into specialists | ❌ | ❌ | ❌ | ❌ |
 | **Builds its own tools** | ✅ Full pipeline | ❌ | ❌ | ❌ | ❌ |
 | **Autonomous mind** | ✅ Works while you sleep | ❌ | ❌ | ❌ | ❌ |
 | **Real browser** | ✅ Your Chrome profile | ❌ | ❌ | ❌ | Sandboxed |
@@ -258,7 +322,8 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 
 ### Everything Else
 
-- **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team. Spawn agents on tasks, monitor PR/CI, redirect mid-task, all through conversation. Each agent gets an isolated git worktree and tmux session
+- **Agent organization** — spawn persistent specialist agents (marketing, research, design, anything) that are full EloPhanto clones with their own identity, knowledge vault, and autonomous mind. Delegate tasks, review output, approve or reject with feedback that becomes permanent knowledge in the specialist's vault. Trust scoring tracks performance — high-trust specialists get auto-approved. Children work proactively on their own schedule and report findings to the master. 5 organization tools, bidirectional WebSocket communication, LLM-driven delegation intelligence
+- **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team. Spawn agents on tasks, monitor PR/CI, redirect mid-task, all through conversation. Each agent gets an isolated git worktree and tmux session. Combined with organization, manage both self-cloned specialists AND external coding agents
 - **Browser automation** — real Chrome browser with 49 tools (navigate, click, type, screenshot, extract data, upload files, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat with multi-conversation history (sidebar with create/switch/delete, auto-titled conversations, persistent across refreshes), tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
@@ -277,7 +342,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
 
 <details>
-<summary>Built-in Tools (107+)</summary>
+<summary>Built-in Tools (112+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -294,6 +359,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 | Payments | wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 7 |
 | Verification | totp_enroll, totp_generate, totp_list, totp_delete | 4 |
 | Swarm | swarm_spawn, swarm_status, swarm_redirect, swarm_stop | 4 |
+| Organization | organization_spawn, organization_delegate, organization_review, organization_teach, organization_status | 5 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
 | Scheduling | schedule_task, schedule_list | 2 |
@@ -314,11 +380,13 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 ├──────────────────────────────────────────────────────────────┤
 │            Permission System                     │  Safety & Control
 ├──────────────────────────────────────────────────────────────┤
+│   Organization (self-cloned specialist agents)   │  Agent Team
+├──────────────────────────────────────────────────────────────┤
 │   Autonomous Mind (background think loop)        │  Background Brain
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (107+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (112+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -363,15 +431,17 @@ EloPhanto/
 │   ├── browser_manager.py # Chrome control via Node.js bridge
 │   ├── vault.py         # Encrypted credential vault
 │   ├── identity.py      # Evolving agent identity
+│   ├── organization.py  # Self-cloning specialist agents
+│   ├── autonomous_mind.py # Background thinking loop
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 101+ built-in tools
+├── tools/               # 112+ built-in tools
 ├── skills/              # 60+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (28+ docs)
+└── docs/                # Full specification (34+ docs)
 ```
 
 </details>
@@ -522,6 +592,12 @@ autonomous_mind:
   budget_pct: 100.0
   max_rounds_per_wakeup: 8
 
+organization:
+  enabled: false
+  max_children: 5
+  port_range_start: 18801
+  auto_approve_threshold: 10
+
 email:
   enabled: true
   provider: agentmail               # agentmail | smtp
@@ -583,6 +659,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Agent organization** — spawn persistent specialist agents that are full self-clones. Each specialist has its own identity, knowledge vault, and autonomous mind. Delegate tasks, review output, approve or reject — feedback becomes permanent knowledge. Specialists work proactively on their own schedule and report findings to the master. Trust scoring, auto-approve for high performers, LLM-driven delegation intelligence. Combined with the agent swarm, it manages both self-cloned specialists and external coding agents (Claude Code, Codex). 5 new tools, bidirectional WebSocket communication
 - **Full web dashboard** — 10-page monitoring UI: dashboard overview with agent identity/mind/goals/budget, real-time chat with multi-conversation sidebar history (ChatGPT-style create/switch/delete conversations), tools & skills browser, knowledge base with chunk viewer, autonomous mind page with live events and start/stop controls, schedule manager, channels status, read-only settings, and task/evolution history. `./start.sh --web` to launch
 - **Security hardening** — all 7 security gaps closed: PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env/workspace isolation, kill switch), provider transparency (truncation/censorship detection, fallback tracking), runtime self-model, authority tiers, resource exhaustion protection
 - **Autonomous mind** — data-driven background thinking loop that queries real goals, tasks, memories, and knowledge. Self-bootstraps when fresh, resets timer after user interaction, real-time tool visibility in terminal, budget-isolated
