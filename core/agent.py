@@ -640,6 +640,11 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Organization system setup failed: {e}")
 
+        # Initialize deployment tools (web hosting + database)
+        if self._config.deployment.enabled:
+            self._inject_deployment_deps()
+            logger.info("Deployment system ready")
+
         # Initialize parent channel adapter (child agents connecting to master)
         if self._config.parent_channel.enabled:
             try:
@@ -1070,6 +1075,16 @@ class Agent:
             if tool and self._organization_manager:
                 tool._organization_manager = self._organization_manager
 
+    def _inject_deployment_deps(self) -> None:
+        """Inject vault and config into deployment tools."""
+        deploy_tools = ("deploy_website", "create_database", "deployment_status")
+        for tool_name in deploy_tools:
+            tool = self._registry.get(tool_name)
+            if tool:
+                tool._config = self._config.deployment
+                if self._vault:
+                    tool._vault = self._vault
+
     def _inject_totp_deps(self) -> None:
         """Inject vault and identity manager into TOTP tools."""
         for tool_name in ("totp_generate", "totp_enroll", "totp_list", "totp_delete"):
@@ -1300,6 +1315,7 @@ class Agent:
             mcp_enabled=bool(self._mcp_manager and self._mcp_manager.connected_servers),
             swarm_enabled=self._config.swarm.enabled,
             organization_enabled=self._config.organization.enabled,
+            deployment_enabled=self._config.deployment.enabled,
             organization_context=_org_ctx,
             knowledge_context=knowledge_context,
             available_skills=available_skills,

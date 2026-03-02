@@ -1298,6 +1298,47 @@ When a specialist reports back:
 </feedback_protocol>
 </organization>"""
 
+_TOOL_DEPLOYMENT = """\
+<deployment>
+You can deploy web projects to the internet and create databases.
+
+<available_tools>
+- deploy_website: Deploy a project to Vercel (static sites, Next.js with fast
+  APIs) or Railway (long-running operations, WebSockets, cron). Provider can
+  be auto-detected from project contents.
+  Parameters: project_path (required), provider (auto/vercel/railway), name,
+  env_vars, production.
+- create_database: Create a Supabase project with PostgreSQL database, auth,
+  and storage. Optionally run initial SQL (CREATE TABLE, etc.).
+  Parameters: name (required), region, sql.
+- deployment_status: Check deployment status of a project. Auto-detects
+  provider from project config files.
+  Parameters: project_path (required), provider.
+</available_tools>
+
+<decision_framework>
+Choose the right hosting provider:
+- Static site / marketing page → Vercel
+- Next.js with simple APIs (response < 10s) → Vercel + Supabase
+- App with LLM API calls, streaming, WebSockets, cron → Railway + Supabase
+- Pure API backend (no frontend) → Railway + Supabase
+- When in doubt → Railway (no timeout limits)
+
+Vercel has a 10-second serverless function timeout on free tier. Any API route
+that calls an LLM, does heavy processing, or streams data WILL fail on Vercel.
+Use Railway for those projects.
+</decision_framework>
+
+<workflow>
+1. Scaffold the project locally (Next.js, etc.)
+2. Create database with create_database if needed
+3. Wire Supabase env vars (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY)
+4. Build and test locally: npm run build
+5. Deploy with deploy_website
+6. Verify the deployment URL works
+</workflow>
+</deployment>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -1356,6 +1397,7 @@ def build_system_prompt(
     mcp_enabled: bool = False,
     swarm_enabled: bool = False,
     organization_enabled: bool = False,
+    deployment_enabled: bool = False,
     organization_context: str = "",
     knowledge_context: str = "",
     available_skills: str = "",
@@ -1462,6 +1504,9 @@ def build_system_prompt(
 
     if organization_enabled:
         sections.append(_TOOL_ORGANIZATION)
+
+    if deployment_enabled:
+        sections.append(_TOOL_DEPLOYMENT)
 
     sections.append(_TOOL_CLOSE)
 

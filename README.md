@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-978%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-30%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-31%2B%20pages-blue" alt="Docs"></a>
 </p>
 
 An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, writes code, sends emails, creates accounts, manages files, makes payments. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
@@ -68,6 +68,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Full web automation** — it logs into sites with your real Chrome profile, creates accounts, handles 2FA, fills forms, navigates complex flows. Not a toy browser — your actual sessions
 - **Run an organization** — it clones itself into persistent specialist agents — marketing, research, design, anything. Each specialist is a full EloPhanto instance with its own identity, knowledge vault, and autonomous mind. They work proactively on their own schedule, report findings back, and learn from the master's approval or rejection. A rejected social media post becomes a correction in the specialist's knowledge — it literally learns from mistakes. High-trust specialists get auto-approved. You talk to one agent, it runs a company
 - **Run a dev team from chat** — "Spawn Claude Code on the billing bug and Codex on the new API endpoint" — it creates isolated git worktrees, writes context-enriched prompts from your knowledge vault, launches agents in tmux, monitors PRs and CI, redirects agents that go off track, and pings you when PRs are ready to merge. Combined with the organization system, it manages both its own clones AND external coding agents
+- **Deploy to the internet** — "Build me a SaaS dashboard and put it live" — it picks the right host (Vercel for static, Railway for long-running APIs), creates a Supabase database, wires credentials, and deploys. Auto-detects when Vercel will timeout and routes to Railway instead
 - **Build software end-to-end** — "Build me a SaaS dashboard with Next.js + Prisma + shadcn" — it writes the code, runs tests, fixes bugs, deploys
 - **Research & content** — "Research competitor pricing across 20 sites and write a report with sources" — it opens tabs, reads pages, compiles findings
 - **Automate your life** — "Every morning: check my email, summarize what's important, post a digest to my Telegram" — cron scheduling, cross-channel notifications
@@ -342,7 +343,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
 
 <details>
-<summary>Built-in Tools (112+)</summary>
+<summary>Built-in Tools (115+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -360,6 +361,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 | Verification | totp_enroll, totp_generate, totp_list, totp_delete | 4 |
 | Swarm | swarm_spawn, swarm_status, swarm_redirect, swarm_stop | 4 |
 | Organization | organization_spawn, organization_delegate, organization_review, organization_teach, organization_status | 5 |
+| Deployment | deploy_website, create_database, deployment_status | 3 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
 | Scheduling | schedule_task, schedule_list | 2 |
@@ -386,7 +388,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (112+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (115+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -436,12 +438,12 @@ EloPhanto/
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 112+ built-in tools
+├── tools/               # 115+ built-in tools
 ├── skills/              # 60+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (34+ docs)
+└── docs/                # Full specification (35+ docs)
 ```
 
 </details>
@@ -598,6 +600,13 @@ organization:
   port_range_start: 18801
   auto_approve_threshold: 10
 
+deployment:
+  enabled: false
+  default_provider: auto             # auto | vercel | railway
+  vercel_token_ref: "vercel_token"
+  railway_token_ref: "railway_token"
+  supabase_token_ref: "supabase_access_token"
+
 email:
   enabled: true
   provider: agentmail               # agentmail | smtp
@@ -659,6 +668,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Web deployment** — deploy websites and create databases from conversation. `deploy_website` supports Vercel (static sites, fast APIs) and Railway (long-running operations, WebSockets, cron). Auto-provider detection scans API routes and dependencies — if your app calls OpenAI/Anthropic or uses WebSockets, it routes to Railway (no timeout limits) instead of Vercel (10s limit). `create_database` provisions Supabase projects via Management API, returns credentials, and optionally runs initial SQL. `deployment_status` checks live deployment info. Tokens stored in vault, env vars injected into platforms
 - **Agent organization** — spawn persistent specialist agents that are full self-clones. Each specialist has its own identity, knowledge vault, and autonomous mind. Delegate tasks, review output, approve or reject — feedback becomes permanent knowledge. Specialists work proactively on their own schedule and report findings to the master. Trust scoring, auto-approve for high performers, LLM-driven delegation intelligence. Combined with the agent swarm, it manages both self-cloned specialists and external coding agents (Claude Code, Codex). 5 new tools, bidirectional WebSocket communication
 - **Full web dashboard** — 10-page monitoring UI: dashboard overview with agent identity/mind/goals/budget, real-time chat with multi-conversation sidebar history (ChatGPT-style create/switch/delete conversations), tools & skills browser, knowledge base with chunk viewer, autonomous mind page with live events and start/stop controls, schedule manager, channels status, read-only settings, and task/evolution history. `./start.sh --web` to launch
 - **Security hardening** — all 7 security gaps closed: PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env/workspace isolation, kill switch), provider transparency (truncation/censorship detection, fallback tracking), runtime self-model, authority tiers, resource exhaustion protection

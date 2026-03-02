@@ -528,6 +528,18 @@ class OrganizationConfig:
 
 
 @dataclass
+class DeploymentConfig:
+    """Web deployment — deploy websites and create databases."""
+
+    enabled: bool = False
+    default_provider: str = "auto"  # auto, vercel, railway
+    vercel_token_ref: str = "vercel_token"
+    railway_token_ref: str = "railway_token"
+    supabase_token_ref: str = "supabase_access_token"
+    supabase_org_id: str = ""
+
+
+@dataclass
 class AuthorityTierConfig:
     """Configuration for a single authority tier."""
 
@@ -580,6 +592,7 @@ class Config:
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
     autonomous_mind: AutonomousMindConfig = field(default_factory=AutonomousMindConfig)
     organization: OrganizationConfig = field(default_factory=OrganizationConfig)
+    deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     parent_channel: ParentChannelConfig = field(default_factory=ParentChannelConfig)
     authority: AuthorityConfig | None = None
     workspace: str = ""
@@ -1108,6 +1121,19 @@ def load_config(config_path: Path | str | None = None) -> Config:
         specs=org_specs,
     )
 
+    # Parse deployment section
+    deploy_raw = raw.get("deployment", {})
+    deployment_config = DeploymentConfig(
+        enabled=deploy_raw.get("enabled", False),
+        default_provider=deploy_raw.get("default_provider", "auto"),
+        vercel_token_ref=deploy_raw.get("vercel_token_ref", "vercel_token"),
+        railway_token_ref=deploy_raw.get("railway_token_ref", "railway_token"),
+        supabase_token_ref=deploy_raw.get(
+            "supabase_token_ref", "supabase_access_token"
+        ),
+        supabase_org_id=deploy_raw.get("supabase_org_id", ""),
+    )
+
     # Parse parent channel section (child agents connecting to master)
     parent_raw = raw.get("parent", {})
     parent_channel_config = ParentChannelConfig(
@@ -1172,6 +1198,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         swarm=swarm_config,
         autonomous_mind=autonomous_mind_config,
         organization=organization_config,
+        deployment=deployment_config,
         parent_channel=parent_channel_config,
         authority=authority_config,
         project_root=config_path.parent,

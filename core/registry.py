@@ -211,3 +211,12 @@ class ToolRegistry:
         self.register(OrganizationReviewTool())
         self.register(OrganizationTeachTool())
         self.register(OrganizationStatusTool())
+
+        # Deployment tools (web hosting + database)
+        from tools.deployment.database_tool import CreateDatabaseTool
+        from tools.deployment.deploy_tool import DeployWebsiteTool
+        from tools.deployment.deployment_status_tool import DeploymentStatusTool
+
+        self.register(DeployWebsiteTool())
+        self.register(CreateDatabaseTool())
+        self.register(DeploymentStatusTool())
