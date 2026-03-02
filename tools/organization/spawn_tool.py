@@ -70,22 +70,25 @@ class OrganizationSpawnTool(BaseTool):
     def permission_level(self) -> PermissionLevel:
         return PermissionLevel.DESTRUCTIVE
 
-    async def execute(self, **kwargs: Any) -> ToolResult:
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
         if not self._organization_manager:
-            return ToolResult(error="Organization system is not enabled.")
+            return ToolResult(
+                success=False, error="Organization system is not enabled."
+            )
 
-        role = kwargs.get("role", "")
+        role = params.get("role", "")
         if not role:
-            return ToolResult(error="'role' is required.")
+            return ToolResult(success=False, error="'role' is required.")
 
         try:
             child = await self._organization_manager.spawn_specialist(
                 role=role,
-                purpose=kwargs.get("purpose", ""),
-                seed_knowledge=kwargs.get("seed_knowledge"),
-                budget_pct=kwargs.get("budget_pct"),
+                purpose=params.get("purpose", ""),
+                seed_knowledge=params.get("seed_knowledge"),
+                budget_pct=params.get("budget_pct"),
             )
             return ToolResult(
+                success=True,
                 data={
                     "child_id": child.child_id,
                     "role": child.role,
@@ -93,7 +96,7 @@ class OrganizationSpawnTool(BaseTool):
                     "status": child.status,
                     "port": child.port,
                     "trust_score": child.trust_score,
-                }
+                },
             )
         except Exception as e:
-            return ToolResult(error=str(e))
+            return ToolResult(success=False, error=str(e))
