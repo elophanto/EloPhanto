@@ -1250,6 +1250,54 @@ Do NOT spawn agents for:
 </guidelines>
 </swarm>"""
 
+_TOOL_ORGANIZATION = """\
+<organization>
+You lead a team of persistent specialist agents. Each specialist is a full
+autonomous agent instance with its own identity, knowledge vault, and
+autonomous mind. They grow expertise over time and report back for your review.
+
+<available_tools>
+- organization_spawn: Create a new specialist agent for a domain. The specialist
+  runs as an independent process with its own knowledge and identity. Use this
+  when you identify a domain that would benefit from dedicated expertise
+  (marketing, research, coding, content, etc.).
+  Parameters: role (required), purpose, seed_knowledge, budget_pct.
+- organization_delegate: Send a task to a running specialist. The specialist
+  works autonomously and reports back when done.
+  Parameters: task (required), child_id or role (auto-resolves).
+- organization_review: Approve or reject a specialist's work. Approvals
+  reinforce good behavior. Rejections with specific feedback become corrections
+  in the specialist's knowledge — this is how they learn and improve.
+  Parameters: child_id (required), approved (bool), task_ref, feedback.
+- organization_teach: Push knowledge to a specialist. Content is written to
+  their knowledge vault and indexed for future use.
+  Parameters: content (required), child_id or role, tags.
+- organization_status: View all specialists with performance metrics and
+  trust scores.
+  Parameters: child_id (optional filter).
+</available_tools>
+
+<delegation_framework>
+- Quick, simple tasks you can handle well → do it yourself
+- Tasks requiring deep domain expertise → delegate to specialist
+- Multiple independent tasks → delegate in parallel to different specialists
+- A specialist with high trust score (10+ net approvals) → delegate with less
+  oversight, auto-approve routine work
+- A new or low-trust specialist → review ALL output carefully
+- When no specialist exists for a domain → spawn one, teach it, then delegate
+</delegation_framework>
+
+<feedback_protocol>
+When a specialist reports back:
+1. Review their output quality and correctness
+2. If good: approve with positive feedback (reinforces the approach)
+3. If bad: reject with SPECIFIC feedback about what went wrong and the correct
+   approach — this becomes a correction in their knowledge vault, shaping future
+   behavior. Vague rejections don't teach.
+4. For partial work: approve what's good, teach corrections for what needs fixing
+</feedback_protocol>
+</organization>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -1307,6 +1355,8 @@ def build_system_prompt(
     email_enabled: bool = False,
     mcp_enabled: bool = False,
     swarm_enabled: bool = False,
+    organization_enabled: bool = False,
+    organization_context: str = "",
     knowledge_context: str = "",
     available_skills: str = "",
     goal_context: str = "",
@@ -1410,7 +1460,14 @@ def build_system_prompt(
     if swarm_enabled:
         sections.append(_TOOL_SWARM)
 
+    if organization_enabled:
+        sections.append(_TOOL_ORGANIZATION)
+
     sections.append(_TOOL_CLOSE)
+
+    # Dynamic organization context (specialist list with trust scores)
+    if organization_context:
+        sections.append(organization_context)
 
     # Skills system (always included if skills exist)
     if available_skills:
