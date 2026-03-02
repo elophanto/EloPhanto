@@ -306,6 +306,35 @@ _SCHEMA = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS organization_children (
+        child_id TEXT PRIMARY KEY,
+        role TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'stopped',
+        port INTEGER NOT NULL,
+        work_dir TEXT NOT NULL,
+        config_path TEXT NOT NULL,
+        pid INTEGER,
+        approved_count INTEGER DEFAULT 0,
+        rejected_count INTEGER DEFAULT 0,
+        tasks_completed INTEGER DEFAULT 0,
+        spawned_at TEXT NOT NULL,
+        last_active TEXT,
+        metadata_json TEXT DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS organization_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        child_id TEXT NOT NULL,
+        task_ref TEXT,
+        feedback_type TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (child_id) REFERENCES organization_children(child_id)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS chat_messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT NOT NULL,

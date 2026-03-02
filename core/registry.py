@@ -198,3 +198,16 @@ class ToolRegistry:
         self.register(SwarmStatusTool())
         self.register(SwarmRedirectTool())
         self.register(SwarmStopTool())
+
+        # Organization tools (persistent specialist agents)
+        from tools.organization.delegate_tool import OrganizationDelegateTool
+        from tools.organization.review_tool import OrganizationReviewTool
+        from tools.organization.spawn_tool import OrganizationSpawnTool
+        from tools.organization.status_tool import OrganizationStatusTool
+        from tools.organization.teach_tool import OrganizationTeachTool
+
+        self.register(OrganizationSpawnTool())
+        self.register(OrganizationDelegateTool())
+        self.register(OrganizationReviewTool())
+        self.register(OrganizationTeachTool())
+        self.register(OrganizationStatusTool())

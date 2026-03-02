@@ -82,6 +82,7 @@ _PARALLEL_SAFE_TOOLS = frozenset(
         "email_search",
         "schedule_list",
         "swarm_status",
+        "organization_status",
     }
 )
 
@@ -270,6 +271,10 @@ class Agent:
         self._dataset_builder: Any = None  # DatasetBuilder, set during initialize
         self._goal_runner: Any = None  # GoalRunner, set during initialize
         self._swarm_manager: Any = None  # SwarmManager, set during initialize
+        self._organization_manager: Any = (
+            None  # OrganizationManager, set during initialize
+        )
+        self._parent_adapter: Any = None  # ParentChannelAdapter, set during initialize
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
@@ -617,6 +622,44 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Swarm system setup failed: {e}")
 
+        # Initialize agent organization (persistent specialist children)
+        if self._config.organization.enabled:
+            _status("Preparing organization")
+            try:
+                from core.organization import OrganizationManager
+
+                self._organization_manager = OrganizationManager(
+                    db=self._db,
+                    config=self._config.organization,
+                    master_config=self._config,
+                    gateway=self._gateway,
+                )
+                await self._organization_manager.start()
+                self._inject_organization_deps()
+                logger.info("Organization system ready")
+            except Exception as e:
+                logger.warning(f"Organization system setup failed: {e}")
+
+        # Initialize parent channel adapter (child agents connecting to master)
+        if self._config.parent_channel.enabled:
+            try:
+                from channels.child_adapter import ParentChannelAdapter
+
+                self._parent_adapter = ParentChannelAdapter(
+                    parent_host=self._config.parent_channel.host,
+                    parent_port=self._config.parent_channel.port,
+                    child_id=self._config.parent_channel.child_id,
+                    auth_token="",  # TODO: resolve from vault
+                )
+                await self._parent_adapter.start()
+                logger.info(
+                    "Parent channel connected to master at %s:%d",
+                    self._config.parent_channel.host,
+                    self._config.parent_channel.port,
+                )
+            except Exception as e:
+                logger.warning(f"Parent channel setup failed: {e}")
+
         # Initialize MCP client (connect to external MCP servers)
         if self._config.mcp.enabled:
             _mcp_available = False
@@ -820,6 +863,16 @@ class Agent:
                 await self._swarm_manager.stop()
             except Exception as e:
                 logger.debug("Swarm manager shutdown error: %s", e)
+        if self._organization_manager:
+            try:
+                await self._organization_manager.shutdown()
+            except Exception as e:
+                logger.debug("Organization manager shutdown error: %s", e)
+        if self._parent_adapter:
+            try:
+                await self._parent_adapter.stop()
+            except Exception as e:
+                logger.debug("Parent adapter shutdown error: %s", e)
         if self._dataset_builder:
             try:
                 await self._dataset_builder.flush()
@@ -1002,6 +1055,20 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._swarm_manager:
                 tool._swarm_manager = self._swarm_manager
+
+    def _inject_organization_deps(self) -> None:
+        """Inject OrganizationManager into organization tools."""
+        org_tools = (
+            "organization_spawn",
+            "organization_delegate",
+            "organization_review",
+            "organization_teach",
+            "organization_status",
+        )
+        for tool_name in org_tools:
+            tool = self._registry.get(tool_name)
+            if tool and self._organization_manager:
+                tool._organization_manager = self._organization_manager
 
     def _inject_totp_deps(self) -> None:
         """Inject vault and identity manager into TOTP tools."""
@@ -1214,6 +1281,14 @@ class Agent:
             provider_stats=self._router.provider_tracker.get_provider_stats(),
         )
 
+        # Build organization context (specialist list with trust scores)
+        _org_ctx = ""
+        if self._organization_manager:
+            try:
+                _org_ctx = self._organization_manager.get_organization_context()
+            except Exception:
+                pass
+
         system_content = build_system_prompt(
             permission_mode=self._config.permission_mode,
             browser_enabled=self._config.browser.enabled,
@@ -1224,6 +1299,8 @@ class Agent:
             email_enabled=self._config.email.enabled,
             mcp_enabled=bool(self._mcp_manager and self._mcp_manager.connected_servers),
             swarm_enabled=self._config.swarm.enabled,
+            organization_enabled=self._config.organization.enabled,
+            organization_context=_org_ctx,
             knowledge_context=knowledge_context,
             available_skills=available_skills,
             goal_context=goal_context,

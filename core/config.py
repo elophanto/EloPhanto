@@ -491,6 +491,43 @@ class SwarmConfig:
 
 
 @dataclass
+class ChildSpecConfig:
+    """Blueprint for a specialist child agent."""
+
+    role: str = ""
+    purpose: str = ""
+    seed_knowledge: list[str] = field(default_factory=list)
+    tools_whitelist: list[str] | None = None
+    budget_pct: float = 10.0
+    autonomous: bool = True
+    wakeup_seconds: int = 300
+
+
+@dataclass
+class ParentChannelConfig:
+    """Config for a child agent's connection back to its master."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 18789
+    auth_token_ref: str = ""
+    child_id: str = ""
+
+
+@dataclass
+class OrganizationConfig:
+    """Agent organization — persistent specialist child agents."""
+
+    enabled: bool = False
+    max_children: int = 5
+    port_range_start: int = 18801
+    children_dir: str = ""  # Default: ~/.elophanto-children/
+    monitor_interval_seconds: int = 30
+    auto_approve_threshold: int = 10
+    specs: dict[str, ChildSpecConfig] = field(default_factory=dict)
+
+
+@dataclass
 class AuthorityTierConfig:
     """Configuration for a single authority tier."""
 
@@ -542,6 +579,8 @@ class Config:
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
     autonomous_mind: AutonomousMindConfig = field(default_factory=AutonomousMindConfig)
+    organization: OrganizationConfig = field(default_factory=OrganizationConfig)
+    parent_channel: ParentChannelConfig = field(default_factory=ParentChannelConfig)
     authority: AuthorityConfig | None = None
     workspace: str = ""
     project_root: Path = field(default_factory=Path.cwd)
@@ -1045,6 +1084,40 @@ def load_config(config_path: Path | str | None = None) -> Config:
         verbosity=am_raw.get("verbosity", "normal"),
     )
 
+    # Parse organization section
+    org_raw = raw.get("organization", {})
+    org_specs: dict[str, ChildSpecConfig] = {}
+    for spec_name, spec_data in (org_raw.get("specs") or {}).items():
+        if isinstance(spec_data, dict):
+            org_specs[spec_name] = ChildSpecConfig(
+                role=spec_data.get("role", spec_name),
+                purpose=spec_data.get("purpose", ""),
+                seed_knowledge=spec_data.get("seed_knowledge", []),
+                tools_whitelist=spec_data.get("tools_whitelist"),
+                budget_pct=spec_data.get("budget_pct", 10.0),
+                autonomous=spec_data.get("autonomous", True),
+                wakeup_seconds=spec_data.get("wakeup_seconds", 300),
+            )
+    organization_config = OrganizationConfig(
+        enabled=org_raw.get("enabled", False),
+        max_children=org_raw.get("max_children", 5),
+        port_range_start=org_raw.get("port_range_start", 18801),
+        children_dir=org_raw.get("children_dir", ""),
+        monitor_interval_seconds=org_raw.get("monitor_interval_seconds", 30),
+        auto_approve_threshold=org_raw.get("auto_approve_threshold", 10),
+        specs=org_specs,
+    )
+
+    # Parse parent channel section (child agents connecting to master)
+    parent_raw = raw.get("parent", {})
+    parent_channel_config = ParentChannelConfig(
+        enabled=parent_raw.get("enabled", False),
+        host=parent_raw.get("host", "127.0.0.1"),
+        port=parent_raw.get("port", 18789),
+        auth_token_ref=parent_raw.get("auth_token_ref", ""),
+        child_id=parent_raw.get("child_id", ""),
+    )
+
     # Parse authority section (optional — None means all users are owner)
     authority_raw = raw.get("authority")
     authority_config: AuthorityConfig | None = None
@@ -1098,6 +1171,8 @@ def load_config(config_path: Path | str | None = None) -> Config:
         self_learning=self_learning_config,
         swarm=swarm_config,
         autonomous_mind=autonomous_mind_config,
+        organization=organization_config,
+        parent_channel=parent_channel_config,
         authority=authority_config,
         project_root=config_path.parent,
     )
