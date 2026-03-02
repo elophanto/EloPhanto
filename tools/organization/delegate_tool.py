@@ -53,32 +53,37 @@ class OrganizationDelegateTool(BaseTool):
     def permission_level(self) -> PermissionLevel:
         return PermissionLevel.MODERATE
 
-    async def execute(self, **kwargs: Any) -> ToolResult:
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
         if not self._organization_manager:
-            return ToolResult(error="Organization system is not enabled.")
+            return ToolResult(
+                success=False, error="Organization system is not enabled."
+            )
 
-        task = kwargs.get("task", "")
+        task = params.get("task", "")
         if not task:
-            return ToolResult(error="'task' is required.")
+            return ToolResult(success=False, error="'task' is required.")
 
-        child_id = kwargs.get("child_id", "")
-        role = kwargs.get("role", "")
+        child_id = params.get("child_id", "")
+        role = params.get("role", "")
 
         if not child_id and not role:
-            return ToolResult(error="Either 'child_id' or 'role' must be provided.")
+            return ToolResult(
+                success=False, error="Either 'child_id' or 'role' must be provided."
+            )
 
         # Resolve child_id from role
         if not child_id and role:
             child = self._organization_manager._find_by_role(role)
             if not child:
                 return ToolResult(
+                    success=False,
                     error=f"No specialist found for role '{role}'. "
-                    "Use organization_spawn to create one."
+                    "Use organization_spawn to create one.",
                 )
             child_id = child.child_id
 
         try:
             result = await self._organization_manager.send_task(child_id, task)
-            return ToolResult(data=result)
+            return ToolResult(success=True, data=result)
         except Exception as e:
-            return ToolResult(error=str(e))
+            return ToolResult(success=False, error=str(e))

@@ -366,6 +366,24 @@ class LLMRouter:
                 if model:
                     return provider_name, model
 
+        # 4. Last resort — if all providers are "unhealthy" (e.g. a timeout
+        #    marked them dead), try anyway rather than refusing to work.
+        #    A previous timeout doesn't mean the next request will fail.
+        for provider_name in self._config.llm.provider_priority:
+            if provider_name in exclude:
+                continue
+            provider_cfg = self._config.llm.providers.get(provider_name)
+            if provider_cfg and provider_cfg.enabled:
+                model = self._resolve_model(provider_name, task_type)
+                if model:
+                    logger.warning(
+                        "All providers unhealthy — forcing %s/%s as last resort",
+                        provider_name,
+                        model,
+                    )
+                    self._provider_health[provider_name] = True
+                    return provider_name, model
+
         raise RuntimeError(
             "No LLM provider available. Run 'elophanto init' to configure providers."
         )

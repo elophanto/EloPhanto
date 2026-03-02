@@ -59,37 +59,41 @@ class OrganizationReviewTool(BaseTool):
     def permission_level(self) -> PermissionLevel:
         return PermissionLevel.MODERATE
 
-    async def execute(self, **kwargs: Any) -> ToolResult:
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
         if not self._organization_manager:
-            return ToolResult(error="Organization system is not enabled.")
+            return ToolResult(
+                success=False, error="Organization system is not enabled."
+            )
 
-        child_id = kwargs.get("child_id", "")
+        child_id = params.get("child_id", "")
         if not child_id:
-            return ToolResult(error="'child_id' is required.")
+            return ToolResult(success=False, error="'child_id' is required.")
 
-        approved = kwargs.get("approved", True)
-        task_ref = kwargs.get("task_ref", "")
-        feedback = kwargs.get("feedback", "")
+        approved = params.get("approved", True)
+        task_ref = params.get("task_ref", "")
+        feedback = params.get("feedback", "")
 
         try:
             if approved:
                 await self._organization_manager.approve(child_id, task_ref, feedback)
                 return ToolResult(
+                    success=True,
                     data={
                         "status": "approved",
                         "child_id": child_id,
                         "task_ref": task_ref,
-                    }
+                    },
                 )
             else:
                 await self._organization_manager.reject(child_id, task_ref, feedback)
                 return ToolResult(
+                    success=True,
                     data={
                         "status": "rejected",
                         "child_id": child_id,
                         "task_ref": task_ref,
                         "correction_stored": bool(feedback),
-                    }
+                    },
                 )
         except Exception as e:
-            return ToolResult(error=str(e))
+            return ToolResult(success=False, error=str(e))

@@ -868,7 +868,7 @@ class OrganizationManager:
         """Broadcast event via gateway."""
         if self._gateway:
             try:
-                msg = event_message(event_type, data)
+                msg = event_message("", str(event_type), data)
                 asyncio.create_task(self._gateway.broadcast(msg))
             except Exception:
                 logger.debug("Failed to broadcast %s", event_type)

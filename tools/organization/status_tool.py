@@ -40,22 +40,27 @@ class OrganizationStatusTool(BaseTool):
     def permission_level(self) -> PermissionLevel:
         return PermissionLevel.SAFE
 
-    async def execute(self, **kwargs: Any) -> ToolResult:
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
         if not self._organization_manager:
-            return ToolResult(error="Organization system is not enabled.")
+            return ToolResult(
+                success=False, error="Organization system is not enabled."
+            )
 
         children = self._organization_manager.list_children()
-        child_id = kwargs.get("child_id", "")
+        child_id = params.get("child_id", "")
 
         if child_id:
             children = [c for c in children if c["child_id"] == child_id]
             if not children:
-                return ToolResult(error=f"No specialist found with id '{child_id}'.")
+                return ToolResult(
+                    success=False, error=f"No specialist found with id '{child_id}'."
+                )
 
         return ToolResult(
+            success=True,
             data={
                 "specialists": children,
                 "total": len(children),
                 "running": sum(1 for c in children if c["status"] == "running"),
-            }
+            },
         )
