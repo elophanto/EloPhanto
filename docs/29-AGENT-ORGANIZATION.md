@@ -1,10 +1,10 @@
 # Agent Organization — Persistent Specialist Child Agents
 
-> **Status: Phases 1–4 Implemented** — Core organization system with self-spawn,
+> **Status: Phases 1–5 Implemented** — Complete organization system: self-spawn,
 > config derivation, knowledge seeding, management tools, bidirectional
 > communication (parent channel adapter), teaching loop (feedback → knowledge),
-> and delegation intelligence (LLM-driven specialist routing via system prompt).
-> Phase 5 (full child autonomy) is a planned extension.
+> delegation intelligence (LLM-driven specialist routing via system prompt),
+> and child autonomy (autonomous mind output → parent reporting).
 
 EloPhanto becomes a CEO. Instead of doing everything itself, it spawns persistent specialist agents — marketing, research, coding, design — that are full EloPhanto instances with their own identity, knowledge vault, and autonomous mind. They work proactively, report back, and learn from the master's feedback.
 
@@ -279,13 +279,15 @@ Not everything gets delegated. Just like a CEO:
 
 ## Child Autonomy
 
-Each specialist has its own autonomous mind (the same system from Phase 26). When enabled:
+Each specialist has its own autonomous mind (the same system from Phase 26). When enabled, the autonomous mind's think cycle automatically reports output to the master:
 
 1. **Child wakes up** on its configured schedule
 2. **Evaluates priorities** within its domain (constrained by identity.purpose + boundaries)
 3. **Works proactively** — scans for opportunities, monitors platforms, generates content
-4. **Reports to master** — sends findings via parent channel without being asked
+4. **Reports to master** — `AutonomousMind._report_to_parent()` sends the cycle output via `ParentChannelAdapter.send_report()` as a `CHILD_REPORT` event
 5. **Master reviews** when convenient — approves or corrects
+
+The reporting hook is in `core/autonomous_mind.py`. After each think cycle completes and the action is broadcast locally, the mind checks for a `_parent_adapter` on the agent. If present (meaning this is a child instance), it sends the full cycle content to the master with a `mind-cycle-{N}` task reference.
 
 ### Domain-Constrained Autonomy
 
@@ -419,4 +421,4 @@ The autonomous mind runs in the master AND in each child. The difference:
 2. **Bidirectional Communication** — ParentChannelAdapter, protocol events, parent config ✅
 3. **Teaching & Learning** — Feedback loop, correction knowledge files, trust scoring ✅
 4. **Delegation Intelligence** — System prompt context (`_TOOL_ORGANIZATION`), LLM-driven routing ✅
-5. **Child Autonomy** — Autonomous mind in children, proactive reporting (planned)
+5. **Child Autonomy** — Autonomous mind → parent reporting via `_report_to_parent()` ✅
