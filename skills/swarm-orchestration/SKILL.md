@@ -17,6 +17,13 @@ Best practices for spawning, monitoring, and managing external coding agents
 
 ## Instructions
 
+### Swarm vs Organization
+EloPhanto has two delegation systems. Use the right one:
+- **Swarm** (this skill) — for **coding tasks**. Spawns external agents (Claude Code, Codex, Gemini CLI) in isolated git worktrees. One-way communication, ephemeral. Use `swarm_spawn`.
+- **Organization** — for **domain work** (marketing, research, design, anything non-coding). Spawns persistent EloPhanto clones with their own identity, knowledge, and autonomous mind. Bidirectional communication, learning from feedback. Use `organization_spawn`.
+
+If the task is code → swarm. If the task is domain expertise → organization.
+
 ### When to Spawn Agents
 1. **Independent coding tasks** — features, bug fixes, refactors that can be
    described as self-contained assignments with clear acceptance criteria
@@ -27,6 +34,7 @@ Best practices for spawning, monitoring, and managing external coding agents
 - Tasks you can do directly with your tools in < 5 steps
 - Tasks requiring real-time user interaction or browser access
 - Tasks that depend on another agent's output (wait for the first to finish)
+- Non-coding domain work (marketing, research, design) — use organization instead
 
 ### Writing Good Task Descriptions
 The task description is the most important input. A good task:
