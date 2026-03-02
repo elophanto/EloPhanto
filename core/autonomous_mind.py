@@ -516,6 +516,9 @@ class AutonomousMind:
                 },
             )
 
+            # Report to parent master (child autonomy — Phase 5)
+            await self._report_to_parent(content, action_summary)
+
             # Broadcast sleep
             await self._broadcast_event(
                 EventType.MIND_SLEEP,
@@ -759,3 +762,30 @@ class AutonomousMind:
             )
         else:
             logger.info("Mind event [%s]: %s", event_type, data)
+
+    # ------------------------------------------------------------------
+    # Parent reporting (child autonomy)
+    # ------------------------------------------------------------------
+
+    async def _report_to_parent(self, content: str, summary: str) -> None:
+        """Send autonomous mind output to the parent master agent.
+
+        Only fires when this agent is a child with a connected parent adapter.
+        The master sees these as CHILD_REPORT events and can review/approve.
+        """
+        adapter = getattr(self._agent, "_parent_adapter", None)
+        if adapter is None:
+            return
+
+        # Skip empty or trivial output
+        if not content or content.strip() == "(no output)":
+            return
+
+        try:
+            await adapter.send_report(
+                content=content,
+                task_ref=f"mind-cycle-{self._cycle_count + 1}",
+            )
+            logger.info("Reported autonomous mind output to master: %s", summary[:80])
+        except Exception as e:
+            logger.warning("Failed to report to parent: %s", e)
