@@ -1747,42 +1747,169 @@ class Agent:
                         }
                     )
 
+                    # --- Desktop vision analysis ---
+                    # The planning model (e.g. glm-4.7) cannot see images.
+                    # Send screenshots to a vision model for text description,
+                    # then strip the base64 and inject the description instead.
+                    if func_name == "desktop_screenshot" and not exec_result.error:
+                        _vision_model = getattr(
+                            self._config.browser, "vision_model", ""
+                        )
+                        if _vision_model:
+                            try:
+                                # Parse tool content to get image
+                                _tc_data = json.loads(tool_content)
+                                _img_b64 = _tc_data.get("data", {}).get(
+                                    "image_base64"
+                                ) or _tc_data.get("image_base64")
+                                if _img_b64:
+                                    _vision_msgs = [
+                                        {
+                                            "role": "user",
+                                            "content": [
+                                                {
+                                                    "type": "image_url",
+                                                    "image_url": {
+                                                        "url": f"data:image/png;base64,{_img_b64}",
+                                                    },
+                                                },
+                                                {
+                                                    "type": "text",
+                                                    "text": (
+                                                        "Describe what you see on this desktop screenshot. "
+                                                        "Focus on: open windows and their titles, "
+                                                        "visible buttons/menus/UI elements and their positions, "
+                                                        "any text content, dialogs or popups, "
+                                                        "and the taskbar state. Be concise and actionable."
+                                                    ),
+                                                },
+                                            ],
+                                        }
+                                    ]
+                                    _vision_resp = await self._router.complete(
+                                        _vision_msgs,
+                                        task_type="simple",
+                                        model_override=_vision_model,
+                                        max_tokens=500,
+                                    )
+                                    _desc = (
+                                        _vision_resp.content
+                                        if _vision_resp.content
+                                        else "Vision model returned empty response."
+                                    )
+
+                                    # Strip base64 from tool result to save context
+                                    _tc_data.get("data", {}).pop("image_base64", None)
+                                    _tc_data.pop("image_base64", None)
+                                    _tc_data["desktop_description"] = _desc
+                                    messages[-1]["content"] = json.dumps(_tc_data)
+
+                                    logger.info(
+                                        "Desktop vision (%s): %s",
+                                        _vision_model,
+                                        _desc[:200],
+                                    )
+                            except Exception as _ve:
+                                logger.warning(
+                                    "Desktop vision analysis failed: %s", _ve
+                                )
+
                     # --- Auto-screenshot injection (EKO pattern) ---
-                    # After state-changing browser actions, inject the saved
-                    # screenshot so the LLM always sees page state.
+                    # After state-changing browser actions, use the vision model
+                    # to describe the screenshot, then inject text description.
+                    # Raw base64 would break non-vision planning models (e.g. glm-4.7).
                     _auto_injected = False
                     if _screenshot_path and Path(_screenshot_path).is_file():
-                        try:
-                            _img_bytes = Path(_screenshot_path).read_bytes()
-                            _img_b64 = base64.b64encode(_img_bytes).decode("ascii")
-                            _ext = Path(_screenshot_path).suffix.lstrip(".")
-                            _mime = "image/png" if _ext == "png" else "image/jpeg"
-                            _obs_parts: list[dict[str, Any]] = [
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:{_mime};base64,{_img_b64}",
-                                    },
-                                },
-                            ]
-                            if _elements_text:
-                                _obs_parts.append(
+                        _browser_vision = getattr(
+                            self._config.browser, "vision_model", ""
+                        )
+                        if _browser_vision:
+                            try:
+                                _img_bytes = Path(_screenshot_path).read_bytes()
+                                _img_b64 = base64.b64encode(_img_bytes).decode("ascii")
+                                _ext = Path(_screenshot_path).suffix.lstrip(".")
+                                _mime = "image/png" if _ext == "png" else "image/jpeg"
+                                _bv_prompt = (
+                                    "Describe this browser screenshot concisely. "
+                                    "Focus on: page title, visible text content, "
+                                    "interactive elements (buttons, links, inputs), "
+                                    "any dialogs or popups, and errors. "
+                                    "Be actionable — mention element positions."
+                                )
+                                if _elements_text:
+                                    _bv_prompt += (
+                                        f"\n\nPage elements:\n{_elements_text}"
+                                    )
+                                _bv_msgs = [
                                     {
-                                        "type": "text",
-                                        "text": f"Page after {func_name}:\n{_elements_text}",
+                                        "role": "user",
+                                        "content": [
+                                            {
+                                                "type": "image_url",
+                                                "image_url": {
+                                                    "url": f"data:{_mime};base64,{_img_b64}",
+                                                },
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": _bv_prompt,
+                                            },
+                                        ],
+                                    }
+                                ]
+                                _bv_resp = await self._router.complete(
+                                    _bv_msgs,
+                                    task_type="simple",
+                                    model_override=_browser_vision,
+                                    max_tokens=500,
+                                )
+                                _bv_desc = (
+                                    _bv_resp.content
+                                    if _bv_resp.content
+                                    else "[Vision model returned empty response]"
+                                )
+                                messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": f"Page after {func_name}:\n{_bv_desc}",
                                     }
                                 )
-                            messages.append({"role": "user", "content": _obs_parts})
-                            _auto_injected = True
-                            logger.debug(
-                                "Auto-injected screenshot (%d bytes) after %s",
-                                len(_img_bytes),
-                                func_name,
-                            )
-                        except Exception as _e:
-                            logger.warning("Failed to inject screenshot: %s", _e)
+                                _auto_injected = True
+                                logger.info(
+                                    "Browser vision (%s): %s",
+                                    _browser_vision,
+                                    _bv_desc[:200],
+                                )
+                            except Exception as _e:
+                                logger.warning("Browser vision analysis failed: %s", _e)
+                        else:
+                            # No vision model — inject raw image (legacy behavior)
+                            try:
+                                _img_bytes = Path(_screenshot_path).read_bytes()
+                                _img_b64 = base64.b64encode(_img_bytes).decode("ascii")
+                                _ext = Path(_screenshot_path).suffix.lstrip(".")
+                                _mime = "image/png" if _ext == "png" else "image/jpeg"
+                                _obs_parts: list[dict[str, Any]] = [
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{_mime};base64,{_img_b64}",
+                                        },
+                                    },
+                                ]
+                                if _elements_text:
+                                    _obs_parts.append(
+                                        {
+                                            "type": "text",
+                                            "text": f"Page after {func_name}:\n{_elements_text}",
+                                        }
+                                    )
+                                messages.append({"role": "user", "content": _obs_parts})
+                                _auto_injected = True
+                            except Exception as _e:
+                                logger.warning("Failed to inject screenshot: %s", _e)
                     if not _auto_injected and _elements_text:
-                        # Text-only fallback (non-vision models)
+                        # Text-only fallback
                         messages.append(
                             {
                                 "role": "user",
