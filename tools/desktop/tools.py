@@ -14,7 +14,6 @@ from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
-
 # ---------------------------------------------------------------------------
 # Base class for all desktop tools
 # ---------------------------------------------------------------------------

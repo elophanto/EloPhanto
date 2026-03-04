@@ -120,8 +120,9 @@ class LocalDesktopController(BaseDesktopController):
 
     async def execute_pyautogui(self, command: str) -> dict[str, Any] | None:
         try:
-            import pyautogui  # noqa: F401
             import time  # noqa: F401
+
+            import pyautogui  # noqa: F401
 
             pyautogui.FAILSAFE = False
             exec(command)  # noqa: S102 — intentional; command comes from LLM
@@ -148,7 +149,7 @@ class LocalDesktopController(BaseDesktopController):
                 "error": stderr.decode(errors="replace"),
                 "returncode": proc.returncode,
             }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {"status": "error", "output": "", "error": "Timed out"}
         except Exception as e:
             return {"status": "error", "output": "", "error": str(e)}
@@ -170,7 +171,7 @@ class LocalDesktopController(BaseDesktopController):
                 "error": stderr.decode(errors="replace"),
                 "returncode": proc.returncode,
             }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "status": "error",
                 "output": "",
@@ -216,9 +217,9 @@ class DesktopController(BaseDesktopController):
         self.server_port = server_port
         self.base_url = f"http://{vm_ip}:{server_port}"
         self._aiohttp = _aiohttp
-        self._session: "_aiohttp.ClientSession | None" = None
+        self._session: Any = None
 
-    async def _ensure_session(self) -> "aiohttp.ClientSession":
+    async def _ensure_session(self) -> Any:
         _aiohttp = self._aiohttp
         if self._session is None or self._session.closed:
             self._session = _aiohttp.ClientSession()
@@ -370,7 +371,7 @@ class DesktopController(BaseDesktopController):
                     if resp.status == 200:
                         return await resp.json()
                     logger.error("Execute failed: status %d", resp.status)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error("Execute timed out (attempt %d)", attempt + 1)
                 break
             except Exception as e:
@@ -399,7 +400,7 @@ class DesktopController(BaseDesktopController):
                         "output": "",
                         "error": body.get("error", f"HTTP {resp.status}"),
                     }
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return {"status": "error", "output": "", "error": "Timed out"}
             except Exception as e:
                 logger.error("run_python error (attempt %d): %s", attempt + 1, e)
@@ -426,7 +427,7 @@ class DesktopController(BaseDesktopController):
                     if resp.status == 200:
                         return await resp.json()
                     logger.error("run_bash failed: status %d", resp.status)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return {
                     "status": "error",
                     "output": "",
