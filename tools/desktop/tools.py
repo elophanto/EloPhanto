@@ -78,7 +78,10 @@ class DesktopConnectTool(_DesktopTool):
         return PermissionLevel.MODERATE
 
     async def execute(self, params: dict[str, Any]) -> ToolResult:
+        from core.desktop_controller import BaseDesktopController
+
         mode = params["mode"]
+        ctrl: BaseDesktopController
 
         if mode == "local":
             from core.desktop_controller import LocalDesktopController
