@@ -32,6 +32,8 @@ class PIIType(enum.Enum):
     CREDIT_CARD = "CREDIT_CARD"
     PHONE = "PHONE"
     EMAIL_PASSWORD = "EMAIL_PASSWORD"
+    PASSWORD = "PASSWORD"
+    CREDENTIALS = "CREDENTIALS"
     API_KEY = "API_KEY"
     BANK_ACCOUNT = "BANK_ACCOUNT"
 
@@ -69,6 +71,21 @@ _EMAIL_PASS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Standalone password values: password: X, password = X, password is X, "password": "X"
+_PASSWORD_RE = re.compile(
+    r"(?:password|passwd|pwd)\s*(?:[:=]|is)\s*['\"]?([^\s'\"]{6,})", re.IGNORECASE
+)
+
+# JSON-escaped credentials: \"password\": \"value\" (in stringified tool results)
+_JSON_PASSWORD_RE = re.compile(
+    r'\\?"password\\?"\s*[:=]\s*\\?"([^"\\]{6,})\\?"', re.IGNORECASE
+)
+
+# Credential JSON blobs from vault_lookup: "credentials": "{\"password\": ...}"
+_CREDENTIALS_BLOB_RE = re.compile(
+    r'"credentials"\s*:\s*"[^"]*(?:password|passwd|pwd|secret)[^"]*"', re.IGNORECASE
+)
+
 # API key patterns (extends log_setup patterns to content scanning)
 _API_KEY_RE = re.compile(
     r"\b(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36,}|"
@@ -86,6 +103,9 @@ _PATTERNS: list[tuple[PIIType, re.Pattern[str]]] = [
     (PIIType.CREDIT_CARD, _CC_RE),
     (PIIType.PHONE, _PHONE_RE),
     (PIIType.EMAIL_PASSWORD, _EMAIL_PASS_RE),
+    (PIIType.CREDENTIALS, _CREDENTIALS_BLOB_RE),
+    (PIIType.PASSWORD, _PASSWORD_RE),
+    (PIIType.PASSWORD, _JSON_PASSWORD_RE),
     (PIIType.API_KEY, _API_KEY_RE),
     (PIIType.BANK_ACCOUNT, _BANK_RE),
 ]
