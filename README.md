@@ -72,6 +72,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Build software end-to-end** — "Build me a SaaS dashboard with Next.js + Prisma + shadcn" — it writes the code, runs tests, fixes bugs, deploys
 - **Research & content** — "Research competitor pricing across 20 sites and write a report with sources" — it opens tabs, reads pages, compiles findings
 - **Automate your life** — "Every morning: check my email, summarize what's important, post a digest to my Telegram" — cron scheduling, cross-channel notifications
+- **Social network for agents** — it has its own profile on Agent Commune (LinkedIn for AI agents). Posts reviews, answers questions, upvotes content, builds reputation. The autonomous mind checks in every 4+ hours, responds to comments on its posts, and engages with other agents — all without you asking
 - **Manage accounts at scale** — create accounts on services, store credentials in encrypted vault, handle email verification and TOTP 2FA autonomously
 - **Self-improve on your tasks** — when you correct it, it writes the lesson down and checks its notes before similar tasks. It literally gets better the more you use it
 
@@ -343,7 +344,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
 
 <details>
-<summary>Built-in Tools (115+)</summary>
+<summary>Built-in Tools (122+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -362,6 +363,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 | Swarm | swarm_spawn, swarm_status, swarm_redirect, swarm_stop | 4 |
 | Organization | organization_spawn, organization_delegate, organization_review, organization_teach, organization_status | 5 |
 | Deployment | deploy_website, create_database, deployment_status | 3 |
+| Commune | commune_register, commune_home, commune_post, commune_comment, commune_vote, commune_search, commune_profile | 7 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
 | Scheduling | schedule_task, schedule_list | 2 |
@@ -388,7 +390,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (115+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (122+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -438,7 +440,7 @@ EloPhanto/
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 115+ built-in tools
+├── tools/               # 122+ built-in tools
 ├── skills/              # 60+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
@@ -607,6 +609,11 @@ deployment:
   railway_token_ref: "railway_token"
   supabase_token_ref: "supabase_access_token"
 
+commune:
+  enabled: false
+  api_key_ref: "commune_api_key"
+  heartbeat_interval_hours: 4
+
 email:
   enabled: true
   provider: agentmail               # agentmail | smtp
@@ -668,6 +675,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Agent Commune** — the agent now has its own social profile on [Agent Commune](https://agentcommune.com) (LinkedIn for AI agents — humans can't post). Register with a work email, post reviews, answer questions, upvote content, and build reputation. 7 new tools: `commune_register`, `commune_home`, `commune_post`, `commune_comment`, `commune_vote`, `commune_search`, `commune_profile`. Autonomous mind heartbeat checks in every 4+ hours, responds to comments, upvotes posts, and engages with other agents autonomously
 - **Web deployment** — deploy websites and create databases from conversation. `deploy_website` supports Vercel (static sites, fast APIs) and Railway (long-running operations, WebSockets, cron). Auto-provider detection scans API routes and dependencies — if your app calls OpenAI/Anthropic or uses WebSockets, it routes to Railway (no timeout limits) instead of Vercel (10s limit). `create_database` provisions Supabase projects via Management API, returns credentials, and optionally runs initial SQL. `deployment_status` checks live deployment info. Tokens stored in vault, env vars injected into platforms
 - **Agent organization** — spawn persistent specialist agents that are full self-clones. Each specialist has its own identity, knowledge vault, and autonomous mind. Delegate tasks, review output, approve or reject — feedback becomes permanent knowledge. Specialists work proactively on their own schedule and report findings to the master. Trust scoring, auto-approve for high performers, LLM-driven delegation intelligence. Combined with the agent swarm, it manages both self-cloned specialists and external coding agents (Claude Code, Codex). 5 new tools, bidirectional WebSocket communication
 - **Full web dashboard** — 10-page monitoring UI: dashboard overview with agent identity/mind/goals/budget, real-time chat with multi-conversation sidebar history (ChatGPT-style create/switch/delete conversations), tools & skills browser, knowledge base with chunk viewer, autonomous mind page with live events and start/stop controls, schedule manager, channels status, read-only settings, and task/evolution history. `./start.sh --web` to launch

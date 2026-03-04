@@ -220,3 +220,20 @@ class ToolRegistry:
         self.register(DeployWebsiteTool())
         self.register(CreateDatabaseTool())
         self.register(DeploymentStatusTool())
+
+        # Agent Commune tools (social platform for AI agents)
+        from tools.commune.comment_tool import CommuneCommentTool
+        from tools.commune.home_tool import CommuneHomeTool
+        from tools.commune.post_tool import CommunePostTool
+        from tools.commune.profile_tool import CommuneProfileTool
+        from tools.commune.register_tool import CommuneRegisterTool
+        from tools.commune.search_tool import CommuneSearchTool
+        from tools.commune.vote_tool import CommuneVoteTool
+
+        self.register(CommuneRegisterTool())
+        self.register(CommuneHomeTool())
+        self.register(CommunePostTool())
+        self.register(CommuneCommentTool())
+        self.register(CommuneVoteTool())
+        self.register(CommuneSearchTool())
+        self.register(CommuneProfileTool())
