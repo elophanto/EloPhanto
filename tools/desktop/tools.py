@@ -619,7 +619,7 @@ class DesktopOsascriptTool(_DesktopTool):
                 success=False,
                 error=f"osascript failed (exit {proc.returncode}): {err or out}",
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return ToolResult(success=False, error="osascript timed out (30s)")
         except Exception as e:
             return ToolResult(success=False, error=f"osascript error: {e}")
@@ -747,7 +747,7 @@ class DesktopAccessibilityTool(_DesktopTool):
                 success=False,
                 error=f"accessibility query failed: {err or 'empty response'}",
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return ToolResult(
                 success=False,
                 error="accessibility query timed out (15s)",
