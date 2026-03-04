@@ -199,6 +199,12 @@ with a screenshot that the content is actually published/sent. Platforms often
 have multi-step flows (button → confirmation → actual publish). Handle every
 step before declaring success.
 
+For desktop tasks specifically: once the content has been typed/inserted and you
+have confirmed it (via osascript output or a single verification screenshot),
+STOP IMMEDIATELY — respond with a text summary. Do NOT re-type, overwrite, or
+redo content that is already successfully placed. Do NOT take additional
+screenshots after verification succeeds. One confirmation is enough.
+
 When all conditions are met, respond with a summary — do NOT call another tool.
 </task_completion>
 </behavior>"""
@@ -1394,10 +1400,11 @@ Numbers, Keynote, Mail, Preview, Terminal, System Events). No screenshots needed
 Examples:
 - Open app:       tell application "Microsoft Word" to activate
 - New document:   tell application "Microsoft Word" to make new document
-- Insert text:    tell application "Microsoft Word" to insert text "Hello" at selection
+- Set content:    tell application "Microsoft Word" to set content of text object of active document to "Line 1\nLine 2\nLine 3"
 - Save:           tell application "Microsoft Word" to save active document
 - Close dialog:   tell application "System Events" to key code 53
 - Get window info: tell application "System Events" to get name of windows of process "Microsoft Word"
+Note: For multi-line text in Word, use "set content of text object" (not "insert text at selection" which fails with -1708).
 ```
 
 **Tier 2 — Keyboard shortcuts (fast, no screenshot needed):**
@@ -1429,7 +1436,8 @@ move on — do not screenshot after every single action.
 <rules>
 - NEVER use Spotlight (Cmd+Space) to open apps. Use desktop_osascript or
   desktop_shell with "open -a" instead.
-- NEVER use shell_execute for sleep/wait. If you must wait, use desktop_shell.
+- NEVER call "desktop_wait" — that tool does NOT exist. If you need to wait,
+  use desktop_shell with "sleep N".
 - Do NOT take a screenshot before AND after every action — that wastes steps.
   Take screenshots only when you need to locate visual elements or verify
   uncertain outcomes.
@@ -1438,7 +1446,14 @@ move on — do not screenshot after every single action.
 - For remote VMs: use desktop_shell, desktop_screenshot, and desktop_click
   (AppleScript is not available remotely).
 - Use absolute pixel coordinates (0,0 = top-left).
-- Report DONE only after confirming success (via script output or screenshot).
+- STOP WHEN DONE: Once the task goal is achieved and you have ONE confirmation
+  (osascript succeeded, or a single verification screenshot shows the result),
+  immediately respond with a text summary. Do NOT continue calling tools.
+  Common mistakes to avoid:
+  • Do not re-insert/overwrite content that is already correctly placed.
+  • Do not select-all + delete + retype after successful insertion.
+  • Do not take extra screenshots after you already verified success.
+  • One verification is enough — trust it and report completion.
 </rules>
 </desktop_automation>"""
 
