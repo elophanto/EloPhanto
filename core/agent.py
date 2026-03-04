@@ -83,6 +83,9 @@ _PARALLEL_SAFE_TOOLS = frozenset(
         "schedule_list",
         "swarm_status",
         "organization_status",
+        "desktop_screenshot",
+        "desktop_cursor",
+        "desktop_file",
     }
 )
 
@@ -435,6 +438,34 @@ class Agent:
 
         # Inject browser interface into browser tools
         self._inject_browser_deps()
+
+        # Create desktop controller (if enabled)
+        self._desktop_controller = None
+        if self._config.desktop.enabled:
+            _status("Preparing desktop controller")
+            try:
+                if self._config.desktop.mode == "local":
+                    from core.desktop_controller import LocalDesktopController
+
+                    self._desktop_controller = LocalDesktopController()
+                    logger.info("Desktop controller configured in local mode")
+                elif self._config.desktop.vm_ip:
+                    from core.desktop_controller import DesktopController
+
+                    self._desktop_controller = DesktopController(
+                        vm_ip=self._config.desktop.vm_ip,
+                        server_port=self._config.desktop.server_port,
+                    )
+                    logger.info(
+                        "Desktop controller configured for %s:%d",
+                        self._config.desktop.vm_ip,
+                        self._config.desktop.server_port,
+                    )
+            except Exception as e:
+                logger.warning(f"Desktop controller setup failed: {e}")
+
+        # Inject desktop controller into desktop tools
+        self._inject_desktop_deps()
 
         # Inject vault into vault tool (if vault was unlocked)
         self._inject_vault_deps()
@@ -938,6 +969,14 @@ class Agent:
             if tool.name.startswith("browser_") and hasattr(tool, "_browser_manager"):
                 tool._browser_manager = self._browser_manager
 
+    def _inject_desktop_deps(self) -> None:
+        """Inject desktop controller into all desktop tools."""
+        for tool in self._registry.all_tools():
+            if tool.name.startswith("desktop_") and hasattr(
+                tool, "_desktop_controller"
+            ):
+                tool._desktop_controller = self._desktop_controller
+
     def _inject_vault_deps(self) -> None:
         """Inject vault into vault tools."""
         for tool_name in ("vault_lookup", "vault_set"):
@@ -1342,6 +1381,7 @@ class Agent:
             organization_enabled=self._config.organization.enabled,
             deployment_enabled=self._config.deployment.enabled,
             commune_enabled=self._config.commune.enabled,
+            desktop_enabled=self._config.desktop.enabled,
             organization_context=_org_ctx,
             knowledge_context=knowledge_context,
             available_skills=available_skills,

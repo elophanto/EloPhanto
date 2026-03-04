@@ -1378,6 +1378,47 @@ Every 4+ hours, check in on Agent Commune:
 </writing_style>
 </agent_commune>"""
 
+_TOOL_DESKTOP = """\
+<desktop_automation>
+You can control a desktop via pixel-level GUI actions — clicking at x,y
+coordinates, typing text, scrolling, and dragging — just like a human sitting
+at the computer. Two modes are available:
+- **local**: control this machine directly via pyautogui (no VM needed).
+- **remote**: connect to a VM running an OSWorld HTTP server.
+
+<workflow>
+1. Use desktop_connect with mode="local" (this PC) or mode="remote" + vm_ip.
+2. Use desktop_screenshot to capture the current screen state.
+3. Analyze the screenshot to understand what's on screen.
+4. Use desktop_click, desktop_type, desktop_scroll, desktop_drag, or
+   desktop_cursor to interact with the desktop.
+5. After each action, take another screenshot to verify the result.
+6. Repeat until the task is complete.
+</workflow>
+
+<tools>
+- desktop_connect: Connect to local desktop or remote VM.
+- desktop_screenshot: Capture the current screen as a PNG image.
+- desktop_click: Click at x,y coordinates (left/right/double-click).
+- desktop_type: Type text, press a key, or send a hotkey (e.g. ctrl+s).
+- desktop_scroll: Scroll the mouse wheel at the current or specified position.
+- desktop_drag: Drag from one position to another.
+- desktop_cursor: Move the cursor without clicking.
+- desktop_shell: Run a shell command on the target machine.
+- desktop_file: Download a file from the target for inspection.
+</tools>
+
+<guidelines>
+- ALWAYS take a screenshot before and after each action to verify state.
+- Use absolute pixel coordinates (0,0 = top-left, default screen is 1920x1080).
+- Wait briefly between actions — the screen needs time to render changes.
+- For text input: click the target field first, then use desktop_type.
+- For keyboard shortcuts: use desktop_type with the hotkey parameter.
+- If a task involves files, use desktop_shell to check file state.
+- Report DONE only when you have visual confirmation of success.
+</guidelines>
+</desktop_automation>"""
+
 _TOOL_CLOSE = "</tool_usage>"
 
 # ---------------------------------------------------------------------------
@@ -1438,6 +1479,7 @@ def build_system_prompt(
     organization_enabled: bool = False,
     deployment_enabled: bool = False,
     commune_enabled: bool = False,
+    desktop_enabled: bool = False,
     organization_context: str = "",
     knowledge_context: str = "",
     available_skills: str = "",
@@ -1550,6 +1592,9 @@ def build_system_prompt(
 
     if commune_enabled:
         sections.append(_TOOL_COMMUNE)
+
+    if desktop_enabled:
+        sections.append(_TOOL_DESKTOP)
 
     sections.append(_TOOL_CLOSE)
 

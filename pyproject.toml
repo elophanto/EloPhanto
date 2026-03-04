@@ -46,6 +46,10 @@ payments-cdp = [
 mcp = [
     "mcp[cli]>=1.0.0",
 ]
+desktop = [
+    "pyautogui>=0.9.54",
+    "aiohttp>=3.9.0",
+]
 
 [project.scripts]
 elophanto = "cli.main:cli"

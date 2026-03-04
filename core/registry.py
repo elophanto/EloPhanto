@@ -106,6 +106,12 @@ class ToolRegistry:
         for tool in create_browser_tools():
             self.register(tool)
 
+        # Desktop tools (GUI control via VM HTTP server)
+        from tools.desktop.tools import create_desktop_tools
+
+        for tool in create_desktop_tools():
+            self.register(tool)
+
         # Scheduling tools
         self.register(ScheduleTaskTool())
         self.register(ScheduleListTool())

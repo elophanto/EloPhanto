@@ -53,6 +53,14 @@ uv pip install -e '.[payments]' 2>/dev/null
 uv pip install -e '.[mcp]' 2>/dev/null
 echo "  ✓ Dependencies installed (includes crypto wallet + MCP support)"
 
+# Install desktop GUI deps if configured
+if grep -q "desktop:" config.yaml 2>/dev/null && grep -A1 "desktop:" config.yaml 2>/dev/null | grep -q "enabled: true"; then
+    echo "  → Installing desktop GUI agent dependencies..."
+    uv pip install -e '.[desktop]' 2>/dev/null && \
+        echo "  ✓ Desktop agent deps installed (pyautogui + aiohttp)" || \
+        echo "  ⚠ Desktop deps install failed (optional — run: uv pip install -e '.[desktop]')"
+fi
+
 # Install Coinbase AgentKit if configured
 if grep -q "provider: agentkit" config.yaml 2>/dev/null; then
     echo "  → Installing Coinbase AgentKit (CDP provider detected)..."
@@ -85,5 +93,6 @@ echo "    elophanto init               # first-time configuration"
 echo "    elophanto chat               # start chatting"
 echo ""
 echo "  Optional extras:"
+echo "    uv pip install -e '.[desktop]'        # Desktop GUI agent (pyautogui — control your PC or a VM)"
 echo "    uv pip install -e '.[payments-cdp]'   # Coinbase AgentKit (managed custody, gasless, swaps)"
 echo ""

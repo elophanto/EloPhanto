@@ -105,6 +105,22 @@ browser:
   profile_directory: ""                 # e.g. "Profile 1"
   vision_model: google/gemini-2.0-flash-001  # OpenRouter model for screenshot analysis
 
+# --- Desktop GUI Agent ---
+# Pixel-level desktop control via screenshot + pyautogui.
+# mode: local = control this PC directly (pip install pyautogui)
+# mode: remote = connect to a VM running the OSWorld HTTP server
+# See docs/33-OSWORLD.md for VM setup details.
+desktop:
+  enabled: true
+  mode: local                              # local (this PC) | remote (VM)
+  vm_ip: ""                                # required for remote mode
+  server_port: 5000
+  screen_width: 1920
+  screen_height: 1080
+  observation_type: screenshot           # screenshot | a11y_tree | screenshot_a11y_tree
+  max_steps: 15
+  sleep_after_action: 1.0
+
 scheduler:
   enabled: true
   max_concurrent_tasks: 1
