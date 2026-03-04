@@ -1380,43 +1380,66 @@ Every 4+ hours, check in on Agent Commune:
 
 _TOOL_DESKTOP = """\
 <desktop_automation>
-You can control a desktop via pixel-level GUI actions — clicking at x,y
-coordinates, typing text, scrolling, and dragging — just like a human sitting
-at the computer. Two modes are available:
-- **local**: control this machine directly via pyautogui (no VM needed).
+You can control a desktop via GUI actions. Two modes are available:
+- **local** (macOS): pyautogui + AppleScript for direct control.
 - **remote**: connect to a VM running an OSWorld HTTP server.
 
-<workflow>
-1. Use desktop_connect with mode="local" (this PC) or mode="remote" + vm_ip.
-2. Use desktop_screenshot to capture the current screen state.
-3. Analyze the screenshot to understand what's on screen.
-4. Use desktop_click, desktop_type, desktop_scroll, desktop_drag, or
-   desktop_cursor to interact with the desktop.
-5. After each action, take another screenshot to verify the result.
-6. Repeat until the task is complete.
-</workflow>
+<strategy>
+Use the FASTEST approach for each action — prefer scripting over pixel clicking:
+
+**Tier 1 — AppleScript (fastest, most reliable, macOS local mode):**
+Use desktop_osascript for scriptable apps (Word, Excel, Pages, Finder, Safari,
+Numbers, Keynote, Mail, Preview, Terminal, System Events). No screenshots needed.
+```
+Examples:
+- Open app:       tell application "Microsoft Word" to activate
+- New document:   tell application "Microsoft Word" to make new document
+- Insert text:    tell application "Microsoft Word" to insert text "Hello" at selection
+- Save:           tell application "Microsoft Word" to save active document
+- Close dialog:   tell application "System Events" to key code 53
+- Get window info: tell application "System Events" to get name of windows of process "Microsoft Word"
+```
+
+**Tier 2 — Keyboard shortcuts (fast, no screenshot needed):**
+Use desktop_type with hotkey for known shortcuts: Cmd+N (new), Cmd+S (save),
+Cmd+A (select all), Cmd+V (paste), Cmd+W (close), Cmd+Z (undo).
+
+**Tier 3 — Screenshot + click (slow, use only when needed):**
+Use desktop_screenshot + desktop_click ONLY when the target element has no
+scripting interface and no keyboard shortcut. Take ONE screenshot, act, then
+move on — do not screenshot after every single action.
+</strategy>
 
 <tools>
 - desktop_connect: Connect to local desktop or remote VM.
-- desktop_screenshot: Capture the current screen as a PNG image.
+- desktop_osascript: Run AppleScript — PREFERRED for controlling macOS apps directly.
+- desktop_accessibility: Query UI elements (buttons, menus, fields) with labels and
+  positions. Cheaper than screenshots — use to find elements or verify state.
+- desktop_screenshot: Capture the screen as PNG. Use sparingly — only when you need
+  visual confirmation or cannot find elements via accessibility/scripting.
 - desktop_click: Click at x,y coordinates (left/right/double-click).
 - desktop_type: Type text, press a key, or send a hotkey (e.g. ctrl+s).
-- desktop_scroll: Scroll the mouse wheel at the current or specified position.
+- desktop_scroll: Scroll the mouse wheel.
 - desktop_drag: Drag from one position to another.
 - desktop_cursor: Move the cursor without clicking.
 - desktop_shell: Run a shell command on the target machine.
 - desktop_file: Download a file from the target for inspection.
 </tools>
 
-<guidelines>
-- ALWAYS take a screenshot before and after each action to verify state.
-- Use absolute pixel coordinates (0,0 = top-left, default screen is 1920x1080).
-- Wait briefly between actions — the screen needs time to render changes.
-- For text input: click the target field first, then use desktop_type.
-- For keyboard shortcuts: use desktop_type with the hotkey parameter.
-- If a task involves files, use desktop_shell to check file state.
-- Report DONE only when you have visual confirmation of success.
-</guidelines>
+<rules>
+- NEVER use Spotlight (Cmd+Space) to open apps. Use desktop_osascript or
+  desktop_shell with "open -a" instead.
+- NEVER use shell_execute for sleep/wait. If you must wait, use desktop_shell.
+- Do NOT take a screenshot before AND after every action — that wastes steps.
+  Take screenshots only when you need to locate visual elements or verify
+  uncertain outcomes.
+- For macOS apps: try desktop_osascript FIRST. If the app is not scriptable,
+  fall back to desktop_accessibility, then to screenshot + click.
+- For remote VMs: use desktop_shell, desktop_screenshot, and desktop_click
+  (AppleScript is not available remotely).
+- Use absolute pixel coordinates (0,0 = top-left).
+- Report DONE only after confirming success (via script output or screenshot).
+</rules>
 </desktop_automation>"""
 
 _TOOL_CLOSE = "</tool_usage>"
