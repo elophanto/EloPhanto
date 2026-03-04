@@ -9,8 +9,13 @@ The controller is injected by the agent at startup.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import logging
+import sys
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
@@ -546,6 +551,212 @@ class DesktopFileTool(_DesktopTool):
 
 
 # ---------------------------------------------------------------------------
+# desktop_osascript (macOS only)
+# ---------------------------------------------------------------------------
+
+
+class DesktopOsascriptTool(_DesktopTool):
+    @property
+    def name(self) -> str:
+        return "desktop_osascript"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Run an AppleScript command on macOS. Use this to control apps like "
+            "Microsoft Word, Excel, Pages, Finder, Safari, and System Events "
+            "directly via their scripting dictionaries. This is MUCH faster and "
+            "more reliable than screenshot-based clicking. Examples:\n"
+            '- Open app: tell application "Microsoft Word" to activate\n'
+            '- New doc: tell application "Microsoft Word" to make new document\n'
+            '- Insert text: tell application "Microsoft Word" to insert text '
+            '"Hello" at selection\n'
+            '- Save: tell application "Microsoft Word" to save active document\n'
+            '- Dismiss dialog: tell application "System Events" to key code 53'
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "description": "AppleScript code to execute",
+                },
+            },
+            "required": ["script"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if sys.platform != "darwin":
+            return ToolResult(
+                success=False,
+                error="desktop_osascript is only available on macOS",
+            )
+        script = params["script"]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "osascript",
+                "-e",
+                script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            out = stdout.decode(errors="replace").strip()
+            err = stderr.decode(errors="replace").strip()
+            if proc.returncode == 0:
+                return ToolResult(
+                    success=True,
+                    data={"output": out or "(no output)"},
+                )
+            return ToolResult(
+                success=False,
+                error=f"osascript failed (exit {proc.returncode}): {err or out}",
+            )
+        except asyncio.TimeoutError:
+            return ToolResult(success=False, error="osascript timed out (30s)")
+        except Exception as e:
+            return ToolResult(success=False, error=f"osascript error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# desktop_accessibility (macOS only)
+# ---------------------------------------------------------------------------
+
+_A11Y_SCRIPT = """\
+on run argv
+    set appName to "%APP_NAME%"
+    tell application "System Events"
+        set targetProcess to first process whose frontmost is true
+        if appName is not "" then
+            try
+                set targetProcess to process appName
+            end try
+        end if
+        set procName to name of targetProcess
+        set output to "App: " & procName & linefeed
+        set winList to windows of targetProcess
+        repeat with w in winList
+            set output to output & "Window: " & (name of w) & linefeed
+            try
+                set uiElems to entire contents of w
+                set elemCount to 0
+                repeat with elem in uiElems
+                    if elemCount > 150 then
+                        set output to output & "  [truncated — too many elements]" & linefeed
+                        exit repeat
+                    end if
+                    try
+                        set r to role of elem
+                        set d to description of elem
+                        set t to ""
+                        try
+                            set t to value of elem
+                        end try
+                        set tl to ""
+                        try
+                            set tl to title of elem
+                        end try
+                        set p to ""
+                        try
+                            set p to position of elem as text
+                        end try
+                        if tl is not "" or d is not "" or t is not "" then
+                            set line_ to "  [" & r & "]"
+                            if tl is not "" then set line_ to line_ & " title=" & tl
+                            if d is not "" then set line_ to line_ & " desc=" & d
+                            if t is not "" and (length of t) < 200 then set line_ to line_ & " value=" & t
+                            if p is not "" then set line_ to line_ & " pos=" & p
+                            set output to output & line_ & linefeed
+                        end if
+                    end try
+                    set elemCount to elemCount + 1
+                end repeat
+            on error errMsg
+                set output to output & "  [error reading elements: " & errMsg & "]" & linefeed
+            end try
+        end repeat
+    end tell
+    return output
+end run
+"""
+
+
+class DesktopAccessibilityTool(_DesktopTool):
+    @property
+    def name(self) -> str:
+        return "desktop_accessibility"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Query the macOS accessibility tree to get a structured list of "
+            "UI elements (windows, buttons, menus, text fields) with their "
+            "labels and positions. Much cheaper than a screenshot — use this "
+            "to find elements before clicking, or to verify state changes. "
+            "Works only on macOS in local mode."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "app_name": {
+                    "type": "string",
+                    "description": (
+                        "Name of the app to inspect (e.g. 'Microsoft Word'). "
+                        "If omitted, inspects the frontmost app."
+                    ),
+                },
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if sys.platform != "darwin":
+            return ToolResult(
+                success=False,
+                error="desktop_accessibility is only available on macOS",
+            )
+        app_name = params.get("app_name", "")
+        script = _A11Y_SCRIPT.replace("%APP_NAME%", app_name)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "osascript",
+                "-e",
+                script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+            out = stdout.decode(errors="replace").strip()
+            err = stderr.decode(errors="replace").strip()
+            if proc.returncode == 0 and out:
+                return ToolResult(success=True, data={"tree": out})
+            return ToolResult(
+                success=False,
+                error=f"accessibility query failed: {err or 'empty response'}",
+            )
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                error="accessibility query timed out (15s)",
+            )
+        except Exception as e:
+            return ToolResult(success=False, error=f"accessibility error: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
@@ -555,7 +766,7 @@ def create_desktop_tools() -> list[BaseTool]:
 
     The _desktop_controller dependency is injected later by the agent.
     """
-    return [
+    tools: list[BaseTool] = [
         DesktopConnectTool(),
         DesktopScreenshotTool(),
         DesktopClickTool(),
@@ -566,3 +777,8 @@ def create_desktop_tools() -> list[BaseTool]:
         DesktopShellTool(),
         DesktopFileTool(),
     ]
+    # macOS-only tools
+    if sys.platform == "darwin":
+        tools.append(DesktopOsascriptTool())
+        tools.append(DesktopAccessibilityTool())
+    return tools
