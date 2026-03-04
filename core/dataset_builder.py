@@ -36,7 +36,10 @@ _MAX_TOOL_OUTPUT_CHARS = 2000  # truncate large tool outputs in training data
 # ---------------------------------------------------------------------------
 SECRET_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(?:api[_-]?key|apikey)\s*[:=]\s*['\"]?[\w-]{20,}", re.I),
-    re.compile(r"(?:password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\"]{8,}", re.I),
+    # password: X, password = X, password is X, "password": "X"
+    re.compile(r"(?:password|passwd|pwd)\s*(?:[:=]|is)\s*['\"]?[^\s'\"]{6,}", re.I),
+    # JSON-escaped: \"password\": \"value\" (in stringified tool results)
+    re.compile(r'\\?"password\\?"\s*[:=]\s*\\?"([^"\\]{6,})\\?"', re.I),
     re.compile(r"(?:secret|token)\s*[:=]\s*['\"]?[\w-]{20,}", re.I),
     re.compile(r"ghp_[a-zA-Z0-9]{36}"),
     re.compile(r"gho_[a-zA-Z0-9]{36}"),
@@ -49,6 +52,10 @@ SECRET_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"hf_[a-zA-Z0-9]{34}"),
     re.compile(r"elp_[a-zA-Z0-9]{32}"),  # our own collect API keys
+    # Credential JSON blobs from vault_lookup: "credentials": "{\"password\": ...}"
+    re.compile(r'"credentials"\s*:\s*"[^"]*(?:password|passwd|pwd|secret)[^"]*"', re.I),
+    # Natural language: "password is XYZ", "the password is XYZ", "my password: XYZ"
+    re.compile(r"(?:the\s+|my\s+)?(?:password|passwd|pwd)\s+is\s+[^\s,.\n]{6,}", re.I),
 ]
 
 _VAULT_PATTERN = re.compile(r"vault:\w+", re.I)
