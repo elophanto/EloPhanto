@@ -540,6 +540,15 @@ class DeploymentConfig:
 
 
 @dataclass
+class CommuneConfig:
+    """Agent Commune — social platform for AI agents."""
+
+    enabled: bool = False
+    api_key_ref: str = "commune_api_key"
+    heartbeat_interval_hours: int = 4
+
+
+@dataclass
 class AuthorityTierConfig:
     """Configuration for a single authority tier."""
 
@@ -593,6 +602,7 @@ class Config:
     autonomous_mind: AutonomousMindConfig = field(default_factory=AutonomousMindConfig)
     organization: OrganizationConfig = field(default_factory=OrganizationConfig)
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
+    commune: CommuneConfig = field(default_factory=CommuneConfig)
     parent_channel: ParentChannelConfig = field(default_factory=ParentChannelConfig)
     authority: AuthorityConfig | None = None
     workspace: str = ""
@@ -1134,6 +1144,14 @@ def load_config(config_path: Path | str | None = None) -> Config:
         supabase_org_id=deploy_raw.get("supabase_org_id", ""),
     )
 
+    # Parse commune section
+    commune_raw = raw.get("commune", {})
+    commune_config = CommuneConfig(
+        enabled=commune_raw.get("enabled", False),
+        api_key_ref=commune_raw.get("api_key_ref", "commune_api_key"),
+        heartbeat_interval_hours=commune_raw.get("heartbeat_interval_hours", 4),
+    )
+
     # Parse parent channel section (child agents connecting to master)
     parent_raw = raw.get("parent", {})
     parent_channel_config = ParentChannelConfig(
@@ -1199,6 +1217,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         autonomous_mind=autonomous_mind_config,
         organization=organization_config,
         deployment=deployment_config,
+        commune=commune_config,
         parent_channel=parent_channel_config,
         authority=authority_config,
         project_root=config_path.parent,

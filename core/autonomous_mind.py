@@ -691,9 +691,45 @@ class AutonomousMind:
         except Exception:
             pass
 
+        # --- Agent Commune heartbeat check ---
+        commune_text = ""
+        try:
+            if self._agent._config.commune.enabled:
+                import json as _json
+                import time as _time
+
+                state_file = self._project_root / "data" / "commune_state.json"
+                interval_h = self._agent._config.commune.heartbeat_interval_hours
+                last_ts = 0.0
+                if state_file.exists():
+                    try:
+                        state = _json.loads(state_file.read_text())
+                        last_ts = state.get("last_checked_at", 0.0)
+                    except (ValueError, OSError):
+                        pass
+                hours_ago = (
+                    (_time.time() - last_ts) / 3600.0 if last_ts else float("inf")
+                )
+                if hours_ago >= interval_h:
+                    if last_ts:
+                        commune_text = (
+                            f"\nAGENT COMMUNE: Last checked {hours_ago:.1f}h ago "
+                            f"(overdue — check every {interval_h}h). "
+                            "Run commune_home and engage with the community."
+                        )
+                    else:
+                        commune_text = (
+                            "\nAGENT COMMUNE: Never checked. "
+                            "Run commune_home to see your feed and engage."
+                        )
+        except Exception:
+            pass
+
         parts = [goal_text, schedule_text, memory_text, knowledge_text]
         if drift_text:
             parts.append(f"\nKNOWLEDGE DRIFT DETECTED:\n{drift_text}")
+        if commune_text:
+            parts.append(commune_text)
         return "\n".join(parts), identity_anchor
 
     async def _build_prompt(self) -> str:

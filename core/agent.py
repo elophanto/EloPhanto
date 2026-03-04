@@ -645,6 +645,11 @@ class Agent:
             self._inject_deployment_deps()
             logger.info("Deployment system ready")
 
+        # Initialize Agent Commune tools (social platform for AI agents)
+        if self._config.commune.enabled:
+            self._inject_commune_deps()
+            logger.info("Agent Commune ready")
+
         # Initialize parent channel adapter (child agents connecting to master)
         if self._config.parent_channel.enabled:
             try:
@@ -1085,6 +1090,26 @@ class Agent:
                 if self._vault:
                     tool._vault = self._vault
 
+    def _inject_commune_deps(self) -> None:
+        """Inject vault, config, and project root into Agent Commune tools."""
+        commune_tools = (
+            "commune_register",
+            "commune_home",
+            "commune_post",
+            "commune_comment",
+            "commune_vote",
+            "commune_search",
+            "commune_profile",
+        )
+        for tool_name in commune_tools:
+            tool = self._registry.get(tool_name)
+            if tool:
+                tool._config = self._config.commune
+                if self._vault:
+                    tool._vault = self._vault
+                if hasattr(tool, "_project_root"):
+                    tool._project_root = self._config.project_root
+
     def _inject_totp_deps(self) -> None:
         """Inject vault and identity manager into TOTP tools."""
         for tool_name in ("totp_generate", "totp_enroll", "totp_list", "totp_delete"):
@@ -1316,6 +1341,7 @@ class Agent:
             swarm_enabled=self._config.swarm.enabled,
             organization_enabled=self._config.organization.enabled,
             deployment_enabled=self._config.deployment.enabled,
+            commune_enabled=self._config.commune.enabled,
             organization_context=_org_ctx,
             knowledge_context=knowledge_context,
             available_skills=available_skills,
