@@ -109,8 +109,8 @@ class ToolRegistry:
         # Desktop tools (GUI control via VM HTTP server)
         from tools.desktop.tools import create_desktop_tools
 
-        for tool in create_desktop_tools():
-            self.register(tool)
+        for dt in create_desktop_tools():
+            self.register(dt)
 
         # Scheduling tools
         self.register(ScheduleTaskTool())
