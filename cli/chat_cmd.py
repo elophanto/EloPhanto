@@ -233,6 +233,8 @@ def _build_feature_badges(
             badges.append(f"[black on {_C_SUCCESS}] telegram [/]")
         elif cfg.telegram.enabled:
             badges.append(f"[black on {_C_WARN}] telegram (no token) [/]")
+    if agent._desktop_controller:
+        badges.append(f"[black on {_C_SUCCESS}] desktop [/]")
     badges.append(f"[black on {_C_SUCCESS}] vault [/]")
     return "  ".join(badges)
 

@@ -132,6 +132,23 @@ class BrowserConfig:
 
 
 @dataclass
+class DesktopConfig:
+    """Desktop GUI automation configuration."""
+
+    enabled: bool = False
+    mode: str = "local"  # local | remote
+    vm_ip: str = ""  # required for remote mode
+    server_port: int = 5000
+    screen_width: int = 1920
+    screen_height: int = 1080
+    observation_type: str = (
+        "screenshot"  # screenshot | a11y_tree | screenshot_a11y_tree
+    )
+    max_steps: int = 15
+    sleep_after_action: float = 1.0
+
+
+@dataclass
 class SchedulerConfig:
     """Background scheduling configuration."""
 
@@ -603,6 +620,7 @@ class Config:
     organization: OrganizationConfig = field(default_factory=OrganizationConfig)
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     commune: CommuneConfig = field(default_factory=CommuneConfig)
+    desktop: DesktopConfig = field(default_factory=DesktopConfig)
     parent_channel: ParentChannelConfig = field(default_factory=ParentChannelConfig)
     authority: AuthorityConfig | None = None
     workspace: str = ""
@@ -789,6 +807,20 @@ def load_config(config_path: Path | str | None = None) -> Config:
         viewport_width=browser_raw.get("viewport_width", 1280),
         viewport_height=browser_raw.get("viewport_height", 720),
         vision_model=browser_raw.get("vision_model", "google/gemini-2.0-flash-001"),
+    )
+
+    # Parse desktop section
+    desktop_raw = raw.get("desktop", {})
+    desktop_config = DesktopConfig(
+        enabled=desktop_raw.get("enabled", False),
+        mode=desktop_raw.get("mode", "local"),
+        vm_ip=desktop_raw.get("vm_ip", ""),
+        server_port=desktop_raw.get("server_port", 5000),
+        screen_width=desktop_raw.get("screen_width", 1920),
+        screen_height=desktop_raw.get("screen_height", 1080),
+        observation_type=desktop_raw.get("observation_type", "screenshot"),
+        max_steps=desktop_raw.get("max_steps", 15),
+        sleep_after_action=desktop_raw.get("sleep_after_action", 1.0),
     )
 
     # Parse scheduler section
@@ -1218,6 +1250,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         organization=organization_config,
         deployment=deployment_config,
         commune=commune_config,
+        desktop=desktop_config,
         parent_channel=parent_channel_config,
         authority=authority_config,
         project_root=config_path.parent,

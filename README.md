@@ -13,7 +13,7 @@
   <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-31%2B%20pages-blue" alt="Docs"></a>
 </p>
 
-An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, writes code, sends emails, creates accounts, manages files, makes payments. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
+An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, controls your desktop, writes code, sends emails, creates accounts, manages files, makes payments. It sees your screen, clicks buttons, types text, opens apps — any application, not just browsers. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
 
 Runs locally. Works with free local models, Z.ai coding plan, or OpenRouter. Your data stays on your machine.
 
@@ -66,6 +66,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - **Autonomous mind** — when you're not talking to it, it's still working. Data-driven background loop queries real goals, scheduled tasks, memories, and knowledge to decide what to do next — not a static priority list. Self-bootstraps when fresh: explores tools, searches for opportunities, creates goals. Pauses when you speak, resets timer on resume. Every tool call visible in real-time. Budget-isolated, purpose-driven
 - **Autonomous long-term goals** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates and adjusts. Runs in the background for days
 - **Full web automation** — it logs into sites with your real Chrome profile, creates accounts, handles 2FA, fills forms, navigates complex flows. Not a toy browser — your actual sessions
+- **Desktop control** — it sees your screen and controls any application like a human. Takes screenshots, clicks at pixel coordinates, types text, scrolls, drags. "Open Excel and make me a chart" — it just does it. Works on your local machine or a remote VM. 9 desktop tools powered by pyautogui with an observe-screenshot-act loop. Not limited to browsers — it can operate Photoshop, Excel, Terminal, Finder, any native app
 - **Run an organization** — it clones itself into persistent specialist agents — marketing, research, design, anything. Each specialist is a full EloPhanto instance with its own identity, knowledge vault, and autonomous mind. They work proactively on their own schedule, report findings back, and learn from the master's approval or rejection. A rejected social media post becomes a correction in the specialist's knowledge — it literally learns from mistakes. High-trust specialists get auto-approved. You talk to one agent, it runs a company
 - **Run a dev team from chat** — "Spawn Claude Code on the billing bug and Codex on the new API endpoint" — it creates isolated git worktrees, writes context-enriched prompts from your knowledge vault, launches agents in tmux, monitors PRs and CI, redirects agents that go off track, and pings you when PRs are ready to merge. Combined with the organization system, it manages both its own clones AND external coding agents
 - **Deploy to the internet** — "Build me a SaaS dashboard and put it live" — it picks the right host (Vercel for static, Railway for long-running APIs), creates a Supabase database, wires credentials, and deploys. Auto-detects when Vercel will timeout and routes to Railway instead
@@ -295,6 +296,54 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 
 ---
 
+### It controls your entire desktop
+
+**User:** "Open Excel, create a spreadsheet with our Q1 revenue numbers, and save it to Desktop"
+
+```
+⚙ Connecting to local desktop...
+  → Screen: 1920x1080
+  → desktop_screenshot
+  → I can see the macOS desktop with Dock at the bottom.
+
+⚙ Opening Microsoft Excel...
+  → desktop_click(52, 1060)          # Click Excel in Dock
+  → desktop_screenshot
+  → Excel opened with a blank workbook.
+
+⚙ Building the spreadsheet...
+  → desktop_click(85, 200)           # Click cell A1
+  → desktop_type("Month")
+  → desktop_type(key="tab")
+  → desktop_type("Revenue")
+  → desktop_type(key="enter")
+  → desktop_type("January")
+  → desktop_type(key="tab")
+  → desktop_type("$142,500")
+  → desktop_type(key="enter")
+  → ... (filling remaining months)
+
+⚙ Adding a chart...
+  → desktop_click(85, 200)           # Select data range
+  → desktop_drag(85, 200, 200, 560)  # Select A1:B12
+  → desktop_type(hotkey=["cmd", "shift", "c"])  # Insert chart
+  → desktop_screenshot
+  → Bar chart inserted with revenue by month.
+
+⚙ Saving to Desktop...
+  → desktop_type(hotkey=["cmd", "s"])
+  → desktop_type("Q1-Revenue-2026")
+  → desktop_click(450, 380)          # Select Desktop location
+  → desktop_type(key="enter")
+
+✓ Saved: ~/Desktop/Q1-Revenue-2026.xlsx
+  12 months of revenue data with bar chart.
+```
+
+Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Finder, anything with a GUI. It sees your screen and acts like a human would.
+
+---
+
 ## Why EloPhanto?
 
 | | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
@@ -303,6 +352,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 | **Self-replicating org** | ✅ Clones itself into specialists | ❌ | ❌ | ❌ | ❌ |
 | **Builds its own tools** | ✅ Full pipeline | ❌ | ❌ | ❌ | ❌ |
 | **Autonomous mind** | ✅ Works while you sleep | ❌ | ❌ | ❌ | ❌ |
+| **Desktop control** | ✅ Any app, local or VM | ❌ | ❌ | ❌ | Sandboxed VM |
 | **Real browser** | ✅ Your Chrome profile | ❌ | ❌ | ❌ | Sandboxed |
 | **Agent swarm** | ✅ Orchestrates others | ❌ | ❌ | Single | ❌ |
 | **Own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
@@ -327,6 +377,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Agent organization** — spawn persistent specialist agents (marketing, research, design, anything) that are full EloPhanto clones with their own identity, knowledge vault, and autonomous mind. Delegate tasks, review output, approve or reject with feedback that becomes permanent knowledge in the specialist's vault. Trust scoring tracks performance — high-trust specialists get auto-approved. Children work proactively on their own schedule and report findings to the master. 5 organization tools, bidirectional WebSocket communication, LLM-driven delegation intelligence
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team. Spawn agents on tasks, monitor PR/CI, redirect mid-task, all through conversation. Each agent gets an isolated git worktree and tmux session. Combined with organization, manage both self-cloned specialists AND external coding agents
 - **Browser automation** — real Chrome browser with 49 tools (navigate, click, type, screenshot, extract data, upload files, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions
+- **Desktop GUI control** — pixel-level control of any desktop application via screenshot + pyautogui. Two modes: **local** (control your own machine directly) or **remote** (connect to a VM running the OSWorld HTTP server for sandboxed environments and benchmarks). 9 tools: connect, screenshot, click, type, scroll, drag, cursor, shell, file. Observe-act loop: take screenshot, analyze with vision LLM, execute action, verify. Works with Excel, Photoshop, Finder, Terminal, any native app. Based on [OSWorld](https://github.com/xlang-ai/OSWorld) architecture — the first scalable benchmark for desktop GUI agents
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat with multi-conversation history (sidebar with create/switch/delete, auto-titled conversations, persistent across refreshes), tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
 - **Multi-channel gateway** — WebSocket control plane with CLI, Web, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
@@ -344,12 +395,13 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 - **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
 
 <details>
-<summary>Built-in Tools (122+)</summary>
+<summary>Built-in Tools (131+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
 | System | shell_execute, file_read, file_write, file_list, file_delete, file_move | 6 |
 | Browser | navigate, click, type, screenshot, extract, scroll, tabs, console, network, storage, cookies, drag, hover, upload, wait, eval, audit + more | 49 |
+| Desktop | desktop_connect, desktop_screenshot, desktop_click, desktop_type, desktop_scroll, desktop_drag, desktop_cursor, desktop_shell, desktop_file | 9 |
 | Knowledge | knowledge_search, knowledge_write, knowledge_index, skill_read, skill_list | 5 |
 | Hub | hub_search, hub_install | 2 |
 | Self-Dev | self_create_plugin, self_modify_source, self_rollback, self_read_source, self_run_tests, self_list_capabilities | 6 |
@@ -390,7 +442,7 @@ No fake browser. No headless container. Your actual logged-in Chrome with all yo
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (122+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (131+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -433,6 +485,7 @@ EloPhanto/
 │   ├── gateway.py       # WebSocket gateway
 │   ├── session.py       # Session management
 │   ├── browser_manager.py # Chrome control via Node.js bridge
+│   ├── desktop_controller.py # Desktop GUI control (local + VM)
 │   ├── vault.py         # Encrypted credential vault
 │   ├── identity.py      # Evolving agent identity
 │   ├── organization.py  # Self-cloning specialist agents
@@ -440,7 +493,7 @@ EloPhanto/
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 122+ built-in tools
+├── tools/               # 131+ built-in tools
 ├── skills/              # 60+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
@@ -556,6 +609,14 @@ browser:
   mode: fresh                      # fresh | profile
   headless: true
   vision_model: google/gemini-2.0-flash-001
+
+desktop:
+  enabled: false
+  mode: local                      # local (this PC) | remote (VM)
+  vm_ip: ""                        # required for remote mode
+  server_port: 5000
+  observation_type: screenshot     # screenshot | a11y_tree | screenshot_a11y_tree
+  max_steps: 15
 
 knowledge:
   embedding_provider: auto         # auto | openrouter | ollama
@@ -675,6 +736,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Desktop GUI control** — pixel-level control of any desktop application. The agent sees your screen, clicks buttons, types text, scrolls, drags — like a human sitting at your computer. Two modes: **local** (control your own machine directly via pyautogui, no VM needed) and **remote** (connect to a VM running the [OSWorld](https://github.com/xlang-ai/OSWorld) HTTP server for sandboxed environments). 9 new tools: `desktop_connect`, `desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_scroll`, `desktop_drag`, `desktop_cursor`, `desktop_shell`, `desktop_file`. Say "open Excel and make a chart" and it just does it. Not limited to browsers — works with any GUI application: Photoshop, Terminal, Finder, native apps, anything with pixels. Complementary to the browser tools: browser for precise web automation, desktop for everything else
 - **Agent Commune** — the agent now has its own social profile on [Agent Commune](https://agentcommune.com) (LinkedIn for AI agents — humans can't post). Register with a work email, post reviews, answer questions, upvote content, and build reputation. 7 new tools: `commune_register`, `commune_home`, `commune_post`, `commune_comment`, `commune_vote`, `commune_search`, `commune_profile`. Autonomous mind heartbeat checks in every 4+ hours, responds to comments, upvotes posts, and engages with other agents autonomously
 - **Web deployment** — deploy websites and create databases from conversation. `deploy_website` supports Vercel (static sites, fast APIs) and Railway (long-running operations, WebSockets, cron). Auto-provider detection scans API routes and dependencies — if your app calls OpenAI/Anthropic or uses WebSockets, it routes to Railway (no timeout limits) instead of Vercel (10s limit). `create_database` provisions Supabase projects via Management API, returns credentials, and optionally runs initial SQL. `deployment_status` checks live deployment info. Tokens stored in vault, env vars injected into platforms
 - **Agent organization** — spawn persistent specialist agents that are full self-clones. Each specialist has its own identity, knowledge vault, and autonomous mind. Delegate tasks, review output, approve or reject — feedback becomes permanent knowledge. Specialists work proactively on their own schedule and report findings to the master. Trust scoring, auto-approve for high performers, LLM-driven delegation intelligence. Combined with the agent swarm, it manages both self-cloned specialists and external coding agents (Claude Code, Codex). 5 new tools, bidirectional WebSocket communication

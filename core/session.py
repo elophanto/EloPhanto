@@ -155,13 +155,10 @@ class SessionManager:
         """Upsert session to database."""
         await self._db.execute_insert(
             """
-            INSERT INTO sessions (session_id, channel, user_id, conversation_json,
-                                  created_at, last_active, metadata_json)
+            INSERT OR REPLACE INTO sessions
+                (session_id, channel, user_id, conversation_json,
+                 created_at, last_active, metadata_json)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(session_id) DO UPDATE SET
-                conversation_json = excluded.conversation_json,
-                last_active = excluded.last_active,
-                metadata_json = excluded.metadata_json
             """,
             (
                 session.session_id,
