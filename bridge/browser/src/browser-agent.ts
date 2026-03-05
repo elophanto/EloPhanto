@@ -167,7 +167,7 @@ const BUILD_DOM_TREE_SCRIPT = `(function() {
 
   function clickable_elements_to_string(element_tree, includeAttributes) {
     if (!includeAttributes) {
-      includeAttributes = ['id','title','type','name','role','class','src','href','aria-label','placeholder','value','alt','aria-expanded'];
+      includeAttributes = ['id','title','type','name','role','class','src','href','aria-label','placeholder','value','alt','aria-expanded','data-testid'];
     }
     function get_all_text_till_next_clickable_element(element_node) {
       var text_parts = [];
