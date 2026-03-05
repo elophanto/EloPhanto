@@ -432,10 +432,25 @@ settle automatically. When you observe the page afterward:
 - Do NOT click the same button again while it is in a loading/disabled state.
 - If the button text changed (e.g., "Publish" → "Published"), the action succeeded.
 
-SOCIAL MEDIA POSTING: After typing content, IMMEDIATELY click the Post / Publish /
-Tweet button. Do NOT press Enter, click "Add another post", or interact with
-anything else between typing and clicking Post. If the button says "Post all"
-instead of "Post", you accidentally created a thread — close and start over.
+SOCIAL MEDIA POSTING: After typing content, IMMEDIATELY click the submit button.
+Do NOT press Enter, click "Add another post", or interact with anything else
+between typing and clicking submit. If the button says "Post all" instead of
+"Post", you accidentally created a thread — close and start over.
+
+X/TWITTER POSTING — CRITICAL DISAMBIGUATION:
+X has MULTIPLE elements with text "Post". browser_click_text('Post') will hit the
+SIDEBAR navigation "Post" button (which opens a NEW compose modal) instead of
+submitting your content. This is the #1 failure mode. To submit:
+- For NEW posts: After typing in the compose modal, click the submit button using
+  browser_click with the specific element index of the button INSIDE the composer
+  (look for the button near the bottom of the compose area, NOT in the sidebar).
+- For REPLIES: The submit button says "Reply", not "Post". Use
+  browser_click_text('Reply', exact=True) to submit a reply.
+- NEVER use browser_click_text('Post') to submit content on X/Twitter.
+- After submitting, verify: the compose modal should CLOSE, and you should see
+  a "Your post was sent" toast or the posted content in the timeline.
+  If the compose modal is still open, the submit FAILED — try again with the
+  correct button index.
 
 PUBLISH VERIFICATION: Clicking a publish/send/submit button does NOT mean the task
 is done. Many platforms show a CONFIRMATION DIALOG after the first button. If one

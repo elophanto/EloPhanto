@@ -145,6 +145,48 @@ class BrowserExecutionState:
                 "use a different tool, different selector, or re-read the page to understand "
                 "what's happening."
             )
+
+        # Detect submit-loop: type → click submit text → type → click submit text
+        # This catches the X/Twitter failure where "Post" hits the sidebar button
+        _submit_texts = {"post", "reply", "submit", "publish", "send", "tweet"}
+        if tool_name in ("browser_click_text", "browser_click"):
+            click_text = str((args or {}).get("text", "")).lower()
+            if click_text in _submit_texts:
+                # Count how many times we've typed then clicked this submit text
+                _submit_loops = 0
+                _saw_type = False
+                for past in reversed(list(self._action_history)):
+                    sig_parts = past.split("|")
+                    past_tool = sig_parts[0] if sig_parts else ""
+                    if past_tool in ("browser_type_text", "browser_type"):
+                        _saw_type = True
+                    elif past_tool in ("browser_click_text", "browser_click"):
+                        past_text = ""
+                        for p in sig_parts:
+                            if p.startswith("text="):
+                                past_text = p[5:].lower()
+                        if past_text in _submit_texts and _saw_type:
+                            _submit_loops += 1
+                            _saw_type = False
+                    else:
+                        if past_tool not in (
+                            "browser_screenshot",
+                            "browser_extract",
+                            "browser_get_elements",
+                        ):
+                            break
+                if _submit_loops >= 2:
+                    return (
+                        f"SUBMIT LOOP DETECTED: You've typed content and clicked '{click_text}' "
+                        f"{_submit_loops} times without the post being submitted. "
+                        "On X/Twitter, browser_click_text('Post') clicks the SIDEBAR nav button "
+                        "(opening a new compose modal) instead of submitting. "
+                        "FIX: Use browser_click with the specific element INDEX of the submit "
+                        "button INSIDE the composer. For replies, use browser_click_text('Reply', exact=True). "
+                        "Look at the element list for a button with data-testid='tweetButtonInline' "
+                        "or the button nearest the compose textarea."
+                    )
+
         return None
 
     def reset(self) -> None:

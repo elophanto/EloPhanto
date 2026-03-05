@@ -1708,7 +1708,8 @@ class Agent:
                     elif exec_result.result:
                         raw_result = exec_result.result.to_dict()
                         func_name = tc["function"]["name"]
-                        # Extract screenshot path before injection guard wrapping
+                        # Extract screenshot path and recommended_actions before wrapping
+                        _recommended_actions = None
                         if func_name in STATE_CHANGING_TOOLS:
                             _screenshot_path = raw_result.get("screenshotPath")
                             _el = raw_result.get("elements", "")
@@ -1718,6 +1719,11 @@ class Agent:
                                 if len(_el) > _MAX_ELEMENTS_CHARS
                                 else _el
                             )
+                        # Capture bridge vision recommended_actions if present
+                        if func_name.startswith("browser_"):
+                            _ra = raw_result.get("recommended_actions")
+                            if isinstance(_ra, list) and _ra:
+                                _recommended_actions = _ra
                         raw_result = wrap_tool_result(func_name, raw_result)
                         # Strip base64 images from browser results — they bloat
                         # context for text-only LLMs. The bridge saves screenshots
@@ -1829,6 +1835,34 @@ class Agent:
                                 _img_b64 = base64.b64encode(_img_bytes).decode("ascii")
                                 _ext = Path(_screenshot_path).suffix.lstrip(".")
                                 _mime = "image/png" if _ext == "png" else "image/jpeg"
+
+                                # Detect submit-like actions for enhanced verification
+                                _is_submit_action = False
+                                if func_name in ("browser_click_text", "browser_click"):
+                                    try:
+                                        _tc_raw_args = tc["function"].get(
+                                            "arguments", "{}"
+                                        )
+                                        _tc_parsed = (
+                                            json.loads(_tc_raw_args)
+                                            if isinstance(_tc_raw_args, str)
+                                            else _tc_raw_args
+                                        )
+                                        _click_text = str(
+                                            _tc_parsed.get("text", "")
+                                        ).lower()
+                                        if _click_text in (
+                                            "post",
+                                            "reply",
+                                            "submit",
+                                            "publish",
+                                            "send",
+                                            "tweet",
+                                        ):
+                                            _is_submit_action = True
+                                    except Exception:
+                                        pass
+
                                 _bv_prompt = (
                                     "Describe this browser screenshot concisely. "
                                     "Focus on: page title, visible text content, "
@@ -1836,6 +1870,18 @@ class Agent:
                                     "any dialogs or popups, and errors. "
                                     "Be actionable — mention element positions."
                                 )
+                                if _is_submit_action:
+                                    _bv_prompt += (
+                                        "\n\nIMPORTANT: This screenshot was taken AFTER clicking "
+                                        "a submit/post/reply button. Carefully verify: "
+                                        "Did the submission SUCCEED? Look for: "
+                                        "success toast ('Your post was sent'), compose modal CLOSED, "
+                                        "content visible in timeline/thread. "
+                                        "Or did it FAIL? Look for: compose modal STILL OPEN, "
+                                        "a NEW compose modal appeared (wrong button was clicked), "
+                                        "'Discard' button visible, empty composer. "
+                                        "State clearly whether the submission succeeded or failed."
+                                    )
                                 if _elements_text:
                                     _bv_prompt += (
                                         f"\n\nPage elements:\n{_elements_text}"
@@ -1868,10 +1914,25 @@ class Agent:
                                     if _bv_resp.content
                                     else "[Vision model returned empty response]"
                                 )
+                                # Append bridge recommended_actions if available
+                                _inject_content = f"Page after {func_name}:\n{_bv_desc}"
+                                if _recommended_actions:
+                                    _ra_lines = []
+                                    for _ra_item in _recommended_actions[:3]:
+                                        _ra_tool = _ra_item.get("tool", "?")
+                                        _ra_args = _ra_item.get("args", {})
+                                        _ra_why = _ra_item.get("why", "")
+                                        _ra_lines.append(
+                                            f"  - {_ra_tool}({json.dumps(_ra_args)}) — {_ra_why}"
+                                        )
+                                    _inject_content += (
+                                        "\n\nBridge recommended next actions:\n"
+                                        + "\n".join(_ra_lines)
+                                    )
                                 messages.append(
                                     {
                                         "role": "user",
-                                        "content": f"Page after {func_name}:\n{_bv_desc}",
+                                        "content": _inject_content,
                                     }
                                 )
                                 _auto_injected = True
