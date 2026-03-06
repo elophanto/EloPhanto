@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import signal
 import time
 from typing import Any
@@ -14,6 +15,10 @@ from core.protected import check_command_for_protected
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 logger = logging.getLogger(__name__)
+
+# Pattern to detect commands that background processes.
+# These need special pipe handling to avoid communicate() hanging.
+_BACKGROUND_CMD_RE = re.compile(r"&\s*$|&\s*\d*>\s*/|nohup\s+")
 
 
 class ShellExecuteTool(BaseTool):
@@ -118,7 +123,52 @@ class ShellExecuteTool(BaseTool):
         )
         t0 = time.monotonic()
 
+        # Detect backgrounded commands — these need special handling because
+        # child processes inherit pipe FDs, causing communicate() to hang forever
+        # waiting for EOF that never comes.
+        is_background = bool(_BACKGROUND_CMD_RE.search(command))
+
         try:
+            if is_background:
+                # For backgrounded commands: don't use PIPE (avoids FD inheritance hang).
+                # The command is expected to manage its own output (redirect to file, etc).
+                process = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    cwd=working_dir,
+                    start_new_session=True,
+                )
+
+                if self._process_registry and process.pid:
+                    self._process_registry.register(process.pid, command[:100])
+
+                # Wait briefly for the shell wrapper to exit (it returns fast
+                # because the real work is backgrounded).  If even the shell
+                # hangs, the timeout catches it.
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=min(timeout, 10))
+                except TimeoutError:
+                    pass  # Shell wrapper may linger; that's OK for background cmds
+
+                elapsed = time.monotonic() - t0
+                logger.info(
+                    "[shell] BACKGROUND in %.1fs: %s (pid=%s)",
+                    elapsed,
+                    cmd_short,
+                    process.pid,
+                )
+                return ToolResult(
+                    success=True,
+                    data={
+                        "stdout": "(backgrounded — output redirected)",
+                        "stderr": "",
+                        "exit_code": 0,
+                        "timed_out": False,
+                        "backgrounded": True,
+                    },
+                )
+
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
@@ -142,7 +192,10 @@ class ShellExecuteTool(BaseTool):
                     os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 except (ProcessLookupError, OSError):
                     process.kill()
-                await process.communicate()
+                try:
+                    await asyncio.wait_for(process.communicate(), timeout=5)
+                except TimeoutError:
+                    pass  # Best-effort cleanup
                 if self._process_registry and process.pid:
                     self._process_registry.unregister(process.pid)
                 logger.warning(
