@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Secrets (never bake into image)
+vault.enc
+vault.salt
+vault.enc.bak
+vault.salt.bak
+.env
+config.yaml
+
+# Data (mounted as volume)
+data/
+logs/
+*.db
+
+# Instance-specific knowledge
+knowledge/learned/
+knowledge/user/
+
+# Git
+.git/
+.gitignore
+
+# Tests
+tests/
+*.test.*
+
+# Dev files
+docs/
+example/
+tmp/
+temp/
+misc/
+
+# Node.js (rebuilt in Docker)
+bridge/browser/node_modules/
+bridge/browser/dist/
+web/node_modules/
+web/src/
+
+# Large irrelevant files
+*.bak
+README.md.bak
