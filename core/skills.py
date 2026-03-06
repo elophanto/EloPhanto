@@ -272,10 +272,10 @@ class SkillManager:
                 f"</available_skills>"
             )
 
-        # Has matches — show recommended with full detail
+        # Has matches — show recommended with MUST READ instruction
         matched_names = {s.name for s in matched}
         lines = ["<available_skills>"]
-        lines.append("<recommended>")
+        lines.append("<recommended action='MUST skill_read BEFORE any other work'>")
         for skill in matched:
             self._format_skill_xml(skill, lines)
         lines.append("</recommended>")
