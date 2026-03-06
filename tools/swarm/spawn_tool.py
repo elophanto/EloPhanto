@@ -21,11 +21,12 @@ class SwarmSpawnTool(BaseTool):
     def description(self) -> str:
         return (
             "Spawn an external coding agent (Claude Code, Codex, etc.) to work "
-            "on a task in parallel. By default works on the current project "
-            "(self-dev). Use the 'repo' parameter to target a different GitHub "
-            "repo (cloned), a local repo path, or 'new' for a fresh project. "
-            "IMPORTANT: Always set 'repo' for tasks unrelated to this codebase — "
-            "never mix external work into the main project."
+            "on a task in parallel. By default works on the current EloPhanto project "
+            "(self-dev). CRITICAL: For ANY task that is NOT about modifying EloPhanto "
+            "itself (e.g. building a website, creating an app, new project), you MUST "
+            "set repo='new'. This prevents the agent from creating branches and PRs "
+            "on our main GitHub repo. Only omit 'repo' for actual self-dev tasks "
+            "(bug fixes, features, refactoring of EloPhanto)."
         )
 
     @property

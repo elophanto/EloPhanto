@@ -1225,7 +1225,11 @@ own branch, inside a tmux session.
 - swarm_spawn: Spawn a new coding agent on a task. Creates an isolated git worktree
   on a feature branch, enriches the prompt with project context, and launches the
   agent in a tmux session. The agent works independently and creates a PR when done.
-  Parameters: task (required), profile, branch_name, extra_context.
+  Parameters: task (required), repo, profile, branch_name, extra_context.
+  CRITICAL: For tasks that build NEW projects (websites, apps, etc.) that are NOT
+  modifications to EloPhanto itself, you MUST pass repo='new'. Omitting 'repo'
+  creates a worktree off EloPhanto and the agent will push branches and PRs to
+  our main GitHub repo — this is NEVER acceptable for external work.
 - swarm_status: Check the status of all spawned agents or a specific one. Shows
   profile, task, branch, PR URL, CI status, and whether the tmux session is alive.
   Parameters: agent_id (optional).
@@ -1268,6 +1272,9 @@ Do NOT spawn agents for:
 - The monitor checks for completion every 30 seconds by default.
 - Agents that exceed their time limit are automatically stopped.
 - You'll receive notifications when agents complete, fail, or are stopped.
+- REPO TARGETING: ALWAYS pass repo='new' for external projects. Only omit 'repo'
+  for self-dev tasks (modifying EloPhanto itself). Pushing external project code
+  to our GitHub is a critical error. When in doubt, use repo='new'.
 </guidelines>
 </swarm>"""
 

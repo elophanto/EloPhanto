@@ -144,6 +144,15 @@ class SwarmManager:
                 f"Stop a running agent first."
             )
 
+        # Safety: auto-detect external tasks and force repo='new' to prevent
+        # accidentally creating branches/PRs on the main project repo.
+        if not repo and self._is_external_task(task):
+            logger.warning(
+                "Task appears external but repo was not set — auto-setting repo='new' "
+                "to prevent polluting the main project repo."
+            )
+            repo = "new"
+
         profile_name = profile_name or self._auto_select_profile(task)
 
         # Spawn cooldown — prevent rapid-fire agent spawning
@@ -190,7 +199,11 @@ class SwarmManager:
             branch=branch_name,
             worktree_path=work_dir,
             tmux_session=tmux_session,
-            done_criteria=profile.done_criteria or self._config.default_done_criteria,
+            done_criteria=(
+                "tmux_exit"
+                if is_external
+                else (profile.done_criteria or self._config.default_done_criteria)
+            ),
             enriched_prompt=enriched_prompt,
             spawned_at=datetime.now(UTC).isoformat(),
         )
@@ -346,11 +359,12 @@ class SwarmManager:
             base_dir = str(self._project_root.parent / ".elophanto-worktrees")
 
         if repo.lower() == "new":
-            # Fresh project — unique dir with git init
+            # Fresh project — unique dir with git init, NO remote
             slug = branch_name.replace("/", "-")
             work_dir = str(Path(base_dir) / f"{slug}-{agent_id}")
             await self._run_shell(f"mkdir -p {work_dir}")
             await self._run_shell(f"git -C {work_dir} init")
+            await self._run_shell(f"git -C {work_dir} checkout -b {branch_name}")
             return work_dir
 
         if repo.startswith("https://") or repo.startswith("git@"):
@@ -502,13 +516,19 @@ class SwarmManager:
 
         if is_external:
             sections.append(
-                "\nYou are working in an isolated project directory on a feature branch. "
-                "When done, commit your work and create a PR using `gh pr create`. "
-                "Do NOT push to or create PRs against any other repository."
+                "\nYou are working in an ISOLATED project directory — this is NOT "
+                "the main EloPhanto repository. Do NOT push to or create PRs against "
+                "any repository other than the one in your working directory.\n"
+                "CRITICAL: Before running `gh pr create` or `git push`, verify that "
+                "`git remote -v` shows the correct target repo. If there is no remote, "
+                "create one first with the appropriate GitHub repo URL provided by the user. "
+                "If no target repo URL was given, just commit locally — do NOT create a PR.\n"
+                "NEVER push to github.com/elophanto/EloPhanto — that is the agent's own "
+                "codebase, not your project."
             )
         else:
             sections.append(
-                "\nYou are working in a git worktree on a feature branch. "
+                "\nYou are working in a git worktree on a feature branch of EloPhanto. "
                 "Create a PR when done using `gh pr create`."
             )
 
@@ -654,13 +674,15 @@ class SwarmManager:
         """Check if a single agent has met its done criteria."""
         alive = await self._is_tmux_alive(agent.tmux_session)
 
-        # Check for PR
-        pr_info = await self._check_pr_status(agent)
-        if pr_info and pr_info.get("number"):
-            agent.pr_url = pr_info.get("url", "")
-            agent.pr_number = int(pr_info["number"])
-            ci_status = await self._check_ci_status(agent.pr_number)
-            agent.ci_status = ci_status
+        # Skip PR/CI checks for external projects (no remote to check)
+        if agent.done_criteria != "tmux_exit":
+            # Check for PR
+            pr_info = await self._check_pr_status(agent)
+            if pr_info and pr_info.get("number"):
+                agent.pr_url = pr_info.get("url", "")
+                agent.pr_number = int(pr_info["number"])
+                ci_status = await self._check_ci_status(agent.pr_number)
+                agent.ci_status = ci_status
 
         # Output validation — scan PR diff for suspicious patterns
         if self._config.output_validation and agent.pr_url:
@@ -691,6 +713,10 @@ class SwarmManager:
         if agent.done_criteria == "pr_created" and agent.pr_url:
             done = True
         elif agent.done_criteria == "ci_passed" and agent.ci_status == "success":
+            done = True
+        elif agent.done_criteria == "tmux_exit" and not alive:
+            # For external projects (repo='new') with no remote, completion
+            # is determined by the tmux session exiting cleanly.
             done = True
 
         # tmux died without meeting criteria = failure
@@ -876,6 +902,62 @@ class SwarmManager:
             )
         else:
             logger.info("Swarm event [%s]: %s", event_type, data)
+
+    def _is_external_task(self, task: str) -> bool:
+        """Detect if a task is about building something external (not self-dev).
+
+        Returns True for tasks that are clearly about creating a new project,
+        website, app, etc. — NOT about modifying EloPhanto itself.
+        """
+        task_lower = task.lower()
+
+        # Self-dev indicators — if any match, it's about EloPhanto
+        self_dev_keywords = [
+            "elophanto",
+            "this project",
+            "this codebase",
+            "this repo",
+            "our agent",
+            "the agent",
+            "self-dev",
+            "fix bug",
+            "refactor",
+            "add feature to",
+            "update the",
+            "modify the",
+        ]
+        if any(kw in task_lower for kw in self_dev_keywords):
+            return False
+
+        # External project indicators — building something new
+        external_keywords = [
+            "build a",
+            "create a",
+            "new website",
+            "new app",
+            "new project",
+            "landing page",
+            "next.js",
+            "nextjs",
+            "react app",
+            "vue app",
+            "django",
+            "flask app",
+            "express app",
+            "startup",
+            "saas",
+            "e-commerce",
+            "ecommerce",
+            "portfolio",
+            "blog site",
+            "production-ready",
+            "deploy to vercel",
+            "deploy to netlify",
+        ]
+        if any(kw in task_lower for kw in external_keywords):
+            return True
+
+        return False
 
     @staticmethod
     def _slugify(text: str) -> str:
