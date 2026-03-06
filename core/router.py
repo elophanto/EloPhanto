@@ -463,7 +463,7 @@ class LLMRouter:
             response = await asyncio.wait_for(
                 litellm.acompletion(**kwargs), timeout=180
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"litellm call timed out after 180s ({provider}/{model})")
             self._mark_unhealthy(provider)
             raise
