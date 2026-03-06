@@ -1,10 +1,11 @@
-import os
 import asyncio
+import os
+from pathlib import Path
+from typing import Any
+
 import aiofiles
 import aiohttp
 import yaml
-from pathlib import Path
-from typing import Any, Optional
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
@@ -158,7 +159,7 @@ class ReplicateGenerateTool(BaseTool):
         width: int,
         height: int,
         output_format: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Async method to interact with Replicate API directly via HTTP.
         Uses the model specified in config.yaml (default_model).
