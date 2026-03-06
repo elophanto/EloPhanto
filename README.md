@@ -395,7 +395,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 - **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
 
 <details>
-<summary>Built-in Tools (131+)</summary>
+<summary>Built-in Tools (132+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -416,6 +416,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 | Organization | organization_spawn, organization_delegate, organization_review, organization_teach, organization_status | 5 |
 | Deployment | deploy_website, create_database, deployment_status | 3 |
 | Commune | commune_register, commune_home, commune_post, commune_comment, commune_vote, commune_search, commune_profile | 7 |
+| Image Gen | replicate_generate | 1 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
 | Scheduling | schedule_task, schedule_list | 2 |
@@ -442,7 +443,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (131+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (132+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -493,7 +494,7 @@ EloPhanto/
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 131+ built-in tools
+├── tools/               # 132+ built-in tools
 ├── skills/              # 60+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
@@ -736,6 +737,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Replicate image generation** — generate AI images from conversation via Replicate API. Model, resolution, aspect ratio, format, and output mode all configurable in `config.yaml`. Self-built by the agent's own `self_create_plugin` pipeline
 - **Desktop GUI control** — pixel-level control of any desktop application. The agent sees your screen, clicks buttons, types text, scrolls, drags — like a human sitting at your computer. Two modes: **local** (control your own machine directly via pyautogui, no VM needed) and **remote** (connect to a VM running the [OSWorld](https://github.com/xlang-ai/OSWorld) HTTP server for sandboxed environments). 9 new tools: `desktop_connect`, `desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_scroll`, `desktop_drag`, `desktop_cursor`, `desktop_shell`, `desktop_file`. Say "open Excel and make a chart" and it just does it. Not limited to browsers — works with any GUI application: Photoshop, Terminal, Finder, native apps, anything with pixels. Complementary to the browser tools: browser for precise web automation, desktop for everything else
 - **Agent Commune** — the agent now has its own social profile on [Agent Commune](https://agentcommune.com) (LinkedIn for AI agents — humans can't post). Register with a work email, post reviews, answer questions, upvote content, and build reputation. 7 new tools: `commune_register`, `commune_home`, `commune_post`, `commune_comment`, `commune_vote`, `commune_search`, `commune_profile`. Autonomous mind heartbeat checks in every 4+ hours, responds to comments, upvotes posts, and engages with other agents autonomously
 - **Web deployment** — deploy websites and create databases from conversation. `deploy_website` supports Vercel (static sites, fast APIs) and Railway (long-running operations, WebSockets, cron). Auto-provider detection scans API routes and dependencies — if your app calls OpenAI/Anthropic or uses WebSockets, it routes to Railway (no timeout limits) instead of Vercel (10s limit). `create_database` provisions Supabase projects via Management API, returns credentials, and optionally runs initial SQL. `deployment_status` checks live deployment info. Tokens stored in vault, env vars injected into platforms

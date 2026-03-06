@@ -1,0 +1,13 @@
+{
+  "name": "replicate_generate",
+  "description": "Generates AI images using Replicate's Google Nano Banana 2 model with support for various resolutions (512px-4K), aspect ratios, and output formats (URL or local file).",
+  "version": "0.1.0",
+  "author": "EloPhanto",
+  "class_name": "ReplicateGenerateTool",
+  "permission_level": "moderate",
+  "dependencies": [
+    "replicate",
+    "aiofiles"
+  ],
+  "created_at": "2026-03-06"
+}

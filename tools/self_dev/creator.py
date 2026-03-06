@@ -53,6 +53,29 @@ tool registry at runtime.
 - Keep dependencies minimal. Prefer stdlib when possible.
 - Include type hints on all function signatures.
 - Write clear, self-documenting code. Avoid unnecessary comments.
+- CONFIG: Plugins MUST read all settings from config.yaml (the agent's central
+  config file). This includes API keys, default model, default parameters, and
+  any other configurable values. NEVER hardcode these — always load them from
+  config.yaml at runtime, with sane fallbacks.
+  The plugin's config section lives at the top level of config.yaml, keyed by
+  the service name (e.g. replicate:, telegram:, stripe:).
+  Pattern — add a _load_config() method and use it in execute():
+    import yaml
+    from pathlib import Path
+    def _load_config(self) -> dict[str, Any]:
+        for name in ("config.yaml", "config.yml"):
+            p = Path(name)
+            if p.exists():
+                raw = yaml.safe_load(p.read_text()) or {}
+                return raw.get("service_name") or {}
+        return {}
+  Then in execute():
+    cfg = self._load_config()
+    api_key = cfg.get("api_key") or os.environ.get("FALLBACK_ENV_VAR")
+    model = cfg.get("default_model", "fallback-model")
+    resolution = params.get("resolution", cfg.get("default_resolution", "1024"))
+  This ensures the user can control all defaults from config.yaml without
+  editing plugin code.
 </conventions>
 </context>"""
 

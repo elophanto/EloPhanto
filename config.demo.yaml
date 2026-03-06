@@ -108,7 +108,7 @@ browser:
 # --- Desktop GUI Agent ---
 # Pixel-level desktop control via screenshot + pyautogui.
 # mode: local = control this PC directly (pip install pyautogui)
-# mode: remote = connect to a VM running the OSWorld HTTP server
+# mode: remote = connect to a VM running OSWorld HTTP server
 # See docs/33-OSWORLD.md for VM setup details.
 desktop:
   enabled: true
@@ -301,14 +301,26 @@ email:
     username_ref: "imap_username"
     password_ref: "imap_password"
     mailbox: INBOX
-# ── Autonomous Mind ──────────────────────────────────────────
-# Background thinking loop that runs between user interactions.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+# Autonomous Mind — Background thinking loop that runs between user interactions.
 # Pursues goals, revenue, and maintenance autonomously.
 autonomous_mind:
   enabled: true                 # Set to true to activate background mind
   wakeup_seconds: 300           # Default interval between think cycles (seconds)
-  min_wakeup_seconds: 60        # Minimum interval the LLM can set
-  max_wakeup_seconds: 3600      # Maximum interval the LLM can set
+  min_wakeup_seconds: 60        # Minimum interval LLM can set
+  max_wakeup_seconds: 3600      # Maximum interval LLM can set
   budget_pct: 100.0              # % of daily LLM budget allocated to mind
   max_rounds_per_wakeup: 8      # Max tool-call rounds per think cycle
   verbosity: normal             # minimal | normal | verbose
+
+# --- Replicate Image Generation ---
+# Generate AI images using Replicate API (Google's Nano Banana 2)
+# Get API key: https://replicate.com/account/api-tokens
+replicate:
+  enabled: true
+  api_key: "YOUR_REPLICATE_API_KEY"  # Your Replicate API token
+  default_model: "google/nano-banana-2"
+  default_resolution: "1024"  # 512, 1024, 2048, 4096
+  default_aspect_ratio: "1:1"  # 1:1, 16:9, 9:16, 4:3, 3:4
+  default_format: "jpg"  # jpg, png
+  default_output_mode: "local"  # url, local (recommended: Replicate deletes URL content after ~12 hours)
