@@ -450,3 +450,25 @@ Removes a stored TOTP secret and all associated data for a service.
 - **Input**: `service` (string — service name)
 - **Output**: `deleted` (boolean), `service` (string)
 - **Behavior**: Deletes `totp_{service}`, `totp_{service}_meta`, and `totp_{service}_backup` from vault.
+
+### `replicate_generate`
+
+Generate AI images using Google's Nano Banana 2 model via Replicate API.
+
+- **Permission**: `moderate`
+- **Input**: 
+  - `prompt` (string, required) - Text description of image to generate
+  - `resolution` (string, optional, default "1024") - Base resolution: "512", "1024", "2048", "4096"
+  - `aspect_ratio` (string, optional, default "1:1") - Aspect ratio: "1:1", "16:9", "9:16", "4:3", "3:4"
+  - `output_format` (string, optional, default "jpg") - File format: "jpg", "png"
+  - `output_mode` (string, optional, default "url") - Output type: "url" (returns public URL), "local" (saves to workspace)
+  - `filename` (string, optional) - Required when output_mode="local". Filename without path
+- **Output**: 
+  - `url` (string, optional) - Public URL to generated image (output_mode="url")
+  - `path` (string, optional) - Local file path (output_mode="local")
+  - `size_bytes` (integer, optional) - File size in bytes (output_mode="local")
+  - `resolution` (string) - Actual resolution generated
+  - `cost_usd` (float) - Cost of this generation
+- **Behavior**: Creates prediction via Replicate API, waits for completion, returns URL or saves locally. Requires `replicate.api_key` in config.yaml.
+- **Setup**: Get API key from https://replicate.com/account/api-tokens and add to `config.yaml`.
+- **Pricing**: ~$0.03 (512px), ~$0.067 (1K), ~$0.10 (2K), ~$0.15 (4K) per image

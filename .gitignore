@@ -63,6 +63,7 @@ README.md.bak
 
 # temp files
 temp/
+tmp/
 
 # Internal docs
 docs/WEBSITE.md
