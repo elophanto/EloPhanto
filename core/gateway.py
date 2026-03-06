@@ -18,6 +18,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import http
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -109,6 +111,22 @@ class Gateway:
     def is_running(self) -> bool:
         return self._server is not None
 
+    async def _process_http_request(self, path: str, headers: Any) -> Any:
+        """Handle plain HTTP requests (health check) before WebSocket upgrade."""
+        if path == "/health":
+            body = json.dumps(
+                {
+                    "status": "ok",
+                    "sessions": len(self._clients),
+                }
+            ).encode()
+            return (
+                http.HTTPStatus.OK,
+                [("Content-Type", "application/json")],
+                body,
+            )
+        return None  # Continue with WebSocket upgrade
+
     async def start(self) -> None:
         """Start the WebSocket server (non-blocking)."""
         try:
@@ -121,6 +139,7 @@ class Gateway:
             self._handle_connection,
             self._host,
             self._port,
+            process_request=self._process_http_request,
         )
         logger.info("Gateway started on %s", self.url)
 
