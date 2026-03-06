@@ -70,7 +70,7 @@ class CreateDatabaseTool(BaseTool):
             self._config.supabase_token_ref if self._config else "supabase_access_token"
         )
         try:
-            return await self._vault.get(ref) or ""
+            return self._vault.get(ref) or ""
         except Exception:
             return ""
 

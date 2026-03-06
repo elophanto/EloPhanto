@@ -63,7 +63,7 @@ class CommuneVoteTool(BaseTool):
             return ""
         ref = self._config.api_key_ref if self._config else "commune_api_key"
         try:
-            return await self._vault.get(ref) or ""
+            return self._vault.get(ref) or ""
         except Exception:
             return ""
 
