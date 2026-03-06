@@ -136,7 +136,7 @@ class DeployWebsiteTool(BaseTool):
         if not self._vault:
             return ""
         try:
-            return await self._vault.get(ref) or ""
+            return self._vault.get(ref) or ""
         except Exception:
             return ""
 
