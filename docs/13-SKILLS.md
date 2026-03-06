@@ -62,20 +62,24 @@ On startup, the `SkillManager` scans the `skills/` directory for subdirectories 
 
 ### System Prompt Integration
 
-All discovered skills are listed in the system prompt under `<available_skills>`:
+All discovered skills are listed in the system prompt under `<available_skills>`. When the current task matches skills, they appear in a `<recommended>` block:
 
 ```xml
 <available_skills>
-<skill>
+<recommended action='MUST skill_read BEFORE any other work'>
+<skill source="local" tier="local" warnings="none">
 <name>browser-automation</name>
 <description>Best practices for reliable browser automation...</description>
-<location>skills/browser-automation/SKILL.md</location>
 </skill>
-...
+</recommended>
+<other_skills>
+  research — Information gathering, source hierarchy...
+  ...
+</other_skills>
 </available_skills>
 ```
 
-The system prompt also includes a `<skill_protocol>` section that instructs the agent to check for matching skills before starting any task.
+The system prompt includes a `<skills_mandatory>` section that gates all work behind skill reading — the agent MUST call `skill_read` for recommended skills before taking any other action. This prevents the agent from diving into tasks without loading relevant best practices first.
 
 ### Trigger Matching
 
