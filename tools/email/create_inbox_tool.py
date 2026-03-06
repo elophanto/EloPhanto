@@ -37,6 +37,10 @@ class EmailCreateInboxTool(BaseTool):
         return {
             "type": "object",
             "properties": {
+                "username": {
+                    "type": "string",
+                    "description": "Local part of the email address (before @). e.g. 'elophanto' for elophanto@domain.com. If omitted, AgentMail generates a random one.",
+                },
                 "display_name": {
                     "type": "string",
                     "description": "Friendly name for the inbox (e.g. 'EloPhanto Agent')",
@@ -89,6 +93,9 @@ class EmailCreateInboxTool(BaseTool):
             domain = params.get("domain", self._config.domain)
 
             req_kwargs: dict[str, Any] = {"display_name": display_name}
+            username = params.get("username")
+            if username:
+                req_kwargs["username"] = username
             if domain and domain != "agentmail.to":
                 req_kwargs["domain"] = domain
 
