@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class TotpListTool(BaseTool):
     """List all services with enrolled TOTP authenticator secrets."""
 
+    @property
+    def group(self) -> str:
+        return "identity"
+
     def __init__(self) -> None:
         self._vault: Any = None
 

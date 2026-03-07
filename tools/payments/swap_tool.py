@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class CryptoSwapTool(BaseTool):
     """Swap tokens on a DEX from the agent's wallet."""
 
+    @property
+    def group(self) -> str:
+        return "payments"
+
     def __init__(self) -> None:
         self._payments_manager: Any = None
 

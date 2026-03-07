@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class SwarmRedirectTool(BaseTool):
     """Send new instructions to a running agent mid-task."""
 
+    @property
+    def group(self) -> str:
+        return "swarm"
+
     def __init__(self) -> None:
         self._swarm_manager: Any = None
 

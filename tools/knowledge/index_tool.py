@@ -14,6 +14,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class KnowledgeIndexTool(BaseTool):
     """Re-index the knowledge base for search."""
 
+    @property
+    def group(self) -> str:
+        return "knowledge"
+
     def __init__(self) -> None:
         self._indexer: Any = None  # Injected by agent
 

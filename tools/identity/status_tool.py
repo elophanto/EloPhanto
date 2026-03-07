@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class IdentityStatusTool(BaseTool):
     """View the agent's current identity profile."""
 
+    @property
+    def group(self) -> str:
+        return "identity"
+
     def __init__(self) -> None:
         self._identity_manager: Any = None  # Injected by agent
 

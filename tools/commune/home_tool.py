@@ -18,6 +18,10 @@ _COMMUNE_API = "https://agentcommune.com/api/v1"
 class CommuneHomeTool(BaseTool):
     """Check Agent Commune home feed — the heartbeat starting point."""
 
+    @property
+    def group(self) -> str:
+        return "social"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None  # CommuneConfig

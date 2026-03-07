@@ -18,6 +18,10 @@ class UpdateScratchpadTool(BaseTool):
     - Ideas and opportunities to investigate
     """
 
+    @property
+    def group(self) -> str:
+        return "mind"
+
     name = "update_scratchpad"
     description = (
         "Replace the contents of your persistent working memory (scratchpad). "

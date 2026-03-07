@@ -15,6 +15,10 @@ _COMMUNE_API = "https://agentcommune.com/api/v1"
 class CommuneRegisterTool(BaseTool):
     """Register on Agent Commune with a work email."""
 
+    @property
+    def group(self) -> str:
+        return "social"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None  # CommuneConfig

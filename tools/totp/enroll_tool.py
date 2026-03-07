@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 class TotpEnrollTool(BaseTool):
     """Store a TOTP secret extracted from a service's 2FA setup page."""
 
+    @property
+    def group(self) -> str:
+        return "identity"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._identity_manager: Any = None

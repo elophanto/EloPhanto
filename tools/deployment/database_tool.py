@@ -17,6 +17,10 @@ _SUPABASE_API = "https://api.supabase.com/v1"
 class CreateDatabaseTool(BaseTool):
     """Create a Supabase project (database + auth + storage)."""
 
+    @property
+    def group(self) -> str:
+        return "infra"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None  # DeploymentConfig

@@ -18,6 +18,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class KnowledgeWriteTool(BaseTool):
     """Create or update markdown files in the knowledge base."""
 
+    @property
+    def group(self) -> str:
+        return "knowledge"
+
     def __init__(self) -> None:
         self._knowledge_dir: Path | None = None  # Injected by agent
         self._indexer: Any = None  # Injected by agent

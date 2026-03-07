@@ -12,6 +12,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class TotpGenerateTool(BaseTool):
     """Generate a 6-digit TOTP code for a service with a stored secret."""
 
+    @property
+    def group(self) -> str:
+        return "identity"
+
     def __init__(self) -> None:
         self._vault: Any = None
 

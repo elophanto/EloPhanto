@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class WalletStatusTool(BaseTool):
     """Show the agent's crypto wallet address, chain, and token balances."""
 
+    @property
+    def group(self) -> str:
+        return "payments"
+
     def __init__(self) -> None:
         self._payments_manager: Any = None  # Injected by agent
 

@@ -388,47 +388,53 @@ class LLMRouter:
             "No LLM provider available. Run 'elophanto init' to configure providers."
         )
 
-    @staticmethod
-    def _trim_tools_for_limit(
-        tools: list[dict[str, Any]], limit: int
-    ) -> list[dict[str, Any]]:
-        """Drop lowest-priority tools to fit a provider's tool limit.
+    def filter_tools_for_task(
+        self,
+        tools: list[Any],
+        task_type: str,
+        provider: str | None = None,
+    ) -> list[Any]:
+        """Filter tool instances by profile and provider limits.
 
-        Priority (lowest dropped first):
-        1. MCP tools (mcp__*) — often duplicate built-in file/search tools
-        2. Niche tools (commune, replicate, deployment, desktop, organization)
-        3. Everything else (core tools kept)
+        Args:
+            tools: BaseTool instances (must have .group attribute).
+            task_type: The task type (planning, coding, analysis, simple).
+            provider: Target provider name (for max_tools / deny).
+
+        Returns:
+            Filtered list of BaseTool instances.
         """
-        if len(tools) <= limit:
-            return tools
-
-        low_priority_prefixes = (
-            "mcp__",  # MCP server tools — duplicates of built-in
-            "commune_",  # Social network — not essential
-            "replicate_",  # Image gen plugin
-            "deploy_",  # Deployment tools
-            "deployment_",  # Deployment status
-            "create_database",  # DB provisioning
-            "desktop_",  # Desktop GUI control
-            "organization_",  # Self-cloning org
-            "totp_",  # TOTP authenticator
+        from core.tool_profiles import (
+            filter_tools_by_profile,
+            resolve_profiles,
+            select_profile,
         )
 
-        core: list[dict[str, Any]] = []
-        low: list[dict[str, Any]] = []
-        for tool in tools:
-            name = tool.get("function", {}).get("name", "")
-            if any(name.startswith(p) for p in low_priority_prefixes):
-                low.append(tool)
-            else:
-                core.append(tool)
+        # Resolve profiles (user config overrides + defaults)
+        profiles = resolve_profiles(self._config.llm.tool_profiles or None)
 
-        # Fill up to limit: all core tools + as many low-priority as fit
-        remaining = limit - len(core)
-        if remaining > 0:
-            return core + low[:remaining]
-        # Core alone exceeds limit (shouldn't happen) — truncate core
-        return core[:limit]
+        # Determine profile from routing config or task type
+        routing = self._config.llm.routing.get(task_type)
+        routing_profile = routing.tool_profile if routing else ""
+        profile_name = select_profile(task_type, routing_profile or None)
+
+        # Get provider-level deny list
+        deny_groups: list[str] | None = None
+        if provider:
+            pcfg = self._config.llm.providers.get(provider)
+            if pcfg and pcfg.tool_deny:
+                deny_groups = pcfg.tool_deny
+
+        filtered = filter_tools_by_profile(tools, profile_name, profiles, deny_groups)
+
+        logger.debug(
+            "Tool profile '%s' for task_type=%s: %d → %d tools",
+            profile_name,
+            task_type,
+            len(tools),
+            len(filtered),
+        )
+        return filtered
 
     def _infer_provider(self, model: str) -> str:
         """Infer provider from model name."""
@@ -514,9 +520,22 @@ class LLMRouter:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
         if tools:
-            # OpenAI has a 128 tool limit — drop lowest-priority tools
-            if provider == "openai" and len(tools) > 128:
-                tools = self._trim_tools_for_limit(tools, 128)
+            # Apply provider max_tools limit as last resort
+            pcfg = self._config.llm.providers.get(provider)
+            max_tools = pcfg.max_tools if pcfg else 0
+            # OpenAI hard limit is 128 regardless of config
+            if provider == "openai":
+                max_tools = max_tools or 128
+            if max_tools and len(tools) > max_tools:
+                from core.tool_profiles import trim_tools_for_limit
+
+                logger.info(
+                    "Trimming tools from %d to %d for %s",
+                    len(tools),
+                    max_tools,
+                    provider,
+                )
+                tools = trim_tools_for_limit(tools, max_tools)
             kwargs["tools"] = tools
 
         try:

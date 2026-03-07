@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class SwarmSpawnTool(BaseTool):
     """Spawn an external coding agent to work on a task in parallel."""
 
+    @property
+    def group(self) -> str:
+        return "swarm"
+
     def __init__(self) -> None:
         self._swarm_manager: Any = None
 

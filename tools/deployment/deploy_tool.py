@@ -77,6 +77,10 @@ def _detect_provider(project_path: Path) -> str:
 class DeployWebsiteTool(BaseTool):
     """Deploy a web project to Vercel or Railway."""
 
+    @property
+    def group(self) -> str:
+        return "infra"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None  # DeploymentConfig

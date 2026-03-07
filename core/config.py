@@ -26,6 +26,9 @@ class ProviderConfig:
     base_url_coding: str = ""
     base_url_paygo: str = ""
     default_model: str = ""
+    # Tool profile limits
+    max_tools: int = 0  # 0 = no limit
+    tool_deny: list[str] = field(default_factory=list)  # groups to exclude
 
 
 @dataclass
@@ -34,6 +37,7 @@ class RoutingConfig:
 
     preferred_provider: str = ""
     models: dict[str, str] = field(default_factory=dict)  # provider -> model
+    tool_profile: str = ""  # override profile for this task type
     local_only: bool = False
     # Legacy fields — still parsed for backward compat with old configs
     preferred_model: str = ""
@@ -58,6 +62,7 @@ class LLMConfig:
     provider_priority: list[str] = field(default_factory=list)
     routing: dict[str, RoutingConfig] = field(default_factory=dict)
     budget: BudgetConfig = field(default_factory=BudgetConfig)
+    tool_profiles: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -637,6 +642,8 @@ def _parse_provider(name: str, data: dict[str, Any]) -> ProviderConfig:
         base_url_coding=data.get("base_url_coding", ""),
         base_url_paygo=data.get("base_url_paygo", ""),
         default_model=data.get("default_model", ""),
+        max_tools=int(data.get("max_tools", 0)),
+        tool_deny=data.get("tool_deny", []),
     )
 
 
@@ -663,6 +670,7 @@ def _parse_routing(data: dict[str, Any]) -> RoutingConfig:
     return RoutingConfig(
         preferred_provider=data.get("preferred_provider", ""),
         models=models,
+        tool_profile=data.get("tool_profile", ""),
         local_only=data.get("local_only", False),
         # Legacy fields kept for backward compat
         preferred_model=data.get("preferred_model", ""),
@@ -737,11 +745,21 @@ def load_config(config_path: Path | str | None = None) -> Config:
         per_task_limit_usd=budget_raw.get("per_task_limit_usd", 2.0),
     )
 
+    # Parse custom tool profiles (if any)
+    tool_profiles_raw = llm_raw.get("tool_profiles", {})
+    tool_profiles: dict[str, list[str]] = {}
+    for profile_name, groups in tool_profiles_raw.items():
+        if isinstance(groups, dict):
+            tool_profiles[profile_name] = groups.get("groups", [])
+        elif isinstance(groups, list):
+            tool_profiles[profile_name] = groups
+
     llm_config = LLMConfig(
         providers=providers,
         provider_priority=provider_priority,
         routing=routing,
         budget=budget,
+        tool_profiles=tool_profiles,
     )
 
     # Parse shell section

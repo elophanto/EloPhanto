@@ -357,6 +357,32 @@ Four columns on the `llm_usage` table store per-call transparency data: `finish_
 
 When the router falls back from one provider to another (e.g., Z.ai fails then OpenRouter succeeds), the successful `LLMResponse` carries `fallback_from="zai"` and a failure `ProviderEvent` is recorded for the failed provider.
 
+## Tool Profiles
+
+When the agent has many tools loaded, sending all of them on every LLM call wastes tokens and can hit provider limits (e.g. OpenAI's 128-tool cap). Tool profiles solve this by selecting only the relevant tool groups for each task type.
+
+Each tool declares a **group** (`system`, `browser`, `desktop`, `knowledge`, `skills`, `data`, `selfdev`, `goals`, `comms`, `payments`, `identity`, `documents`, `media`, `social`, `infra`, `org`, `swarm`, `mcp`, `scheduling`, `mind`, `hub`). Profiles are named sets of groups:
+
+| Profile | Groups included |
+|---------|----------------|
+| `minimal` | system, knowledge, data, skills |
+| `coding` | minimal + selfdev, goals |
+| `browsing` | minimal + browser |
+| `desktop_profile` | minimal + desktop |
+| `comms` | minimal + comms, identity |
+| `devops` | minimal + infra, swarm |
+| `full` | all groups |
+
+The router maps each task type to a profile (`planning` → `full`, `coding` → `coding`, `analysis` → `minimal`, `simple` → `minimal`). Override per-task with `tool_profile` in routing config, or define custom profiles under `llm.tool_profiles`.
+
+Provider-level controls:
+- `max_tools` — hard cap on tools sent (OpenAI defaults to 128)
+- `tool_deny` — groups to always exclude for a provider
+
+If filtered tools still exceed `max_tools`, a priority-based trimmer drops low-priority groups first, then trims largest-schema tools.
+
+See [36-TOOL-PROFILES.md](36-TOOL-PROFILES.md) for the full design document.
+
 ## Adaptive Routing (Future Enhancement)
 
 Over time, EloPhanto can learn which models perform best for which tasks based on outcomes:

@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class ScheduleTaskTool(BaseTool):
     """Create a new scheduled task (recurring or one-time)."""
 
+    @property
+    def group(self) -> str:
+        return "scheduling"
+
     def __init__(self) -> None:
         self._scheduler: Any = None
 

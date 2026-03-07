@@ -11,6 +11,10 @@ class LLMCallTool(BaseTool):
     """Makes LLM inference calls through the router."""
 
     @property
+    def group(self) -> str:
+        return "data"
+
+    @property
     def name(self) -> str:
         return "llm_call"
 

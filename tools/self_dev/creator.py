@@ -106,6 +106,10 @@ class DevelopmentBudget:
 class SelfCreatePluginTool(BaseTool):
     """Orchestrates the full plugin creation pipeline."""
 
+    @property
+    def group(self) -> str:
+        return "selfdev"
+
     def __init__(self, project_root: Path) -> None:
         self._project_root = project_root
         self._router: Any = None  # Injected by agent

@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class OrganizationStatusTool(BaseTool):
     """View the status of specialist child agents."""
 
+    @property
+    def group(self) -> str:
+        return "org"
+
     def __init__(self) -> None:
         self._organization_manager: Any = None
 

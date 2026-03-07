@@ -38,6 +38,10 @@ class MCPTool(BaseTool):
         self._connection = connection
 
     @property
+    def group(self) -> str:
+        return "mcp"
+
+    @property
     def name(self) -> str:
         return self._namespaced_name
 

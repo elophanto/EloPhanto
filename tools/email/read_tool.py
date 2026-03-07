@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class EmailReadTool(BaseTool):
     """Read the full content of a specific email (AgentMail or IMAP)."""
 
+    @property
+    def group(self) -> str:
+        return "comms"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None

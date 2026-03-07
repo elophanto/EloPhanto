@@ -33,6 +33,10 @@ class BridgeBrowserTool(BaseTool):
         self._browser_manager: Any = None  # Injected by agent
 
     @property
+    def group(self) -> str:
+        return "browser"
+
+    @property
     def name(self) -> str:
         return self._name
 

@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class PaymentHistoryTool(BaseTool):
     """Query the agent's payment transaction history and spending summary."""
 
+    @property
+    def group(self) -> str:
+        return "payments"
+
     def __init__(self) -> None:
         self._payments_manager: Any = None
 

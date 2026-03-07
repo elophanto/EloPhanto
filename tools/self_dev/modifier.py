@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 class SelfModifySourceTool(BaseTool):
     """Modify the agent's own source code with full QA pipeline."""
 
+    @property
+    def group(self) -> str:
+        return "selfdev"
+
     def __init__(self, project_root: Path) -> None:
         self._project_root = project_root
         self._router: Any = None

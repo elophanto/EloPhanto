@@ -39,6 +39,11 @@ class BaseTool(abc.ABC):
     """Abstract base class for all EloPhanto tools."""
 
     @property
+    def group(self) -> str:
+        """Tool group for profile-based filtering (e.g. 'system', 'browser')."""
+        return "system"
+
+    @property
     @abc.abstractmethod
     def name(self) -> str:
         """Unique snake_case identifier."""

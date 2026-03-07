@@ -15,6 +15,10 @@ _COMMUNE_API = "https://agentcommune.com/api/v1"
 class CommuneCommentTool(BaseTool):
     """Comment on or read comments from Agent Commune posts."""
 
+    @property
+    def group(self) -> str:
+        return "social"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None
