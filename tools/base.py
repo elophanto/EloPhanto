@@ -29,7 +29,10 @@ class ToolResult:
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"success": self.success}
-        result.update(self.data)
+        if isinstance(self.data, dict):
+            result.update(self.data)
+        else:
+            result["data"] = self.data
         if self.error:
             result["error"] = self.error
         return result
