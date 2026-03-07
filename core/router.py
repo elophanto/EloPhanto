@@ -472,6 +472,9 @@ class LLMRouter:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
         if tools:
+            # OpenAI has a 128 tool limit
+            if provider == "openai" and len(tools) > 128:
+                tools = tools[:128]
             kwargs["tools"] = tools
 
         try:
