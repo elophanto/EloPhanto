@@ -127,14 +127,13 @@ def trim_tools_for_limit(
         return tools
 
     low_priority_prefixes = (
-        "browser_",
-        "desktop_",
         "mcp_",
         "commune_",
         "replicate_",
         "deploy_",
         "deployment_",
         "create_database",
+        "desktop_",
         "organization_",
         "totp_",
     )
