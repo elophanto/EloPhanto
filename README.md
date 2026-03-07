@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-978%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-31%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-36%2B%20pages-blue" alt="Docs"></a>
 </p>
 
 An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, controls your desktop, writes code, sends emails, creates accounts, manages files, makes payments. It sees your screen, clicks buttons, types text, opens apps — any application, not just browsers. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
@@ -371,6 +371,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 - **Self-development** — when the agent encounters a task it lacks tools for, it builds one: research → design → implement → test → review → deploy. Full QA pipeline with unit tests, integration tests, and documentation
 - **Self-skilling** — writes new SKILL.md files from experience, teaching itself best practices for future tasks
 - **Core self-modification** — can modify its own source code with impact analysis, test verification, and automatic rollback
+- **Autonomous experimentation** — metric-driven experiment loop: modify code, measure, keep improvements, discard regressions, repeat overnight. Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Works for any measurable optimization target
 - **Skills + EloPhantoHub** — 60+ bundled best-practice skills, plus a public skill registry for searching, installing, and sharing skills
 
 ### Everything Else
@@ -396,7 +397,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 - **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
 
 <details>
-<summary>Built-in Tools (132+)</summary>
+<summary>Built-in Tools (135+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -406,6 +407,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 | Knowledge | knowledge_search, knowledge_write, knowledge_index, skill_read, skill_list | 5 |
 | Hub | hub_search, hub_install | 2 |
 | Self-Dev | self_create_plugin, self_modify_source, self_rollback, self_read_source, self_run_tests, self_list_capabilities | 6 |
+| Experimentation | experiment_setup, experiment_run, experiment_status | 3 |
 | Data | llm_call, vault_lookup, vault_set | 3 |
 | Documents | document_analyze, document_query, document_collections | 3 |
 | Goals | goal_create, goal_status, goal_manage | 3 |
@@ -444,7 +446,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (132+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (135+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -495,12 +497,12 @@ EloPhanto/
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 132+ built-in tools
+├── tools/               # 135+ built-in tools
 ├── skills/              # 60+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (35+ docs)
+└── docs/                # Full specification (37+ docs)
 ```
 
 </details>
@@ -570,6 +572,8 @@ llm:
       api_key: "YOUR_OPENAI_KEY"
       enabled: true
       default_model: "gpt-5.4"
+      max_tools: 128                 # Provider tool limit (auto for OpenAI)
+      # tool_deny: [social, media]   # Groups to never send to this provider
     zai:
       api_key: "YOUR_ZAI_KEY"
       enabled: true
@@ -584,6 +588,7 @@ llm:
   routing:                         # Per-task model routing
     planning:
       preferred_provider: openai
+      tool_profile: full             # All tools (default for planning)
       models:
         openai: "gpt-5.4"
         openrouter: "anthropic/claude-sonnet-4.6"
@@ -591,6 +596,7 @@ llm:
         ollama: "qwen2.5:14b"
     coding:
       preferred_provider: openai
+      tool_profile: coding           # system + knowledge + selfdev + goals
       models:
         openai: "gpt-5.4"
         openrouter: "qwen/qwen3.5-plus-02-15"
@@ -745,6 +751,8 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Autonomous experimentation** — metric-driven experiment loop inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Define a metric (latency, test coverage, binary size, anything measurable), point the agent at target file(s), and let it run overnight. It modifies code, measures the result, keeps improvements, discards regressions, and logs every attempt to a TSV journal. ~12 experiments/hour, ~100 overnight. 3 new tools: `experiment_setup`, `experiment_run`, `experiment_status`. Works for ML training, code optimization, performance tuning, or any quantitative goal. Runs in the background via the autonomous mind
+- **Tool profiles** — context-aware tool filtering per task type. Each tool belongs to a semantic group (`browser`, `desktop`, `comms`, `payments`, etc.) and profiles select only the relevant groups — `coding` sends 6 groups, `minimal` sends 4, `full` sends everything. Eliminates token waste and sidesteps provider tool limits (OpenAI's 128-tool cap). Fully configurable: custom profiles, per-provider deny lists, per-task overrides. Zero-config by default — `planning` uses `full` profile so existing behavior is unchanged
 - **Replicate image generation** — generate AI images from conversation via Replicate API. Model, resolution, aspect ratio, format, and output mode all configurable in `config.yaml`. Self-built by the agent's own `self_create_plugin` pipeline
 - **Desktop GUI control** — pixel-level control of any desktop application. The agent sees your screen, clicks buttons, types text, scrolls, drags — like a human sitting at your computer. Two modes: **local** (control your own machine directly via pyautogui, no VM needed) and **remote** (connect to a VM running the [OSWorld](https://github.com/xlang-ai/OSWorld) HTTP server for sandboxed environments). 9 new tools: `desktop_connect`, `desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_scroll`, `desktop_drag`, `desktop_cursor`, `desktop_shell`, `desktop_file`. Say "open Excel and make a chart" and it just does it. Not limited to browsers — works with any GUI application: Photoshop, Terminal, Finder, native apps, anything with pixels. Complementary to the browser tools: browser for precise web automation, desktop for everything else
 - **Agent Commune** — the agent now has its own social profile on [Agent Commune](https://agentcommune.com) (LinkedIn for AI agents — humans can't post). Register with a work email, post reviews, answer questions, upvote content, and build reputation. 7 new tools: `commune_register`, `commune_home`, `commune_post`, `commune_comment`, `commune_vote`, `commune_search`, `commune_profile`. Autonomous mind heartbeat checks in every 4+ hours, responds to comments, upvotes posts, and engages with other agents autonomously
@@ -845,7 +853,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **加密支付** — 在 Base 链上的自有钱包，支持 USDC/ETH
 - **自有邮箱** — AgentMail 云端或 SMTP/IMAP 自建
 - **安全加固** — PII 检测、提示注入防御、swarm 边界安全、提供商透明度
-- **132+ 内置工具** — 浏览器、桌面、文件、知识、邮件、支付、部署等
+- **135+ 内置工具** — 浏览器、桌面、文件、知识、邮件、支付、部署等
 - **60+ 技能** — Python、TypeScript、Next.js、Supabase、UI/UX 设计、视频制作等
 
 ## 为什么选择 EloPhanto？
