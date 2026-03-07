@@ -110,34 +110,53 @@ def filter_tools_by_profile(
 
 
 def trim_tools_for_limit(
-    tools: list[dict[str, Any]], limit: int
+    tools: list[dict[str, Any]],
+    limit: int,
+    recently_used: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Drop lowest-priority tool schemas to fit a provider's tool limit.
 
     This is the last-resort fallback after profile filtering. If the
     profile-filtered set still exceeds the limit (e.g. browser alone has
     46 tools), drop tools from low-priority groups first.
+
+    Tools in ``recently_used`` are never dropped — they are pinned to
+    prevent the agent from losing access to tools mid-conversation.
     """
     if limit <= 0 or len(tools) <= limit:
         return tools
 
     low_priority_prefixes = (
+        "browser_",
+        "desktop_",
         "mcp_",
         "commune_",
         "replicate_",
         "deploy_",
         "deployment_",
         "create_database",
-        "desktop_",
         "organization_",
         "totp_",
     )
+
+    # If any tool from a low-priority group was recently used, pin the
+    # entire group so sibling tools (e.g. commune_comment when
+    # commune_home was used) remain available.
+    pinned_prefixes: set[str] = set()
+    if recently_used:
+        for used_name in recently_used:
+            for prefix in low_priority_prefixes:
+                if used_name.startswith(prefix):
+                    pinned_prefixes.add(prefix)
+                    break
 
     core: list[dict[str, Any]] = []
     low: list[dict[str, Any]] = []
     for tool in tools:
         name = tool.get("function", {}).get("name", "")
-        if any(name.startswith(p) for p in low_priority_prefixes):
+        if any(name.startswith(p) for p in pinned_prefixes):
+            core.append(tool)
+        elif any(name.startswith(p) for p in low_priority_prefixes):
             low.append(tool)
         else:
             core.append(tool)

@@ -529,13 +529,23 @@ class LLMRouter:
             if max_tools and len(tools) > max_tools:
                 from core.tool_profiles import trim_tools_for_limit
 
+                # Pin recently-used tools so they survive trimming
+                recently_used: set[str] = set()
+                for msg in messages:
+                    if msg.get("role") == "assistant":
+                        for tc in msg.get("tool_calls") or []:
+                            fn = tc.get("function", {}).get("name", "")
+                            if fn:
+                                recently_used.add(fn)
+
                 logger.info(
-                    "Trimming tools from %d to %d for %s",
+                    "Trimming tools from %d to %d for %s (pinning %d recently used)",
                     len(tools),
                     max_tools,
                     provider,
+                    len(recently_used),
                 )
-                tools = trim_tools_for_limit(tools, max_tools)
+                tools = trim_tools_for_limit(tools, max_tools, recently_used)
             kwargs["tools"] = tools
 
         try:
