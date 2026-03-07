@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class DocumentQueryTool(BaseTool):
     """Query an existing document collection for specific information."""
 
+    @property
+    def group(self) -> str:
+        return "documents"
+
     def __init__(self) -> None:
         self._store: Any = None  # DocumentStore, injected
 

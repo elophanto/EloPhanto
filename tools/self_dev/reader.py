@@ -14,6 +14,10 @@ _ALLOWED_DIRS = {"core", "tools", "plugins", "knowledge", "cli", "tests", "docs"
 class SelfReadSourceTool(BaseTool):
     """Reads EloPhanto's own source code files."""
 
+    @property
+    def group(self) -> str:
+        return "selfdev"
+
     def __init__(self, project_root: Path) -> None:
         self._project_root = project_root
 

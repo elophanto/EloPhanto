@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 class DeploymentStatusTool(BaseTool):
     """Check the deployment status of a project."""
 
+    @property
+    def group(self) -> str:
+        return "infra"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None  # DeploymentConfig

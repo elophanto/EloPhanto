@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 class EmailSendTool(BaseTool):
     """Send an email from the agent's inbox (AgentMail or SMTP)."""
 
+    @property
+    def group(self) -> str:
+        return "comms"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None

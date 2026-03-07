@@ -21,6 +21,10 @@ _ALLOWED_PREFIXES = ("[self-modify]", "[self-create-plugin]")
 class SelfRollbackTool(BaseTool):
     """Revert a previous self-modification commit."""
 
+    @property
+    def group(self) -> str:
+        return "selfdev"
+
     def __init__(self, project_root: Path) -> None:
         self._project_root = project_root
 

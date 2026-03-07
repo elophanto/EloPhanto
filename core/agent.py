@@ -1335,9 +1335,6 @@ class Agent:
                     f"{skill_content}\n"
                     f"</auto_loaded_skill>"
                 )
-                logger.info("Auto-injected skill '%s' into prompt", top_skill.name)
-        else:
-            logger.debug("No skill matched for query: %s", goal[:80])
 
         # --- Authority: resolve and filter tools ---
         from core.authority import (
@@ -1450,12 +1447,17 @@ class Agent:
         messages: list[dict[str, Any]] = list(conversation_history)
         messages.append({"role": "user", "content": goal})
 
-        _tools = [t.to_llm_schema() for t in authorized_tools]
+        # Filter tools by profile for the task type
+        profiled_tools = self._router.filter_tools_for_task(
+            authorized_tools, task_type="planning"
+        )
+        _tools = [t.to_llm_schema() for t in profiled_tools]
         logger.info(
-            "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d | messages=%d",
+            "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d (profiled from %d) | messages=%d",
             _time.monotonic() - _prompt_start,
             len(system_content),
             len(_tools),
+            len(authorized_tools),
             len(messages),
         )
 

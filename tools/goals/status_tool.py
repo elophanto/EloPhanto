@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class GoalStatusTool(BaseTool):
     """Check progress on active or past goals."""
 
+    @property
+    def group(self) -> str:
+        return "goals"
+
     def __init__(self) -> None:
         self._goal_manager: Any = None
 

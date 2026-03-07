@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class IdentityReflectTool(BaseTool):
     """Trigger self-reflection to evolve identity based on recent experience."""
 
+    @property
+    def group(self) -> str:
+        return "identity"
+
     def __init__(self) -> None:
         self._identity_manager: Any = None  # Injected by agent
 

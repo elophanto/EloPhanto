@@ -14,6 +14,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class HubSearchTool(BaseTool):
     """Search EloPhantoHub for skills matching a query."""
 
+    @property
+    def group(self) -> str:
+        return "hub"
+
     _hub: Any = None  # Injected by agent
 
     @property
@@ -83,6 +87,10 @@ class HubSearchTool(BaseTool):
 
 class HubInstallTool(BaseTool):
     """Install a skill from EloPhantoHub."""
+
+    @property
+    def group(self) -> str:
+        return "hub"
 
     _hub: Any = None  # Injected by agent
 

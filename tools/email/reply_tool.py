@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 class EmailReplyTool(BaseTool):
     """Reply to an email in the agent's inbox (AgentMail or SMTP)."""
 
+    @property
+    def group(self) -> str:
+        return "comms"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None

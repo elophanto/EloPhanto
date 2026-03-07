@@ -26,6 +26,10 @@ class MCPManageTool(BaseTool):
     """Manage MCP tool server configuration."""
 
     @property
+    def group(self) -> str:
+        return "mcp"
+
+    @property
     def name(self) -> str:
         return "mcp_manage"
 

@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class SwarmStatusTool(BaseTool):
     """Check the status of spawned coding agents."""
 
+    @property
+    def group(self) -> str:
+        return "swarm"
+
     def __init__(self) -> None:
         self._swarm_manager: Any = None
 

@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 class EmailCreateInboxTool(BaseTool):
     """Create a new email inbox (AgentMail) or verify SMTP config."""
 
+    @property
+    def group(self) -> str:
+        return "comms"
+
     def __init__(self) -> None:
         self._vault: Any = None  # Injected by agent
         self._config: Any = None  # EmailConfig, injected by agent

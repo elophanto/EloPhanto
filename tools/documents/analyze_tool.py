@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 class DocumentAnalyzeTool(BaseTool):
     """Analyze documents, images, PDFs, spreadsheets, and other files."""
 
+    @property
+    def group(self) -> str:
+        return "documents"
+
     def __init__(self) -> None:
         self._processor: Any = None  # DocumentProcessor, injected
         self._store: Any = None  # DocumentStore, injected

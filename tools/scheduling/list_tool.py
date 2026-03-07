@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class ScheduleListTool(BaseTool):
     """List and manage scheduled tasks."""
 
+    @property
+    def group(self) -> str:
+        return "scheduling"
+
     def __init__(self) -> None:
         self._scheduler: Any = None  # Injected by agent
 

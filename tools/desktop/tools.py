@@ -27,6 +27,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class _DesktopTool(BaseTool):
     """Shared base for desktop tools with controller injection slot."""
 
+    @property
+    def group(self) -> str:
+        return "desktop"
+
     def __init__(self) -> None:
         self._desktop_controller: Any = None  # injected by agent
 

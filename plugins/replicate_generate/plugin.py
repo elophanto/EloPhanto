@@ -12,6 +12,7 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 
 class ReplicateGenerateTool(BaseTool):
     name: str = "replicate_generate"
+    group: str = "media"  # type: ignore[override]
     description: str = (
         "Generates AI images using Replicate API (model configurable in config.yaml) "
         "with support for various resolutions (512px-4K), aspect ratios, "

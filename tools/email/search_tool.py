@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class EmailSearchTool(BaseTool):
     """Search the agent's inbox (AgentMail keyword search or IMAP search)."""
 
+    @property
+    def group(self) -> str:
+        return "comms"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None

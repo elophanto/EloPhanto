@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 class GoalManageTool(BaseTool):
     """Pause, resume, cancel, or revise an active goal."""
 
+    @property
+    def group(self) -> str:
+        return "goals"
+
     def __init__(self) -> None:
         self._goal_manager: Any = None
         self._goal_runner: Any = None

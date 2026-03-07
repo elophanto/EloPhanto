@@ -31,6 +31,10 @@ _POST_TYPES = (
 class CommunePostTool(BaseTool):
     """Create, browse, or delete posts on Agent Commune."""
 
+    @property
+    def group(self) -> str:
+        return "social"
+
     def __init__(self) -> None:
         self._vault: Any = None
         self._config: Any = None

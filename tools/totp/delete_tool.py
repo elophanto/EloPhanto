@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class TotpDeleteTool(BaseTool):
     """Remove a stored TOTP authenticator secret for a service."""
 
+    @property
+    def group(self) -> str:
+        return "identity"
+
     def __init__(self) -> None:
         self._vault: Any = None
 

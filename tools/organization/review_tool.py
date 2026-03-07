@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class OrganizationReviewTool(BaseTool):
     """Review a specialist's work — approve or reject with feedback."""
 
+    @property
+    def group(self) -> str:
+        return "org"
+
     def __init__(self) -> None:
         self._organization_manager: Any = None
 

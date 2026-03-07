@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class SkillReadTool(BaseTool):
     """Reads a skill's SKILL.md content to learn best practices before starting a task."""
 
+    @property
+    def group(self) -> str:
+        return "skills"
+
     def __init__(self) -> None:
         self._skill_manager: Any = None
 
@@ -77,6 +81,10 @@ class SkillReadTool(BaseTool):
 
 class SkillListTool(BaseTool):
     """Lists all available skills with their descriptions and triggers."""
+
+    @property
+    def group(self) -> str:
+        return "skills"
 
     def __init__(self) -> None:
         self._skill_manager: Any = None

@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class OrganizationSpawnTool(BaseTool):
     """Spawn a persistent specialist agent for a specific domain."""
 
+    @property
+    def group(self) -> str:
+        return "org"
+
     def __init__(self) -> None:
         self._organization_manager: Any = None
 

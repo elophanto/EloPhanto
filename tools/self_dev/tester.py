@@ -13,6 +13,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class SelfRunTestsTool(BaseTool):
     """Runs tests using pytest in a subprocess."""
 
+    @property
+    def group(self) -> str:
+        return "selfdev"
+
     def __init__(self, project_root: Path) -> None:
         self._project_root = project_root
 

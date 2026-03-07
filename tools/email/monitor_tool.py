@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class EmailMonitorTool(BaseTool):
     """Control background email inbox monitoring via conversation."""
 
+    @property
+    def group(self) -> str:
+        return "comms"
+
     def __init__(self) -> None:
         self._email_monitor: Any = None
 

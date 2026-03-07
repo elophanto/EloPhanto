@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class PaymentValidateTool(BaseTool):
     """Validate a crypto address format for a given chain."""
 
+    @property
+    def group(self) -> str:
+        return "payments"
+
     def __init__(self) -> None:
         self._payments_manager: Any = None
 

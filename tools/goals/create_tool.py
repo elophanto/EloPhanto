@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class GoalCreateTool(BaseTool):
     """Start a long-running goal that spans multiple sessions."""
 
+    @property
+    def group(self) -> str:
+        return "goals"
+
     def __init__(self) -> None:
         self._goal_manager: Any = None
         self._goal_runner: Any = None

@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class SwarmStopTool(BaseTool):
     """Stop a running agent by killing its tmux session."""
 
+    @property
+    def group(self) -> str:
+        return "swarm"
+
     def __init__(self) -> None:
         self._swarm_manager: Any = None
 

@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class SetNextWakeupTool(BaseTool):
     """Control how many seconds until the next autonomous think cycle."""
 
+    @property
+    def group(self) -> str:
+        return "mind"
+
     name = "set_next_wakeup"
     description = (
         "Set how many seconds until your next autonomous thinking cycle. "

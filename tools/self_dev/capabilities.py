@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class SelfListCapabilitiesTool(BaseTool):
     """Lists all tools (built-in + plugins) with metadata."""
 
+    @property
+    def group(self) -> str:
+        return "selfdev"
+
     def __init__(self) -> None:
         self._registry: Any = None  # Injected by agent
 

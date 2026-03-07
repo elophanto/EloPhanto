@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class DocumentCollectionsTool(BaseTool):
     """Manage document collections — list all, get info, or delete."""
 
+    @property
+    def group(self) -> str:
+        return "documents"
+
     def __init__(self) -> None:
         self._store: Any = None  # DocumentStore, injected
 

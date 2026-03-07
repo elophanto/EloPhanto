@@ -10,6 +10,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class PaymentBalanceTool(BaseTool):
     """Check the balance of a specific token in the agent's wallet."""
 
+    @property
+    def group(self) -> str:
+        return "payments"
+
     def __init__(self) -> None:
         self._payments_manager: Any = None
 

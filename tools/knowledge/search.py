@@ -19,6 +19,10 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 class KnowledgeSearchTool(BaseTool):
     """Search the knowledge base for relevant information."""
 
+    @property
+    def group(self) -> str:
+        return "knowledge"
+
     def __init__(self) -> None:
         self._db: Any = None  # Injected by agent
         self._embedder: Any = None  # Injected by agent
