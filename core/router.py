@@ -388,6 +388,48 @@ class LLMRouter:
             "No LLM provider available. Run 'elophanto init' to configure providers."
         )
 
+    @staticmethod
+    def _trim_tools_for_limit(
+        tools: list[dict[str, Any]], limit: int
+    ) -> list[dict[str, Any]]:
+        """Drop lowest-priority tools to fit a provider's tool limit.
+
+        Priority (lowest dropped first):
+        1. MCP tools (mcp__*) — often duplicate built-in file/search tools
+        2. Niche tools (commune, replicate, deployment, desktop, organization)
+        3. Everything else (core tools kept)
+        """
+        if len(tools) <= limit:
+            return tools
+
+        low_priority_prefixes = (
+            "mcp__",  # MCP server tools — duplicates of built-in
+            "commune_",  # Social network — not essential
+            "replicate_",  # Image gen plugin
+            "deploy_",  # Deployment tools
+            "deployment_",  # Deployment status
+            "create_database",  # DB provisioning
+            "desktop_",  # Desktop GUI control
+            "organization_",  # Self-cloning org
+            "totp_",  # TOTP authenticator
+        )
+
+        core: list[dict[str, Any]] = []
+        low: list[dict[str, Any]] = []
+        for tool in tools:
+            name = tool.get("function", {}).get("name", "")
+            if any(name.startswith(p) for p in low_priority_prefixes):
+                low.append(tool)
+            else:
+                core.append(tool)
+
+        # Fill up to limit: all core tools + as many low-priority as fit
+        remaining = limit - len(core)
+        if remaining > 0:
+            return core + low[:remaining]
+        # Core alone exceeds limit (shouldn't happen) — truncate core
+        return core[:limit]
+
     def _infer_provider(self, model: str) -> str:
         """Infer provider from model name."""
         if "/" in model and not model.startswith("ollama/"):
@@ -472,9 +514,9 @@ class LLMRouter:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
         if tools:
-            # OpenAI has a 128 tool limit
+            # OpenAI has a 128 tool limit — drop lowest-priority tools
             if provider == "openai" and len(tools) > 128:
-                tools = tools[:128]
+                tools = self._trim_tools_for_limit(tools, 128)
             kwargs["tools"] = tools
 
         try:
