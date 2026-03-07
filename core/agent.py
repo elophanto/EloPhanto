@@ -1324,6 +1324,18 @@ class Agent:
         knowledge_context = self._working_memory.format_context()
         available_skills = self._skill_manager.format_available_skills(goal)
 
+        # Auto-inject top matched skill content so weaker models don't skip skill_read
+        matched_skills = self._skill_manager.match_skills(goal, max_results=1)
+        if matched_skills:
+            top_skill = matched_skills[0]
+            skill_content = self._skill_manager.read_skill(top_skill.name)
+            if skill_content:
+                available_skills += (
+                    f"\n<auto_loaded_skill name='{top_skill.name}'>\n"
+                    f"{skill_content}\n"
+                    f"</auto_loaded_skill>"
+                )
+
         # --- Authority: resolve and filter tools ---
         from core.authority import (
             AuthorityLevel,
