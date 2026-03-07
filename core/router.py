@@ -459,6 +459,9 @@ class LLMRouter:
                 kwargs["api_key"] = oai_cfg.api_key
                 if oai_cfg.base_url:
                     kwargs["api_base"] = oai_cfg.base_url
+            # GPT-5 models only support temperature=1
+            if model.startswith("gpt-5"):
+                kwargs.pop("temperature", None)
         elif provider == "ollama":
             kwargs["model"] = (
                 f"ollama/{model}" if not model.startswith("ollama/") else model
