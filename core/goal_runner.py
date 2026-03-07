@@ -128,8 +128,8 @@ class GoalRunner:
         await self._broadcast_event(EventType.GOAL_RESUMED, {"goal_id": goal_id})
         return await self.start_goal(goal_id)
 
-    async def cancel(self) -> None:
-        """Cancel the current background goal execution and clear scratchpad."""
+    async def stop(self) -> None:
+        """Gracefully stop goal execution (e.g. on shutdown). Preserves scratchpad."""
         self._stop_requested = True
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
@@ -139,6 +139,10 @@ class GoalRunner:
                 pass
         self._current_task = None
         self._current_goal_id = None
+
+    async def cancel(self) -> None:
+        """Cancel the current goal and clear scratchpad (explicit user cancellation)."""
+        await self.stop()
         self._clear_scratchpad()
 
     def notify_user_interaction(self) -> None:
@@ -273,7 +277,6 @@ class GoalRunner:
 
         except asyncio.CancelledError:
             logger.info("Goal %s execution cancelled", goal_id)
-            self._clear_scratchpad()
             raise
         except Exception as e:
             logger.error("Goal %s execution error: %s", goal_id, e, exc_info=True)

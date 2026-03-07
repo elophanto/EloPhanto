@@ -73,10 +73,12 @@ RULES:
 3. Revenue > everything except active goals. Money funds your existence.
 4. Never message the owner unless it matters. Silence is professionalism.
 5. Update your scratchpad with what you did and what's next — use update_scratchpad.
-6. Set your next wakeup based on urgency using set_next_wakeup. Don't waste compute.
-7. You have {max_rounds} tool rounds. Use them efficiently.
-8. If a task needs more than {max_rounds} rounds, create a goal for it.
-9. NEVER REPEAT PAST WORK. Review [RECENT] entries below carefully before acting.
+6. When you complete a goal checkpoint, ALWAYS call goal_status to mark it complete in the DB.
+   The scratchpad is your notes — the DB is the source of truth. Both must agree.
+7. Set your next wakeup based on urgency using set_next_wakeup. Don't waste compute.
+8. You have {max_rounds} tool rounds. Use them efficiently.
+9. If a task needs more than {max_rounds} rounds, create a goal for it.
+10. NEVER REPEAT PAST WORK. Review [RECENT] entries below carefully before acting.
    If you already posted/shared/published content to a platform, DO NOT do it again.
    Use knowledge_search to verify before any posting/promoting/sharing action.
    Repetition wastes budget and damages reputation.
@@ -585,6 +587,16 @@ class AutonomousMind:
                     nxt_str = f' — next: "{nxt.title}"' if nxt else ""
                     sections.append(
                         f'[GOAL] "{g.goal}" — {g.current_checkpoint}/{g.total_checkpoints} '
+                        f"checkpoints done{nxt_str}"
+                    )
+                paused = await self._agent._goal_manager.list_goals(
+                    status="paused", limit=3
+                )
+                for g in paused:
+                    nxt = await self._agent._goal_manager.get_next_checkpoint(g.goal_id)
+                    nxt_str = f' — next: "{nxt.title}"' if nxt else ""
+                    sections.append(
+                        f'[GOAL-PAUSED] "{g.goal}" — {g.current_checkpoint}/{g.total_checkpoints} '
                         f"checkpoints done{nxt_str}"
                     )
                 planning = await self._agent._goal_manager.list_goals(

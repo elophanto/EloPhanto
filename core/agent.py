@@ -886,7 +886,7 @@ class Agent:
                 logger.debug("Scheduler shutdown error: %s", e)
         if self._goal_runner:
             try:
-                await self._goal_runner.cancel()
+                await self._goal_runner.stop()
             except Exception as e:
                 logger.debug("GoalRunner shutdown error: %s", e)
         if self._autonomous_mind:
@@ -1298,10 +1298,15 @@ class Agent:
         identity_context = ""
         try:
             if self._goal_manager:
-                active = await self._goal_manager.list_goals(status="active", limit=1)
-                if active:
+                # Check active first, then paused — mind may have paused the goal
+                goals = await self._goal_manager.list_goals(status="active", limit=1)
+                if not goals:
+                    goals = await self._goal_manager.list_goals(
+                        status="paused", limit=1
+                    )
+                if goals:
                     goal_context = await self._goal_manager.build_goal_context(
-                        active[0].goal_id
+                        goals[0].goal_id
                     )
         except Exception:
             pass
@@ -1360,6 +1365,32 @@ class Agent:
             provider_stats=self._router.provider_tracker.get_provider_stats(),
         )
 
+        # Autonomous mind context — scratchpad + recent actions for chat awareness
+        _mind_ctx = ""
+        if self._autonomous_mind:
+            try:
+                status = self._autonomous_mind.get_status()
+                scratchpad = status.get("scratchpad", "")
+                recent = status.get("recent_actions", [])
+                parts = []
+                if scratchpad:
+                    parts.append(f"<scratchpad>\n{scratchpad}\n</scratchpad>")
+                if recent:
+                    actions_str = "\n".join(f"- {a}" for a in recent[-5:])
+                    parts.append(
+                        f"<recent_mind_actions>\n{actions_str}\n</recent_mind_actions>"
+                    )
+                if parts:
+                    _mind_ctx = (
+                        "<autonomous_mind_state>\n"
+                        "Your autonomous mind has been working in the background. "
+                        "This is what you have been doing and thinking about:\n"
+                        + "\n".join(parts)
+                        + "\n</autonomous_mind_state>"
+                    )
+            except Exception:
+                pass
+
         # Build organization context (specialist list with trust scores)
         _org_ctx = ""
         if self._organization_manager:
@@ -1383,6 +1414,7 @@ class Agent:
             commune_enabled=self._config.commune.enabled,
             desktop_enabled=self._config.desktop.enabled,
             organization_context=_org_ctx,
+            mind_context=_mind_ctx,
             knowledge_context=knowledge_context,
             available_skills=available_skills,
             goal_context=goal_context,
