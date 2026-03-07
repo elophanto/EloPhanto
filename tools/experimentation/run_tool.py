@@ -101,7 +101,7 @@ class ExperimentRunTool(BaseTool):
             metric_command, metric_extract, timeout
         )
 
-        if run_error:
+        if run_error or metric_value is None:
             # Crash — revert
             await self._git(["reset", "--hard", "HEAD~1"])
             self._append_journal(journal_path, commit_hash, 0.0, "crash", description)
@@ -109,13 +109,13 @@ class ExperimentRunTool(BaseTool):
                 success=True,
                 data={
                     "outcome": "crash",
-                    "error": run_error,
+                    "error": run_error or "No metric returned",
                     "description": description,
                     "best_metric": best_metric,
                 },
             )
 
-        # Compare metric
+        # Compare metric (metric_value is guaranteed float here)
         improved = (
             (metric_value < best_metric)
             if direction == "lower"
