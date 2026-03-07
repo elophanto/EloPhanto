@@ -7,6 +7,12 @@ agent:
 
 llm:
   providers:
+    openai:
+      api_key: "YOUR_OPENAI_KEY"
+      enabled: true
+      default_model: "gpt-5.4"
+      # base_url: "https://api.openai.com/v1"   # optional — only set for proxies / Azure
+
     zai:
       api_key: "YOUR_ZAI_KEY"
       enabled: true
@@ -25,6 +31,7 @@ llm:
       base_url: "http://localhost:11434"
 
   provider_priority:
+    - openai
     - zai
     - openrouter
     - ollama
@@ -33,22 +40,25 @@ llm:
   # The router tries preferred_provider first, then walks provider_priority.
   routing:
     planning:
-      preferred_provider: openrouter
+      preferred_provider: openai
       models:
+        openai: "gpt-5.4"                               # latest GPT
         openrouter: "anthropic/claude-sonnet-4.6"        # strongest reasoning
         zai: "glm-5"
         ollama: "qwen2.5:14b"
 
     coding:
-      preferred_provider: openrouter
+      preferred_provider: openai
       models:
+        openai: "gpt-5.4"                               # strong coding
         openrouter: "qwen/qwen3.5-plus-02-15"           # strong coding model
         zai: "glm-4.7"
         ollama: "qwen2.5-coder:7b"
 
     analysis:
-      preferred_provider: openrouter
+      preferred_provider: openai
       models:
+        openai: "gpt-5.4"                               # balanced
         openrouter: "google/gemini-3.1-pro-preview"      # balanced, good at summarization
         zai: "glm-4.7"
         ollama: "qwen2.5:7b"
