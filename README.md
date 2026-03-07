@@ -15,7 +15,7 @@
 
 An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, controls your desktop, writes code, sends emails, creates accounts, manages files, makes payments. It sees your screen, clicks buttons, types text, opens apps — any application, not just browsers. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
 
-Runs locally. Works with free local models, Z.ai coding plan, or OpenRouter. Your data stays on your machine.
+Runs locally. Works with free local models, OpenAI, Z.ai coding plan, or OpenRouter. Your data stays on your machine.
 
 <p align="center">
   <img src="misc/screenshots/dashboard.png" alt="Web Dashboard" width="700">
@@ -39,7 +39,8 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 24+ LTS
 - At least one LLM provider:
   - **Ollama** (local, free) — [install](https://ollama.ai)
-  - **OpenRouter** (cloud) — [get API key](https://openrouter.ai)
+  - **OpenAI** (cloud, GPT-5.4) — [get API key](https://platform.openai.com/api-keys)
+  - **OpenRouter** (cloud, all models) — [get API key](https://openrouter.ai)
   - **Z.ai / GLM** (cloud, cost-effective) — [get API key](https://z.ai/manage-apikey/apikey-list)
 
 </details>
@@ -358,7 +359,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 | **Own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
 | **Own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
 | **Multi-channel** | ✅ CLI+Web+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
-| **Any LLM provider** | ✅ Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
+| **Any LLM provider** | ✅ OpenAI, Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
 | **Self-improves** | ✅ Learns from corrections | ❌ | ❌ | ❌ | ❌ |
 
 ---
@@ -565,6 +566,10 @@ agent:
 
 llm:
   providers:
+    openai:
+      api_key: "YOUR_OPENAI_KEY"
+      enabled: true
+      default_model: "gpt-5.4"
     zai:
       api_key: "YOUR_ZAI_KEY"
       enabled: true
@@ -575,23 +580,26 @@ llm:
     ollama:
       enabled: true
       base_url: "http://localhost:11434"
-  provider_priority: [zai, openrouter, ollama]
+  provider_priority: [openai, zai, openrouter, ollama]
   routing:                         # Per-task model routing
     planning:
-      preferred_provider: openrouter
+      preferred_provider: openai
       models:
+        openai: "gpt-5.4"
         openrouter: "anthropic/claude-sonnet-4.6"
         zai: "glm-5"
         ollama: "qwen2.5:14b"
     coding:
-      preferred_provider: openrouter
+      preferred_provider: openai
       models:
+        openai: "gpt-5.4"
         openrouter: "qwen/qwen3.5-plus-02-15"
         zai: "glm-4.7"
         ollama: "qwen2.5-coder:7b"
     analysis:
-      preferred_provider: openrouter
+      preferred_provider: openai
       models:
+        openai: "gpt-5.4"
         openrouter: "google/gemini-3.1-pro-preview"
     simple:
       preferred_provider: openrouter
@@ -791,7 +799,7 @@ Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 一个开源 AI 智能体，能做你在电脑上能做的一切——而且每次都在进步。它能浏览网页、控制桌面、编写代码、发送邮件、创建账号、管理文件、进行支付。它能看到你的屏幕、点击按钮、输入文字、打开应用——不仅限于浏览器，而是任何应用。当它遇到做不了的事情，它会自己构建工具、测试并部署。它能修改自己的源代码、从经验中编写技能、自我进化。它能把自己克隆成专业智能体——营销、研究、设计——每个都有自己的身份、知识库和自主思维，能从反馈中学习并主动工作。当你不和它对话时，它会继续工作——追求目标、运营组织、赚钱，完全自主运行。
 
-本地运行。支持免费本地模型、Z.ai 编程方案或 OpenRouter。你的数据始终留在你的机器上。
+本地运行。支持免费本地模型、OpenAI、Z.ai 编程方案或 OpenRouter。你的数据始终留在你的机器上。
 
 > 它已经在互联网上独立运作了。
 
@@ -811,7 +819,8 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 24+ LTS
 - 至少一个 LLM 提供商：
   - **Ollama**（本地，免费）— [安装](https://ollama.ai)
-  - **OpenRouter**（云端）— [获取 API 密钥](https://openrouter.ai)
+  - **OpenAI**（云端，GPT-5.4）— [获取 API 密钥](https://platform.openai.com/api-keys)
+  - **OpenRouter**（云端，全部模型）— [获取 API 密钥](https://openrouter.ai)
   - **Z.ai / GLM**（云端，高性价比）— [获取 API 密钥](https://z.ai/manage-apikey/apikey-list)
 
 </details>
@@ -853,7 +862,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 | **自有身份和邮箱** | ✅ 随时间进化 | ❌ | ❌ | ❌ | ❌ |
 | **加密钱包** | ✅ 自托管 | ❌ | ❌ | ❌ | ❌ |
 | **多通道** | ✅ CLI+Web+TG+Discord+Slack | ❌ | ❌ | 仅 CLI | 仅 Web |
-| **任意 LLM** | ✅ Ollama、OpenRouter、Z.ai | ❌ | ❌ | ❌ | ❌ |
+| **任意 LLM** | ✅ OpenAI、Ollama、OpenRouter、Z.ai | ❌ | ❌ | ❌ | ❌ |
 | **自我学习** | ✅ 从纠正中学习 | ❌ | ❌ | ❌ | ❌ |
 
 ## 许可证

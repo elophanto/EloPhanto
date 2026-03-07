@@ -221,6 +221,47 @@ def _edit_providers(config: dict) -> None:
 
     console.print()
 
+    # --- OpenAI ---
+    console.print("[bold]OpenAI[/bold] (GPT-5.4, o3, o1 — direct from OpenAI)")
+    console.print("  [dim]Models: gpt-5.4, gpt-4.1, o3, o1[/dim]")
+    current_oai_key = (
+        config.get("llm", {}).get("providers", {}).get("openai", {}).get("api_key", "")
+    )
+    oai_key = Prompt.ask(
+        (
+            "  API key (press Enter to keep current)"
+            if current_oai_key
+            else "  API key (press Enter to skip)"
+        ),
+        default=current_oai_key,
+        show_default=False,
+    )
+    if oai_key:
+        _ensure_provider(config, "openai")
+        config["llm"]["providers"]["openai"]["api_key"] = oai_key
+        config["llm"]["providers"]["openai"]["enabled"] = True
+        active_providers["openai"] = True
+
+        current_default = (
+            config.get("llm", {})
+            .get("providers", {})
+            .get("openai", {})
+            .get("default_model", "gpt-5.4")
+        )
+        oai_default = Prompt.ask(
+            "  Default OpenAI model",
+            default=current_default,
+        )
+        config["llm"]["providers"]["openai"]["default_model"] = oai_default
+        console.print("  [green]OpenAI configured.[/green]")
+    else:
+        _ensure_provider(config, "openai")
+        config["llm"]["providers"]["openai"]["enabled"] = False
+        active_providers["openai"] = False
+        console.print("  [dim]Disabled.[/dim]")
+
+    console.print()
+
     # --- Ollama ---
     console.print("[bold]Ollama[/bold] (local models — free, private, offline)")
     ollama_available = _check_ollama()

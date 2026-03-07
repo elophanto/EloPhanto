@@ -4,9 +4,28 @@
 
 EloPhanto uses multiple LLM models for different purposes. Not every task needs the most powerful (and expensive) model. The routing layer decides which model to use based on the task type, user configuration, and available providers.
 
-The routing layer is built on `litellm` for OpenRouter and Ollama, with a custom adapter for Z.ai/GLM (since GLM has OpenAI-compatible endpoints but requires specific message formatting rules).
+The routing layer is built on `litellm` for OpenRouter, OpenAI, and Ollama, with a custom adapter for Z.ai/GLM (since GLM has OpenAI-compatible endpoints but requires specific message formatting rules).
 
 ## Providers
+
+### OpenAI
+
+Direct access to OpenAI's models (GPT-5.4, o3, o1) via the official API.
+
+- **Pros**: Access to latest GPT models, strong tool use and reasoning, reliable infrastructure
+- **Cons**: Costs money per token, requires internet, data leaves the machine
+- **Setup**: User provides an OpenAI API key during initial setup
+- **Default model**: `gpt-5.4`
+- **Base URL**: `https://api.openai.com/v1` (default, configurable for Azure or proxies)
+
+#### Available OpenAI Models
+
+| Model ID | Name | Best For |
+|---|---|---|
+| `gpt-5.4` | GPT-5.4 | Latest generation, general purpose (recommended) |
+| `gpt-4.1` | GPT-4.1 | Previous generation, general purpose |
+| `o3` | o3 | Advanced reasoning tasks |
+| `o1` | o1 | Complex reasoning and analysis |
 
 ### OpenRouter
 
@@ -74,9 +93,10 @@ Locally-hosted models running on the user's machine.
 
 Users configure a priority order in the config. Default:
 
-1. **Ollama** (if a capable model is available for the task type) — prefer local for privacy and cost
+1. **OpenAI** — direct access to GPT-5.4, o3, o1. Strong reasoning and tool use
 2. **Z.ai/GLM** (for coding tasks specifically) — excellent quality/cost ratio with Coding Plan
-3. **OpenRouter** — strongest models, fallback for everything else
+3. **OpenRouter** — access to all models (Claude, Gemini, Llama, etc.), fallback for everything else
+4. **Ollama** (if a capable model is available for the task type) — local, free, private
 
 The user can override this to any custom priority order, or set per-task-type provider preferences.
 
@@ -160,22 +180,22 @@ The router uses this decision process:
 
 ### Provider Adapter Architecture
 
-Since we have three providers with different APIs:
+Since we have four providers with different APIs:
 
 ```
-┌────────────────────────────────────┐
-│           LLM Router               │
-│  (selects provider + model)        │
-├────────────┬───────────┬───────────┤
-│ litellm    │ Z.ai      │ litellm   │
-│ adapter    │ adapter   │ adapter   │
-│            │ (custom)  │           │
-├────────────┼───────────┼───────────┤
-│ OpenRouter │ Z.ai API  │ Ollama    │
-└────────────┴───────────┴───────────┘
+┌──────────────────────────────────────────────────┐
+│                  LLM Router                       │
+│           (selects provider + model)              │
+├────────────┬───────────┬───────────┬─────────────┤
+│ litellm    │ Z.ai      │ litellm   │ litellm     │
+│ adapter    │ adapter   │ adapter   │ adapter     │
+│            │ (custom)  │           │             │
+├────────────┼───────────┼───────────┼─────────────┤
+│ OpenRouter │ Z.ai API  │ OpenAI    │ Ollama      │
+└────────────┴───────────┴───────────┴─────────────┘
 ```
 
-- **OpenRouter + Ollama**: Handled by `litellm` natively (unified API)
+- **OpenRouter + OpenAI + Ollama**: Handled by `litellm` natively (unified API)
 - **Z.ai/GLM**: Custom adapter that wraps the OpenAI-compatible API with GLM-specific message formatting, header requirements, and error handling
 
 The custom Z.ai adapter:
@@ -198,6 +218,11 @@ llm:
       api_key_ref: "openrouter_api_key"  # reference to vault secret
       enabled: true
     
+    openai:
+      api_key_ref: "openai_api_key"  # reference to vault secret
+      enabled: true
+      default_model: "gpt-5.4"
+
     zai:
       api_key_ref: "zai_api_key"  # reference to vault secret
       enabled: true
@@ -205,32 +230,36 @@ llm:
       base_url_coding: "https://api.z.ai/api/coding/paas/v4"
       base_url_paygo: "https://api.z.ai/api/paas/v4"
       default_model: "glm-4.7"
-    
+
     ollama:
       base_url: "http://localhost:11434"
       enabled: true
 
   provider_priority:
-    - ollama
+    - openai
     - zai
     - openrouter
+    - ollama
 
   routing:
     planning:
-      preferred_provider: openrouter
+      preferred_provider: openai
       models:                                  # provider → model map
+        openai: "gpt-5.4"
         openrouter: "anthropic/claude-sonnet-4.6"
         zai: "glm-5"
         ollama: "qwen2.5:32b"
     coding:
-      preferred_provider: zai
+      preferred_provider: openai
       models:
+        openai: "gpt-5.4"
         zai: "glm-4.7"
         openrouter: "qwen/qwen3.5-plus-02-15"
         ollama: "qwen2.5-coder:32b"
     analysis:
-      preferred_provider: openrouter
+      preferred_provider: openai
       models:
+        openai: "gpt-5.4"
         openrouter: "google/gemini-3.1-pro-preview"
         zai: "glm-4.7"
         ollama: "qwen2.5:14b"
@@ -262,10 +291,11 @@ The router tracks token usage and estimated costs for every cloud LLM call:
 On startup and periodically, the router:
 
 1. Queries Ollama for available local models (`ollama list`)
-2. Validates that configured OpenRouter models are accessible (quick API check)
-3. Validates Z.ai connectivity and confirms which plan is active (Coding Plan vs pay-as-you-go)
-4. Updates an internal model registry with capabilities (context window size, strengths, cost per token)
-5. Logs any mismatches between config and reality (e.g., configured local model not installed, Z.ai key expired)
+2. Validates OpenAI connectivity (`GET /v1/models` with Bearer token)
+3. Validates that configured OpenRouter models are accessible (quick API check)
+4. Validates Z.ai connectivity and confirms which plan is active (Coding Plan vs pay-as-you-go)
+5. Updates an internal model registry with capabilities (context window size, strengths, cost per token)
+6. Logs any mismatches between config and reality (e.g., configured local model not installed, Z.ai key expired)
 
 ## Cross-Provider Review Strategy
 

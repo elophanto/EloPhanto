@@ -1,6 +1,6 @@
 """LLM Router: selects provider and model, makes calls, tracks cost.
 
-Routes LLM calls to the correct provider (Ollama, Z.ai, OpenRouter)
+Routes LLM calls to the correct provider (Ollama, Z.ai, OpenRouter, OpenAI)
 based on task type, user configuration, and provider availability.
 """
 
@@ -394,6 +394,8 @@ class LLMRouter:
             return "openrouter"
         if model.startswith("glm-"):
             return "zai"
+        if model.startswith("gpt-") or model.startswith("o1") or model.startswith("o3"):
+            return "openai"
         return "ollama"
 
     def _resolve_model(self, provider: str, task_type: str) -> str | None:
@@ -423,6 +425,9 @@ class LLMRouter:
         if provider == "zai":
             zai_cfg = self._config.llm.providers.get("zai")
             return zai_cfg.default_model if zai_cfg else None
+        if provider == "openai":
+            oai_cfg = self._config.llm.providers.get("openai")
+            return oai_cfg.default_model if oai_cfg and oai_cfg.default_model else None
 
         return None
 
@@ -435,7 +440,7 @@ class LLMRouter:
         temperature: float,
         max_tokens: int | None,
     ) -> LLMResponse:
-        """Call via litellm (OpenRouter or Ollama)."""
+        """Call via litellm (OpenAI, OpenRouter, or Ollama)."""
         kwargs: dict[str, Any] = {
             "messages": messages,
             "temperature": temperature,
@@ -447,6 +452,13 @@ class LLMRouter:
             if or_cfg:
                 kwargs["api_key"] = or_cfg.api_key
                 kwargs["api_base"] = or_cfg.base_url
+        elif provider == "openai":
+            kwargs["model"] = model
+            oai_cfg = self._config.llm.providers.get("openai")
+            if oai_cfg:
+                kwargs["api_key"] = oai_cfg.api_key
+                if oai_cfg.base_url:
+                    kwargs["api_base"] = oai_cfg.base_url
         elif provider == "ollama":
             kwargs["model"] = (
                 f"ollama/{model}" if not model.startswith("ollama/") else model
@@ -590,6 +602,22 @@ class LLMRouter:
                 logger.warning("OpenRouter not reachable")
                 return ("openrouter", False)
 
+        async def _check_openai() -> tuple[str, bool]:
+            oai_cfg = self._config.llm.providers.get("openai")
+            if not (oai_cfg and oai_cfg.enabled and oai_cfg.api_key):
+                return ("openai", False)
+            try:
+                base = oai_cfg.base_url or "https://api.openai.com/v1"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(
+                        f"{base}/models",
+                        headers={"Authorization": f"Bearer {oai_cfg.api_key}"},
+                    )
+                    return ("openai", resp.status_code == 200)
+            except Exception:
+                logger.warning("OpenAI not reachable")
+                return ("openai", False)
+
         async def _check_zai() -> tuple[str, bool]:
             zai_cfg = self._config.llm.providers.get("zai")
             if not (zai_cfg and zai_cfg.enabled and zai_cfg.api_key):
@@ -609,6 +637,9 @@ class LLMRouter:
         ollama_cfg = self._config.llm.providers.get("ollama")
         if ollama_cfg and ollama_cfg.enabled:
             tasks.append(_check_ollama())
+        oai_cfg = self._config.llm.providers.get("openai")
+        if oai_cfg and oai_cfg.enabled and oai_cfg.api_key:
+            tasks.append(_check_openai())
         or_cfg = self._config.llm.providers.get("openrouter")
         if or_cfg and or_cfg.enabled and or_cfg.api_key:
             tasks.append(_check_openrouter())
