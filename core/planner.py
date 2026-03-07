@@ -1527,6 +1527,7 @@ def build_system_prompt(
     commune_enabled: bool = False,
     desktop_enabled: bool = False,
     organization_context: str = "",
+    mind_context: str = "",
     knowledge_context: str = "",
     available_skills: str = "",
     goal_context: str = "",
@@ -1660,5 +1661,8 @@ def build_system_prompt(
 
     if goal_context:
         sections.append(goal_context)
+
+    if mind_context:
+        sections.append(mind_context)
 
     return "\n\n".join(sections)
