@@ -1335,6 +1335,9 @@ class Agent:
                     f"{skill_content}\n"
                     f"</auto_loaded_skill>"
                 )
+                logger.info("Auto-injected skill '%s' into prompt", top_skill.name)
+        else:
+            logger.debug("No skill matched for query: %s", goal[:80])
 
         # --- Authority: resolve and filter tools ---
         from core.authority import (
