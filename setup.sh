@@ -13,6 +13,8 @@ echo "  ███████╗███████╗╚██████╔
 echo "  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝"
 echo ""
 
+# ── System checks ──
+
 # Check Python
 if ! command -v python3 &>/dev/null; then
     echo "  ✗ Python 3 not found. Install Python 3.12+ first."
@@ -45,13 +47,28 @@ else
     echo "  ⚠ Node.js not found (optional — needed for browser automation)"
 fi
 
-# Create venv and install dependencies
+# Check Ollama (for local models)
+if command -v ollama &>/dev/null; then
+    echo "  ✓ Ollama installed"
+else
+    echo "  ⚠ Ollama not found (optional — needed for free local models: https://ollama.ai)"
+fi
+
+# Check tmux (for agent swarm)
+if command -v tmux &>/dev/null; then
+    echo "  ✓ tmux installed"
+else
+    echo "  ⚠ tmux not found (optional — needed for agent swarm: brew install tmux)"
+fi
+
+# ── Install dependencies ──
+
 echo ""
 echo "  → Installing dependencies..."
 uv sync 2>/dev/null
 uv pip install -e '.[payments]' 2>/dev/null
 uv pip install -e '.[mcp]' 2>/dev/null
-echo "  ✓ Dependencies installed (includes crypto wallet + MCP support)"
+echo "  ✓ Core dependencies installed (includes crypto wallet + MCP support)"
 
 # Install desktop GUI deps if configured
 if grep -q "desktop:" config.yaml 2>/dev/null && grep -A1 "desktop:" config.yaml 2>/dev/null | grep -q "enabled: true"; then
@@ -80,19 +97,37 @@ if command -v node &>/dev/null && [ -f "bridge/browser/package.json" ]; then
     fi
 fi
 
-# Create default config if missing
+# ── First-time setup ──
+
+echo ""
 if [ ! -f "config.yaml" ]; then
-    echo "  → Run 'elophanto init' to create your configuration"
+    echo "  → No config.yaml found. Running the setup wizard..."
+    echo ""
+    # Activate venv and run the wizard
+    source .venv/bin/activate 2>/dev/null || true
+    python3 -m cli.main init 2>/dev/null || elophanto init 2>/dev/null || \
+        echo "  ⚠ Could not run setup wizard. Run 'elophanto init' manually after activating the venv."
+else
+    echo "  ✓ config.yaml found (re-run setup with: elophanto init)"
 fi
 
 echo ""
 echo "  Setup complete! To get started:"
 echo ""
 echo "    source .venv/bin/activate    # activate the environment"
-echo "    elophanto init               # first-time configuration"
+if [ ! -f "config.yaml" ]; then
+    echo "    elophanto init               # first-time configuration"
+fi
 echo "    elophanto chat               # start chatting"
 echo ""
 echo "  Optional extras:"
-echo "    uv pip install -e '.[desktop]'        # Desktop GUI agent (pyautogui — control your PC or a VM)"
-echo "    uv pip install -e '.[payments-cdp]'   # Coinbase AgentKit (managed custody, gasless, swaps)"
+echo "    uv pip install -e '.[desktop]'        # Desktop GUI agent (pyautogui)"
+echo "    uv pip install -e '.[payments-cdp]'   # Coinbase AgentKit (managed wallet)"
+echo ""
+echo "  The setup wizard (elophanto init) configures:"
+echo "    LLM providers, models, permissions, browser, desktop,"
+echo "    Telegram/Discord/Slack, email, payments, Replicate,"
+echo "    gateway, swarm, scheduler, MCP, autonomous mind."
+echo ""
+echo "  Edit any section later: elophanto init edit <section>"
 echo ""
