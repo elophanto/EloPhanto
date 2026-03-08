@@ -19,6 +19,17 @@ from core.database import Database
 
 logger = logging.getLogger(__name__)
 
+
+def _ensure_dict(value: Any) -> dict[str, Any]:
+    """Coerce a beliefs value to dict. Handles cases where identity_update
+    stored a plain string instead of a proper {key: value} dict."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value:
+        return {"note": value}
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -205,6 +216,15 @@ class IdentityManager:
                 value = old_value
             else:
                 return False  # Already present
+
+        # For dict fields (e.g. beliefs), merge instead of replace
+        if isinstance(old_value, dict) and isinstance(value, str):
+            # LLM passed a plain string — store under "note" key
+            old_value["note"] = value
+            value = old_value
+        elif isinstance(old_value, dict) and isinstance(value, dict):
+            old_value.update(value)
+            value = old_value
 
         setattr(identity, field_name, value)
         identity.version += 1
@@ -618,7 +638,7 @@ updated: {now}
             display_name=row["display_name"],
             purpose=row["purpose"],
             values=json.loads(row["values_json"]),
-            beliefs=json.loads(row["beliefs_json"]),
+            beliefs=_ensure_dict(json.loads(row["beliefs_json"])),
             curiosities=json.loads(row["curiosities_json"]),
             boundaries=json.loads(row["boundaries_json"]),
             capabilities=json.loads(row["capabilities_json"]),
