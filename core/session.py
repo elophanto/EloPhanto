@@ -151,6 +151,30 @@ class SessionManager:
         logger.info("Deleted session %s", session_id[:8])
         return True
 
+    async def log_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        tool_name: str | None = None,
+    ) -> None:
+        """Log a single message to session_messages for cross-session search."""
+        from datetime import UTC, datetime
+
+        await self._db.execute_insert(
+            """
+            INSERT INTO session_messages (session_id, role, content, tool_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                role,
+                content[:10000],  # Cap content to prevent huge entries
+                tool_name,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+
     async def _persist(self, session: Session) -> None:
         """Upsert session to database."""
         await self._db.execute_insert(

@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-978%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-36%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-41%2B%20pages-blue" alt="Docs"></a>
 </p>
 
 An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, controls your desktop, writes code, sends emails, creates accounts, manages files, makes payments. It sees your screen, clicks buttons, types text, opens apps — any application, not just browsers. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
@@ -41,7 +41,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
   - **Ollama** (local, free) — [install](https://ollama.ai)
   - **OpenAI** (cloud, GPT-5.4) — [get API key](https://platform.openai.com/api-keys)
   - **OpenRouter** (cloud, all models) — [get API key](https://openrouter.ai)
-  - **Z.ai / GLM** (cloud, cost-effective) — [get API key](https://z.ai/manage-apikey/apikey-list)
+  - **Z.ai / GLM** (cloud, cost-effective) — [get API key](https://z.ai/manage-apikey/apikey-list) — **recommended**: the Z.ai coding subscription gives you unlimited GLM-4.7/GLM-5 calls at a flat monthly rate, making it the most cost-effective option for agents that run autonomously 24/7
 
 </details>
 
@@ -397,7 +397,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 - **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
 
 <details>
-<summary>Built-in Tools (135+)</summary>
+<summary>Built-in Tools (137+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -406,9 +406,9 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 | Desktop | desktop_connect, desktop_screenshot, desktop_click, desktop_type, desktop_scroll, desktop_drag, desktop_cursor, desktop_shell, desktop_file | 9 |
 | Knowledge | knowledge_search, knowledge_write, knowledge_index, skill_read, skill_list | 5 |
 | Hub | hub_search, hub_install | 2 |
-| Self-Dev | self_create_plugin, self_modify_source, self_rollback, self_read_source, self_run_tests, self_list_capabilities | 6 |
+| Self-Dev | self_create_plugin, self_modify_source, self_rollback, self_read_source, self_run_tests, self_list_capabilities, execute_code | 7 |
 | Experimentation | experiment_setup, experiment_run, experiment_status | 3 |
-| Data | llm_call, vault_lookup, vault_set | 3 |
+| Data | llm_call, vault_lookup, vault_set, session_search | 4 |
 | Documents | document_analyze, document_query, document_collections | 3 |
 | Goals | goal_create, goal_status, goal_manage | 3 |
 | Identity | identity_status, identity_update, identity_reflect | 3 |
@@ -446,7 +446,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (135+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (137+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -502,7 +502,7 @@ EloPhanto/
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (37+ docs)
+└── docs/                # Full specification (41+ docs)
 ```
 
 </details>
@@ -829,7 +829,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
   - **Ollama**（本地，免费）— [安装](https://ollama.ai)
   - **OpenAI**（云端，GPT-5.4）— [获取 API 密钥](https://platform.openai.com/api-keys)
   - **OpenRouter**（云端，全部模型）— [获取 API 密钥](https://openrouter.ai)
-  - **Z.ai / GLM**（云端，高性价比）— [获取 API 密钥](https://z.ai/manage-apikey/apikey-list)
+  - **Z.ai / GLM**（云端，高性价比）— [获取 API 密钥](https://z.ai/manage-apikey/apikey-list) — **推荐**：Z.ai 编程订阅提供 GLM-4.7/GLM-5 无限量调用，按月固定费率，是 24/7 自主运行的智能体最具性价比的选择
 
 </details>
 
@@ -853,7 +853,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **加密支付** — 在 Base 链上的自有钱包，支持 USDC/ETH
 - **自有邮箱** — AgentMail 云端或 SMTP/IMAP 自建
 - **安全加固** — PII 检测、提示注入防御、swarm 边界安全、提供商透明度
-- **135+ 内置工具** — 浏览器、桌面、文件、知识、邮件、支付、部署等
+- **137+ 内置工具** — 浏览器、桌面、文件、知识、邮件、支付、部署等
 - **60+ 技能** — Python、TypeScript、Next.js、Supabase、UI/UX 设计、视频制作等
 
 ## 为什么选择 EloPhanto？

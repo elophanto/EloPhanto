@@ -59,6 +59,99 @@ SKILL_WARNING_PATTERNS: list[tuple[str, str]] = [
     (r"sudo\s+", "requests elevated privileges"),
 ]
 
+# Invisible/confusable unicode characters that can hide malicious content
+INVISIBLE_CHARS: dict[str, str] = {
+    "\u200b": "zero-width space",
+    "\u200c": "zero-width non-joiner",
+    "\u200d": "zero-width joiner",
+    "\u200e": "left-to-right mark",
+    "\u200f": "right-to-left mark",
+    "\u2060": "word joiner",
+    "\u2061": "function application",
+    "\u2062": "invisible times",
+    "\u2063": "invisible separator",
+    "\u2064": "invisible plus",
+    "\ufeff": "zero-width no-break space (BOM)",
+    "\u00ad": "soft hyphen",
+    "\u034f": "combining grapheme joiner",
+    "\u061c": "arabic letter mark",
+    "\u115f": "hangul choseong filler",
+    "\u1160": "hangul jungseong filler",
+    "\u17b4": "khmer vowel inherent aq",
+    "\u17b5": "khmer vowel inherent aa",
+}
+
+
+def _detect_invisible_chars(content: str) -> list[str]:
+    """Scan for invisible unicode characters that could hide malicious content."""
+    findings: list[str] = []
+    for char, name in INVISIBLE_CHARS.items():
+        positions = [i for i, c in enumerate(content) if c == char]
+        if positions:
+            # Show first occurrence with surrounding context
+            pos = positions[0]
+            start = max(0, pos - 20)
+            end = min(len(content), pos + 20)
+            context = content[start:end].replace(char, f"[{name}]")
+            findings.append(
+                f"Invisible character '{name}' found {len(positions)} time(s), "
+                f"first at position {pos}: ...{context}..."
+            )
+    return findings
+
+
+def _check_structural_integrity(skill_dir: Path) -> list[str]:
+    """Check skill directory for structural security issues."""
+    findings: list[str] = []
+    resolved_root = skill_dir.resolve()
+
+    file_count = 0
+    total_size = 0
+
+    for path in skill_dir.rglob("*"):
+        if path.is_symlink():
+            target = path.resolve()
+            if not str(target).startswith(str(resolved_root)):
+                findings.append(
+                    f"Symlink escape: {path.name} -> {target} "
+                    f"(outside {resolved_root})"
+                )
+
+        if path.is_file():
+            file_count += 1
+            try:
+                total_size += path.stat().st_size
+            except OSError:
+                pass
+
+            # Check for binary files (outside assets/)
+            if "assets" not in path.parts:
+                try:
+                    chunk = path.read_bytes()[:512]
+                    if b"\x00" in chunk:
+                        findings.append(f"Binary file detected: {path.name}")
+                except OSError:
+                    pass
+
+            # Check for executable permission on non-script files
+            if "scripts" not in path.parts:
+                try:
+                    import stat
+
+                    mode = path.stat().st_mode
+                    if mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                        findings.append(f"Executable permission on: {path.name}")
+                except OSError:
+                    pass
+
+    if file_count > 20:
+        findings.append(f"Excessive file count: {file_count} files (limit: 20)")
+
+    if total_size > 512_000:
+        findings.append(f"Large skill directory: {total_size // 1024}KB (limit: 500KB)")
+
+    return findings
+
 
 @dataclass
 class Skill:
@@ -357,7 +450,9 @@ class SkillManager:
         return True
 
     @staticmethod
-    def _check_skill_safety(name: str, content: str) -> tuple[bool, list[str]]:
+    def _check_skill_safety(
+        name: str, content: str, skill_dir: Path | None = None
+    ) -> tuple[bool, list[str]]:
         """Scan skill content for blocked and warning patterns.
 
         Returns (safe, messages) where safe=False means the skill is blocked.
@@ -369,8 +464,21 @@ class SkillManager:
             if re.search(pattern, content_lower):
                 return False, [f"BLOCKED: {reason} (pattern: {pattern})"]
 
-        # Check warning patterns
+        # Check invisible unicode characters
         warnings: list[str] = []
+        unicode_findings = _detect_invisible_chars(content)
+        if unicode_findings:
+            warnings.extend(unicode_findings)
+
+        # Check structural integrity (if directory provided)
+        if skill_dir and skill_dir.is_dir():
+            struct_findings = _check_structural_integrity(skill_dir)
+            symlink_escapes = [f for f in struct_findings if "Symlink escape" in f]
+            if symlink_escapes:
+                return False, symlink_escapes
+            warnings.extend(struct_findings)
+
+        # Check warning patterns
         for pattern, reason in SKILL_WARNING_PATTERNS:
             if re.search(pattern, content_lower):
                 warnings.append(reason)
@@ -385,7 +493,7 @@ class SkillManager:
         content = skill_file.read_text(encoding="utf-8")
 
         # Content security scan
-        safe, messages = self._check_skill_safety(name, content)
+        safe, messages = self._check_skill_safety(name, content, skill_file.parent)
         if not safe:
             logger.error(
                 "Skill '%s' blocked by content security policy: %s",

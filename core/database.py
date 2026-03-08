@@ -356,6 +356,20 @@ _SCHEMA = [
         updated_at TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS session_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tool_name TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_session_messages_session
+        ON session_messages(session_id, created_at)
+    """,
 ]
 
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError
@@ -370,6 +384,8 @@ _MIGRATIONS = [
     "ALTER TABLE chat_messages ADD COLUMN conversation_id TEXT DEFAULT ''",
     # Knowledge drift detection — tracks which source files a knowledge doc covers
     "ALTER TABLE knowledge_chunks ADD COLUMN covers TEXT DEFAULT '[]'",
+    # Session search FTS5 index (requires FTS5 extension — bundled in Python 3.12+)
+    # NOTE: FTS5 virtual table creation handled separately in _init_fts5()
 ]
 
 
@@ -411,8 +427,48 @@ class Database:
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
+        # Initialize FTS5 for session search
+        self._init_fts5()
+
         # Try loading sqlite-vec
         self._load_vec_extension()
+
+    def _init_fts5(self) -> None:
+        """Create the FTS5 virtual table for session message search."""
+        assert self._conn is not None
+        try:
+            self._conn.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS session_messages_fts USING fts5(
+                    content,
+                    tool_name,
+                    content='session_messages',
+                    content_rowid='id',
+                    tokenize='porter unicode61'
+                )
+                """
+            )
+            # Triggers to keep FTS index in sync
+            self._conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS session_messages_ai AFTER INSERT ON session_messages BEGIN
+                    INSERT INTO session_messages_fts(rowid, content, tool_name)
+                    VALUES (new.id, new.content, new.tool_name);
+                END
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS session_messages_ad AFTER DELETE ON session_messages BEGIN
+                    INSERT INTO session_messages_fts(session_messages_fts, rowid, content, tool_name)
+                    VALUES ('delete', old.id, old.content, old.tool_name);
+                END
+                """
+            )
+            self._conn.commit()
+            logger.info("FTS5 session search index initialized")
+        except Exception as e:
+            logger.warning("FTS5 not available for session search: %s", e)
 
     def _load_vec_extension(self) -> None:
         if not self._conn:
