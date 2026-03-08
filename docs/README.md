@@ -33,7 +33,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
 | 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 28 bundled skills, trigger matching, EloPhantoHub registry |
-| 13 | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, progress tracking, self-evaluation |
+| 13b | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, progress tracking, self-evaluation |
 | 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail |
 | 16 | [Document & Media Analysis](16-DOCUMENT-ANALYSIS.md) | File intake, OCR, vision analysis, RAG for large documents, research mode |
@@ -49,7 +49,20 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 26 | [Autonomous Mind](26-AUTONOMOUS-MIND.md) | Purpose-driven background thinking loop, revenue pursuit, scratchpad, budget isolation |
 | 27 | [Security Hardening](27-SECURITY-HARDENING.md) | PII redaction, swarm boundaries, provider transparency, kill switches |
 | 28 | [Remotion Video Creation](28-REMOTION.md) | Programmatic video generation with 37 rule files |
+| 29 | [Agent Organization](29-AGENT-ORGANIZATION.md) | Persistent specialist child agents, self-spawn, config derivation, teaching loop |
 | 30 | [Quick Start Guide](30-QUICKSTART.md) | 5-minute setup and first task walkthrough |
+| 31 | [Web Deployment](31-WEB-DEPLOYMENT.md) | Deploy websites and databases from conversation, live URL provisioning |
+| 32 | [Agent Commune](32-AGENT-COMMUNE.md) | Social platform for AI agents, posts, comments, votes, reputation building |
+| 33 | [OSWorld](33-OSWORLD.md) | Desktop GUI agent benchmark, 369 tasks across Ubuntu/Windows/macOS |
+| 35 | [Replicate Image Generation](35-REPLICATE-IMAGE-GENERATION.md) | AI image generation via Replicate API |
+| 36 | [Tool Profiles](36-TOOL-PROFILES.md) | Dynamic tool filtering per request to stay within provider limits and reduce noise |
+| 37 | [Autonomous Experimentation](37-AUTONOMOUS-EXPERIMENTATION.md) | Autonomous overnight experiments, inspired by autoresearch |
+| 38 | [Cross-Session Search](38-SESSION-SEARCH.md) | FTS5-based full-text search across past conversation sessions |
+| 39 | [Code Execution Sandbox](39-CODE-EXECUTION-SANDBOX.md) | Sandboxed Python execution with RPC tool access for multi-step orchestration |
+| 40 | [Enhanced Skill Security](40-ENHANCED-SKILL-SECURITY.md) | Invisible unicode detection, structural integrity checks, symlink escape prevention |
+| 41 | [Proactive Nudging](41-PROACTIVE-NUDGING.md) | Periodic system prompt augmentation to drive self-improvement behavior |
+| — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
+| — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 
 ---
 
@@ -59,9 +72,9 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 
 **How it thinks**: Multiple LLM models via OpenRouter (cloud) and Ollama (local). A routing layer picks the right model for each subtask. The strongest models handle planning and code generation. Cheap models handle simple tasks. Local models are preferred for privacy and cost.
 
-**How it remembers**: SQLite database for structured data and task history. Markdown files for knowledge (both user-provided and self-generated). Vector embeddings for semantic search. Everything persists across sessions — the agent recalls past tasks when starting new ones, so it knows what it did for you yesterday.
+**How it remembers**: SQLite database for structured data and task history. Markdown files for knowledge (both user-provided and self-generated). Vector embeddings for semantic search. FTS5 full-text search across past conversation sessions. Everything persists across sessions — the agent recalls past tasks when starting new ones, so it knows what it did for you yesterday.
 
-**How it stays safe**: Encrypted credential vault. Three-tier permission system (Ask Always / Smart Auto / Full Auto) with per-tool overrides via `permissions.yaml`. Protected files system that prevents the agent from modifying its own safety-critical code. Log redaction strips API keys and secrets. Git-based rollback for all self-modifications. Full QA pipeline for self-developed code. Database-backed approval queue that works across all channels.
+**How it stays safe**: Encrypted credential vault. Three-tier permission system (Ask Always / Smart Auto / Full Auto) with per-tool overrides via `permissions.yaml`. Protected files system that prevents the agent from modifying its own safety-critical code. Log redaction strips API keys and secrets. Git-based rollback for all self-modifications. Full QA pipeline for self-developed code. Database-backed approval queue that works across all channels. Skills are scanned for invisible unicode, symlink escapes, binary files, and blocked patterns before loading.
 
 **How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as a control plane. Channel adapters (CLI, Telegram, Discord, Slack) connect as thin WebSocket clients. By default, all channels share one unified session — chat from CLI, continue from Telegram, same conversation history. Cross-channel messages and responses are broadcast to all connected adapters. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use.
 
@@ -69,14 +82,16 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 
 **How it learns best practices**: 28 bundled skills (SKILL.md files) teach the agent best practices for specific task types — Python, TypeScript, Next.js, Supabase, browser automation, UI design, and more. Skills are loaded on-demand before starting a task. Install more from [ui-skills.com](https://www.ui-skills.com/), [anthropics/skills](https://github.com/anthropics/skills), EloPhantoHub (`elophanto skills hub search`), or any repo using the SKILL.md convention.
 
+**How it scales work**: Spawn persistent specialist child agents via the Organization system, delegate tasks to coding swarms (Claude Code, Codex, Gemini CLI), run autonomous experiments overnight, deploy websites and databases from conversation, and execute sandboxed Python scripts with tool access for complex multi-step orchestration.
+
 ---
 
 ## One-Line Architecture
 
 ```
-User ↞ Channel Adapters (CLI/Telegram/Discord/Slack) ↞ Gateway ↞ Agent Core (plan/execute/reflect) ↞ Tools ↞ System/Browser/APIs
+User ↞ Channel Adapters (CLI/Telegram/Discord/Slack) ↞ Gateway ↞ Agent Core (plan/execute/reflect) ↞ Tools ↞ System/Browser/Desktop/APIs
                                                                          ↗
-                                                           Memory + Knowledge + Skills + LLM Router + EloPhantoHub
+                                                    Memory + Knowledge + Skills + LLM Router + EloPhantoHub + Session Search
                                                                          ↗
-                                                               Self-Development Pipeline
+                                              Self-Development Pipeline + Organization + Swarm + Experimentation
 ```
