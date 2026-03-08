@@ -264,11 +264,27 @@ Both tools accept absolute file paths and verify file existence before attemptin
 
 ## Anti-Detection
 
-The bridge uses `playwright-extra` with the stealth plugin, which patches common
-automation fingerprints. Additionally:
-- System Chrome is used by default (`use_system_chrome: true`)
-- Anti-detection Chromium flags: `--disable-blink-features=AutomationControlled`, `--disable-features=IsolateOrigins,site-per-process,ChromeWhatsNewUI`
-- Profile stability flags: `--disable-sync`, `--disable-background-networking`, `--disable-component-update`, `--noerrdialogs`, `--disable-session-crashed-bubble`, `--hide-crash-restore-bubble`
+The browser launches like a real user-opened Chrome — zero extra command-line flags.
+Anti-bot systems (Cloudflare, DataDome, Kasada) inspect the process command line for
+automation signatures, so we add nothing that a normal Chrome wouldn't have.
+
+**Playwright default args stripped** via selective `ignoreDefaultArgs`:
+- `--enable-automation` — sets `navigator.webdriver = true` and shows "controlled by automated test software"
+- `--no-sandbox` — shows warning in title bar, detectable at OS level
+- `--disable-extensions` — real Chrome has extensions; disabling is a fingerprint
+- `--disable-blink-features=AutomationControlled` — handled by stealth plugin via JS instead (flag was detectable and caused duplicate warnings)
+- `--disable-component-update`, `--disable-default-apps`, `--disable-popup-blocking`, `--password-store=basic`, `--force-color-profile=srgb`, `--metrics-recording-only`, `--disable-infobars`, `--export-tagged-pdf`, `--no-first-run`, `--disable-background-networking`, `--disable-sync`, `--use-mock-keychain`
+
+**Runtime stealth patches** via `addInitScript` on every browser context:
+- Forces `navigator.webdriver = false` (Playwright can re-set it at CDP level)
+- Removes `window.__playwright` and `window.__pw_manual` globals
+- Ensures `chrome.runtime` object exists (real Chrome has it, Playwright may not)
+- Patches `navigator.permissions.query` to match real Chrome behavior
+
+**Stealth plugin** (`puppeteer-extra-plugin-stealth`) patches ~20 additional detection vectors at the JavaScript level, invisible to command-line inspection.
+
+**Behavioral stealth:**
+- System Chrome is used by default (`use_system_chrome: true`) — not Playwright's bundled Chromium
 - Human-like mouse movement before clicks: cursor moves to element with random ±5px jitter and 3-7 motion steps, click delay randomized between 20-70ms
 - Full DOM event dispatch chain as fallback (pointerdown → mousedown → pointerup → mouseup → click)
 

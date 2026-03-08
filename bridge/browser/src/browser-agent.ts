@@ -694,6 +694,7 @@ export class AwareBrowserAgent {
       } else {
         this.context = await browser.newContext({ viewport });
       }
+      await this.applyStealthScripts(this.context);
     }
     // Mode 2: CDP port connection (fetches WebSocket URL automatically)
     else if (this.config.cdpPort) {
@@ -709,28 +710,27 @@ export class AwareBrowserAgent {
       } else {
         this.context = await browser.newContext({ viewport });
       }
+      await this.applyStealthScripts(this.context);
     }
     // Mode 3: User data directory (persistent Chrome profile)
     // Launches Chrome with your actual profile — cookies, extensions, sessions preserved
     else if (this.config.userDataDir) {
       const profileDir = this.config.profileDirectory || 'Default';
       console.log(`[Browser] Launching Chrome with profile '${profileDir}' from: ${this.config.userDataDir}`);
-      const args = this.getChromiumArgs();
+      const args: string[] = [];
       if (profileDir !== 'Default') {
         args.push(`--profile-directory=${profileDir}`);
       }
-      // On macOS, Chrome encrypts cookies with a key stored in the system
-      // Keychain. Playwright adds --use-mock-keychain by default which
-      // bypasses the real Keychain, making copied-profile cookies unreadable.
-      // Remove it so Chrome can decrypt cookies using the real Keychain.
-      const isMac = os.platform() === 'darwin';
+      // ignoreDefaultArgs: true strips ALL Playwright defaults.
+      // The browser launches exactly like a user opened Chrome — zero automation flags.
       this.context = await chromium.launchPersistentContext(this.config.userDataDir, {
         headless: this.config.headless,
         channel,
         viewport,
         args,
-        ...(isMac ? { ignoreDefaultArgs: ['--use-mock-keychain'] } : {}),
+        ignoreDefaultArgs: this.getIgnoredDefaultArgs(),
       });
+      await this.applyStealthScripts(this.context);
       this.browser = null;
     }
     // Mode 4: Fresh Chrome launch (default)
@@ -743,10 +743,11 @@ export class AwareBrowserAgent {
       const browser = await chromium.launch({
         headless: this.config.headless,
         channel, // Use system Chrome
-        args: this.getChromiumArgs(),
+        ignoreDefaultArgs: this.getIgnoredDefaultArgs(),
       });
       this.browser = browser;
       this.context = await browser.newContext({ viewport });
+      await this.applyStealthScripts(this.context);
     }
 
     this.initialized = true;
@@ -881,25 +882,83 @@ export class AwareBrowserAgent {
   }
 
   /**
-   * Get Chromium args for stealth
+   * Extra Chrome args — empty. A real user launches Chrome with
+   * zero extra flags. The stealth plugin + addInitScript handle
+   * detection vectors via JS, invisible to command-line inspection.
    */
   private getChromiumArgs(): string[] {
+    return [];
+  }
+
+  /**
+   * Selectively strip only the Playwright defaults that leak automation.
+   * We CANNOT use ignoreDefaultArgs: true — that also strips args
+   * Playwright needs to function (--remote-debugging-pipe, etc.).
+   * Instead, we list only the flags that are NOT present in a normal
+   * user-launched Chrome and would trigger bot detection.
+   */
+  private getIgnoredDefaultArgs(): string[] {
     return [
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process,ChromeWhatsNewUI',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--noerrdialogs',
-      '--disable-session-crashed-bubble',
-      '--hide-crash-restore-bubble',
-      '--no-restore-state-for-testing',
-      '--disable-infobars',
-      '--disable-sync',
-      '--disable-background-networking',
-      '--disable-component-update',
-      '--disable-default-apps',
-      '--disable-popup-blocking',
+      '--enable-automation',        // shows "controlled by automated test software" banner + sets navigator.webdriver
+      '--no-sandbox',               // shows "--no-sandbox" warning in title bar
+      '--use-mock-keychain',        // breaks real cookie decryption on macOS
+      '--disable-extensions',       // real Chrome has extensions enabled
+      '--disable-default-apps',     // not in normal Chrome
+      '--disable-component-update', // automation driver signature
+      '--disable-popup-blocking',   // normal Chrome blocks popups
+      '--password-store=basic',     // not in normal Chrome
+      '--disable-infobars',         // historically detectable
+      '--force-color-profile=srgb', // fingerprint difference from normal Chrome
+      '--metrics-recording-only',   // not in normal Chrome
+      '--export-tagged-pdf',        // not in normal Chrome
+      '--no-first-run',             // not in normal Chrome (user sees first-run once)
+      '--disable-background-networking', // not in normal Chrome
+      '--disable-sync',             // not in normal Chrome (users have sync on)
+      '--disable-blink-features=AutomationControlled', // stealth plugin handles this via JS — having it as a flag is detectable and causes duplicate warning
     ];
+  }
+
+  /**
+   * Inject stealth patches into a browser context.
+   * Belt-and-suspenders: the stealth plugin covers most vectors,
+   * but Playwright can re-set navigator.webdriver at the CDP level,
+   * so we patch it again via addInitScript.
+   */
+  private async applyStealthScripts(ctx: PlaywrightBrowserContext): Promise<void> {
+    try {
+      await ctx.addInitScript(() => {
+        // Force navigator.webdriver to false
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => false,
+          configurable: true,
+        });
+
+        // Hide Playwright/automation-specific properties
+        // @ts-ignore
+        delete window.__playwright;
+        // @ts-ignore
+        delete window.__pw_manual;
+
+        // Ensure chrome.runtime exists (real Chrome has it, Playwright may not)
+        if (!(window as any).chrome) {
+          (window as any).chrome = {};
+        }
+        if (!(window as any).chrome.runtime) {
+          (window as any).chrome.runtime = {};
+        }
+
+        // Patch permissions API to match real Chrome behavior
+        const originalQuery = window.navigator.permissions?.query;
+        if (originalQuery) {
+          window.navigator.permissions.query = (parameters: any) =>
+            parameters.name === 'notifications'
+              ? Promise.resolve({ state: Notification.permission } as PermissionStatus)
+              : originalQuery(parameters);
+        }
+      });
+    } catch {
+      // Best-effort — context may not support addInitScript (e.g. CDP-connected)
+    }
   }
 
   /**
