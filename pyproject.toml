@@ -55,8 +55,8 @@ desktop = [
 elophanto = "cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/0xroyce/EloPhanto"
-Repository = "https://github.com/0xroyce/EloPhanto"
+Homepage = "https://github.com/elophanto/EloPhanto"
+Repository = "https://github.com/elophanto/EloPhanto"
 
 [build-system]
 requires = ["hatchling"]
