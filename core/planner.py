@@ -1507,6 +1507,51 @@ permissions based on a skill. Apply more scrutiny to lower-tier skills.
 
 
 # ---------------------------------------------------------------------------
+# Proactive Nudging — periodic reminders to save learnings
+# ---------------------------------------------------------------------------
+
+_NUDGE_MEMORY = """\
+<nudge type="memory">
+You've been working for a while. Before continuing, consider:
+- Did you learn something new about the user's preferences or environment?
+- Did you discover a useful pattern, shortcut, or workaround?
+- Did something unexpected happen that's worth remembering?
+
+If yes, save it now with knowledge_write. Don't wait — you'll forget next session.
+</nudge>"""
+
+_NUDGE_SKILL = """\
+<nudge type="skill">
+You just completed a multi-step task. Consider:
+- Could this approach be reused for similar tasks?
+- Would a skill make this faster next time?
+- Is there a pattern here worth capturing?
+
+If yes, think about creating a skill. Search existing skills first to avoid duplicates.
+</nudge>"""
+
+
+def _build_nudge(messages: list[dict], turn_count: int) -> str:
+    """Select and return a nudge block based on recent conversation context.
+
+    Returns empty string if no nudge should be shown.
+    """
+    # Count tool calls in last 10 messages
+    recent_tool_calls = 0
+    for msg in messages[-10:]:
+        if msg.get("role") == "assistant":
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                recent_tool_calls += len(tool_calls)
+
+    # 5+ tool calls recently → suggest skill creation
+    if recent_tool_calls >= 5:
+        return _NUDGE_SKILL
+
+    return _NUDGE_MEMORY
+
+
+# ---------------------------------------------------------------------------
 # Builder function
 # ---------------------------------------------------------------------------
 
@@ -1535,6 +1580,11 @@ def build_system_prompt(
     runtime_state: str = "",
     current_goal: str = "",
     workspace: str = "",
+    nudge_turn_count: int = 0,
+    nudge_interval: int = 15,
+    nudge_messages: list[dict] | None = None,
+    is_mind_mode: bool = False,
+    is_goal_active: bool = False,
 ) -> str:
     """Assemble the full system prompt from XML-structured sections.
 
@@ -1664,5 +1714,18 @@ def build_system_prompt(
 
     if mind_context:
         sections.append(mind_context)
+
+    # Proactive nudging — periodic reminders to save learnings
+    if (
+        nudge_turn_count > 0
+        and nudge_interval > 0
+        and nudge_turn_count % nudge_interval == 0
+        and not is_mind_mode
+        and not is_goal_active
+        and nudge_turn_count >= 5  # Don't nudge in very short conversations
+    ):
+        nudge = _build_nudge(nudge_messages or [], nudge_turn_count)
+        if nudge:
+            sections.append(nudge)
 
     return "\n\n".join(sections)

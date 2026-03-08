@@ -87,6 +87,11 @@ class ToolRegistry:
         self.register(VaultLookupTool())
         self.register(VaultSetTool())
 
+        # Session search tool (cross-session FTS5 search)
+        from tools.data.session_search import SessionSearchTool
+
+        self.register(SessionSearchTool())
+
         # Knowledge tools
         self.register(KnowledgeSearchTool())
         self.register(KnowledgeWriteTool())
@@ -101,6 +106,11 @@ class ToolRegistry:
         self.register(SelfCreatePluginTool(config.project_root))
         self.register(SelfModifySourceTool(config.project_root))
         self.register(SelfRollbackTool(config.project_root))
+
+        # Code execution sandbox (multi-step tool orchestration)
+        from tools.self_dev.execute_code import ExecuteCodeTool
+
+        self.register(ExecuteCodeTool(config.project_root))
 
         # Experimentation tools (autonomous experiment loop)
         from tools.experimentation.run_tool import ExperimentRunTool
