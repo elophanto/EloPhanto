@@ -27,6 +27,13 @@ _SECTIONS = {
     "models": "Model selection per task type",
     "permissions": "Permission mode",
     "browser": "Web browsing settings",
+    "desktop": "Desktop GUI agent",
+    "channels": "Telegram, Discord, Slack",
+    "email": "Agent email (AgentMail / SMTP)",
+    "payments": "Crypto wallet and spending limits",
+    "replicate": "AI image generation (Replicate)",
+    "gateway": "WebSocket gateway settings",
+    "swarm": "Agent swarm (Claude Code, Codex, Gemini)",
     "scheduler": "Background scheduling",
     "mcp": "MCP tool servers",
     "autonomous_mind": "Autonomous background mind",
@@ -97,6 +104,13 @@ def edit_cmd(ctx: click.Context, section: str | None) -> None:
         "models": _edit_models,
         "permissions": _edit_permissions,
         "browser": _edit_browser,
+        "desktop": _edit_desktop,
+        "channels": _edit_channels,
+        "email": _edit_email,
+        "payments": _edit_payments,
+        "replicate": _edit_replicate,
+        "gateway": _edit_gateway,
+        "swarm": _edit_swarm,
         "scheduler": _edit_scheduler,
         "mcp": _edit_mcp,
         "autonomous_mind": _edit_autonomous_mind,
@@ -551,6 +565,395 @@ def _edit_browser(config: dict) -> None:
         console.print("  [dim]Disabled.[/dim]")
 
 
+def _edit_desktop(config: dict) -> None:
+    """Edit desktop GUI agent settings."""
+    console.print("[bold]Desktop GUI Agent[/bold]")
+    console.print(
+        "  [dim]Pixel-level desktop control via screenshots + pyautogui.\n"
+        "  Can control this PC directly or connect to a remote VM.[/dim]"
+    )
+
+    desktop_cfg = config.setdefault("desktop", {})
+    current_enabled = desktop_cfg.get("enabled", False)
+    desktop_enabled = Confirm.ask("  Enable desktop agent?", default=current_enabled)
+    desktop_cfg["enabled"] = desktop_enabled
+
+    if desktop_enabled:
+        current_mode = desktop_cfg.get("mode", "local")
+        mode = Prompt.ask(
+            "  Mode",
+            choices=["local", "remote"],
+            default=current_mode,
+        )
+        desktop_cfg["mode"] = mode
+
+        if mode == "remote":
+            current_ip = desktop_cfg.get("vm_ip", "")
+            vm_ip = Prompt.ask("  VM IP address", default=current_ip)
+            desktop_cfg["vm_ip"] = vm_ip
+
+        desktop_cfg.setdefault("server_port", 5000)
+        desktop_cfg.setdefault("screen_width", 1920)
+        desktop_cfg.setdefault("screen_height", 1080)
+        desktop_cfg.setdefault("observation_type", "screenshot")
+        desktop_cfg.setdefault("max_steps", 15)
+        desktop_cfg.setdefault("sleep_after_action", 1.0)
+
+        console.print(f"  [green]Desktop agent enabled ({mode} mode).[/green]")
+    else:
+        console.print("  [dim]Disabled.[/dim]")
+
+
+def _edit_channels(config: dict) -> None:
+    """Edit Telegram, Discord, and Slack channel settings."""
+    console.print("[bold]Communication Channels[/bold]")
+    console.print(
+        "  [dim]Connect the agent to Telegram, Discord, or Slack.\n"
+        "  Tokens are stored in the encrypted vault.[/dim]"
+    )
+
+    # --- Telegram ---
+    console.print()
+    console.print("  [bold]Telegram[/bold]")
+    tg_cfg = config.setdefault("telegram", {})
+    current_tg = tg_cfg.get("enabled", False)
+    tg_enabled = Confirm.ask("  Enable Telegram bot?", default=current_tg)
+    tg_cfg["enabled"] = tg_enabled
+
+    if tg_enabled:
+        current_token = tg_cfg.get("bot_token_ref", "telegram_bot_token")
+        console.print("  [dim]Get a bot token from @BotFather on Telegram.[/dim]")
+        token = Prompt.ask(
+            "  Bot token (or vault:name to use stored secret)",
+            default=current_token,
+        )
+        tg_cfg["bot_token_ref"] = token
+        tg_cfg.setdefault("mode", "polling")
+        tg_cfg.setdefault("max_message_length", 4000)
+        tg_cfg.setdefault("send_files", True)
+        tg_cfg.setdefault("send_screenshots", True)
+        tg_cfg.setdefault("allowed_users", [])
+        tg_cfg.setdefault(
+            "notifications",
+            {
+                "task_complete": True,
+                "approval_needed": True,
+                "scheduled_results": True,
+                "errors": True,
+                "daily_summary": False,
+                "daily_summary_time": "20:00",
+            },
+        )
+        console.print("  [green]Telegram enabled.[/green]")
+    else:
+        console.print("  [dim]Disabled.[/dim]")
+
+    # --- Discord ---
+    console.print()
+    console.print("  [bold]Discord[/bold]")
+    dc_cfg = config.setdefault("discord", {})
+    current_dc = dc_cfg.get("enabled", False)
+    dc_enabled = Confirm.ask("  Enable Discord bot?", default=current_dc)
+    dc_cfg["enabled"] = dc_enabled
+
+    if dc_enabled:
+        current_token = dc_cfg.get("bot_token_ref", "discord_bot_token")
+        token = Prompt.ask(
+            "  Bot token (or vault:name)",
+            default=current_token,
+        )
+        dc_cfg["bot_token_ref"] = token
+        dc_cfg.setdefault("allowed_guilds", [])
+        console.print("  [green]Discord enabled.[/green]")
+    else:
+        console.print("  [dim]Disabled.[/dim]")
+
+    # --- Slack ---
+    console.print()
+    console.print("  [bold]Slack[/bold]")
+    sl_cfg = config.setdefault("slack", {})
+    current_sl = sl_cfg.get("enabled", False)
+    sl_enabled = Confirm.ask("  Enable Slack bot?", default=current_sl)
+    sl_cfg["enabled"] = sl_enabled
+
+    if sl_enabled:
+        current_bot = sl_cfg.get("bot_token_ref", "slack_bot_token")
+        current_app = sl_cfg.get("app_token_ref", "slack_app_token")
+        bot_token = Prompt.ask(
+            "  Bot token (xoxb-... or vault:name)",
+            default=current_bot,
+        )
+        app_token = Prompt.ask(
+            "  App-level token (xapp-... or vault:name)",
+            default=current_app,
+        )
+        sl_cfg["bot_token_ref"] = bot_token
+        sl_cfg["app_token_ref"] = app_token
+        sl_cfg.setdefault("allowed_channels", [])
+        console.print("  [green]Slack enabled.[/green]")
+    else:
+        console.print("  [dim]Disabled.[/dim]")
+
+
+def _edit_email(config: dict) -> None:
+    """Edit agent email settings."""
+    console.print("[bold]Agent Email[/bold]")
+    console.print(
+        "  [dim]Give your agent its own email address.\n"
+        "  AgentMail (agentmail.to) — managed, instant setup.\n"
+        "  SMTP/IMAP — use your own mail server.[/dim]"
+    )
+
+    email_cfg = config.setdefault("email", {})
+    current_enabled = email_cfg.get("enabled", False)
+    email_enabled = Confirm.ask("  Enable agent email?", default=current_enabled)
+    email_cfg["enabled"] = email_enabled
+
+    if not email_enabled:
+        console.print("  [dim]Disabled.[/dim]")
+        return
+
+    current_provider = email_cfg.get("provider", "agentmail")
+    provider = Prompt.ask(
+        "  Provider",
+        choices=["agentmail", "smtp"],
+        default=current_provider,
+    )
+    email_cfg["provider"] = provider
+
+    if provider == "agentmail":
+        current_key = email_cfg.get("api_key_ref", "agentmail_api_key")
+        console.print("  [dim]Get an API key at https://agentmail.to[/dim]")
+        api_key = Prompt.ask(
+            "  AgentMail API key (or vault:name)",
+            default=current_key,
+        )
+        email_cfg["api_key_ref"] = api_key
+        email_cfg.setdefault("domain", "agentmail.to")
+        email_cfg.setdefault("auto_create_inbox", False)
+        email_cfg.setdefault("inbox_display_name", "EloPhanto Agent")
+        console.print("  [green]AgentMail configured.[/green]")
+    else:
+        smtp_cfg = email_cfg.setdefault("smtp", {})
+        current_host = smtp_cfg.get("host", "")
+        smtp_host = Prompt.ask("  SMTP host", default=current_host)
+        smtp_cfg["host"] = smtp_host
+        smtp_cfg.setdefault("port", 587)
+        smtp_cfg.setdefault("use_tls", True)
+
+        current_user = smtp_cfg.get("username_ref", "smtp_username")
+        smtp_user = Prompt.ask(
+            "  SMTP username (or vault:name)",
+            default=current_user,
+        )
+        smtp_cfg["username_ref"] = smtp_user
+
+        current_pass = smtp_cfg.get("password_ref", "smtp_password")
+        smtp_pass = Prompt.ask(
+            "  SMTP password (or vault:name)",
+            default=current_pass,
+        )
+        smtp_cfg["password_ref"] = smtp_pass
+
+        current_from = smtp_cfg.get("from_address", "")
+        from_addr = Prompt.ask("  From address", default=current_from)
+        smtp_cfg["from_address"] = from_addr
+        smtp_cfg.setdefault("from_name", "EloPhanto Agent")
+
+        imap_cfg = email_cfg.setdefault("imap", {})
+        current_imap_host = imap_cfg.get("host", "")
+        imap_host = Prompt.ask("  IMAP host", default=current_imap_host)
+        imap_cfg["host"] = imap_host
+        imap_cfg.setdefault("port", 993)
+        imap_cfg.setdefault("use_tls", True)
+        imap_cfg.setdefault("username_ref", smtp_user)
+        imap_cfg.setdefault("password_ref", smtp_pass)
+        imap_cfg.setdefault("mailbox", "INBOX")
+
+        console.print("  [green]SMTP/IMAP configured.[/green]")
+
+
+def _edit_payments(config: dict) -> None:
+    """Edit crypto wallet and payment settings."""
+    console.print("[bold]Payments & Crypto Wallet[/bold]")
+    console.print(
+        "  [dim]Let the agent send and receive crypto payments.\n"
+        "  Supports local wallet (eth-account) or Coinbase AgentKit.[/dim]"
+    )
+
+    pay_cfg = config.setdefault("payments", {})
+    current_enabled = pay_cfg.get("enabled", False)
+    pay_enabled = Confirm.ask("  Enable payments?", default=current_enabled)
+    pay_cfg["enabled"] = pay_enabled
+
+    if not pay_enabled:
+        console.print("  [dim]Disabled.[/dim]")
+        return
+
+    pay_cfg.setdefault("default_currency", "USD")
+    pay_cfg.setdefault(
+        "wallet",
+        {"auto_create": True, "low_balance_alert": 10.0, "default_token": "USDC"},
+    )
+
+    limits = pay_cfg.setdefault("limits", {})
+    current_daily = limits.get("daily", 500.0)
+    daily = Prompt.ask("  Daily spending limit (USD)", default=str(current_daily))
+    limits["daily"] = float(daily)
+    limits.setdefault("per_transaction", 100.0)
+    limits.setdefault("monthly", 5000.0)
+    limits.setdefault("per_merchant_daily", 200.0)
+
+    pay_cfg.setdefault(
+        "approval",
+        {
+            "always_ask_above": 10.0,
+            "confirm_above": 100.0,
+            "cooldown_above": 1000.0,
+            "cooldown_seconds": 300,
+        },
+    )
+
+    crypto = pay_cfg.setdefault("crypto", {})
+    crypto.setdefault("enabled", True)
+    crypto.setdefault("default_chain", "base")
+
+    current_provider = crypto.get("provider", "local")
+    provider = Prompt.ask(
+        "  Wallet provider",
+        choices=["local", "agentkit"],
+        default=current_provider,
+    )
+    crypto["provider"] = provider
+
+    if provider == "agentkit":
+        current_key_name = crypto.get("cdp_api_key_name_ref", "cdp_api_key_name")
+        current_key_priv = crypto.get("cdp_api_key_private_ref", "cdp_api_key_private")
+        console.print("  [dim]Get CDP keys from https://portal.cdp.coinbase.com[/dim]")
+        key_name = Prompt.ask(
+            "  CDP API key name (or vault:name)",
+            default=current_key_name,
+        )
+        key_priv = Prompt.ask(
+            "  CDP API private key (or vault:name)",
+            default=current_key_priv,
+        )
+        crypto["cdp_api_key_name_ref"] = key_name
+        crypto["cdp_api_key_private_ref"] = key_priv
+
+    console.print(
+        f"  [green]Payments enabled — {provider} wallet, "
+        f"${limits['daily']}/day limit.[/green]"
+    )
+
+
+def _edit_replicate(config: dict) -> None:
+    """Edit Replicate image generation settings."""
+    console.print("[bold]AI Image Generation (Replicate)[/bold]")
+    console.print(
+        "  [dim]Generate images using Replicate API.\n"
+        "  Get an API key: https://replicate.com/account/api-tokens[/dim]"
+    )
+
+    rep_cfg = config.setdefault("replicate", {})
+    current_enabled = rep_cfg.get("enabled", False)
+    rep_enabled = Confirm.ask("  Enable Replicate?", default=current_enabled)
+    rep_cfg["enabled"] = rep_enabled
+
+    if not rep_enabled:
+        console.print("  [dim]Disabled.[/dim]")
+        return
+
+    current_key = rep_cfg.get("api_key", "")
+    api_key = Prompt.ask(
+        (
+            "  API key (press Enter to keep current)"
+            if current_key and current_key != "YOUR_REPLICATE_API_KEY"
+            else "  API key"
+        ),
+        default=current_key if current_key != "YOUR_REPLICATE_API_KEY" else "",
+        show_default=False,
+    )
+    rep_cfg["api_key"] = api_key
+    rep_cfg.setdefault("default_model", "google/nano-banana-2")
+    rep_cfg.setdefault("default_resolution", "1024")
+    rep_cfg.setdefault("default_aspect_ratio", "1:1")
+    rep_cfg.setdefault("default_format", "jpg")
+    rep_cfg.setdefault("default_output_mode", "local")
+
+    console.print("  [green]Replicate configured.[/green]")
+
+
+def _edit_gateway(config: dict) -> None:
+    """Edit WebSocket gateway settings."""
+    console.print("[bold]WebSocket Gateway[/bold]")
+    console.print(
+        "  [dim]Control plane for multi-channel access.\n"
+        "  Required for Telegram/Discord/Slack channels.[/dim]"
+    )
+
+    gw_cfg = config.setdefault("gateway", {})
+    current_enabled = gw_cfg.get("enabled", False)
+    gw_enabled = Confirm.ask("  Enable gateway?", default=current_enabled)
+    gw_cfg["enabled"] = gw_enabled
+
+    if gw_enabled:
+        gw_cfg.setdefault("host", "127.0.0.1")
+        gw_cfg.setdefault("port", 18789)
+        gw_cfg.setdefault("auth_token_ref", "")
+        gw_cfg.setdefault("max_sessions", 50)
+        gw_cfg.setdefault("session_timeout_hours", 24)
+        console.print(
+            f"  [green]Gateway enabled on "
+            f"{gw_cfg['host']}:{gw_cfg['port']}.[/green]"
+        )
+    else:
+        console.print("  [dim]Disabled (direct mode only).[/dim]")
+
+
+def _edit_swarm(config: dict) -> None:
+    """Edit agent swarm settings."""
+    console.print("[bold]Agent Swarm[/bold]")
+    console.print(
+        "  [dim]Spawn external coding agents (Claude Code, Codex, Gemini CLI)\n"
+        "  to work on tasks in parallel. Requires tmux.[/dim]"
+    )
+
+    swarm_cfg = config.setdefault("swarm", {})
+    current_enabled = swarm_cfg.get("enabled", False)
+    swarm_enabled = Confirm.ask("  Enable agent swarm?", default=current_enabled)
+    swarm_cfg["enabled"] = swarm_enabled
+
+    if swarm_enabled:
+        current_max = swarm_cfg.get("max_concurrent_agents", 3)
+        max_agents = Prompt.ask("  Max concurrent agents", default=str(current_max))
+        swarm_cfg["max_concurrent_agents"] = int(max_agents)
+        swarm_cfg.setdefault("monitor_interval_seconds", 30)
+        swarm_cfg.setdefault("tmux_session_prefix", "elo-swarm")
+        swarm_cfg.setdefault("default_done_criteria", "pr_created")
+        swarm_cfg.setdefault(
+            "profiles",
+            {
+                "claude-code": {
+                    "command": "claude",
+                    "args": [
+                        "-p",
+                        "--allowedTools",
+                        "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch",
+                    ],
+                    "done_criteria": "pr_created",
+                    "max_time_seconds": 3600,
+                },
+            },
+        )
+        console.print(
+            f"  [green]Swarm enabled — up to {swarm_cfg['max_concurrent_agents']} "
+            f"agents.[/green]"
+        )
+    else:
+        console.print("  [dim]Disabled.[/dim]")
+
+
 def _edit_scheduler(config: dict) -> None:
     """Edit background scheduling settings."""
     console.print("[bold]Background Scheduling[/bold]")
@@ -785,7 +1188,9 @@ def _run_full_wizard(config_dir: str) -> None:
     console.print(
         Panel(
             "[bold blue]EloPhanto Setup Wizard[/bold blue]\n\n"
-            "This will configure your LLM providers, model selection, and permissions.",
+            "This will configure your LLM providers, model selection, permissions,\n"
+            "channels (Telegram/Discord/Slack), email, payments, and more.\n\n"
+            "[dim]Press Enter to skip any section you don't need.[/dim]",
             border_style="blue",
         )
     )
@@ -809,11 +1214,14 @@ def _run_full_wizard(config_dir: str) -> None:
     console.print()
 
     # Run each section with step numbers
-    console.print("[bold]1-3. LLM Providers[/bold]")
+    console.print("[bold]── Core ──[/bold]")
+    console.print()
+
+    console.print("[bold]1. LLM Providers[/bold]")
     _edit_providers(config)
 
     console.print()
-    console.print("[bold]4. Model Selection[/bold]")
+    console.print("[bold]2. Model Selection[/bold]")
     # Only run model selection if any provider is active
     providers = config.get("llm", {}).get("providers", {})
     any_active = any(p.get("enabled") for p in providers.values())
@@ -823,23 +1231,63 @@ def _run_full_wizard(config_dir: str) -> None:
         console.print("  [dim]No providers active — skipping model selection.[/dim]")
 
     console.print()
-    console.print("[bold]5. Permission Mode[/bold]")
+    console.print("[bold]3. Permission Mode[/bold]")
     _edit_permissions(config)
 
     console.print()
-    console.print("[bold]6. Web Browsing[/bold]")
+    console.print("[bold]── Automation ──[/bold]")
+    console.print()
+
+    console.print("[bold]4. Web Browsing[/bold]")
     _edit_browser(config)
 
     console.print()
-    console.print("[bold]7. Background Scheduling[/bold]")
+    console.print("[bold]5. Desktop GUI Agent[/bold]")
+    _edit_desktop(config)
+
+    console.print()
+    console.print("[bold]── Channels & Communication ──[/bold]")
+    console.print()
+
+    console.print("[bold]6. Channels (Telegram / Discord / Slack)[/bold]")
+    _edit_channels(config)
+
+    console.print()
+    console.print("[bold]7. Agent Email[/bold]")
+    _edit_email(config)
+
+    console.print()
+    console.print("[bold]8. Gateway[/bold]")
+    _edit_gateway(config)
+
+    console.print()
+    console.print("[bold]── Services ──[/bold]")
+    console.print()
+
+    console.print("[bold]9. Payments & Crypto Wallet[/bold]")
+    _edit_payments(config)
+
+    console.print()
+    console.print("[bold]10. AI Image Generation (Replicate)[/bold]")
+    _edit_replicate(config)
+
+    console.print()
+    console.print("[bold]── Advanced ──[/bold]")
+    console.print()
+
+    console.print("[bold]11. Agent Swarm[/bold]")
+    _edit_swarm(config)
+
+    console.print()
+    console.print("[bold]12. Background Scheduling[/bold]")
     _edit_scheduler(config)
 
     console.print()
-    console.print("[bold]8. MCP Tool Servers[/bold]")
+    console.print("[bold]13. MCP Tool Servers[/bold]")
     _edit_mcp(config)
 
     console.print()
-    console.print("[bold]9. Autonomous Mind[/bold]")
+    console.print("[bold]14. Autonomous Mind[/bold]")
     _edit_autonomous_mind(config)
 
     console.print()
@@ -879,6 +1327,37 @@ def _run_full_wizard(config_dir: str) -> None:
             "verbosity": "normal",
         },
     )
+    config.setdefault(
+        "recovery",
+        {
+            "enabled": True,
+            "auto_enter_on_provider_failure": True,
+            "auto_enter_timeout_minutes": 5,
+            "health_check_interval_seconds": 60,
+        },
+    )
+    config.setdefault(
+        "hub",
+        {
+            "enabled": True,
+            "index_url": "https://raw.githubusercontent.com/elophanto/elophantohub/main/index.json",
+            "auto_suggest": True,
+            "cache_ttl_hours": 6,
+        },
+    )
+    config.setdefault(
+        "goals",
+        {
+            "enabled": True,
+            "max_checkpoints": 20,
+            "max_checkpoint_attempts": 3,
+            "max_goal_attempts": 3,
+            "max_llm_calls_per_goal": 200,
+            "max_time_per_checkpoint_seconds": 600,
+            "context_summary_max_tokens": 1500,
+            "auto_continue": True,
+        },
+    )
 
     # Write config
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -893,30 +1372,45 @@ def _run_full_wizard(config_dir: str) -> None:
     for task_type in ["planning", "coding", "analysis", "simple"]:
         r = routing.get(task_type, {})
         if r:
-            routing_summary += (
-                f"  {task_type}: {r.get('preferred_model', '?')} "
-                f"via {r.get('preferred_provider', '?')}\n"
-            )
+            models = r.get("models", {})
+            preferred = r.get("preferred_provider", "?")
+            model = models.get(preferred, r.get("preferred_model", "?"))
+            routing_summary += f"  {task_type}: {model} via {preferred}\n"
 
     features_status = []
     if config.get("browser", {}).get("enabled"):
-        features_status.append("Browser: [green]enabled[/green]")
-    else:
-        features_status.append("Browser: [dim]disabled[/dim]")
+        features_status.append("Browser: [green]on[/green]")
+    if config.get("desktop", {}).get("enabled"):
+        features_status.append("Desktop: [green]on[/green]")
+
+    # Channels
+    channels = []
+    if config.get("telegram", {}).get("enabled"):
+        channels.append("Telegram")
+    if config.get("discord", {}).get("enabled"):
+        channels.append("Discord")
+    if config.get("slack", {}).get("enabled"):
+        channels.append("Slack")
+    if channels:
+        features_status.append(f"Channels: [green]{', '.join(channels)}[/green]")
+
+    if config.get("email", {}).get("enabled"):
+        provider = config.get("email", {}).get("provider", "agentmail")
+        features_status.append(f"Email: [green]{provider}[/green]")
+    if config.get("payments", {}).get("enabled"):
+        features_status.append("Payments: [green]on[/green]")
+    if config.get("replicate", {}).get("enabled"):
+        features_status.append("Images: [green]on[/green]")
+    if config.get("swarm", {}).get("enabled"):
+        features_status.append("Swarm: [green]on[/green]")
     if config.get("scheduler", {}).get("enabled"):
-        features_status.append("Scheduler: [green]enabled[/green]")
-    else:
-        features_status.append("Scheduler: [dim]disabled[/dim]")
+        features_status.append("Scheduler: [green]on[/green]")
     mcp_servers = config.get("mcp", {}).get("servers", {})
     if config.get("mcp", {}).get("enabled") and mcp_servers:
-        features_status.append(f"MCP: [green]{len(mcp_servers)} server(s)[/green]")
-    else:
-        features_status.append("MCP: [dim]disabled[/dim]")
+        features_status.append(f"MCP: [green]{len(mcp_servers)}[/green]")
     if config.get("autonomous_mind", {}).get("enabled"):
-        features_status.append("Mind: [green]enabled[/green]")
-    else:
-        features_status.append("Mind: [dim]disabled[/dim]")
-    features_str = " | ".join(features_status)
+        features_status.append("Mind: [green]on[/green]")
+    features_str = " | ".join(features_status) if features_status else "[dim]none[/dim]"
 
     mode = config.get("agent", {}).get("permission_mode", "ask_always")
     provider_list = config.get("llm", {}).get("provider_priority", [])
@@ -928,7 +1422,8 @@ def _run_full_wizard(config_dir: str) -> None:
             f"Permission mode: {mode}\n"
             f"Features: {features_str}\n\n"
             f"[bold]Model routing:[/bold]\n{routing_summary}\n"
-            "Run [bold]elophanto chat[/bold] to start talking to your agent.",
+            "Run [bold]elophanto chat[/bold] to start talking to your agent.\n"
+            "[dim]Edit any section later: elophanto init edit <section>[/dim]",
             title="[bold]Setup Complete[/bold]",
             border_style="green",
         )
