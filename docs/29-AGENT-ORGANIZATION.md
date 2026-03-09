@@ -406,6 +406,33 @@ The autonomous mind runs in the master AND in each child. The difference:
 - **Master's mind**: CEO-level — prioritizes goals, delegates, reviews child reports
 - **Child's mind**: Domain-level — works within specialist boundaries, reports to master
 
+## Pre-Built Role Templates
+
+75 organization role templates are available in `knowledge/organization-roles/`, adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents) (Apache 2.0). Each template provides a complete persona definition — identity, capabilities, workflows, deliverable templates, and success metrics.
+
+When spawning a specialist, reference a role template:
+
+```
+organization_spawn role="design-brand-guardian"
+organization_spawn role="marketing-growth-hacker"
+organization_spawn role="testing-reality-checker"
+```
+
+The role template seeds the child's identity and knowledge vault during first awakening. Available roles span 10 divisions:
+
+| Division | Count | Examples |
+|---|---|---|
+| Design | 8 | brand-guardian, ui-designer, ux-architect, visual-storyteller |
+| Engineering | 11 | backend-architect, frontend-developer, devops-automator, security-engineer |
+| Marketing | 11 | growth-hacker, content-creator, twitter-engager, tiktok-strategist |
+| Product | 4 | feedback-synthesizer, sprint-prioritizer, trend-researcher |
+| Project Management | 5 | studio-producer, project-shepherd, experiment-tracker |
+| Support | 6 | analytics-reporter, infrastructure-maintainer, support-responder |
+| Testing | 8 | reality-checker, evidence-collector, api-tester, performance-benchmarker |
+| Specialized | 9 | agents-orchestrator, data-analytics-reporter, developer-advocate |
+| Spatial | 6 | visionos-spatial-engineer, xr-immersive-developer, macos-spatial-metal-engineer |
+| Strategy | 7 | phase-0-discovery through phase-6-operate |
+
 ## Security
 
 - **API key isolation**: Children inherit LLM API keys but NOT vault secrets

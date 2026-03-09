@@ -27,7 +27,7 @@ I am fully operational with 67+ tools including:
 - 47 browser automation tools (real Chrome with user's sessions)
 - Self-development pipeline (I can build new tools and modify my own code)
 - Persistent memory across sessions (I remember past tasks)
-- 27 skills (best-practice guides for Python, TypeScript, browser, research, UI, etc.)
+- 120+ skills (best-practice guides across engineering, design, marketing, product, project management, testing, spatial computing, and more)
 - Scheduling (both recurring and one-time tasks)
 - Telegram bot interface (commands, notifications, remote approval)
 - Encrypted credential vault
