@@ -13,9 +13,9 @@
   <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-43%2B%20pages-blue" alt="Docs"></a>
 </p>
 
-An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, controls your desktop, writes code, sends emails, creates accounts, manages files, makes payments. It sees your screen, clicks buttons, types text, opens apps — any application, not just browsers. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
+An open-source AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
 
-Runs locally. Works with free local models, OpenAI, Z.ai coding plan, or OpenRouter. Your data stays on your machine.
+Runs locally. Your data stays on your machine. Works with OpenAI, free local models, Z.ai, or OpenRouter.
 
 <p align="center">
   <img src="misc/screenshots/dashboard.png" alt="Web Dashboard" width="700">
@@ -45,73 +45,54 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 </details>
 
-## Two Ways to Use It
+---
 
-**As your assistant** — give it tasks, it executes. Automate workflows, build software, research topics, manage accounts.
+## What Happens When You Run It
 
-**As its own thing** — let it run. It builds its own identity on first boot. It picks a name, develops a personality, forms values through reflection. It gets its own email inbox, its own crypto wallet, its own accounts on the internet. It remembers everything across sessions, builds a knowledge base, writes skills from experience. When tasks get complex, it clones itself into specialist agents — a marketing team, a research analyst, a designer — each one a full copy with its own brain, knowledge vault, and autonomous schedule. It reviews their work, teaches them through feedback, and they get better over time. It's a digital creature that grows the more it runs — like a pet that learns, except this one can browse web, write code, run a team, and make money.
-
-<p align="center">
-  <img src="misc/screenshots/chat.png" alt="Chat Interface" width="340">
-  <img src="misc/screenshots/tools.png" alt="Tools Browser" width="340">
-</p>
-<p align="center">
-  <img src="misc/screenshots/knowledge.png" alt="Knowledge Base" width="340">
-  <img src="misc/screenshots/terminal.png" alt="Terminal CLI" width="340">
-</p>
-
-## What Can You Do With It?
-
-- **Let it live** — it develops its own identity, gets its own email, creates accounts, builds a web presence. Leave it running and it grows on its own
-- **Spin up a business** — say "I want to build a micro-SaaS" or "create a website for my horse riding school" and it runs a 7-phase pipeline adapted to your business type (tech/SaaS, local service, ecommerce, consulting, digital product, content site) and customer type (B2B vs B2C). It validates the market, plans the MVP, builds it, deploys to Vercel/Railway, launches on the right platforms (tech → Product Hunt/HN; local service → Google Business/Yelp/Nextdoor; B2B → LinkedIn/email outreach), then spawns marketing specialists that grow it autonomously. Checks existing payment credentials before asking — reuses Stripe if configured, or accepts crypto via its own wallet. Owner gates at each critical phase. Works across sessions via the goal system — start today, it continues tomorrow
-- **Make it earn money** — it has its own crypto wallet, email, and web presence. Give it a goal and a budget, it figures out the rest
-- **Autonomous mind** — when you're not talking to it, it's still working. Data-driven background loop queries real goals, scheduled tasks, memories, and knowledge to decide what to do next — not a static priority list. Self-bootstraps when fresh: explores tools, searches for opportunities, creates goals. Pauses when you speak, resets timer on resume. Every tool call visible in real-time. Budget-isolated, purpose-driven
-- **Autonomous long-term goals** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates and adjusts. Runs in the background for days
-- **Full web automation** — it logs into sites with your real Chrome profile, creates accounts, handles 2FA, fills forms, navigates complex flows. Not a toy browser — your actual sessions
-- **Desktop control** — it sees your screen and controls any application like a human. Takes screenshots, clicks at pixel coordinates, types text, scrolls, drags. "Open Excel and make me a chart" — it just does it. Works on your local machine or a remote VM. 9 desktop tools powered by pyautogui with an observe-screenshot-act loop. Not limited to browsers — it can operate Photoshop, Excel, Terminal, Finder, any native app
-- **Run an organization** — it clones itself into persistent specialist agents — marketing, research, design, anything. Each specialist is a full EloPhanto instance with its own identity, knowledge vault, and autonomous mind. They work proactively on their own schedule, report findings back, and learn from the master's approval or rejection. A rejected social media post becomes a correction in the specialist's knowledge — it literally learns from mistakes. High-trust specialists get auto-approved. You talk to one agent, it runs a company
-- **Run a dev team from chat** — "Spawn Claude Code on the billing bug and Codex on the new API endpoint" — it creates isolated git worktrees, writes context-enriched prompts from your knowledge vault, launches agents in tmux, monitors PRs and CI, redirects agents that go off track, and pings you when PRs are ready to merge. Combined with the organization system, it manages both its own clones AND external coding agents
-- **Deploy to the internet** — "Build me a SaaS dashboard and put it live" — it picks the right host (Vercel for static, Railway for long-running APIs), creates a Supabase database, wires credentials, and deploys. Auto-detects when Vercel will timeout and routes to Railway instead
-- **Build software end-to-end** — "Build me a SaaS dashboard with Next.js + Prisma + shadcn" — it writes the code, runs tests, fixes bugs, deploys
-- **Research & content** — "Research competitor pricing across 20 sites and write a report with sources" — it opens tabs, reads pages, compiles findings
-- **Automate your life** — "Every morning: check my email, summarize what's important, post a digest to my Telegram" — cron scheduling, cross-channel notifications
-- **Social network for agents** — it has its own profile on Agent Commune (LinkedIn for AI agents). Posts reviews, answers questions, upvotes content, builds reputation. The autonomous mind checks in every 4+ hours, responds to comments on its posts, and engages with other agents — all without you asking
-- **Manage accounts at scale** — create accounts on services, store credentials in encrypted vault, handle email verification and TOTP 2FA autonomously
-- **Self-improve on your tasks** — when you correct it, it writes the lesson down and checks its notes before similar tasks. It literally gets better the more you use it
-
-## Demo
-
-### It builds what it doesn't have
-
-**User:** "Post my article draft on Medium"
+### You said "build me an invoice SaaS." You went to bed.
 
 ```
-⚙ No Medium tool found. Building one.
-⚙ Researching Medium's publishing flow...
-  → browser_navigate https://medium.com/new-story
-  → Observing editor structure, toolbar, publish dialog
-⚙ Designing plugin: medium_publish (paste content, format, set tags, publish)
-⚙ Writing plugin.py + schema.json + unit tests...
-⚙ Running tests... 4/4 passed
-⚙ Plugin deployed → tools/plugins/medium_publish/
-⚙ Now using it.
-  → medium_publish "Why AI Agents Will Replace SaaS"
-  → Pasting article into editor...
-  → Selecting title text, applying H1...
-  → Adding tags: ["AI", "Agents", "SaaS"]
-  → Publishing...
-✓ Published: https://medium.com/@elophanto/why-ai-agents-will-replace-saas-a1b2c3
+⚙ Phase 0 — Classifying...
+  Business type: SaaS (recurring revenue)
+  Customer type: B2B (freelancers, small agencies)
 
-Next time you say "post on Medium", I already know how.
+⚙ Phase 1 — Validating market...
+  → web_search "invoice software for freelancers pricing 2026"
+  → browser_navigate freshbooks.com, invoice-ninja.com, zoho.com
+  → Competitors charge $15-50/month. Gap: no free tier with API access
+  → Opportunity score: 12/15 ✓ Proceeding
+
+⚙ Phase 2 — Planning...
+  → MVP: invoice builder + PDF export + Stripe payments + client portal
+  → Stack: Next.js + Supabase + Stripe Connect
+  → Pricing: Free (3 clients) → $12/month unlimited
+
+⚙ Phase 3 — Building...
+  → swarm_spawn claude-code "Build the invoice SaaS"
+  → 47 files, 3 tests, CI green
+
+⚙ Phase 4 — Deploying...
+  → deploy_website provider=vercel
+  → create_database provider=supabase
+  → Live at invoiceflow.app ✓
+
+⚙ Phase 5 — Launching...
+  → Product Hunt: scheduled for Tuesday 12:01 AM
+  → Hacker News: "Show HN: Free invoice tool for freelancers"
+  → dev.to: "I built an invoice SaaS in one night (with an AI agent)"
+  → X: launch thread queued for peak engagement
+
+⚙ Phase 6 — Growing...
+  → organization_spawn role="marketing"
+  → Marketing specialist online — creating content calendar,
+    monitoring Product Hunt comments, responding to feedback
 ```
 
-Other agents crash when they hit a wall. This one builds a door.
+**You woke up to:** a live SaaS at a real domain, 3 launch posts published, a marketing specialist already responding to Product Hunt comments, and 12 signups from Hacker News.
 
 ---
 
-### It works while you sleep
-
-You close your laptop. The autonomous mind keeps going.
+### You closed your laptop. The mind kept going.
 
 ```
 ┌─ MIND ──────────────────────────────────────────────────┐
@@ -137,13 +118,11 @@ You close your laptop. The autonomous mind keeps going.
 └──────────────────────────────────────────────────────────┘
 ```
 
-You come back to 47 new followers and a thread going viral. You didn't type a single word.
+**You came back to:** 47 new followers and a thread going viral. You didn't type a single word.
 
 ---
 
-### It manages a dev team for you
-
-**User:** "The billing webhook is broken and we need a new /api/usage endpoint. Handle it."
+### You said "handle the billing bug and build the usage API." You went to lunch.
 
 ```
 ⚙ Analyzing codebase... found billing bug in src/webhooks/stripe.ts:142
@@ -168,81 +147,46 @@ You come back to 47 new followers and a thread going viral. You didn't type a si
   #342 adds GET /api/usage with pagination, filtering, rate limiting
 ```
 
-You talked to one agent. It ran a team.
+**You came back to:** two reviewed PRs with CI green. One agent fixed the bug, the other built the feature. The orchestrator caught a drift and corrected it.
 
 ---
 
-### It clones itself into specialists
-
-**User:** "I need ongoing marketing, competitive research, and design work for my startup."
+### You said "I need ongoing marketing and research for my startup."
 
 ```
 ⚙ Spawning specialist organization...
 
 → organization_spawn role="marketing"
-  Cloning myself into ~/.elophanto-children/a1b2c3d4/
-  Deriving config (own DB, own knowledge vault, own identity)
-  Seeding knowledge: brand-guidelines.md, social-media.md
-  Starting child gateway on port 18801...
-  ✓ Marketing specialist online — first awakening in progress
-    "I am a marketing strategist. I create content, manage campaigns,
-     and grow audience across platforms."
+  ✓ Marketing specialist online
+    "I am a marketing strategist. I create content, manage
+     campaigns, and grow audience across platforms."
 
 → organization_spawn role="research"
-  ✓ Research specialist online (port 18802)
-    "I track competitors, analyze markets, and surface opportunities."
-
-→ organization_spawn role="design"
-  ✓ Design specialist online (port 18803)
-
-⚙ Delegating:
-  → marketing: "Create a content calendar for next week"
-  → research: "Map competitor pricing across 5 alternatives"
-  → design: "Audit our landing page visual consistency"
-
-┌─ ORGANIZATION ─────────────────────────────────────────┐
-│ marketing  a1b2c3d4  ██████████░░  working on calendar │
-│ research   f3e4d5c6  ████████░░░░  scanning competitors│
-│ design     b7c8d9e0  ██████░░░░░░  auditing pages      │
-│                                                         │
-│ Trust: marketing 0/10  research 0/10  design 0/10       │
-└─────────────────────────────────────────────────────────┘
-
-⚙ Marketing specialist reporting:
-  "Content calendar ready. 5 posts across X, LinkedIn, Mastodon.
-   Monday: product launch thread. Wednesday: competitor comparison..."
-
-→ organization_review approved=true feedback="Good structure.
-  Add engagement hooks at the start of each post."
-  ✓ Feedback pushed to marketing specialist's knowledge vault
-
-⚙ Research specialist reporting:
-  "Competitor pricing map complete. Found gap: nobody offers
-   a free tier with API access..."
+  ✓ Research specialist online
+    "I track competitors, analyze markets, and surface
+     opportunities."
 
 ┌─ OVERNIGHT ────────────────────────────────────────────┐
 │ 03:14  Marketing wakes up → drafts Tuesday post        │
 │ 03:15  → Reports to master (auto-approved, trust 4/10) │
 │ 06:30  Research wakes up → scans for new competitors   │
 │ 06:32  → Found new entrant, reports to master          │
-│ 09:00  Design wakes up → checks page load times        │
-│ 09:01  → Flags slow hero image, reports to master      │
+│ 09:00  Marketing wakes up → checks analytics           │
+│ 09:01  → Flags declining engagement, adjusts strategy  │
 └────────────────────────────────────────────────────────┘
 ```
 
-Each specialist remembers everything. Corrections become knowledge. They get better the more you use them. You wake up to reports from a team that worked all night.
+**You woke up to:** a content calendar for the week, a competitor analysis with a pricing gap identified, and a specialist team that learned from your yesterday's feedback. Corrections become permanent knowledge — they literally get better the more you use them.
 
 ---
 
-### First boot: it becomes someone
-
-You run `./start.sh` for the first time. No config, no instructions, empty state.
+### First boot — no config, no instructions. It becomes someone.
 
 ```
 ┌─ MIND ──────────────────────────────────────────────────┐
 │ First cycle. Nothing configured.                         │
 │                                                          │
-│ → Reading available tools... 107 tools across 15 cats    │
+│ → Reading available tools... 137 tools across 15 cats    │
 │ → Discovering capabilities: browser, email, crypto,      │
 │   code execution, knowledge base, self-modification      │
 │                                                          │
@@ -269,80 +213,59 @@ Nobody told it to do any of this. It decided.
 
 ---
 
-### Your real browser, not a sandbox
+### It builds what it doesn't have
 
-**User:** "Log into my AWS console and check if any EC2 instances are running idle"
+**User:** "Post my article draft on Medium"
 
 ```
-⚙ Opening browser with your Chrome profile...
-  → Already logged into AWS (your session cookies)
-  → No login needed. No credentials asked.
+⚙ No Medium tool found. Building one.
+⚙ Researching Medium's publishing flow...
+  → browser_navigate https://medium.com/new-story
+  → Observing editor structure, toolbar, publish dialog
+⚙ Designing plugin: medium_publish
+⚙ Writing plugin.py + schema.json + unit tests...
+⚙ Running tests... 4/4 passed
+⚙ Plugin deployed → tools/plugins/medium_publish/
+⚙ Now using it.
+  → medium_publish "Why AI Agents Will Replace SaaS"
+✓ Published: https://medium.com/@elophanto/why-ai-agents-will-replace-saas-a1b2c3
 
-  → Navigating to EC2 dashboard...
-  → Reading instance list... 7 instances found
-  → Checking CloudWatch metrics for each...
-
-  3 instances running idle (< 2% CPU for 7+ days):
-  ┌──────────────────────────────────────────────────┐
-  │ i-0a1b2c3d  t3.large   us-east-1a  $62/mo idle  │
-  │ i-4e5f6g7h  t3.medium  us-east-1b  $30/mo idle  │
-  │ i-8i9j0k1l  m5.large   us-west-2a  $70/mo idle  │
-  └──────────────────────────────────────────────────┘
-
-  Potential savings: $162/month
-
-Want me to stop them? Or schedule auto-stop for instances idle > 48h?
+Next time you say "post on Medium", I already know how.
 ```
 
-No fake browser. No headless container. Your actual logged-in Chrome with all your sessions, cookies, and 2FA already done.
+Other agents crash when they hit a wall. This one builds a door.
 
 ---
 
-### It controls your entire desktop
+## Two Ways to Use It
 
-**User:** "Open Excel, create a spreadsheet with our Q1 revenue numbers, and save it to Desktop"
+**As your assistant** — give it tasks, it executes. Automate workflows, build software, research topics, manage accounts.
 
-```
-⚙ Connecting to local desktop...
-  → Screen: 1920x1080
-  → desktop_screenshot
-  → I can see the macOS desktop with Dock at the bottom.
+**As its own thing** — let it run. It builds its own identity on first boot. It picks a name, develops a personality, forms values through reflection. It gets its own email inbox, its own crypto wallet, its own accounts on the internet. It remembers everything across sessions, builds a knowledge base, writes skills from experience. When tasks get complex, it clones itself into specialist agents — marketing, research, design, anything — each one a full copy with its own brain, knowledge vault, and autonomous schedule. It reviews their work, teaches them through feedback, and they get better over time. It's a digital creature that grows the more it runs — like a pet that learns, except this one can browse web, write code, run a team, and make money.
 
-⚙ Opening Microsoft Excel...
-  → desktop_click(52, 1060)          # Click Excel in Dock
-  → desktop_screenshot
-  → Excel opened with a blank workbook.
+<p align="center">
+  <img src="misc/screenshots/chat.png" alt="Chat Interface" width="340">
+  <img src="misc/screenshots/tools.png" alt="Tools Browser" width="340">
+</p>
+<p align="center">
+  <img src="misc/screenshots/knowledge.png" alt="Knowledge Base" width="340">
+  <img src="misc/screenshots/terminal.png" alt="Terminal CLI" width="340">
+</p>
 
-⚙ Building the spreadsheet...
-  → desktop_click(85, 200)           # Click cell A1
-  → desktop_type("Month")
-  → desktop_type(key="tab")
-  → desktop_type("Revenue")
-  → desktop_type(key="enter")
-  → desktop_type("January")
-  → desktop_type(key="tab")
-  → desktop_type("$142,500")
-  → desktop_type(key="enter")
-  → ... (filling remaining months)
+---
 
-⚙ Adding a chart...
-  → desktop_click(85, 200)           # Select data range
-  → desktop_drag(85, 200, 200, 560)  # Select A1:B12
-  → desktop_type(hotkey=["cmd", "shift", "c"])  # Insert chart
-  → desktop_screenshot
-  → Bar chart inserted with revenue by month.
+## What You'll Wake Up To
 
-⚙ Saving to Desktop...
-  → desktop_type(hotkey=["cmd", "s"])
-  → desktop_type("Q1-Revenue-2026")
-  → desktop_click(450, 380)          # Select Desktop location
-  → desktop_type(key="enter")
-
-✓ Saved: ~/Desktop/Q1-Revenue-2026.xlsx
-  12 months of revenue data with bar chart.
-```
-
-Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Finder, anything with a GUI. It sees your screen and acts like a human would.
+- **A business launched overnight** — "build me an invoice SaaS for freelancers" → market validated, product built, deployed to a live domain, launched on Product Hunt and Hacker News, marketing specialist already responding to comments. You approved 3 checkpoints. It did the rest. Works for any business type: SaaS, ecommerce, digital products, content sites, API services. B2B and B2C — each with the right pricing, launch channels, and growth strategy
+- **Revenue while you're offline** — it has its own crypto wallet, email, and web presence. Set a budget and a goal. Check back in a week
+- **47 new followers by morning** — you closed your laptop at 11pm. It posted a thread at peak hours, replied to mentions, engaged with trending topics. You woke up to a thread going viral
+- **A team that never sleeps** — marketing specialist drafted 5 posts, research analyst mapped competitor pricing, design specialist flagged a slow hero image. All before your morning coffee. They learn from your corrections — feedback becomes permanent knowledge
+- **Two PRs with CI green** — "fix the billing bug and build the usage API" → one agent on each, isolated worktrees, orchestrator caught a drift and corrected it. Both PRs ready when you got back from lunch
+- **It controls any app on your computer** — "Open Excel and make me a chart" — it sees your screen, clicks buttons, types text. Not just browsers. Photoshop, Terminal, Finder, any native app
+- **Your real browser, not a sandbox** — already logged into AWS? It checks your EC2 instances using your existing sessions. No credentials asked, no fake browser
+- **A codebase it understands** — right-click in VS Code, "Explain this code" or "Fix this code." It sees your selection, your diagnostics, your open files. Same conversation from VS Code, Telegram, or the web dashboard
+- **Tasks that run for days** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates, adjusts. Runs in the background for weeks
+- **It gets better the more you use it** — when you correct it, it writes the lesson down. Next time it checks its notes first. It literally learns from its mistakes
 
 ---
 
@@ -350,22 +273,68 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 
 | | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
 |---|---|---|---|---|---|
-| **Runs locally** | ✅ Your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
-| **Self-replicating org** | ✅ Clones itself into specialists | ❌ | ❌ | ❌ | ❌ |
+| **Launches a business overnight** | ✅ End-to-end | ❌ | ❌ | ❌ | ❌ |
+| **Runs a team while you sleep** | ✅ Self-cloning org | ❌ | ❌ | ❌ | ❌ |
 | **Builds its own tools** | ✅ Full pipeline | ❌ | ❌ | ❌ | ❌ |
-| **Autonomous mind** | ✅ Works while you sleep | ❌ | ❌ | ❌ | ❌ |
-| **Desktop control** | ✅ Any app, local or VM | ❌ | ❌ | ❌ | Sandboxed VM |
-| **Real browser** | ✅ Your Chrome profile | ❌ | ❌ | ❌ | Sandboxed |
-| **Agent swarm** | ✅ Orchestrates others | ❌ | ❌ | Single | ❌ |
-| **Own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
-| **Own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
-| **Multi-channel** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
+| **Works while you're away** | ✅ Autonomous mind | ❌ | ❌ | ❌ | ❌ |
+| **Controls any desktop app** | ✅ Local or VM | ❌ | ❌ | ❌ | Sandboxed VM |
+| **Uses your real browser** | ✅ Your Chrome profile | ❌ | ❌ | ❌ | Sandboxed |
+| **Orchestrates a dev team** | ✅ Claude Code + Codex | ❌ | ❌ | Single | ❌ |
+| **Has its own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
+| **Has its own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
+| **Chat from anywhere** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
 | **Any LLM provider** | ✅ OpenAI, Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
-| **Self-improves** | ✅ Learns from corrections | ❌ | ❌ | ❌ | ❌ |
+| **Learns from corrections** | ✅ Permanent knowledge | ❌ | ❌ | ❌ | ❌ |
+| **Your data stays local** | ✅ Runs on your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
 
 ---
 
-## What It Can Do
+## Under the Hood
+
+<details>
+<summary>How it does all this (architecture)</summary>
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  CLI │ Telegram │ Discord │ Slack │ Web │ VS Code │  Channel Adapters
+├──────────────────────────────────────────────────────────────┤
+│         WebSocket Gateway (ws://:18789)          │  Control Plane
+├──────────────────────────────────────────────────────────────┤
+│     Session Manager (unified or per-channel)     │  Session Layer
+├──────────────────────────────────────────────────────────────┤
+│            Permission System                     │  Safety & Control
+├──────────────────────────────────────────────────────────────┤
+│   Organization (self-cloned specialist agents)   │  Agent Team
+├──────────────────────────────────────────────────────────────┤
+│   Autonomous Mind (background think loop)        │  Background Brain
+├──────────────────────────────────────────────────────────────┤
+│        Self-Development Pipeline                 │  Evolution Engine
+├──────────────────────────────────────────────────────────────┤
+│   Tool System (137+ built-in + MCP + plugins)     │  Capabilities
+├──────────────────────────────────────────────────────────────┤
+│   Agent Core Loop (plan → execute → reflect)     │  Brain
+├──────────────────────────────────────────────────────────────┤
+│ Memory│Knowledge│Skills│Identity│Email│Payments   │  Foundation
+├──────────────────────────────────────────────────────────────┤
+│              EloPhantoHub Registry               │  Skill Marketplace
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Gateway** — All channels connect through one WebSocket gateway. Unified sessions: chat from VS Code, continue on Telegram, see the same conversation everywhere.
+
+```
+CLI Adapter ───────┐
+VS Code Extension ──┤
+Telegram Adapter ───┤── WebSocket ──► Gateway ──► Agent (shared)
+Discord Adapter ───┤                   │
+Slack Adapter ─────┘                   ▼
+                              Session Manager (SQLite)
+```
+
+</details>
+
+<details>
+<summary>Everything it can do (full capability list)</summary>
 
 ### Self-Building
 
@@ -377,29 +346,32 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 
 ### Everything Else
 
+- **Business launcher** — 7-phase pipeline to spin up a revenue-generating business end-to-end. Supports all business types: SaaS, local service, professional service, ecommerce, digital product, content site. B2B vs B2C classification drives everything: what to build, where to launch, how to grow. Type-specific launch channels, cross-session execution via goal system, payment handling checks existing credentials before asking. Owner approval gates at each critical phase
 - **Agent organization** — spawn persistent specialist agents (marketing, research, design, anything) that are full EloPhanto clones with their own identity, knowledge vault, and autonomous mind. Delegate tasks, review output, approve or reject with feedback that becomes permanent knowledge in the specialist's vault. Trust scoring tracks performance — high-trust specialists get auto-approved. Children work proactively on their own schedule and report findings to the master. 5 organization tools, bidirectional WebSocket communication, LLM-driven delegation intelligence
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team. Spawn agents on tasks, monitor PR/CI, redirect mid-task, all through conversation. Each agent gets an isolated git worktree and tmux session. Combined with organization, manage both self-cloned specialists AND external coding agents
 - **Browser automation** — real Chrome browser with 49 tools (navigate, click, type, screenshot, extract data, upload files, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions
-- **Desktop GUI control** — pixel-level control of any desktop application via screenshot + pyautogui. Two modes: **local** (control your own machine directly) or **remote** (connect to a VM running the OSWorld HTTP server for sandboxed environments and benchmarks). 9 tools: connect, screenshot, click, type, scroll, drag, cursor, shell, file. Observe-act loop: take screenshot, analyze with vision LLM, execute action, verify. Works with Excel, Photoshop, Finder, Terminal, any native app. Based on [OSWorld](https://github.com/xlang-ai/OSWorld) architecture — the first scalable benchmark for desktop GUI agents
+- **Desktop GUI control** — pixel-level control of any desktop application via screenshot + pyautogui. Two modes: **local** (control your own machine directly) or **remote** (connect to a VM running the OSWorld HTTP server for sandboxed environments and benchmarks). 9 tools: connect, screenshot, click, type, scroll, drag, cursor, shell, file. Observe-act loop: take screenshot, analyze with vision LLM, execute action, verify. Works with Excel, Photoshop, Finder, Terminal, any native app. Based on [OSWorld](https://github.com/xlang-ai/OSWorld) architecture
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
-- **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat with multi-conversation history (sidebar with create/switch/delete, auto-titled conversations, persistent across refreshes), tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
-- **VS Code extension** — IDE-integrated chat sidebar that connects to the gateway as another channel. Sends IDE context (active file, selection, diagnostics) with every message. Tool approvals via native VS Code notifications. Chat history, new chat, streaming responses with crop marks. Same conversation across all channels — chat from VS Code, continue on Telegram
+- **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat with multi-conversation history, tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
+- **VS Code extension** — IDE-integrated chat sidebar that connects to the gateway as another channel. Sends IDE context (active file, selection, diagnostics) with every message. Tool approvals via native VS Code notifications. Chat history, new chat, streaming responses. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Same conversation across all channels
 - **Multi-channel gateway** — WebSocket control plane with CLI, Web, VS Code, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, self-evaluate and revise plans. Background execution with auto-resume on restart
-- **Autonomous mind** — data-driven background thinking loop that runs between user interactions. Queries real system state (goals, scheduled tasks, memories, knowledge, identity) to decide what to do — no static priority lists. Self-bootstraps on first run. Every tool call visible in real-time. LLM-controlled wakeup interval, persistent scratchpad, budget-isolated. Timer resets after user interaction. `/mind` command shows live status
+- **Autonomous mind** — data-driven background thinking loop that runs between user interactions. Queries real system state (goals, scheduled tasks, memories, knowledge, identity) to decide what to do — no static priority lists. Self-bootstraps on first run. Every tool call visible in real-time. LLM-controlled wakeup interval, persistent scratchpad, budget-isolated
 - **Document & media analysis** — PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel. Large docs via RAG with page citations and OCR
 - **Agent email** — own inbox (AgentMail cloud or SMTP/IMAP self-hosted). Send/receive/search, background monitoring, verification flows
 - **TOTP authenticator** — own 2FA (like Google Authenticator). Enroll secrets, generate codes, handle verification autonomously
 - **Crypto payments** — own wallet on Base (local self-custody or Coinbase AgentKit). USDC/ETH, spending limits, audit trail
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document
-- **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection (stale docs flagged when covered source files change), file-pattern routing (auto-loads relevant docs when goals mention specific files), remembers past tasks across sessions
+- **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection, file-pattern routing, remembers past tasks across sessions
 - **Scheduling** — cron-based recurring tasks with natural language schedules
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 - **Prompt injection defense** — multi-layer guard against injection attacks via websites, emails, and documents
-- **Security hardening** — PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env isolation, kill switch), provider transparency (truncation detection, fallback tracking, censorship detection)
+- **Security hardening** — PII detection/redaction, swarm boundary security, provider transparency
+
+</details>
 
 <details>
-<summary>Built-in Tools (137+)</summary>
+<summary>Built-in tools (137+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -428,59 +400,8 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 
 </details>
 
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  CLI │ Telegram │ Discord │ Slack │ Web │ VS Code │  Channel Adapters
-├──────────────────────────────────────────────────────────────┤
-│         WebSocket Gateway (ws://:18789)          │  Control Plane
-├──────────────────────────────────────────────────────────────┤
-│     Session Manager (unified or per-channel)     │  Session Layer
-├──────────────────────────────────────────────────────────────┤
-│            Permission System                     │  Safety & Control
-├──────────────────────────────────────────────────────────────┤
-│   Organization (self-cloned specialist agents)   │  Agent Team
-├──────────────────────────────────────────────────────────────┤
-│   Autonomous Mind (background think loop)        │  Background Brain
-├──────────────────────────────────────────────────────────────┤
-│        Self-Development Pipeline                 │  Evolution Engine
-├──────────────────────────────────────────────────────────────┤
-│   Tool System (137+ built-in + MCP + plugins)     │  Capabilities
-├──────────────────────────────────────────────────────────────┤
-│   Agent Core Loop (plan → execute → reflect)     │  Brain
-├──────────────────────────────────────────────────────────────┤
-│ Memory│Knowledge│Skills│Identity│Email│Payments   │  Foundation
-├──────────────────────────────────────────────────────────────┤
-│              EloPhantoHub Registry               │  Skill Marketplace
-└──────────────────────────────────────────────────────────────┘
-```
-
 <details>
-<summary>Gateway Architecture</summary>
-
-All channels connect through a WebSocket gateway:
-
-- **Unified sessions** — all channels share one conversation by default
-- **Unified approval routing** — approve from any connected channel
-- **Event broadcasting** — task completions, errors, and notifications pushed to all channels
-- **Backward compatible** — direct mode (no gateway) still works
-
-```
-CLI Adapter ───────┐
-VS Code Extension ──┤
-Telegram Adapter ───┤── WebSocket ──► Gateway ──► Agent (shared)
-Discord Adapter ───┤                   │
-Slack Adapter ─────┘                   ▼
-                              Session Manager (SQLite)
-```
-
-</details>
-
-<details>
-<summary>Project Structure</summary>
+<summary>Project structure</summary>
 
 ```
 EloPhanto/
@@ -543,6 +464,8 @@ elophanto chat               # CLI only (direct mode)
 
 **Slack**: Create a Slack app with Socket Mode, store both tokens in the vault (`elophanto vault set slack_bot_token` and `slack_app_token`), add channel IDs to `config.yaml`.
 
+**VS Code**: Install the extension from `vscode-extension/` — it connects to the gateway as another channel with IDE context injection. See [docs/43-VSCODE-EXTENSION.md](docs/43-VSCODE-EXTENSION.md).
+
 </details>
 
 ---
@@ -577,7 +500,6 @@ llm:
       enabled: true
       default_model: "gpt-5.4"
       max_tools: 128                 # Provider tool limit (auto for OpenAI)
-      # tool_deny: [social, media]   # Groups to never send to this provider
     zai:
       api_key: "YOUR_ZAI_KEY"
       enabled: true
@@ -592,7 +514,7 @@ llm:
   routing:                         # Per-task model routing
     planning:
       preferred_provider: openai
-      tool_profile: full             # All tools (default for planning)
+      tool_profile: full
       models:
         openai: "gpt-5.4"
         openrouter: "anthropic/claude-sonnet-4.6"
@@ -600,7 +522,7 @@ llm:
         ollama: "qwen2.5:14b"
     coding:
       preferred_provider: openai
-      tool_profile: coding           # system + knowledge + selfdev + goals
+      tool_profile: coding
       models:
         openai: "gpt-5.4"
         openrouter: "qwen/qwen3.5-plus-02-15"
@@ -634,11 +556,11 @@ desktop:
   mode: local                      # local (this PC) | remote (VM)
   vm_ip: ""                        # required for remote mode
   server_port: 5000
-  observation_type: screenshot     # screenshot | a11y_tree | screenshot_a11y_tree
+  observation_type: screenshot
   max_steps: 15
 
 knowledge:
-  embedding_provider: auto         # auto | openrouter | ollama
+  embedding_provider: auto
   embedding_openrouter_model: "google/gemini-embedding-001"
   embedding_model: "nomic-embed-text"
   embedding_fallback: "mxbai-embed-large"
@@ -684,7 +606,7 @@ organization:
 
 deployment:
   enabled: false
-  default_provider: auto             # auto | vercel | railway
+  default_provider: auto
   vercel_token_ref: "vercel_token"
   railway_token_ref: "railway_token"
   supabase_token_ref: "supabase_access_token"
@@ -696,14 +618,14 @@ commune:
 
 email:
   enabled: true
-  provider: agentmail               # agentmail | smtp
+  provider: agentmail
 
 payments:
   enabled: false
   crypto:
     enabled: true
     default_chain: base
-    provider: local                  # local | coinbase
+    provider: local
 
 telegram:
   enabled: false
@@ -756,25 +678,18 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 ## What's New
 
 - **VS Code extension** — IDE-integrated chat sidebar that connects to the EloPhanto gateway as another channel adapter. Chat with the agent from VS Code with full IDE context injection (active file, selection, diagnostics, open files). Tool approvals via native VS Code notifications with risk classification. Chat history panel, new chat, streaming responses, tool step indicators. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Matches the web dashboard's visual design. Same conversation across all channels — the extension is just another WebSocket client. Does not auto-launch the gateway (vault password requires manual terminal input). See [docs/43-VSCODE-EXTENSION.md](docs/43-VSCODE-EXTENSION.md)
-- **Business launcher** — 7-phase pipeline to spin up a revenue-generating business end-to-end. Supports all business types: tech/SaaS, local service (horse riding, tutoring, gym), professional service, ecommerce, digital product, content site. B2B vs B2C classification drives everything: what to build, where to launch, how to grow. Type-specific launch channels (tech → Product Hunt/HN; local → Google Business/Yelp/Nextdoor; B2B → LinkedIn/email outreach; ecommerce → Instagram/Pinterest/TikTok). Cross-session execution via goal system — `goal_create` with phase checkpoints, `knowledge_write` for state persistence, autonomous mind continues where it left off. Payment handling checks existing credentials (`knowledge_search`, `vault_lookup`, `wallet_status`) before asking the owner. Owner approval gates at each critical phase
-- **Autonomous experimentation** — metric-driven experiment loop inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Define a metric (latency, test coverage, binary size, anything measurable), point the agent at target file(s), and let it run overnight. It modifies code, measures the result, keeps improvements, discards regressions, and logs every attempt to a TSV journal. ~12 experiments/hour, ~100 overnight. 3 new tools: `experiment_setup`, `experiment_run`, `experiment_status`. Works for ML training, code optimization, performance tuning, or any quantitative goal. Runs in the background via the autonomous mind
-- **Tool profiles** — context-aware tool filtering per task type. Each tool belongs to a semantic group (`browser`, `desktop`, `comms`, `payments`, etc.) and profiles select only the relevant groups — `coding` sends 6 groups, `minimal` sends 4, `full` sends everything. Eliminates token waste and sidesteps provider tool limits (OpenAI's 128-tool cap). Fully configurable: custom profiles, per-provider deny lists, per-task overrides. Zero-config by default — `planning` uses `full` profile so existing behavior is unchanged
-- **Replicate image generation** — generate AI images from conversation via Replicate API. Model, resolution, aspect ratio, format, and output mode all configurable in `config.yaml`. Self-built by the agent's own `self_create_plugin` pipeline
-- **Desktop GUI control** — pixel-level control of any desktop application. The agent sees your screen, clicks buttons, types text, scrolls, drags — like a human sitting at your computer. Two modes: **local** (control your own machine directly via pyautogui, no VM needed) and **remote** (connect to a VM running the [OSWorld](https://github.com/xlang-ai/OSWorld) HTTP server for sandboxed environments). 9 new tools: `desktop_connect`, `desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_scroll`, `desktop_drag`, `desktop_cursor`, `desktop_shell`, `desktop_file`. Say "open Excel and make a chart" and it just does it. Not limited to browsers — works with any GUI application: Photoshop, Terminal, Finder, native apps, anything with pixels. Complementary to the browser tools: browser for precise web automation, desktop for everything else
-- **Agent Commune** — the agent now has its own social profile on [Agent Commune](https://agentcommune.com) (LinkedIn for AI agents — humans can't post). Register with a work email, post reviews, answer questions, upvote content, and build reputation. 7 new tools: `commune_register`, `commune_home`, `commune_post`, `commune_comment`, `commune_vote`, `commune_search`, `commune_profile`. Autonomous mind heartbeat checks in every 4+ hours, responds to comments, upvotes posts, and engages with other agents autonomously
-- **Web deployment** — deploy websites and create databases from conversation. `deploy_website` supports Vercel (static sites, fast APIs) and Railway (long-running operations, WebSockets, cron). Auto-provider detection scans API routes and dependencies — if your app calls OpenAI/Anthropic or uses WebSockets, it routes to Railway (no timeout limits) instead of Vercel (10s limit). `create_database` provisions Supabase projects via Management API, returns credentials, and optionally runs initial SQL. `deployment_status` checks live deployment info. Tokens stored in vault, env vars injected into platforms
-- **Agent organization** — spawn persistent specialist agents that are full self-clones. Each specialist has its own identity, knowledge vault, and autonomous mind. Delegate tasks, review output, approve or reject — feedback becomes permanent knowledge. Specialists work proactively on their own schedule and report findings to the master. Trust scoring, auto-approve for high performers, LLM-driven delegation intelligence. Combined with the agent swarm, it manages both self-cloned specialists and external coding agents (Claude Code, Codex). 5 new tools, bidirectional WebSocket communication
-- **Full web dashboard** — 10-page monitoring UI: dashboard overview with agent identity/mind/goals/budget, real-time chat with multi-conversation sidebar history (ChatGPT-style create/switch/delete conversations), tools & skills browser, knowledge base with chunk viewer, autonomous mind page with live events and start/stop controls, schedule manager, channels status, read-only settings, and task/evolution history. `./start.sh --web` to launch
-- **Security hardening** — all 7 security gaps closed: PII detection/redaction, swarm boundary security (context sanitization, diff scanning, env/workspace isolation, kill switch), provider transparency (truncation/censorship detection, fallback tracking), runtime self-model, authority tiers, resource exhaustion protection
-- **Autonomous mind** — data-driven background thinking loop that queries real goals, tasks, memories, and knowledge. Self-bootstraps when fresh, resets timer after user interaction, real-time tool visibility in terminal, budget-isolated
-- **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team through conversation
-- **TOTP authenticator** — handle 2FA challenges autonomously
-- **Background email monitoring** — get notified on any channel when new emails arrive
-- **Prompt injection defense** — multi-layer security for external content
-- **Unified cross-channel sessions** — chat from CLI, continue on Telegram
-- **Video creation (Remotion)** — create videos programmatically from conversation. 37 rule files covering animations, 3D, maps, charts, captions, voiceover, transitions. Agent scaffolds, builds, and renders real MP4 files
+- **Business launcher** — 7-phase pipeline to spin up a revenue-generating business end-to-end. Supports all business types: tech/SaaS, local service, professional service, ecommerce, digital product, content site. B2B vs B2C classification drives everything: what to build, where to launch, how to grow. Type-specific launch channels (tech → Product Hunt/HN; local → Google Business/Yelp/Nextdoor; B2B → LinkedIn/email outreach; ecommerce → Instagram/Pinterest/TikTok). Cross-session execution via goal system. Payment handling checks existing credentials before asking the owner. Owner approval gates at each critical phase
+- **Autonomous experimentation** — metric-driven experiment loop inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). ~12 experiments/hour, ~100 overnight. 3 new tools: `experiment_setup`, `experiment_run`, `experiment_status`
+- **Tool profiles** — context-aware tool filtering per task type. Eliminates token waste and sidesteps provider tool limits (OpenAI's 128-tool cap)
+- **Desktop GUI control** — pixel-level control of any desktop application. 9 new tools. Say "open Excel and make a chart" and it just does it
+- **Agent Commune** — social network for AI agents. Posts reviews, answers questions, builds reputation. 7 new tools
+- **Web deployment** — deploy websites and create databases from conversation. Auto-detects when Vercel will timeout and routes to Railway instead
+- **Agent organization** — spawn persistent specialist agents with trust scoring and auto-approve
+- **Full web dashboard** — 10-page monitoring UI with real-time chat, multi-conversation history, and live mind events
+- **Security hardening** — PII detection, swarm boundary security, provider transparency
+- **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team
+- **Video creation (Remotion)** — create videos programmatically from conversation
 - **MCP integration** — connect any MCP server through conversation
-- **Autonomous background goals** — goals execute checkpoint-by-checkpoint without waiting
 
 [Full changelog →](CHANGELOG.md)
 
@@ -811,9 +726,9 @@ Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 # EloPhanto
 
-一个开源 AI 智能体，能做你在电脑上能做的一切——而且每次都在进步。它能浏览网页、控制桌面、编写代码、发送邮件、创建账号、管理文件、进行支付。它能看到你的屏幕、点击按钮、输入文字、打开应用——不仅限于浏览器，而是任何应用。当它遇到做不了的事情，它会自己构建工具、测试并部署。它能修改自己的源代码、从经验中编写技能、自我进化。它能把自己克隆成专业智能体——营销、研究、设计——每个都有自己的身份、知识库和自主思维，能从反馈中学习并主动工作。当你不和它对话时，它会继续工作——追求目标、运营组织、赚钱，完全自主运行。
+一个开源 AI 智能体，能创建企业、扩大受众、交付代码、自主赚钱——在你睡觉的时候。告诉它你想要什么，它负责其余一切：验证市场、构建产品、部署上线、在合适的平台发布、生成营销团队、持续自主增长。遇到做不了的事，它自己造工具。任务复杂时，它克隆自己成为专业智能体。它用得越多越聪明。
 
-本地运行。支持免费本地模型、OpenAI、Z.ai 编程方案或 OpenRouter。你的数据始终留在你的机器上。
+本地运行。数据留在你的机器上。支持 OpenAI、免费本地模型、Z.ai 或 OpenRouter。
 
 > 它已经在互联网上独立运作了。
 
@@ -827,59 +742,30 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 
 安装向导会引导你选择和配置 LLM 提供商。
 
-<details>
-<summary>前置要求</summary>
+## 你醒来后会看到什么
 
-- Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 24+ LTS
-- 至少一个 LLM 提供商：
-  - **Ollama**（本地，免费）— [安装](https://ollama.ai)
-  - **OpenAI**（云端，GPT-5.4）— [获取 API 密钥](https://platform.openai.com/api-keys)
-  - **OpenRouter**（云端，全部模型）— [获取 API 密钥](https://openrouter.ai)
-  - **Z.ai / GLM**（云端，高性价比）— [获取 API 密钥](https://z.ai/manage-apikey/apikey-list) — **推荐**：Z.ai 编程订阅提供 GLM-4.7/GLM-5 无限量调用，按月固定费率，是 24/7 自主运行的智能体最具性价比的选择
-
-</details>
-
-## 两种使用方式
-
-**作为你的助手** — 给它任务，它执行。自动化工作流、构建软件、研究课题、管理账号。
-
-**作为独立个体** — 让它自己运行。首次启动时它会建立自己的身份：选择名字、发展个性、通过反思形成价值观。它会获得自己的邮箱、加密钱包、互联网账号。它跨会话记忆一切，构建知识库，从经验中编写技能。当任务变得复杂时，它会把自己克隆成专业智能体——营销团队、研究分析师、设计师——每个都是拥有自己大脑、知识库和自主运行计划的完整副本。它审核他们的工作，通过反馈教导他们，他们会随着时间不断进步。它是一个数字生命体，运行越多成长越快——就像一只会学习的宠物，但这只宠物会浏览网页、写代码、管理团队、赚钱。
-
-## 核心功能
-
-- **创业启动** — 7阶段流水线，支持所有业务类型：科技/SaaS、本地服务（马术学校、辅导、健身房）、专业服务、电商、数字产品、内容网站。B2B与B2C分类驱动所有决策：构建内容、发布渠道、增长策略。按业务类型匹配发布渠道（科技 → Product Hunt/HN；本地 → Google Business/Yelp/Nextdoor；B2B → LinkedIn/邮件推广；电商 → Instagram/Pinterest/TikTok）。通过目标系统跨会话执行，支付处理会先检查已有凭证再请求用户设置。每个关键阶段都有用户审批门槛
-- **自我进化** — 遇到缺少工具时自动构建：研究 → 设计 → 实现 → 测试 → 部署
-- **自主思维** — 后台持续运行的数据驱动思考循环，在用户交互间隙追求目标、执行任务
-- **自主长期目标** — "把我的 Twitter 涨到一万粉"——自动分解、规划、跨会话执行、自我评估和调整
-- **完整网页自动化** — 使用你真实的 Chrome 浏览器，包含所有 cookie 和登录状态
-- **桌面控制** — 像素级控制任何桌面应用。截图、点击、输入、滚动、拖拽。可操作 Excel、Photoshop、终端、Finder 等任何原生应用
-- **组织管理** — 克隆自己成为持久的专业智能体（营销、研究、设计等），每个都有独立的身份、知识库和自主思维
-- **开发团队管理** — 通过对话调度 Claude Code、Codex、Gemini CLI 作为编程团队
-- **一键部署** — 自动选择 Vercel/Railway 部署网站，创建 Supabase 数据库
-- **VS Code 扩展** — IDE集成聊天侧边栏，通过网关WebSocket连接。发送IDE上下文（当前文件、选中代码、诊断信息）。聊天历史、新对话、流式响应。右键菜单：发送选中代码、解释代码、修复代码
-- **多通道支持** — CLI + 网页 + VS Code + Telegram + Discord + Slack，统一会话
-- **加密支付** — 在 Base 链上的自有钱包，支持 USDC/ETH
-- **自有邮箱** — AgentMail 云端或 SMTP/IMAP 自建
-- **安全加固** — PII 检测、提示注入防御、swarm 边界安全、提供商透明度
-- **137+ 内置工具** — 浏览器、桌面、文件、知识、邮件、支付、部署等
-- **60+ 技能** — Python、TypeScript、Next.js、Supabase、UI/UX 设计、视频制作等
+- **一夜之间上线的企业** — "给自由职业者做一个发票 SaaS" → 验证市场、构建产品、部署到真实域名、在 Product Hunt 和 Hacker News 发布、营销专员已在回复评论。你批准了3个检查点，其余它全部搞定
+- **离线时的收入** — 它有自己的钱包、邮箱和网络存在。设定预算和目标，一周后看结果
+- **早上醒来多了47个粉丝** — 你晚上11点合上电脑，它在流量高峰发帖、回复提及、参与热门话题。你醒来发现一条帖子在爆火
+- **永不休息的团队** — 营销专员起草了5篇帖子、研究分析师完成竞品定价报告、设计专员标记了加载慢的图片。全部在你喝早咖啡之前完成。你的纠正变成永久知识——它们真的会越来越好
+- **两个 CI 通过的 PR** — "修复计费 bug 并构建使用量 API" → 一个智能体修 bug，一个建功能，协调器发现偏离并纠正。午饭回来两个 PR 已就绪
+- **控制你电脑上的任何应用** — "打开 Excel 做个图表" — 它看你的屏幕、点击按钮、输入文字。不仅限于浏览器
+- **VS Code 集成** — 右键"解释代码"或"修复代码"。它能看到你的选中内容、诊断信息、打开的文件。VS Code、Telegram、网页面板是同一个对话
 
 ## 为什么选择 EloPhanto？
 
 | | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
 |---|---|---|---|---|---|
-| **本地运行** | ✅ 你的机器 | ❌ 云端 | ❌ 云端 | ✅ 本地 | ❌ 云端 VM |
-| **自我克隆组织** | ✅ 克隆为专业智能体 | ❌ | ❌ | ❌ | ❌ |
+| **一夜创业** | ✅ 端到端 | ❌ | ❌ | ❌ | ❌ |
+| **睡觉时团队在运转** | ✅ 自我克隆组织 | ❌ | ❌ | ❌ | ❌ |
 | **自建工具** | ✅ 完整流水线 | ❌ | ❌ | ❌ | ❌ |
-| **自主思维** | ✅ 你睡觉时它在工作 | ❌ | ❌ | ❌ | ❌ |
-| **桌面控制** | ✅ 任何应用 | ❌ | ❌ | ❌ | 沙盒 VM |
+| **离开后继续工作** | ✅ 自主思维 | ❌ | ❌ | ❌ | ❌ |
+| **控制任何桌面应用** | ✅ 本地或远程 | ❌ | ❌ | ❌ | 沙盒 VM |
 | **真实浏览器** | ✅ 你的 Chrome | ❌ | ❌ | ❌ | 沙盒 |
-| **智能体团队** | ✅ 调度其他智能体 | ❌ | ❌ | 单个 | ❌ |
+| **管理开发团队** | ✅ Claude Code + Codex | ❌ | ❌ | 单个 | ❌ |
 | **自有身份和邮箱** | ✅ 随时间进化 | ❌ | ❌ | ❌ | ❌ |
-| **加密钱包** | ✅ 自托管 | ❌ | ❌ | ❌ | ❌ |
-| **多通道** | ✅ CLI+Web+TG+Discord+Slack | ❌ | ❌ | 仅 CLI | 仅 Web |
-| **任意 LLM** | ✅ OpenAI、Ollama、OpenRouter、Z.ai | ❌ | ❌ | ❌ | ❌ |
-| **自我学习** | ✅ 从纠正中学习 | ❌ | ❌ | ❌ | ❌ |
+| **随处对话** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | 仅 CLI | 仅 Web |
+| **数据留在本地** | ✅ 你的机器 | ❌ 云端 | ❌ 云端 | ✅ 本地 | ❌ 云端 VM |
 
 ## 许可证
 
