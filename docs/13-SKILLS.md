@@ -169,7 +169,7 @@ Use `skills/_template/SKILL.md` as a starting point for new skills.
 
 ## Bundled & Installed Skills
 
-EloPhanto ships with 27 skills across three categories:
+EloPhanto ships with 120+ skills across multiple categories:
 
 ### Core Skills (EloPhanto-native)
 
@@ -212,6 +212,43 @@ EloPhanto ships with 27 skills across three categories:
 | `fixing-metadata` | Ship correct, complete metadata |
 | `fixing-motion-performance` | Fix animation performance issues |
 | `swiftui-ui-patterns` | SwiftUI views and components |
+
+### Organization & Strategy Skills (adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents), Apache 2.0)
+
+57 specialized skills across 9 divisions, plus the NEXUS strategy system:
+
+| Division | Skills | Examples |
+|---|---|---|
+| Engineering (11) | `ai-engineering`, `backend-architecture`, `devops-automation`, `frontend-development`, `mobile-app-development`, `senior-development`, `data-engineering`, `security-engineering`, `rapid-prototyping`, `technical-writing`, `autonomous-optimization` | Backend architecture patterns, CI/CD pipelines, security hardening |
+| Design (8) | `brand-guardian`, `image-prompt-engineering`, `inclusive-visuals`, `ui-design`, `ux-architecture`, `ux-research`, `visual-storytelling`, `whimsy-design` | Brand identity systems, UX research methods, visual narratives |
+| Marketing (11) | `app-store-optimization`, `content-creation`, `growth-hacking`, `instagram-marketing`, `reddit-marketing`, `social-media-strategy`, `tiktok-marketing`, `twitter-marketing`, `wechat-marketing`, `xiaohongshu-marketing`, `zhihu-marketing` | Platform-specific strategies, growth loops, content calendars |
+| Product (4) | `behavioral-nudge`, `feedback-synthesis`, `sprint-prioritization`, `trend-research` | RICE scoring, nudge frameworks, trend analysis |
+| Project Management (5) | `experiment-tracking`, `project-shepherding`, `project-management`, `studio-operations`, `studio-production` | A/B testing, stakeholder management, portfolio oversight |
+| Support (6) | `analytics-reporting`, `executive-summaries`, `finance-tracking`, `infrastructure-maintenance`, `legal-compliance`, `support-response` | KPI dashboards, compliance audits, incident response |
+| Testing (8) | `accessibility-auditing`, `api-testing`, `evidence-collection`, `performance-benchmarking`, `reality-checking`, `test-analysis`, `tool-evaluation`, `workflow-optimization` | Load testing, QA evidence, process efficiency |
+| Specialized (9) | `agentic-identity`, `agent-orchestration`, `data-analytics`, `data-consolidation`, `lsp-engineering`, `report-distribution`, `sales-data-extraction`, `cultural-intelligence`, `developer-advocacy` | Trust systems, pipeline orchestration, LSP indexing |
+| Spatial Computing (6) | `macos-metal`, `terminal-integration`, `visionos-spatial`, `xr-cockpit`, `xr-development`, `xr-interface` | Metal rendering, visionOS, WebXR, spatial UI |
+
+**NEXUS Strategy System (15 skills)**:
+
+| Skill | Purpose |
+|---|---|
+| `agency-strategy` | Master NEXUS strategy — 7-phase pipeline, 3 deployment modes, 50+ agent roster |
+| `agency-phase-0-discovery` through `agency-phase-6-operate` | Phase-specific playbooks with agent activation sequences, quality gates, and decision logic |
+| `agent-activation` | Copy-paste activation prompts for all agents with placeholder customization |
+| `agent-handoff` | Structured handoff templates (standard, QA pass/fail, escalation) |
+| `runbook-startup-mvp` | 4-6 week MVP build scenario (NEXUS-Sprint mode) |
+| `runbook-enterprise-feature` | Enterprise feature development scenario |
+| `runbook-marketing-campaign` | Multi-channel marketing campaign scenario |
+| `runbook-incident-response` | P0-P3 incident response with severity-based team activation |
+
+### Organization Role Templates
+
+75 role templates in `knowledge/organization-roles/` provide full persona definitions for specialist agents spawned via `organization_spawn`. Each template preserves the complete agent personality, capabilities, workflows, deliverable templates, and success metrics from the source material.
+
+When the master spawns a specialist (e.g., `organization_spawn role="design-brand-guardian"`), the matching role template seeds the child's identity and knowledge vault.
+
+Roles are namespaced by division: `design-*`, `engineering-*`, `marketing-*`, `product-*`, `project-management-*`, `support-*`, `testing-*`, `specialized-*`, `spatial-*`, `strategy-*`.
 
 ## EloPhantoHub — Skill Registry
 

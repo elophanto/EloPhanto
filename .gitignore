@@ -40,6 +40,7 @@ logs/
 # Agent-generated knowledge (instance-specific, except base templates)
 knowledge/*
 !knowledge/system/
+!knowledge/organization-roles/
 
 # Node.js bridge plugins
 bridge/*/dist/

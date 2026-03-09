@@ -32,7 +32,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 10 | [Implementation Roadmap](10-ROADMAP.md) | 23-phase build plan with exit criteria for each phase |
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
-| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 28 bundled skills, trigger matching, EloPhantoHub registry |
+| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 120+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry |
 | 13b | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, progress tracking, self-evaluation |
 | 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail |
@@ -82,7 +82,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 
 **How it controls the browser**: A Node.js bridge spawns real Chrome (Playwright + stealth plugin) with the user's copied profile. In profile mode, existing sessions and cookies are preserved — no re-authentication needed. 47 browser tools cover navigation, clicking, typing, scrolling, screenshots, console/network inspection, and more.
 
-**How it learns best practices**: 28 bundled skills (SKILL.md files) teach the agent best practices for specific task types — Python, TypeScript, Next.js, Supabase, browser automation, UI design, and more. Skills are loaded on-demand before starting a task. Install more from [ui-skills.com](https://www.ui-skills.com/), [anthropics/skills](https://github.com/anthropics/skills), EloPhantoHub (`elophanto skills hub search`), or any repo using the SKILL.md convention.
+**How it learns best practices**: 120+ bundled skills (SKILL.md files) teach the agent best practices for specific task types — Python, TypeScript, Next.js, Supabase, browser automation, UI design, marketing, project management, testing, spatial computing, and more. 75 organization role templates provide full persona definitions for specialist agents spawned via `organization_spawn`. Skills are loaded on-demand before starting a task. Install more from [ui-skills.com](https://www.ui-skills.com/), [anthropics/skills](https://github.com/anthropics/skills), EloPhantoHub (`elophanto skills hub search`), or any repo using the SKILL.md convention.
 
 **How it scales work**: Spawn persistent specialist child agents via the Organization system, delegate tasks to coding swarms (Claude Code, Codex, Gemini CLI), run autonomous experiments overnight, deploy websites and databases from conversation, and execute sandboxed Python scripts with tool access for complex multi-step orchestration.
 
