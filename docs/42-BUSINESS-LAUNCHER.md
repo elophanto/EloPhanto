@@ -160,6 +160,25 @@ launches, and building the wrong thing.
 
 The agent NEVER proceeds past a gate without explicit owner approval.
 
+## How It Works Across Sessions
+
+A business takes days or weeks to build — it doesn't fit in a single conversation.
+The agent uses the **goal system** and **knowledge persistence** to maintain
+continuity:
+
+1. **Classify + Validate** run immediately in the first conversation.
+2. After owner approval, the agent calls `goal_create` with one checkpoint per
+   remaining phase (Plan, Build, Deploy, Launch, Grow, Operate).
+3. After each phase completes, the agent saves state to knowledge via
+   `knowledge_write` at `knowledge/projects/[business-name]/phase-N-[name].md`.
+4. The autonomous mind picks up the goal in future sessions and continues
+   from the last completed checkpoint.
+5. At owner gates (after Validate, Plan, Deploy), the agent stops and waits
+   for explicit approval before proceeding.
+
+This means the owner can start a business in one conversation, close the laptop,
+and come back later — the agent remembers where it left off and what's next.
+
 ## Integration with Other Systems
 
 **Organization System:** Phase 6 spawns persistent specialist agents for
