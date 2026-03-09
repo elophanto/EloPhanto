@@ -2,9 +2,10 @@
 
 ## Description
 End-to-end playbook for spinning up a revenue-generating business — from idea
-validation through deployment, launch, and autonomous growth. Uses EloPhanto's
-existing tools (browser, deployment, email, payments, swarm, organization,
-autonomous mind) as a coordinated pipeline.
+validation through deployment, launch, and autonomous growth. Handles any
+business type: tech (SaaS, API), local service (horse riding, tutoring),
+ecommerce (physical/digital products), content, consulting.
+Adapts strategy based on B2B vs B2C and industry.
 
 ## Triggers
 - business
@@ -25,6 +26,12 @@ autonomous mind) as a coordinated pipeline.
 - entrepreneurship
 - income
 - earn money
+- online business
+- local business
+- service business
+- ecommerce
+- store
+- shop
 
 ## Instructions
 
@@ -33,6 +40,36 @@ autonomous mind) as a coordinated pipeline.
 Every business follows these phases. Do NOT skip phases or jump to building
 before validating. Each phase has an owner gate — present findings and wait
 for approval before proceeding.
+
+---
+
+### Phase 0: CLASSIFY (determine business type first)
+
+Before anything else, classify the business. This changes everything downstream
+— what to build, where to launch, how to grow.
+
+**Business type:**
+
+| Type | Examples | Build | Launch Channels |
+|---|---|---|---|
+| **Tech / SaaS** | Dev tool, dashboard, API | Web app | Product Hunt, HN, dev.to, X |
+| **Local service** | Horse riding, tutoring, cleaning, gym | Booking site | Google Business, Yelp, local Facebook groups, Nextdoor, local directories |
+| **Professional service** | Consulting, design agency, coaching | Portfolio + booking | LinkedIn, industry forums, referral networks |
+| **Ecommerce** | Physical products, handmade goods | Online store | Instagram, Pinterest, Etsy, TikTok, niche marketplaces |
+| **Digital product** | Course, template, ebook, preset pack | Sales page | X, YouTube, niche communities, Gumroad discover |
+| **Content / Media** | Blog, newsletter, podcast companion | Content site | SEO, social media, email list |
+
+**Customer type:**
+
+| Type | Key Differences |
+|---|---|
+| **B2C** (business to consumer) | Emotion-driven, visual, social proof matters, price-sensitive, short sales cycle, high volume / low price |
+| **B2B** (business to business) | ROI-driven, case studies matter, longer sales cycle, low volume / high price, email outreach works, LinkedIn is primary |
+
+Classify BOTH dimensions before proceeding. A horse riding school is
+**local service + B2C**. A developer API is **tech + B2B**. A Notion template
+pack is **digital product + B2C**. A consulting firm website is
+**professional service + B2B**.
 
 ---
 
@@ -45,6 +82,9 @@ for approval before proceeding.
    - Find 5+ existing competitors (pricing, features, reviews)
    - Estimate market size (search volume, existing user counts)
    - Identify gaps (what competitors do badly, what's missing)
+   - **For local service:** search "[service] near [city]" to gauge local competition
+   - **For B2B:** find how businesses currently solve this (often manual, spreadsheet, or overpriced enterprise)
+   - **For ecommerce:** check Etsy, Amazon, Shopify stores for similar products + pricing
 3. **Check domain availability** — use `shell_execute` with `whois` or `nslookup`
    to verify the .com is available. If taken, pick a different name. Never proceed
    with a taken domain.
@@ -56,9 +96,8 @@ for approval before proceeding.
 5. **Save research** — use `knowledge_write` to persist competitor analysis,
    pricing data, and market findings for future reference.
 
-**GATE:** Present the validation report (competitors, gaps, score, proposed
-name + domain) to the owner. Wait for approval. Do NOT proceed to Phase 2
-without explicit go-ahead.
+**GATE:** Present the validation report (business type, B2B/B2C, competitors,
+gaps, score, proposed name + domain) to the owner. Wait for approval.
 
 ---
 
@@ -66,32 +105,61 @@ without explicit go-ahead.
 
 **Goal:** Define what to build — the smallest thing that creates real value.
 
-1. **Pick the revenue model:**
+1. **Pick the revenue model based on business type:**
 
-   | Model | Best When | Payment Method |
+   | Business Type | Revenue Model | Payment |
    |---|---|---|
-   | Micro-SaaS (subscription) | Recurring need, tool/dashboard | Stripe (owner sets up) |
-   | API service (per-call) | Developer audience, technical | Stripe / crypto |
-   | Digital product (one-time) | Templates, tools, datasets | Gumroad / crypto |
-   | Content site (ads/affiliate) | Broad audience, SEO-driven | Ad networks / affiliate |
-   | Freelance service | Expertise packaging | Direct invoice / crypto |
+   | Tech / SaaS | Subscription ($9-99/mo) | Stripe |
+   | Tech / API | Per-call or tiered plans | Stripe / crypto |
+   | Local service | Booking fees or retainer | Stripe / cash / Square |
+   | Professional service | Project-based or retainer | Invoice / Stripe |
+   | Ecommerce | Per-item sales | Stripe / Shopify Payments |
+   | Digital product | One-time purchase ($9-199) | Gumroad / Stripe / crypto |
+   | Content / Media | Ads, sponsors, affiliate, newsletter subscription | Ad networks / Stripe |
 
-2. **Define MVP scope** — list exactly what v1 includes:
-   - Core feature (ONE thing, not three)
-   - Landing page with value proposition
-   - Auth (if SaaS) — Supabase Auth is free
-   - Database (if needed) — Supabase Postgres
-   - Payment integration placeholder (Stripe link or crypto address)
-3. **Choose tech stack** — match to the project type:
-   - **SaaS:** Next.js + Supabase + shadcn (use `nextjs`, `supabase`, `shadcn` skills)
-   - **API:** Node.js or Python on Railway
-   - **Landing page only:** Next.js on Vercel
-   - **Content site:** Next.js with MDX on Vercel
-4. **Set pricing** — research competitor pricing (Phase 1 data) and price
-   10-30% below the cheapest competitor to undercut on entry.
+2. **Define MVP scope based on business type:**
 
-**GATE:** Present the plan (revenue model, features list, tech stack, pricing)
-to the owner. Wait for approval.
+   **Tech / SaaS:**
+   - Core feature (ONE thing), landing page, auth, database
+   - Stack: Next.js + Supabase + shadcn
+
+   **Local service (horse riding, tutoring, gym, etc.):**
+   - Homepage with what you offer, pricing, location/hours
+   - Booking/contact form (Calendly embed or simple form → email)
+   - Testimonials section (even if empty at launch — add the structure)
+   - Google Maps embed
+   - Mobile-first — most local customers search on phone
+   - Stack: Next.js on Vercel (simple, fast, free)
+
+   **Professional service / Consulting:**
+   - Portfolio showcasing past work or expertise
+   - Services + pricing page
+   - Contact form or Calendly booking link
+   - Case studies section (even 1-2 is enough)
+   - Stack: Next.js on Vercel
+
+   **Ecommerce:**
+   - Product pages with photos, descriptions, pricing
+   - Cart + checkout (Stripe Checkout or Gumroad)
+   - Stack: Next.js + Supabase or Shopify (owner sets up)
+
+   **Digital product:**
+   - Sales page with problem → solution → proof → CTA
+   - Product preview / free sample
+   - Checkout (Gumroad link or Stripe)
+   - Stack: Single page on Vercel
+
+   **Content site:**
+   - 5-10 initial articles targeting long-tail keywords
+   - Email signup form
+   - Stack: Next.js + MDX on Vercel
+
+3. **Set pricing** — research competitor pricing (Phase 1 data):
+   - **B2C:** Price 10-30% below cheapest competitor to undercut on entry
+   - **B2B:** Price based on ROI delivered, not cost. If you save 10 hours/month, charge 20% of that value
+   - **Local service:** Match local market rates. Check competitors on Google/Yelp
+
+**GATE:** Present the plan (business type, revenue model, features, stack, pricing).
 
 ---
 
@@ -107,12 +175,40 @@ to the owner. Wait for approval.
    - Scaffold with `shell_execute` (e.g., `npx create-next-app`)
    - Write code via `file_write`
    - Test locally via `shell_execute` (`npm run build`, `npm run dev`)
-3. **Landing page is mandatory** — even API products need a landing page:
-   - Clear headline: what it does in one sentence
-   - 3 benefit bullets
-   - Screenshot or demo GIF
-   - Pricing section
-   - CTA button (sign up / buy / get API key)
+3. **Every business needs a landing page.** The content varies by type:
+
+   **Tech / SaaS:**
+   - Headline: what it does in one sentence
+   - 3 benefit bullets, screenshot/demo
+   - Pricing, CTA (sign up / start free trial)
+
+   **Local service:**
+   - Headline: what service + location ("Horse Riding Lessons in Austin")
+   - Services offered with pricing
+   - Photos (owner provides or use quality stock)
+   - Testimonials / reviews
+   - Location map + hours + contact
+   - "Book Now" CTA (Calendly, form, or phone number)
+   - SEO: title tags, meta description, schema markup for local business
+
+   **Professional service:**
+   - Headline: who you help and what result you deliver
+   - Services breakdown with outcomes (not just deliverables)
+   - Case studies / portfolio
+   - "Schedule a Call" CTA
+
+   **Ecommerce:**
+   - Product grid with photos and prices
+   - Individual product pages
+   - Trust signals (shipping info, return policy, reviews)
+   - "Add to Cart" / "Buy Now" CTA
+
+   **Digital product:**
+   - Problem → Agitation → Solution structure
+   - Product preview / table of contents / free chapter
+   - Social proof (testimonials, download count)
+   - "Buy Now" CTA with price
+
 4. **Create database** if needed: `create_database` with initial schema SQL
 5. **Build locally first** — always `npm run build` before deploying
 
@@ -122,6 +218,7 @@ to the owner. Wait for approval.
 - One core feature, working end-to-end
 - Use existing libraries, don't build from scratch
 - Copy competitor UX patterns — don't reinvent
+- Mobile-first for local and B2C businesses
 
 ---
 
@@ -134,19 +231,19 @@ to the owner. Wait for approval.
    - LLM calls / WebSockets / cron → Railway ($5/mo credit)
    - Auto-detect handles most cases
 2. **Create database** if not done: `create_database` → Supabase
-3. **Wire environment variables** — pass all credentials via `env_vars`:
-   - Supabase URL + keys
-   - API keys (if the product calls external APIs)
-   - Never hardcode secrets
+3. **Wire environment variables** — pass all credentials via `env_vars`
 4. **Verify deployment** — open the URL with `browser_navigate`, test the flow
 5. **Domain setup** — inform the owner they need to:
    - Buy the domain (Namecheap, Cloudflare, etc.)
    - Point DNS to the hosting provider
-   - This is the one step that requires human action
+6. **For local service businesses, also set up:**
+   - Google Business Profile (owner must verify — requires postcard or phone)
+   - Schema.org LocalBusiness markup in the site's HTML
 
 **GATE:** Ask the owner to:
-- Set up Stripe (if SaaS/subscription) — requires human KYC verification
+- Set up Stripe (if needed) — requires human KYC verification
 - Buy and configure the domain (DNS)
+- Verify Google Business Profile (if local service)
 - Review the live site and approve for launch
 
 ---
@@ -155,30 +252,90 @@ to the owner. Wait for approval.
 
 **Goal:** Real humans see and use the product.
 
-1. **Write launch content** — create platform-specific posts:
-   - **Product Hunt:** title, tagline, description, first comment
-   - **Indie Hackers:** product showcase + story
-   - **Hacker News:** Show HN post (title only, link to site)
-   - **X / Twitter:** launch thread (5-7 tweets, hook first)
-   - **Reddit:** relevant subreddit post (genuine, not spammy)
-   - **dev.to / Hashnode:** technical article about how it's built
-2. **Post using browser automation** — use `browser_navigate`, `browser_click`,
-   `browser_type_text`, `browser_paste_html` to publish on each platform
-3. **Check existing accounts** — use `knowledge_search` and `vault_lookup` to
-   find stored credentials before creating new accounts
-4. **Email outreach** — if B2B, use `email_send` to reach potential customers:
-   - Personalized subject line
-   - One-paragraph pitch
-   - Clear CTA (try free / book demo)
-   - Max 10 cold emails per day to start
-5. **Save all launch URLs** to knowledge for tracking
+**CRITICAL: Choose launch channels based on business type + customer type.
+Do NOT post a horse riding school on Hacker News. Do NOT post a dev tool
+on Nextdoor.**
 
-**Rules:**
+#### Tech / SaaS (B2B or B2C)
+
+| Platform | Content Style |
+|---|---|
+| **Product Hunt** | Title, tagline, description, maker comment. Focus on problem solved |
+| **Hacker News** | "Show HN: [name] — [what it does]". Technical angle, zero marketing language |
+| **Indie Hackers** | Product showcase + founder story. Be honest about the journey |
+| **X / Twitter** | Launch thread (5-7 tweets). Hook first, demo in the middle, CTA last |
+| **dev.to / Hashnode** | Technical article: "How I built [X] with [stack]" |
+| **Reddit** | r/SideProject, r/webdev, r/startups, or niche subreddit. Genuine, not promotional |
+| **Relevant Discord/Slack** | Share in #showcase or #launches channels of relevant communities |
+
+**If B2B tech:** Add LinkedIn post + direct email outreach to potential customers
+(personalized, max 10/day, focus on the problem you solve for their specific situation)
+
+#### Local Service (B2C — horse riding, tutoring, cleaning, gym, etc.)
+
+| Platform | Content Style |
+|---|---|
+| **Google Business Profile** | Complete profile with photos, hours, services, pricing. THE most important channel |
+| **Yelp** | Claim/create listing. Add photos, services, pricing |
+| **Facebook** | Local community groups ("Austin Horse Riding", "Austin Parents"). Introduce yourself, don't hard-sell |
+| **Nextdoor** | Local neighborhood posts. Very effective for local services |
+| **Instagram** | Visual showcase of the service. Before/after, action shots, happy clients |
+| **Local directories** | City-specific directories, niche directories (e.g., horse riding directories) |
+| **Flyers / physical** | Inform owner: design a flyer PDF they can print and post locally |
+
+**Also:** Encourage first customers to leave Google reviews — reviews are the
+#1 growth driver for local businesses.
+
+#### Professional Service / Consulting (B2B)
+
+| Platform | Content Style |
+|---|---|
+| **LinkedIn** | Thought leadership posts. Share expertise, not sales pitches. 3-5x/week |
+| **LinkedIn outreach** | Connect + personalized message to ideal clients. Max 20 connections/day |
+| **Industry forums** | Answer questions where your expertise is relevant. Link to site in profile |
+| **Email outreach** | Cold email to specific companies with a clear "here's what I can do for you" |
+| **Referral network** | Ask owner for warm intros from existing contacts |
+| **Medium / Substack** | Expert articles that demonstrate knowledge |
+
+#### Ecommerce (B2C)
+
+| Platform | Content Style |
+|---|---|
+| **Instagram** | Product photos, lifestyle shots, reels showing the product in use |
+| **Pinterest** | Product pins linking to shop. High-intent buyers browse Pinterest |
+| **TikTok** | Short videos: product demos, behind-the-scenes, unboxing |
+| **Etsy** | If handmade/vintage — list there too (built-in buyer traffic) |
+| **Facebook Marketplace** | For local delivery products |
+| **Reddit** | Niche subreddits (e.g., r/BuyItForLife, r/shutupandtakemymoney) |
+
+#### Digital Product (B2C or B2B)
+
+| Platform | Content Style |
+|---|---|
+| **X / Twitter** | Thread showing what's inside + results it produces. Free sample as lead magnet |
+| **Gumroad Discover** | If using Gumroad — their marketplace has built-in traffic |
+| **YouTube** | Tutorial or walkthrough of the product |
+| **Reddit** | Niche subreddit. Share free value first, product link in comments |
+| **Product Hunt** | Works for tools, templates, courses |
+| **Newsletter swaps** | Find newsletters in your niche, offer cross-promotion |
+
+#### Content Site
+
+| Platform | Action |
+|---|---|
+| **SEO** | Publish 10 articles before any promotion. Target long-tail keywords |
+| **Email list** | Build from day 1. Offer a lead magnet (free guide/checklist) |
+| **Social media** | Share articles on X, LinkedIn, Reddit — wherever the audience is |
+| **Guest posting** | Write for established sites in the niche with a link back |
+
+---
+
+**General launch rules (all types):**
 - Never post the same content on multiple platforms — customize per audience
-- Hacker News: technical angle, no marketing language
-- Product Hunt: focus on the problem solved
-- Reddit: be a community member, not a marketer
 - Check `knowledge_search` before posting to avoid duplicate posts
+- Use `browser_navigate`, `browser_click`, `browser_type_text`, `browser_paste_html`
+- Check existing accounts with `knowledge_search` and `vault_lookup` before creating new ones
+- Save all launch URLs to knowledge for tracking
 
 ---
 
@@ -186,21 +343,52 @@ to the owner. Wait for approval.
 
 **Goal:** Sustained user acquisition and product improvement.
 
-1. **Spawn marketing specialist** — use `organization_spawn` with role="marketing":
+1. **Spawn marketing specialist** — `organization_spawn` with role="marketing":
    - Seed with brand guidelines, launch URLs, competitor data from Phase 1
-   - Delegate: "Create weekly content calendar for X and LinkedIn"
-   - The specialist works proactively via its autonomous mind
-2. **Spawn research specialist** — use `organization_spawn` with role="research":
-   - Delegate: "Monitor competitor updates weekly"
-   - Delegate: "Track mentions of our product and report sentiment"
-3. **SEO content pipeline** — schedule with `schedule_task`:
-   - Weekly blog post targeting long-tail keywords
-   - Use `web_search` to find keywords competitors rank for
-   - Write content via `file_write`, publish via browser automation
+   - **B2C tech/digital:** "Create weekly content calendar for X and Instagram"
+   - **B2B tech/service:** "Create weekly LinkedIn posts and monthly case study drafts"
+   - **Local service:** "Post weekly on Instagram and monitor Google reviews"
+   - **Ecommerce:** "Create daily product content for Instagram and Pinterest"
+2. **Spawn research specialist** — `organization_spawn` with role="research":
+   - "Monitor competitor updates weekly"
+   - "Track mentions of our brand and report sentiment"
+   - **Local:** "Monitor Google/Yelp reviews and alert on negative ones"
+3. **Growth strategy by type:**
+
+   **Tech / SaaS:**
+   - SEO content pipeline (weekly blog posts targeting long-tail keywords)
+   - Changelog / build-in-public updates on X
+   - Integration partnerships
+
+   **Local service:**
+   - Google review generation (follow up with happy customers via email)
+   - Local SEO optimization (blog posts about "[service] in [city]")
+   - Seasonal promotions (holiday camps, summer specials, etc.)
+   - Referral program ("bring a friend, get 10% off")
+
+   **Professional service / B2B:**
+   - LinkedIn thought leadership (3-5 posts/week)
+   - Case studies after each successful project
+   - Email nurture sequence for leads
+   - Webinar or free consultation offers
+
+   **Ecommerce:**
+   - Instagram/TikTok content daily
+   - User-generated content campaigns
+   - Email marketing (cart abandonment, new arrivals)
+   - Seasonal collections and limited drops
+
+   **Digital product:**
+   - Free content that leads to the paid product
+   - Testimonials and social proof on the sales page
+   - Bundle deals with complementary products
+   - Affiliate program for promoters
+
 4. **Monitor analytics** — periodically check via browser:
-   - Vercel/Railway dashboard for traffic
-   - Supabase dashboard for user signups
-   - Social media for mentions and engagement
+   - Traffic (Vercel/Railway dashboard)
+   - Signups/purchases (Supabase/Stripe/Gumroad dashboard)
+   - Social engagement (mentions, reviews, comments)
+   - **Local:** Google Business Profile insights (impressions, calls, directions)
 5. **Iterate on product** — when users report issues or request features:
    - Use `swarm_spawn` for code changes
    - Redeploy via `deploy_website`
@@ -215,6 +403,7 @@ to the owner. Wait for approval.
    - Check analytics weekly (browser automation)
    - Post content on schedule (via marketing specialist)
    - Monitor inbox for customer inquiries (via `email_monitor`)
+   - **Local:** Monitor Google/Yelp for new reviews, alert owner on negative
    - Report revenue and growth metrics to owner
 2. **Create a recurring goal** — use `goal_create`:
    - "Maintain and grow [business name]"
@@ -224,50 +413,11 @@ to the owner. Wait for approval.
 
 ---
 
-### Revenue Models — Detailed Playbooks
-
-#### Micro-SaaS
-```
-Validate → find pain point in niche community
-Build → Next.js + Supabase + Stripe
-Price → $9-29/mo (undercut competitors)
-Launch → Product Hunt + Indie Hackers + niche community
-Grow → SEO content + social proof
-```
-
-#### API Service
-```
-Validate → find developers solving a repetitive problem
-Build → Python/Node API on Railway + docs page
-Price → free tier (100 calls/day) + $19/mo for 10K calls
-Launch → dev.to article + Hacker News + relevant Discord servers
-Grow → developer content + code examples + SDK
-```
-
-#### Digital Product
-```
-Validate → find repeated questions in communities
-Build → create the resource (template, guide, dataset, tool)
-Price → $19-49 one-time on Gumroad
-Launch → X thread showing the value + Reddit post in niche sub
-Grow → create free samples → funnel to paid product
-```
-
-#### Content Site
-```
-Validate → find high-volume keywords with low competition
-Build → Next.js + MDX blog on Vercel
-Price → none (monetize with ads + affiliate links)
-Launch → publish 10 SEO articles before promoting
-Grow → 2-3 articles/week, build email list, affiliate partnerships
-```
-
----
-
 ### Tools Used Per Phase
 
 | Phase | Primary Tools |
 |---|---|
+| Classify | None (LLM classification based on user's description) |
 | Validate | `web_search`, `browser_navigate`, `browser_extract`, `shell_execute` (whois), `knowledge_write` |
 | Plan | `knowledge_search` (retrieve Phase 1 data), `skill_read` (tech skills) |
 | Build | `swarm_spawn`, `file_write`, `file_read`, `shell_execute`, `create_database` |
@@ -287,6 +437,8 @@ These steps CANNOT be done autonomously — always inform the owner:
 3. **Domain purchase** — requires payment method and DNS configuration
 4. **Bank account** — business bank account for payouts
 5. **Tax compliance** — EIN, state registrations, sales tax
+6. **Google Business Profile verification** — Google mails a postcard or calls
+7. **Physical operations** — for local service: the actual service delivery, location, staff
 
 For crypto-only businesses, steps 2 and 4 can be replaced with the agent's
 own wallet (`wallet_status`, `crypto_transfer`), but legal registration and
@@ -298,17 +450,26 @@ tax compliance still require a human.
 
 - **Building before validating** — the #1 startup mistake. Always validate first.
   If score < 9/15, pivot to a different idea.
-- **Over-engineering v1** — no auth system, no admin panel, no microservices.
+- **Over-engineering v1** — no admin panel, no microservices.
   Ship the simplest thing that works.
 - **Skipping owner gates** — never deploy or spend money without explicit approval.
-  Present findings, wait for go-ahead.
+- **Wrong channels for the business type** — a local horse riding school has no
+  business on Hacker News. A dev API tool has no business on Nextdoor. Always
+  match launch channels to where the customers actually are.
 - **Ignoring competitors** — if 10 well-funded companies do this, find a niche.
   If zero companies do this, question whether anyone wants it.
-- **Same content everywhere** — each platform has its own culture. Product Hunt
-  is not Reddit. Hacker News is not X. Customize every post.
+- **Same content everywhere** — each platform has its own culture and format.
+  Customize every post for the platform and audience.
+- **Treating B2B like B2C** — B2B buyers care about ROI, case studies, and
+  integration. B2C buyers care about price, reviews, and visual appeal.
+  Don't pitch ROI to a horse rider. Don't show pretty photos to a CTO.
 - **Paying for ads in v1** — organic first. Paid acquisition after product-market
   fit is proven (users return without prompting).
 - **No domain check** — never build anything without first confirming the .com
   is available. A taken domain means pick a different name.
 - **Forgetting to save research** — all competitor data, pricing, and market
   findings must go to `knowledge_write`. You'll need them in Phase 6.
+- **Ignoring mobile for B2C** — most consumers browse on phone. Local service
+  and ecommerce sites MUST be mobile-first.
+- **No Google Business Profile for local** — for local businesses, Google is
+  the #1 discovery channel. Skipping this is like not having a sign on your door.
