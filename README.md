@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-978%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-41%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-43%2B%20pages-blue" alt="Docs"></a>
 </p>
 
 An open-source AI agent that can do anything you can do on a computer — and it gets better every time. It browses web, controls your desktop, writes code, sends emails, creates accounts, manages files, makes payments. It sees your screen, clicks buttons, types text, opens apps — any application, not just browsers. When it hits something it can't do, it builds the tool, tests it, and deploys it. It modifies its own source code. It writes its own skills from experience. It self-improves. It clones itself into specialist agents — marketing, research, design — each with their own identity, knowledge, and autonomous mind, learning from feedback and working proactively. When you're not talking to it, it keeps working — pursuing goals, running its organization, making money, and maintaining itself autonomously.
@@ -359,7 +359,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 | **Agent swarm** | ✅ Orchestrates others | ❌ | ❌ | Single | ❌ |
 | **Own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
 | **Own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
-| **Multi-channel** | ✅ CLI+Web+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
+| **Multi-channel** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
 | **Any LLM provider** | ✅ OpenAI, Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
 | **Self-improves** | ✅ Learns from corrections | ❌ | ❌ | ❌ | ❌ |
 
@@ -383,7 +383,8 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 - **Desktop GUI control** — pixel-level control of any desktop application via screenshot + pyautogui. Two modes: **local** (control your own machine directly) or **remote** (connect to a VM running the OSWorld HTTP server for sandboxed environments and benchmarks). 9 tools: connect, screenshot, click, type, scroll, drag, cursor, shell, file. Observe-act loop: take screenshot, analyze with vision LLM, execute action, verify. Works with Excel, Photoshop, Finder, Terminal, any native app. Based on [OSWorld](https://github.com/xlang-ai/OSWorld) architecture — the first scalable benchmark for desktop GUI agents
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat with multi-conversation history (sidebar with create/switch/delete, auto-titled conversations, persistent across refreshes), tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
-- **Multi-channel gateway** — WebSocket control plane with CLI, Web, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
+- **VS Code extension** — IDE-integrated chat sidebar that connects to the gateway as another channel. Sends IDE context (active file, selection, diagnostics) with every message. Tool approvals via native VS Code notifications. Chat history, new chat, streaming responses with crop marks. Same conversation across all channels — chat from VS Code, continue on Telegram
+- **Multi-channel gateway** — WebSocket control plane with CLI, Web, VS Code, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, self-evaluate and revise plans. Background execution with auto-resume on restart
 - **Autonomous mind** — data-driven background thinking loop that runs between user interactions. Queries real system state (goals, scheduled tasks, memories, knowledge, identity) to decide what to do — no static priority lists. Self-bootstraps on first run. Every tool call visible in real-time. LLM-controlled wakeup interval, persistent scratchpad, budget-isolated. Timer resets after user interaction. `/mind` command shows live status
 - **Document & media analysis** — PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel. Large docs via RAG with page citations and OCR
@@ -433,7 +434,7 @@ Not just browsers. Any app on your computer — Excel, Photoshop, Terminal, Find
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  CLI │ Telegram │ Discord │ Slack │ Web Dashboard│  Channel Adapters
+│  CLI │ Telegram │ Discord │ Slack │ Web │ VS Code │  Channel Adapters
 ├──────────────────────────────────────────────────────────────┤
 │         WebSocket Gateway (ws://:18789)          │  Control Plane
 ├──────────────────────────────────────────────────────────────┤
@@ -469,6 +470,7 @@ All channels connect through a WebSocket gateway:
 
 ```
 CLI Adapter ───────┐
+VS Code Extension ──┤
 Telegram Adapter ───┤── WebSocket ──► Gateway ──► Agent (shared)
 Discord Adapter ───┤                   │
 Slack Adapter ─────┘                   ▼
@@ -497,13 +499,14 @@ EloPhanto/
 │   ├── autonomous_mind.py # Background thinking loop
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
+├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 135+ built-in tools
 ├── skills/              # 60+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (41+ docs)
+└── docs/                # Full specification (43+ docs)
 ```
 
 </details>
@@ -752,6 +755,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **VS Code extension** — IDE-integrated chat sidebar that connects to the EloPhanto gateway as another channel adapter. Chat with the agent from VS Code with full IDE context injection (active file, selection, diagnostics, open files). Tool approvals via native VS Code notifications with risk classification. Chat history panel, new chat, streaming responses, tool step indicators. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Matches the web dashboard's visual design. Same conversation across all channels — the extension is just another WebSocket client. Does not auto-launch the gateway (vault password requires manual terminal input). See [docs/43-VSCODE-EXTENSION.md](docs/43-VSCODE-EXTENSION.md)
 - **Business launcher** — 7-phase pipeline to spin up a revenue-generating business end-to-end. Supports all business types: tech/SaaS, local service (horse riding, tutoring, gym), professional service, ecommerce, digital product, content site. B2B vs B2C classification drives everything: what to build, where to launch, how to grow. Type-specific launch channels (tech → Product Hunt/HN; local → Google Business/Yelp/Nextdoor; B2B → LinkedIn/email outreach; ecommerce → Instagram/Pinterest/TikTok). Cross-session execution via goal system — `goal_create` with phase checkpoints, `knowledge_write` for state persistence, autonomous mind continues where it left off. Payment handling checks existing credentials (`knowledge_search`, `vault_lookup`, `wallet_status`) before asking the owner. Owner approval gates at each critical phase
 - **Autonomous experimentation** — metric-driven experiment loop inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Define a metric (latency, test coverage, binary size, anything measurable), point the agent at target file(s), and let it run overnight. It modifies code, measures the result, keeps improvements, discards regressions, and logs every attempt to a TSV journal. ~12 experiments/hour, ~100 overnight. 3 new tools: `experiment_setup`, `experiment_run`, `experiment_status`. Works for ML training, code optimization, performance tuning, or any quantitative goal. Runs in the background via the autonomous mind
 - **Tool profiles** — context-aware tool filtering per task type. Each tool belongs to a semantic group (`browser`, `desktop`, `comms`, `payments`, etc.) and profiles select only the relevant groups — `coding` sends 6 groups, `minimal` sends 4, `full` sends everything. Eliminates token waste and sidesteps provider tool limits (OpenAI's 128-tool cap). Fully configurable: custom profiles, per-provider deny lists, per-task overrides. Zero-config by default — `planning` uses `full` profile so existing behavior is unchanged
@@ -852,7 +856,8 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **组织管理** — 克隆自己成为持久的专业智能体（营销、研究、设计等），每个都有独立的身份、知识库和自主思维
 - **开发团队管理** — 通过对话调度 Claude Code、Codex、Gemini CLI 作为编程团队
 - **一键部署** — 自动选择 Vercel/Railway 部署网站，创建 Supabase 数据库
-- **多通道支持** — CLI + 网页 + Telegram + Discord + Slack，统一会话
+- **VS Code 扩展** — IDE集成聊天侧边栏，通过网关WebSocket连接。发送IDE上下文（当前文件、选中代码、诊断信息）。聊天历史、新对话、流式响应。右键菜单：发送选中代码、解释代码、修复代码
+- **多通道支持** — CLI + 网页 + VS Code + Telegram + Discord + Slack，统一会话
 - **加密支付** — 在 Base 链上的自有钱包，支持 USDC/ETH
 - **自有邮箱** — AgentMail 云端或 SMTP/IMAP 自建
 - **安全加固** — PII 检测、提示注入防御、swarm 边界安全、提供商透明度

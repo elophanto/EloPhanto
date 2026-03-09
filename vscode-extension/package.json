@@ -1,0 +1,138 @@
+{
+  "name": "elophanto",
+  "displayName": "EloPhanto",
+  "description": "AI agent that can do anything you can do on a computer — connected to your local EloPhanto instance",
+  "version": "0.5.2",
+  "publisher": "elophanto",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/elophanto/EloPhanto"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Chat", "Programming Languages"],
+  "keywords": ["ai", "agent", "autonomous", "coding", "browser", "automation"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "icon": "icon.png",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "elophanto",
+          "title": "EloPhanto",
+          "icon": "$(hubot)"
+        }
+      ]
+    },
+    "views": {
+      "elophanto": [
+        {
+          "type": "webview",
+          "id": "elophanto.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "elophanto.connect",
+        "title": "EloPhanto: Connect to Gateway"
+      },
+      {
+        "command": "elophanto.disconnect",
+        "title": "EloPhanto: Disconnect"
+      },
+      {
+        "command": "elophanto.sendSelection",
+        "title": "EloPhanto: Send Selection"
+      },
+      {
+        "command": "elophanto.explain",
+        "title": "EloPhanto: Explain This Code"
+      },
+      {
+        "command": "elophanto.fix",
+        "title": "EloPhanto: Fix This Code"
+      },
+      {
+        "command": "elophanto.newChat",
+        "title": "EloPhanto: New Chat"
+      },
+      {
+        "command": "elophanto.stop",
+        "title": "EloPhanto: Stop Current Task"
+      },
+      {
+        "command": "elophanto.mind",
+        "title": "EloPhanto: Mind Status"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "elophanto.sendSelection",
+          "when": "editorHasSelection",
+          "group": "elophanto@1"
+        },
+        {
+          "command": "elophanto.explain",
+          "when": "editorHasSelection",
+          "group": "elophanto@2"
+        },
+        {
+          "command": "elophanto.fix",
+          "when": "editorHasSelection",
+          "group": "elophanto@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "EloPhanto",
+      "properties": {
+        "elophanto.gatewayUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:18789",
+          "description": "WebSocket URL of the EloPhanto gateway"
+        },
+        "elophanto.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to the gateway on startup"
+        },
+        "elophanto.showMindEvents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show autonomous mind events in the chat panel"
+        },
+        "elophanto.showToolSteps": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show tool execution steps in the chat panel"
+        },
+        "elophanto.projectDir": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the EloPhanto project directory (for auto-launching the gateway)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "npm run build -- --watch",
+    "package": "vsce package",
+    "lint": "eslint src/"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

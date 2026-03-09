@@ -1,6 +1,6 @@
 """Base channel adapter — abstract interface for all gateway clients.
 
-Every channel (CLI, Telegram, Discord, Slack, etc.) implements this
+Every channel (CLI, Telegram, Discord, Slack, VS Code, etc.) implements this
 interface to connect to the gateway WebSocket and translate between
 platform-specific messages and the gateway protocol.
 """

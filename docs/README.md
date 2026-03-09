@@ -62,6 +62,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 40 | [Enhanced Skill Security](40-ENHANCED-SKILL-SECURITY.md) | Invisible unicode detection, structural integrity checks, symlink escape prevention |
 | 41 | [Proactive Nudging](41-PROACTIVE-NUDGING.md) | Periodic system prompt augmentation to drive self-improvement behavior |
 | 42 | [Business Launcher](42-BUSINESS-LAUNCHER.md) | 7-phase pipeline to spin up a revenue-generating business autonomously |
+| 43 | [VS Code Extension](43-VSCODE-EXTENSION.md) | IDE integration via gateway WebSocket, chat sidebar with history, tool approvals, IDE context injection |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 
@@ -77,7 +78,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 
 **How it stays safe**: Encrypted credential vault. Three-tier permission system (Ask Always / Smart Auto / Full Auto) with per-tool overrides via `permissions.yaml`. Protected files system that prevents the agent from modifying its own safety-critical code. Log redaction strips API keys and secrets. Git-based rollback for all self-modifications. Full QA pipeline for self-developed code. Database-backed approval queue that works across all channels. Skills are scanned for invisible unicode, symlink escapes, binary files, and blocked patterns before loading.
 
-**How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as a control plane. Channel adapters (CLI, Telegram, Discord, Slack) connect as thin WebSocket clients. By default, all channels share one unified session — chat from CLI, continue from Telegram, same conversation history. Cross-channel messages and responses are broadcast to all connected adapters. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use.
+**How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as a control plane. Channel adapters (CLI, VS Code, Telegram, Discord, Slack) connect as thin WebSocket clients. By default, all channels share one unified session — chat from CLI, continue from Telegram, same conversation history. Cross-channel messages and responses are broadcast to all connected adapters. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use.
 
 **How it controls the browser**: A Node.js bridge spawns real Chrome (Playwright + stealth plugin) with the user's copied profile. In profile mode, existing sessions and cookies are preserved — no re-authentication needed. 47 browser tools cover navigation, clicking, typing, scrolling, screenshots, console/network inspection, and more.
 
@@ -90,7 +91,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 ## One-Line Architecture
 
 ```
-User ↞ Channel Adapters (CLI/Telegram/Discord/Slack) ↞ Gateway ↞ Agent Core (plan/execute/reflect) ↞ Tools ↞ System/Browser/Desktop/APIs
+User ↞ Channel Adapters (CLI/VSCode/Telegram/Discord/Slack) ↞ Gateway ↞ Agent Core (plan/execute/reflect) ↞ Tools ↞ System/Browser/Desktop/APIs
                                                                          ↗
                                                     Memory + Knowledge + Skills + LLM Router + EloPhantoHub + Session Search
                                                                          ↗
