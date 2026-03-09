@@ -201,16 +201,32 @@ weekly content, monthly analytics, quarterly pricing review.
 URLs, and customer feedback are persisted to the knowledge base. This prevents
 duplicate work and enables informed decisions in later phases.
 
+## Payment Handling
+
+Before asking the owner, the agent checks what's already available:
+
+1. `knowledge_search` for existing payment setup (Stripe, bank account, PayPal)
+2. `vault_lookup` for stored API keys (`stripe_key`, `paypal_key`)
+3. `wallet_status` for the agent's own crypto wallet
+
+If credentials already exist from a previous business or setup, the agent
+reuses them. If nothing is configured:
+
+- **Fiat:** Ask the owner to set up Stripe/PayPal and provide API keys.
+  Revenue goes to the owner's bank account.
+- **Crypto:** Use the agent's own wallet (`wallet_status`, `crypto_transfer`)
+  to accept payments on-chain.
+
 ## Limitations
 
 1. **Legal identity** — business registration, EIN, and contracts require a
    human. The agent cannot form an LLC or sign Terms of Service.
-2. **Payment processor KYC** — Stripe, PayPal, and traditional processors
-   require human identity verification for merchant accounts.
-3. **Domain purchase** — requires a payment method and DNS configuration
+2. **Payment processor KYC** — if no Stripe/PayPal is already configured,
+   the owner must set one up (requires human identity verification).
+4. **Domain purchase** — requires a payment method and DNS configuration
    that the agent cannot perform without browser access to a registrar
    (possible but requires stored payment credentials).
-4. **Quality ceiling** — the agent ships fast but rough. Human review is
+5. **Quality ceiling** — the agent ships fast but rough. Human review is
    critical for customer-facing copy, pricing decisions, and brand quality.
 5. **Customer judgment** — tier-1 support is automatable, but nuanced
    refund decisions, relationship management, and edge cases need a human.

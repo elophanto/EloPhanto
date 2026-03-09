@@ -488,9 +488,14 @@ These steps CANNOT be done autonomously — always inform the owner:
 6. **Google Business Profile verification** — Google mails a postcard or calls
 7. **Physical operations** — for local service: the actual service delivery, location, staff
 
-For crypto-only businesses, steps 2 and 4 can be replaced with the agent's
-own wallet (`wallet_status`, `crypto_transfer`), but legal registration and
-tax compliance still require a human.
+**Payments:** Before asking the owner, check what's already available:
+1. `knowledge_search` for "stripe", "bank account", "payment" — may already be configured
+2. `vault_lookup` for `stripe_key`, `paypal_key` — may already have API keys
+3. `wallet_status` — check if the agent has a crypto wallet with funds
+
+If credentials exist, use them. If not:
+- **Fiat:** Ask the owner to set up Stripe/PayPal and provide API keys
+- **Crypto:** Use the agent's own wallet to accept payments on-chain
 
 ---
 
