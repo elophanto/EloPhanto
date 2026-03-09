@@ -35,10 +35,39 @@ The human handles ~20% — the identity and legal gates:
 For crypto-native businesses, the agent's own wallet can handle payments
 directly, reducing human involvement further.
 
-## The 7 Phases
+## Business Type Classification
+
+Before anything else, the agent classifies the business along two dimensions:
+
+**Business type:**
+
+| Type | Examples |
+|---|---|
+| Tech / SaaS | Dev tool, dashboard, API, automation |
+| Local service | Horse riding, tutoring, cleaning, gym, salon |
+| Professional service | Consulting, design agency, coaching |
+| Ecommerce | Physical products, handmade goods, merch |
+| Digital product | Course, template, ebook, preset pack |
+| Content / Media | Blog, newsletter, podcast companion |
+
+**Customer type:**
+
+| Type | Implications |
+|---|---|
+| B2C | Emotion-driven, visual, social proof, lower price, higher volume |
+| B2B | ROI-driven, case studies, LinkedIn/email, higher price, longer cycle |
+
+This classification drives every downstream decision: what to build,
+where to launch, how to grow, and what content to create.
+
+## The 8 Phases
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
+│  Phase 0: CLASSIFY                                           │
+│  Business type (tech/local/service/ecommerce/digital/content)│
+│  Customer type (B2B / B2C)                                   │
+├──────────────────────────────────────────────────────────────┤
 │  Phase 1: VALIDATE                                           │
 │  Market research, competitors, domain check, opportunity score│
 │  Gate: Owner approves idea (score ≥ 9/15)                    │
@@ -48,7 +77,7 @@ directly, reducing human involvement further.
 │  Gate: Owner approves plan                                   │
 ├──────────────────────────────────────────────────────────────┤
 │  Phase 3: BUILD                                              │
-│  Spawn swarm agents or build directly, landing page, database│
+│  Type-specific MVP (booking site, SaaS app, store, etc.)     │
 │  Ship the first working version, not the perfect one         │
 ├──────────────────────────────────────────────────────────────┤
 │  Phase 4: DEPLOY                                             │
@@ -56,29 +85,42 @@ directly, reducing human involvement further.
 │  Gate: Owner sets up Stripe, buys domain, reviews site       │
 ├──────────────────────────────────────────────────────────────┤
 │  Phase 5: LAUNCH                                             │
-│  Product Hunt, Indie Hackers, HN, X, Reddit, dev.to         │
+│  Channels matched to business type (see below)               │
 │  Platform-specific content, email outreach                   │
 ├──────────────────────────────────────────────────────────────┤
 │  Phase 6: GROW                                               │
-│  Spawn marketing + research specialists, SEO pipeline,       │
-│  scheduled content, analytics monitoring, product iteration  │
+│  Type-specific growth (SEO / reviews / LinkedIn / Instagram) │
+│  Specialist agents for marketing + research                  │
 ├──────────────────────────────────────────────────────────────┤
 │  Phase 7: OPERATE                                            │
-│  Autonomous mind maintenance, recurring goals, email monitor,│
-│  revenue tracking, customer support triage                   │
+│  Autonomous mind maintenance, recurring goals, email monitor │
 └──────────────────────────────────────────────────────────────┘
 ```
 
+## Launch Channels by Business Type
+
+The most important design decision: where to launch depends entirely on where
+the customers are.
+
+| Business Type | Primary Channels | Never Use |
+|---|---|---|
+| Tech / SaaS | Product Hunt, HN, dev.to, X, Indie Hackers | Nextdoor, local groups |
+| Local service | Google Business, Yelp, Facebook local groups, Nextdoor, Instagram | Product Hunt, HN, dev.to |
+| Professional / B2B | LinkedIn, industry forums, email outreach, Medium | TikTok, Nextdoor |
+| Ecommerce | Instagram, Pinterest, TikTok, Etsy, Facebook Marketplace | HN, dev.to |
+| Digital product | X, Gumroad Discover, YouTube, Reddit, Product Hunt | Nextdoor, Yelp |
+| Content site | SEO first, then social amplification | Product Hunt |
+
 ## Revenue Models
 
-The skill supports four proven revenue models, each with a detailed playbook:
-
-| Model | Build Cost | Time to Revenue | Tools Used |
+| Model | Best For | Price Range | Payment |
 |---|---|---|---|
-| **Micro-SaaS** | $0-200 | 2-4 weeks | Next.js + Supabase + Stripe |
-| **API Service** | $0-50 | 1-2 weeks | Python/Node on Railway |
-| **Digital Product** | $0 | 1 week | Content creation + Gumroad |
-| **Content Site** | $0 | 4-8 weeks (SEO ramp) | Next.js + MDX + ads |
+| **Subscription** | Tech / SaaS | $9-99/mo | Stripe |
+| **Per-call API** | Developer tools | Free tier + $19+/mo | Stripe / crypto |
+| **Booking/retainer** | Local + professional service | Market rate | Stripe / Square |
+| **Per-item sales** | Ecommerce | Varies | Stripe / Shopify |
+| **One-time purchase** | Digital product | $9-199 | Gumroad / Stripe |
+| **Ads + affiliate** | Content site | N/A | Ad networks |
 
 ## Tool Coordination
 
@@ -154,43 +196,75 @@ duplicate work and enables informed decisions in later phases.
 5. **Customer judgment** — tier-1 support is automatable, but nuanced
    refund decisions, relationship management, and edge cases need a human.
 
-## Example Conversation
+## Example: Tech Business (B2B SaaS)
 
 ```
 User: I want to spin up a micro-SaaS for developers
 
-Agent: Starting Phase 1: VALIDATE. Let me research the developer tools market.
+Agent: Phase 0: CLASSIFY → Tech / SaaS, B2B
+       Starting Phase 1: VALIDATE.
 
   → web_search "developer tools micro-saas 2026 gaps"
-  → web_search "developer productivity tools pricing"
   → browser_navigate https://www.producthunt.com/topics/developer-tools
-  → browser_extract (competitor list with pricing)
   → shell_execute "whois devflowkit.com" → Available!
 
   Validation Report:
   ┌──────────────────────────────────────────────┐
+  │ Type: Tech / SaaS — B2B                      │
   │ Idea: DevFlowKit — CI/CD pipeline templates  │
-  │ Gap: Existing tools are complex, no one-click │
   │ Competitors: 3 (all priced $29-49/mo)        │
   │ Score: Market=4, Feasibility=4, Revenue=3    │
   │ Total: 11/15 ✓                               │
   │ Domain: devflowkit.com — AVAILABLE            │
+  │ Launch: Product Hunt, HN, dev.to, X          │
   └──────────────────────────────────────────────┘
+```
 
-  Proceed to Phase 2: PLAN?
+## Example: Local Service Business (B2C)
 
-User: Yes, go ahead
+```
+User: I want to create a website for my horse riding school in Austin
 
-Agent: Phase 2: PLAN
-  Revenue model: Micro-SaaS subscription
-  MVP: Template browser + one-click apply to GitHub Actions
-  Stack: Next.js + Supabase + shadcn
-  Pricing: $9/mo (undercutting $29 competitors)
-  ...
+Agent: Phase 0: CLASSIFY → Local service, B2C
+       Starting Phase 1: VALIDATE.
+
+  → web_search "horse riding lessons Austin TX"
+  → browser_navigate https://www.google.com/maps (horse riding near Austin)
+  → browser_extract (competitor list: 7 local schools, pricing $50-120/lesson)
+  → shell_execute "whois austintrailrides.com" → Available!
+
+  Validation Report:
+  ┌──────────────────────────────────────────────────────┐
+  │ Type: Local service — B2C                            │
+  │ Idea: Austin Trail Rides — horse riding lessons      │
+  │ Competitors: 7 local (pricing $50-120/lesson)        │
+  │ Gap: Most have outdated sites, no online booking     │
+  │ Score: Market=3, Feasibility=5, Revenue=4            │
+  │ Total: 12/15 ✓                                       │
+  │ Domain: austintrailrides.com — AVAILABLE              │
+  │ Launch: Google Business, Yelp, Facebook local groups, │
+  │         Instagram, Nextdoor                           │
+  └──────────────────────────────────────────────────────┘
+
+  Phase 2: PLAN
+  Revenue model: Booking fees ($75/lesson, $500/10-pack)
+  MVP: Mobile-first site with services, pricing, photos,
+       location map, Calendly booking embed, testimonials
+  Stack: Next.js on Vercel (free hosting)
+  Priority: Google Business Profile setup after deploy
+
+  Phase 5: LAUNCH (after build + deploy)
+  → Google Business Profile (owner verifies)
+  → Yelp listing with photos and services
+  → Facebook: "Austin Horse Lovers" group, "Austin Parents" group
+  → Nextdoor: neighborhood post in Austin area
+  → Instagram: @austintrailrides with lesson photos and reels
+  → NOT: Product Hunt, Hacker News, dev.to (wrong audience)
 ```
 
 ## Files
 
 - **Skill:** `skills/business-launcher/SKILL.md`
 - **Triggers:** business, startup, launch, saas, revenue, monetize, side project,
-  indie hacker, spin up, make money, earn money, entrepreneurship
+  indie hacker, spin up, make money, earn money, local business, service business,
+  ecommerce, store, shop, online business, entrepreneurship
