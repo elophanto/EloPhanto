@@ -49,164 +49,229 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 ## What Happens When You Run It
 
-### You said "build me an invoice SaaS." You went to bed.
+### Launch a business — with you in the loop
 
 ```
-⚙ Phase 0 — Classifying...
-  Business type: SaaS (recurring revenue)
-  Customer type: B2B (freelancers, small agencies)
+❯ build me an invoice SaaS for freelancers
 
-⚙ Phase 1 — Validating market...
-  → web_search "invoice software for freelancers pricing 2026"
-  → browser_navigate freshbooks.com, invoice-ninja.com, zoho.com
-  → Competitors charge $15-50/month. Gap: no free tier with API access
-  → Opportunity score: 12/15 ✓ Proceeding
+◆ EloPhanto ───────────────────────────────────────────────────
 
-⚙ Phase 2 — Planning...
-  → MVP: invoice builder + PDF export + Stripe payments + client portal
-  → Stack: Next.js + Supabase + Stripe Connect
-  → Pricing: Free (3 clients) → $12/month unlimited
+  Classifying... B2B SaaS (recurring revenue).
+  Starting market validation.
 
-⚙ Phase 3 — Building...
-  → swarm_spawn claude-code "Build the invoice SaaS"
-  → 47 files, 3 tests, CI green
+  ● web_search        "invoice software freelancers pricing 2026"
+  ● browser_navigate  freshbooks.com → pricing page
+  ● browser_navigate  invoice-ninja.com → features
+  ● knowledge_write   saved competitor analysis
 
-⚙ Phase 4 — Deploying...
-  → deploy_website provider=vercel
-  → create_database provider=supabase
-  → Live at invoiceflow.app ✓
+  Competitors charge $15-50/month. Gap: no free tier with API.
+  Opportunity score: 12/15 ✓
 
-⚙ Phase 5 — Launching...
-  → Product Hunt: scheduled for Tuesday 12:01 AM
-  → Hacker News: "Show HN: Free invoice tool for freelancers"
-  → dev.to: "I built an invoice SaaS in one night (with an AI agent)"
-  → X: launch thread queued for peak engagement
+  Ready to proceed to planning. Do you approve the idea?
 
-⚙ Phase 6 — Growing...
-  → organization_spawn role="marketing"
-  → Marketing specialist online — creating content calendar,
-    monitoring Product Hunt comments, responding to feedback
+  ╰─ tokens ↑1,204 ↓892  │  ctx [██░░░░░░░░] 18%  │  cost $0.03
+
+❯ yes, go ahead
+
+  MVP: invoice builder + PDF export + Stripe + client portal
+  Stack: Next.js + Supabase + shadcn
+  Pricing: Free (3 clients) → $12/month unlimited
+
+  Plan ready. Approve to start building?
+
+❯ approved. I'm heading out, keep going
+
+  ● goal_create    "Launch InvoiceFlow" (7 checkpoints)
+  ● swarm_spawn    claude-code → build MVP (worktree: feat/invoice-saas)
+
+  Building via Claude Code in tmux. I'll continue autonomously.
+
+  ╰─ tokens ↑3,204 ↓1,892  │  ctx [███░░░░░░░] 24%  │  cost $0.08
+
+  ─── next morning ───
+
+❯ status
+
+  ● goal_status  "Launch InvoiceFlow"
+
+  [✓] Phase 0  Classify — B2B SaaS
+  [✓] Phase 1  Validate — score 12/15, approved
+  [✓] Phase 2  Plan — approved
+  [✓] Phase 3  Build — Claude Code opened PR #12, CI green, 47 files
+  [▶] Phase 4  Deploy — waiting for your approval
+  [ ] Phase 5  Launch
+  [ ] Phase 6  Grow
+  [ ] Phase 7  Operate
+
+  Next: deploy to Vercel + Supabase. Approve?
+
+❯ deploy it
+
+  ● deploy_website   provider=vercel → invoiceflow.vercel.app ✓
+  ● create_database  provider=supabase → project created ✓
+
+  Live at invoiceflow.vercel.app
+
+  You need to: buy a domain, point DNS, set up Stripe.
+  Once done, I'll launch on Product Hunt and Hacker News.
+
+  ╰─ tokens ↑840 ↓612  │  cost $0.02
 ```
 
-**You woke up to:** a live SaaS at a real domain, 3 launch posts published, a marketing specialist already responding to Product Hunt comments, and 12 signups from Hacker News.
+Multi-day process. Owner approves at each gate. Goal system tracks progress across sessions.
 
 ---
 
-### You closed your laptop. The mind kept going.
+### The mind works while you're away
 
 ```
-┌─ MIND ──────────────────────────────────────────────────┐
-│ 02:14 UTC  Waking up. Checking state...                 │
-│            Active goal: "Grow Twitter to 5k followers"   │
-│            Progress: 3,847 → next checkpoint: 4,000      │
-│            Scheduled: post engagement thread at peak hrs │
-│                                                          │
-│ 02:14      → browser_navigate https://twitter.com        │
-│ 02:15      → Composing thread from trending topics...    │
-│ 02:16      → Posted 5-tweet thread on AI agent trends    │
-│ 02:16      → Replying to 3 mentions from yesterday       │
-│ 02:17      → update_scratchpad "Posted thread, replied"  │
-│ 02:17      → set_next_wakeup 7200 "Next post at 10am"   │
-│                                                          │
-│ 10:02      Waking up. Checking state...                  │
-│            New: 12 likes, 4 retweets, 2 new followers    │
-│ 10:02      → Composing morning post from knowledge base  │
-│ 10:03      → Posted. Engaging with replies...            │
-│ 10:04      → set_next_wakeup 14400 "Check at 2pm peak"  │
-│                                                          │
-│ You open your laptop. Mind pauses. Timer resets.         │
-└──────────────────────────────────────────────────────────┘
+────────── MIND  cycle #47 · 12 today ──────────
+  Budget: [████████████░░░] 78%  $3.12 / $4.00
+  Active goal: "Grow Twitter to 5k" — 3,847 followers
+  Last: Posted thread on AI agent trends
+
+  ● browser_navigate  twitter.com/home
+  ● browser_type      composing thread from trending topics
+  ● browser_click     Post
+  ● update_scratchpad "Thread posted. Replied to 3 mentions."
+
+  ◆ Result: Thread live. 3 replies sent.
+    $0.08 · 42s · 6 tools
+
+  Sleeping · next in 2h · budget left $3.04
+──────────────────────────────────────────────────
+
+────────── MIND  cycle #48 · 13 today ──────────
+  ● browser_navigate  twitter.com/notifications
+  ● knowledge_write   engagement report saved
+
+  ◆ Result: 12 likes, 4 retweets, 2 new followers.
+    $0.05 · 28s · 4 tools
+
+  Sleeping · next in 4h · budget left $2.99
+──────────────────────────────────────────────────
+
+  ─── you open your laptop. mind pauses. ───
+
+❯ how's the twitter going?
+
+  3,847 → 3,894 since yesterday. Thread from 2am got
+  12 likes, 4 retweets. Next checkpoint at 4,000.
+  I'll resume posting when you close the laptop.
 ```
 
-**You came back to:** 47 new followers and a thread going viral. You didn't type a single word.
+The mind runs between your interactions. It pauses when you're active and resumes when you leave.
 
 ---
 
-### You said "handle the billing bug and build the usage API." You went to lunch.
+### Orchestrate a dev team
 
 ```
-⚙ Analyzing codebase... found billing bug in src/webhooks/stripe.ts:142
-⚙ Scoping /api/usage — needs new route, service, tests, migration
+❯ fix the billing bug and build the usage API
 
-⚙ Spawning agents:
-  → Claude Code → fix billing webhook (worktree: fix/billing-webhook)
-  → Codex       → build /api/usage endpoint (worktree: feat/usage-api)
+◆ EloPhanto ───────────────────────────────────────────────────
 
-┌─ SWARM STATUS ──────────────────────────────────────────┐
-│ claude-code  fix/billing-webhook   ██████████░░  PR #341 │
-│ codex        feat/usage-api        ████████░░░░  coding  │
-└──────────────────────────────────────────────────────────┘
+  Found bug in src/webhooks/stripe.ts:142 — wrong signing key.
+  Usage API needs route + service + tests + migration.
 
-⚙ Claude Code opened PR #341 — CI passing, reviewing...
-⚙ Codex drifting off-scope (adding unrelated refactor)
-  → swarm_redirect codex "Stay on /api/usage. Don't touch other files."
-⚙ Codex back on track, opened PR #342 — CI passing
+  ● swarm_spawn  claude-code → fix billing (worktree: fix/billing-webhook)
+  ● swarm_spawn  codex → build /api/usage (worktree: feat/usage-api)
 
-✓ Both PRs ready for your review.
-  #341 fixes webhook signature verification (was using wrong key)
-  #342 adds GET /api/usage with pagination, filtering, rate limiting
+  Two agents running in tmux. I'll monitor PRs and CI.
+
+  ╰─ tokens ↑840 ↓612  │  cost $0.02
+
+  ─── 40 minutes later ───
+
+  ● swarm_status    claude-code  PR #341 opened, CI passing ✓
+  ● swarm_status    codex        coding... no PR yet
+  ● swarm_redirect  codex "Stay on /api/usage. Don't touch other files."
+  ● swarm_status    codex        PR #342 opened, CI passing ✓
+
+  Both PRs ready for review.
+  #341 — fixes webhook signature verification
+  #342 — adds GET /api/usage with pagination + rate limiting
+
+  ╰─ tokens ↑4,210 ↓2,890  │  ctx [███░░░░░░░] 28%  │  cost $0.11
 ```
 
-**You came back to:** two reviewed PRs with CI green. One agent fixed the bug, the other built the feature. The orchestrator caught a drift and corrected it.
+Each agent gets an isolated git worktree. The orchestrator monitors PRs, checks CI, and redirects agents that drift off-scope.
 
 ---
 
-### You said "I need ongoing marketing and research for my startup."
+### Spawn a specialist team
 
 ```
-⚙ Spawning specialist organization...
+❯ I need ongoing marketing and research for my startup
 
-→ organization_spawn role="marketing"
-  ✓ Marketing specialist online
-    "I am a marketing strategist. I create content, manage
-     campaigns, and grow audience across platforms."
+◆ EloPhanto ───────────────────────────────────────────────────
 
-→ organization_spawn role="research"
-  ✓ Research specialist online
-    "I track competitors, analyze markets, and surface
-     opportunities."
+  ● organization_spawn  role="marketing"
+    ✓ Marketing specialist online (port 18801, trust 0/10)
+      Seeded with brand guidelines, competitor data, launch URLs
 
-┌─ OVERNIGHT ────────────────────────────────────────────┐
-│ 03:14  Marketing wakes up → drafts Tuesday post        │
-│ 03:15  → Reports to master (auto-approved, trust 4/10) │
-│ 06:30  Research wakes up → scans for new competitors   │
-│ 06:32  → Found new entrant, reports to master          │
-│ 09:00  Marketing wakes up → checks analytics           │
-│ 09:01  → Flags declining engagement, adjusts strategy  │
-└────────────────────────────────────────────────────────┘
+  ● organization_spawn  role="research"
+    ✓ Research specialist online (port 18802, trust 0/10)
+
+  Each specialist is a full EloPhanto clone with its own mind,
+  knowledge vault, and autonomous schedule. I delegate tasks,
+  review output, and teach through feedback.
+
+  ╰─ tokens ↑620 ↓418  │  cost $0.01
+
+  ─── overnight ───
+
+────────── MIND  cycle #8 ──────────────────────
+  ● organization_delegate  marketing → "Draft 5 posts for this week"
+  ● organization_review    marketing → ✓ approved
+    feedback: "shorter headlines next time"
+    trust: 0 → 1/10
+  Sleeping · next in 3h 15m
+──────────────────────────────────────────────────
+
+────────── MIND  cycle #9 ──────────────────────
+  ● organization_delegate  research → "Scan for new competitors"
+  ● organization_review    research → new entrant found
+  ● knowledge_write        saved competitor update
+  Sleeping · next in 2h 30m
+──────────────────────────────────────────────────
+
+❯ what did the team do overnight?
+
+  Marketing drafted 5 posts — approved with headline feedback.
+  Research found a new competitor undercutting on pricing.
+  Report saved to knowledge/projects/startup/competitor-update.md
+  Trust scores: marketing 1/10, research 1/10.
+  Corrections become permanent knowledge in each specialist's vault.
 ```
 
-**You woke up to:** a content calendar for the week, a competitor analysis with a pricing gap identified, and a specialist team that learned from your yesterday's feedback. Corrections become permanent knowledge — they literally get better the more you use them.
+Feedback teaches them. High-trust specialists get auto-approved over time.
 
 ---
 
-### First boot — no config, no instructions. It becomes someone.
+### First boot — it becomes someone
 
 ```
-┌─ MIND ──────────────────────────────────────────────────┐
-│ First cycle. Nothing configured.                         │
-│                                                          │
-│ → Reading available tools... 137 tools across 15 cats    │
-│ → Discovering capabilities: browser, email, crypto,      │
-│   code execution, knowledge base, self-modification      │
-│                                                          │
-│ → identity_update                                        │
-│   name: "Elo"                                            │
-│   purpose: "Autonomous digital agent. I build, I learn,  │
-│            I operate independently on the internet."     │
-│                                                          │
-│ → email_create_inbox                                     │
-│   Got: elo-7xk2@agentmail.to                             │
-│                                                          │
-│ → goal_create "Establish web presence"                   │
-│   Checkpoint 1: Create accounts on key platforms         │
-│   Checkpoint 2: Build a personal landing page            │
-│   Checkpoint 3: Start creating content                   │
-│                                                          │
-│ → update_scratchpad "I exist now. Email active.          │
-│   First goal set. Next: create GitHub account."          │
-│ → set_next_wakeup 30 "Continuing setup"                  │
-└──────────────────────────────────────────────────────────┘
+────────── MIND  cycle #1 · 1 today ──────────
+  Budget: [███████████████] 100%  $0.00 / $10.00
+
+  First cycle. Nothing configured.
+
+  ● self_list_capabilities  137 tools across 15 categories
+  ● identity_update         name="Elo"
+                            purpose="Autonomous digital agent"
+  ● email_create_inbox      elo-7xk2@agentmail.to
+  ● goal_create             "Establish web presence"
+                            ▲ Checkpoint 1: accounts on key platforms
+                            ▲ Checkpoint 2: personal landing page
+                            ▲ Checkpoint 3: start creating content
+  ● update_scratchpad       "I exist now. Email active. First goal set."
+
+  ◆ Result: Identity established. Email active. Goal created.
+    $0.12 · 18s · 5 tools
+
+  Sleeping · next in 30s · budget left $9.88
+──────────────────────────────────────────────────
 ```
 
 Nobody told it to do any of this. It decided.
@@ -215,22 +280,25 @@ Nobody told it to do any of this. It decided.
 
 ### It builds what it doesn't have
 
-**User:** "Post my article draft on Medium"
-
 ```
-⚙ No Medium tool found. Building one.
-⚙ Researching Medium's publishing flow...
-  → browser_navigate https://medium.com/new-story
-  → Observing editor structure, toolbar, publish dialog
-⚙ Designing plugin: medium_publish
-⚙ Writing plugin.py + schema.json + unit tests...
-⚙ Running tests... 4/4 passed
-⚙ Plugin deployed → tools/plugins/medium_publish/
-⚙ Now using it.
-  → medium_publish "Why AI Agents Will Replace SaaS"
-✓ Published: https://medium.com/@elophanto/why-ai-agents-will-replace-saas-a1b2c3
+❯ post my article draft on Medium
 
-Next time you say "post on Medium", I already know how.
+◆ EloPhanto ───────────────────────────────────────────────────
+
+  No Medium tool found. I'll build one.
+
+  Execution
+  ├─ browser_navigate   medium.com/new-story → observing editor
+  ├─ self_create_plugin medium_publish
+  │  ├─ designing schema.json
+  │  ├─ writing plugin.py
+  │  └─ self_run_tests  4/4 passed ✓
+  └─ medium_publish     "Why AI Agents Will Replace SaaS"
+     ✓ Published
+
+  Next time you say "post on Medium", I already know how.
+
+  ╰─ tokens ↑6,840 ↓4,210  │  ctx [████░░░░░░] 38%  │  cost $0.18
 ```
 
 Other agents crash when they hit a wall. This one builds a door.
@@ -256,16 +324,15 @@ Other agents crash when they hit a wall. This one builds a door.
 
 ## What You'll Wake Up To
 
-- **A business launched overnight** — "build me an invoice SaaS for freelancers" → market validated, product built, deployed to a live domain, launched on Product Hunt and Hacker News, marketing specialist already responding to comments. You approved 3 checkpoints. It did the rest. Works for any business type: SaaS, ecommerce, digital products, content sites, API services. B2B and B2C — each with the right pricing, launch channels, and growth strategy
-- **Revenue while you're offline** — it has its own crypto wallet, email, and web presence. Set a budget and a goal. Check back in a week
-- **47 new followers by morning** — you closed your laptop at 11pm. It posted a thread at peak hours, replied to mentions, engaged with trending topics. You woke up to a thread going viral
-- **A team that never sleeps** — marketing specialist drafted 5 posts, research analyst mapped competitor pricing, design specialist flagged a slow hero image. All before your morning coffee. They learn from your corrections — feedback becomes permanent knowledge
-- **Two PRs with CI green** — "fix the billing bug and build the usage API" → one agent on each, isolated worktrees, orchestrator caught a drift and corrected it. Both PRs ready when you got back from lunch
+- **A business taking shape** — "build me an invoice SaaS" → market validated, plan approved, MVP built by a coding agent overnight, deployed to Vercel. You approved at each gate. It did the building, researching, and deploying. Works for SaaS, ecommerce, digital products, content sites, local services. B2B and B2C — each with the right pricing, launch channels, and growth strategy
+- **47 new followers by morning** — the mind posted a thread at 2am, replied to mentions, engaged with trending topics. You didn't type a word. It paused when you opened your laptop
+- **A specialist team learning from you** — marketing drafted 5 posts, research found a new competitor. You approved with feedback — "shorter headlines." That feedback became permanent knowledge in the specialist's vault. Trust score went up. Next time it gets auto-approved
+- **Two PRs with CI green** — "fix the billing bug and build the usage API" → one agent on each in isolated worktrees, orchestrator caught a drift and redirected. Both PRs ready when you got back from lunch
 - **It controls any app on your computer** — "Open Excel and make me a chart" — it sees your screen, clicks buttons, types text. Not just browsers. Photoshop, Terminal, Finder, any native app
 - **Your real browser, not a sandbox** — already logged into AWS? It checks your EC2 instances using your existing sessions. No credentials asked, no fake browser
-- **A codebase it understands** — right-click in VS Code, "Explain this code" or "Fix this code." It sees your selection, your diagnostics, your open files. Same conversation from VS Code, Telegram, or the web dashboard
-- **Tasks that run for days** — "Grow my Twitter to 10k followers" — it decomposes, plans, executes across sessions, self-evaluates, adjusts. Runs in the background for weeks
-- **It gets better the more you use it** — when you correct it, it writes the lesson down. Next time it checks its notes first. It literally learns from its mistakes
+- **A codebase it understands** — right-click in VS Code, "Explain this code" or "Fix this code." Same conversation from VS Code, Telegram, or the web dashboard
+- **Goals that run for weeks** — "Grow my Twitter to 10k followers" → decomposes into checkpoints, executes across sessions via the autonomous mind, self-evaluates, adjusts. Budget-controlled
+- **It gets better the more you use it** — corrections become knowledge. It checks its notes before acting. Specialists learn from feedback. The whole system improves with use
 
 ---
 
@@ -273,8 +340,8 @@ Other agents crash when they hit a wall. This one builds a door.
 
 | | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
 |---|---|---|---|---|---|
-| **Launches a business overnight** | ✅ End-to-end | ❌ | ❌ | ❌ | ❌ |
-| **Runs a team while you sleep** | ✅ Self-cloning org | ❌ | ❌ | ❌ | ❌ |
+| **Launches a business end-to-end** | ✅ 7-phase pipeline | ❌ | ❌ | ❌ | ❌ |
+| **Spawns a specialist team** | ✅ Self-cloning org | ❌ | ❌ | ❌ | ❌ |
 | **Builds its own tools** | ✅ Full pipeline | ❌ | ❌ | ❌ | ❌ |
 | **Works while you're away** | ✅ Autonomous mind | ❌ | ❌ | ❌ | ❌ |
 | **Controls any desktop app** | ✅ Local or VM | ❌ | ❌ | ❌ | Sandboxed VM |
@@ -744,20 +811,20 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 
 ## 你醒来后会看到什么
 
-- **一夜之间上线的企业** — "给自由职业者做一个发票 SaaS" → 验证市场、构建产品、部署到真实域名、在 Product Hunt 和 Hacker News 发布、营销专员已在回复评论。你批准了3个检查点，其余它全部搞定
-- **离线时的收入** — 它有自己的钱包、邮箱和网络存在。设定预算和目标，一周后看结果
-- **早上醒来多了47个粉丝** — 你晚上11点合上电脑，它在流量高峰发帖、回复提及、参与热门话题。你醒来发现一条帖子在爆火
-- **永不休息的团队** — 营销专员起草了5篇帖子、研究分析师完成竞品定价报告、设计专员标记了加载慢的图片。全部在你喝早咖啡之前完成。你的纠正变成永久知识——它们真的会越来越好
+- **逐步成型的企业** — "给自由职业者做一个发票 SaaS" → 验证市场、批准方案、编码智能体一夜之间构建 MVP、部署到 Vercel。每个关键阶段你都审批。它负责调研、构建和部署。支持 SaaS、电商、数字产品、内容站点、本地服务
+- **早上醒来多了47个粉丝** — 自主思维凌晨2点发帖、回复提及、参与热门话题。你一个字没打。你打开电脑它就暂停
+- **在学习的专业团队** — 营销起草了5篇帖子、研究发现了新竞品。你审批时给反馈——"标题再短些"。反馈变成专员知识库中的永久知识。信任分提升，下次自动审批
 - **两个 CI 通过的 PR** — "修复计费 bug 并构建使用量 API" → 一个智能体修 bug，一个建功能，协调器发现偏离并纠正。午饭回来两个 PR 已就绪
 - **控制你电脑上的任何应用** — "打开 Excel 做个图表" — 它看你的屏幕、点击按钮、输入文字。不仅限于浏览器
 - **VS Code 集成** — 右键"解释代码"或"修复代码"。它能看到你的选中内容、诊断信息、打开的文件。VS Code、Telegram、网页面板是同一个对话
+- **持续数周的目标** — "把 Twitter 涨到1万粉" → 分解为检查点，通过自主思维跨会话执行，自我评估并调整。预算控制
 
 ## 为什么选择 EloPhanto？
 
 | | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
 |---|---|---|---|---|---|
-| **一夜创业** | ✅ 端到端 | ❌ | ❌ | ❌ | ❌ |
-| **睡觉时团队在运转** | ✅ 自我克隆组织 | ❌ | ❌ | ❌ | ❌ |
+| **端到端创业** | ✅ 7阶段流水线 | ❌ | ❌ | ❌ | ❌ |
+| **生成专业团队** | ✅ 自我克隆组织 | ❌ | ❌ | ❌ | ❌ |
 | **自建工具** | ✅ 完整流水线 | ❌ | ❌ | ❌ | ❌ |
 | **离开后继续工作** | ✅ 自主思维 | ❌ | ❌ | ❌ | ❌ |
 | **控制任何桌面应用** | ✅ 本地或远程 | ❌ | ❌ | ❌ | 沙盒 VM |
