@@ -35,6 +35,54 @@ Adapts strategy based on B2B vs B2C and industry.
 
 ## Instructions
 
+### How This Works in Practice
+
+This skill spans days or weeks, not one conversation. Here's exactly what
+the agent must do:
+
+**Step 1 — Classify + Validate in the current conversation.**
+Run Phase 0 (classify) and Phase 1 (validate) immediately. Present the
+validation report to the owner and wait for approval.
+
+**Step 2 — Create a goal with checkpoints.**
+After the owner approves the idea, call `goal_create` with one checkpoint
+per remaining phase:
+
+```
+goal_create:
+  goal: "Launch [business name] — [type, B2B/B2C]"
+  checkpoints:
+    - description: "Plan MVP — revenue model, scope, tech stack, pricing"
+      success_criteria: "Plan presented and approved by owner"
+    - description: "Build MVP"
+      success_criteria: "npm run build passes, all pages render"
+    - description: "Deploy to production"
+      success_criteria: "Live URL accessible, owner approved for launch"
+    - description: "Launch on [platform-specific channels]"
+      success_criteria: "Posted on 3+ platforms, URLs saved to knowledge"
+    - description: "Set up growth — spawn specialists, schedule content"
+      success_criteria: "Marketing specialist active, first content scheduled"
+    - description: "Set up operations — recurring goal, email monitor"
+      success_criteria: "Recurring goal created, email monitor running"
+```
+
+The goal system handles persistence, auto-continuation across sessions,
+and progress tracking. The autonomous mind picks up where you left off.
+
+**Step 3 — Save state after every phase.**
+After completing each phase, call `knowledge_write` to save:
+- Phase results (competitor data, plan decisions, deployment URLs, launch URLs)
+- File path: `knowledge/projects/[business-name]/phase-N-[name].md`
+- This ensures context survives across sessions and conversation resets
+
+**Step 4 — Gate: stop and ask before critical phases.**
+At owner gates (after Validate, Plan, Deploy), present findings and STOP.
+Do not continue until the owner explicitly approves. Use a message like:
+"Here's the validation report. Approve to proceed to planning, or tell me
+to pivot."
+
+---
+
 ### The 7-Phase Pipeline
 
 Every business follows these phases. Do NOT skip phases or jump to building
