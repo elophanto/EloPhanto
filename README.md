@@ -409,7 +409,7 @@ Slack Adapter ─────┘                   ▼
 - **Self-skilling** — writes new SKILL.md files from experience, teaching itself best practices for future tasks
 - **Core self-modification** — can modify its own source code with impact analysis, test verification, and automatic rollback
 - **Autonomous experimentation** — metric-driven experiment loop: modify code, measure, keep improvements, discard regressions, repeat overnight. Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Works for any measurable optimization target
-- **Skills + EloPhantoHub** — 120+ bundled best-practice skills across 9 divisions (engineering, design, marketing, product, project management, support, testing, specialized, spatial computing), plus the NEXUS strategy system (7-phase playbooks, 4 scenario runbooks), 75 organization role templates for specialist spawning, and a public skill registry for searching, installing, and sharing skills
+- **Skills + EloPhantoHub** — 147+ bundled best-practice skills across 9 divisions (engineering, design, marketing, product, project management, support, testing, specialized, spatial computing), 27 Solana ecosystem skills (DeFi, NFTs, oracles, bridges, security — sourced from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai)), the NEXUS strategy system (7-phase playbooks, 4 scenario runbooks), 75 organization role templates for specialist spawning, and a public skill registry for searching, installing, and sharing skills
 
 ### Everything Else
 
@@ -490,7 +490,7 @@ EloPhanto/
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 135+ built-in tools
-├── skills/              # 120+ bundled SKILL.md files
+├── skills/              # 147+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
@@ -539,7 +539,7 @@ elophanto chat               # CLI only (direct mode)
 
 ## Skills System
 
-120+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), and more. Plus a public skill registry:
+147+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), and more. Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -745,6 +745,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Solana ecosystem** — native Solana wallet (self-custody, auto-create), 27 Solana skills from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai) covering DeFi (Jupiter, Drift, Orca, Raydium, Kamino, Meteora, PumpFun), NFTs (Metaplex), oracles (Pyth, Switchboard), bridges (deBridge), infrastructure (Helius, QuickNode), and security (VulnHunter). Solana MCP server configs included. See [docs/44-SOLANA-ECOSYSTEM.md](docs/44-SOLANA-ECOSYSTEM.md)
 - **120 skills + 75 organization role templates** — massive skill library expansion adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents). 57 new skills across engineering, design, marketing, product, project management, support, testing, specialized, and spatial computing divisions. NEXUS strategy system as skills (7-phase playbooks, 4 scenario runbooks). 75 organization role templates for `organization_spawn` — full persona definitions that seed specialist identity, knowledge, and capabilities
 - **VS Code extension** — IDE-integrated chat sidebar that connects to the EloPhanto gateway as another channel adapter. Chat with the agent from VS Code with full IDE context injection (active file, selection, diagnostics, open files). Tool approvals via native VS Code notifications with risk classification. Chat history panel, new chat, streaming responses, tool step indicators. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Matches the web dashboard's visual design. Same conversation across all channels — the extension is just another WebSocket client. Does not auto-launch the gateway (vault password requires manual terminal input). See [docs/43-VSCODE-EXTENSION.md](docs/43-VSCODE-EXTENSION.md)
 - **Business launcher** — 7-phase pipeline to spin up a revenue-generating business end-to-end. Supports all business types: tech/SaaS, local service, professional service, ecommerce, digital product, content site. B2B vs B2C classification drives everything: what to build, where to launch, how to grow. Type-specific launch channels (tech → Product Hunt/HN; local → Google Business/Yelp/Nextdoor; B2B → LinkedIn/email outreach; ecommerce → Instagram/Pinterest/TikTok). Cross-session execution via goal system. Payment handling checks existing credentials before asking the owner. Owner approval gates at each critical phase
