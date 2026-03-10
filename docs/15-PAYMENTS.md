@@ -248,9 +248,24 @@ EloPhanto supports two wallet providers, selectable via `config.yaml`:
 
 Recommended default: **Local wallet** on **Base** — zero config, self-custody, minimal gas fees. For Solana, set `default_chain: solana`. Switch to Coinbase CDP when you need swaps or gasless transactions.
 
-### Token Swaps (Coinbase CDP only)
+### Token Swaps
 
-The agent can swap tokens when using the Coinbase CDP provider (e.g., convert ETH to USDC to pay for a service). Not available with the local wallet provider.
+**Solana (local wallet):** Swaps use Jupiter Ultra API — the leading Solana DEX aggregator with best-price routing across all liquidity sources. Supports any token pair (SOL, USDC, USDT, or any mint address). Requires a free Jupiter API key.
+
+**Setup:** When you first ask the agent to swap tokens, it will ask you for your Jupiter API key. Get one free at [portal.jup.ag](https://portal.jup.ag), paste it in chat, and the agent stores it in the vault as `jupiter_api_key`. One-time setup.
+
+```
+Agent needs to swap SOL → USDC on Solana
+    │
+    ▼
+1. payment_preview: Get Jupiter quote (amount, price, output)
+2. crypto_swap: Execute swap via Jupiter Ultra API (approval required)
+   → GET /ultra/v1/order (unsigned tx)
+   → Sign with solders VersionedTransaction
+   → POST /ultra/v1/execute (submit signed tx)
+```
+
+**EVM (Coinbase CDP):** Swaps use AgentKit actions (e.g., convert ETH to USDC). Only available with the CDP provider.
 
 ```
 Agent needs to pay $50 in USDC but only has ETH
@@ -297,9 +312,15 @@ On first startup, a Solana keypair is generated and stored encrypted in the vaul
 - Import into Phantom, Solflare, or any Solana wallet
 - Both agent and owner can use the same wallet
 
+**DEX swaps (Jupiter):**
+- Get a free API key at [portal.jup.ag](https://portal.jup.ag)
+- Paste it in chat when the agent asks — it stores it as `jupiter_api_key` in the vault
+- Supports any Solana token pair via Jupiter's aggregator (best-price routing)
+
 **Vault keys (Solana):**
 - `solana_wallet_private_key` — base58-encoded 64-byte keypair
 - `crypto_wallet_address` — public key (base58)
+- `jupiter_api_key` — Jupiter API key for DEX swaps (optional, only needed for swaps)
 
 ## Payment Tools
 
@@ -583,6 +604,6 @@ tool_overrides:
 
 **Local EVM wallet (default):** Enable `payments.enabled: true` and `payments.crypto.enabled: true` in config.yaml. Wallet auto-creates on first run.
 
-**Local Solana wallet:** Set `default_chain: solana` in crypto config. Keypair auto-creates, owner can export via `wallet_export`.
+**Local Solana wallet:** Set `default_chain: solana` in crypto config. Keypair auto-creates, owner can export via `wallet_export`. For DEX swaps, get a free Jupiter API key from [portal.jup.ag](https://portal.jup.ag) — paste it in chat when the agent asks.
 
 **Coinbase CDP:** Set `payments.crypto.provider: agentkit`, store CDP credentials in vault, run `./setup.sh` to install AgentKit dependencies.

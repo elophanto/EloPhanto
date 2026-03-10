@@ -694,6 +694,8 @@ payments:
     default_chain: base             # base | base-sepolia | solana | solana-devnet
     chains: [base, solana]
     provider: local
+    # Solana DEX swaps: get a free Jupiter API key at portal.jup.ag
+    # Paste it in chat when prompted — stored in vault as jupiter_api_key
 
 telegram:
   enabled: false

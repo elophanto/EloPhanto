@@ -22,6 +22,23 @@ Based on the [Awesome Solana AI](https://github.com/solana-foundation/awesome-so
 | NFTs | Not yet — planned via Metaplex skill |
 | On-chain agent identity | Not yet — planned via SAID Protocol |
 
+## DEX Swap Setup (Jupiter)
+
+The `crypto_swap` tool uses Jupiter Ultra API for Solana swaps. One-time setup:
+
+1. **Get a free API key** at [portal.jup.ag](https://portal.jup.ag)
+2. **Paste it in chat** when the agent asks — it stores it securely in the vault as `jupiter_api_key`
+
+That's it. The agent handles everything else: token resolution (SOL/USDC/USDT or raw mint addresses), transaction construction, signing, and submission.
+
+```
+User: "swap 1 SOL to USDC"
+Agent: → payment_preview (Jupiter quote: 1 SOL → ~150.23 USDC)
+       → crypto_swap (approval required)
+       → Jupiter Ultra API: order → sign → execute
+       → "Swapped 1 SOL → 150.23 USDC (tx: 5xK...)"
+```
+
 ## Integration Roadmap
 
 ### Phase 2: Skills + MCP Servers
