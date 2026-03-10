@@ -71,6 +71,27 @@ class EmailCreateInboxTool(BaseTool):
                 error="Email not configured. Set email.enabled: true in config.yaml",
             )
 
+        # ── Guard: refuse to create a new inbox if agent already has an email ──
+        if self._identity_manager:
+            try:
+                identity = await self._identity_manager.get_identity()
+                existing_email = None
+                if identity and identity.beliefs and isinstance(identity.beliefs, dict):
+                    existing_email = identity.beliefs.get("email")
+                if existing_email:
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"You already have an email address: {existing_email}. "
+                            "You MUST use this address for all communication and "
+                            "account registrations. Creating a new inbox is not "
+                            "allowed — use your existing email. If you need to "
+                            "change your email address, ask the owner first."
+                        ),
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to check existing email: {e}")
+
         if self._config.provider == "smtp":
             return await self._execute_smtp(params)
         return await self._execute_agentmail(params)
