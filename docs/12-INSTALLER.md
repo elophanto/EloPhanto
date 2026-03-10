@@ -17,7 +17,7 @@ curl -fsSL https://elophanto.com/install | bash
 Or if they've cloned the repo:
 
 ```bash
-git clone https://github.com/elophanto/elophanto.git
+git clone https://github.com/elophanto/EloPhanto.git
 cd elophanto
 ./install.sh
 ```
