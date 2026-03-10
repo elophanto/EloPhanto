@@ -370,9 +370,9 @@ class SolanaWalletProvider:
         # Step 2: Deserialize and sign the transaction
         tx_bytes = base64.b64decode(tx_base64)
         tx = VersionedTransaction.from_bytes(tx_bytes)
-        # VersionedTransaction requires signing via .sign() with keypair list
-        tx.sign([self._keypair])
-        signed_bytes = bytes(tx)
+        # solders VersionedTransaction is immutable; re-create with keypair to sign
+        signed_tx = VersionedTransaction(tx.message, [self._keypair])
+        signed_bytes = bytes(signed_tx)
         signed_b64 = base64.b64encode(signed_bytes).decode("ascii")
 
         # Step 3: Execute the signed transaction
