@@ -63,6 +63,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 41 | [Proactive Nudging](41-PROACTIVE-NUDGING.md) | Periodic system prompt augmentation to drive self-improvement behavior |
 | 42 | [Business Launcher](42-BUSINESS-LAUNCHER.md) | 7-phase pipeline to spin up a revenue-generating business autonomously |
 | 43 | [VS Code Extension](43-VSCODE-EXTENSION.md) | IDE integration via gateway WebSocket, chat sidebar with history, tool approvals, IDE context injection |
+| 44 | [Solana Ecosystem](44-SOLANA-ECOSYSTEM.md) | Native Solana wallet, Jupiter DEX swaps, 27 Solana skills, MCP servers, agent economy roadmap |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 

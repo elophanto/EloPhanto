@@ -1,6 +1,6 @@
 # EloPhanto — Solana Ecosystem Integration
 
-> **Status: Phase 1 Done** — Native Solana wallet (self-custody, auto-create, SOL + USDC transfers). Phase 2: DeFi via skills + MCP servers. Phase 3: Agent economy (staking, identity, commerce).
+> **Status: Phase 1 + Swaps Done** — Native Solana wallet (self-custody, auto-create, SOL + USDC transfers) + DEX swaps via Jupiter Ultra API. Phase 2: DeFi via skills + MCP servers. Phase 3: Agent economy (staking, identity, commerce).
 
 ## Overview
 
@@ -17,7 +17,7 @@ Based on the [Awesome Solana AI](https://github.com/solana-foundation/awesome-so
 | SPL token transfers (USDC) | Done — instruction type 3 + ATA derivation |
 | Wallet export (Phantom/Solflare) | Done — `wallet_export` tool, base58 private key |
 | Startup banner wallet display | Done — shows address + chain |
-| DEX swaps | Not yet — planned via Jupiter |
+| DEX swaps | Done — Jupiter Ultra API (`/ultra/v1/order` → sign → `/ultra/v1/execute`) |
 | DeFi (lending, staking, perps) | Not yet — planned via skills |
 | NFTs | Not yet — planned via Metaplex skill |
 | On-chain agent identity | Not yet — planned via SAID Protocol |
@@ -180,12 +180,14 @@ All SKILL.md format — compatible with `hub_install` or manual placement in `sk
 ## Architecture: How Skills + MCP Extend the Wallet
 
 ```
-Current (Phase 1):
+Current (Phase 1 + Swaps):
     Agent → solana_wallet.py → JSON-RPC → Solana
-    (SOL transfers, USDC transfers only)
+    (SOL transfers, USDC transfers)
+    Agent → crypto_swap tool → manager.py → solana_wallet.jupiter_swap()
+        → GET /ultra/v1/order → sign with solders → POST /ultra/v1/execute
+    (Any token pair via Jupiter aggregator)
 
 Phase 2 (Skills + MCP):
-    Agent → jupiter-skill knowledge → build swap tx → solana_wallet.py → sign + send
     Agent → Solana Developer MCP → accurate docs for program development
     Agent → QuickNode MCP → managed RPC, gRPC streams, Jupiter API
 

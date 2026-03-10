@@ -2,8 +2,10 @@
 
 Manages wallet lifecycle (create, persist, reconnect), token transfers,
 swaps, spending limits, and audit logging. Supports two wallet providers:
-- "local" (default) — self-custody via eth-account + JSON-RPC, zero config
+- "local" (default) — self-custody via eth-account (EVM) or solders (Solana), zero config
 - "agentkit" — Coinbase CDP managed custody, gasless, DEX swaps
+
+Solana swaps use Jupiter Ultra API. EVM swaps use AgentKit actions.
 """
 
 from __future__ import annotations
@@ -251,28 +253,46 @@ class PaymentsManager:
 
         # Execute swap
         try:
-            # AgentKit swap via action provider
-            agent_kit = self._get_agent_kit(provider)
-            actions = agent_kit.get_actions()
-            swap_action = None
-            for action in actions:
-                if "swap" in getattr(action, "name", "").lower():
-                    swap_action = action
-                    break
-
-            if swap_action:
-                result = swap_action.execute(
+            # Solana: use Jupiter Ultra API
+            if self._chain in ("solana", "solana-devnet"):
+                jupiter_api_key = (
+                    self._vault.get("jupiter_api_key") if self._vault else ""
+                )
+                if not jupiter_api_key:
+                    raise PaymentsError(
+                        "Jupiter API key not configured. "
+                        "Get a free key at https://portal.jup.ag and provide it "
+                        "so I can store it securely in the vault."
+                    )
+                result = provider.jupiter_swap(
                     from_token=from_token,
                     to_token=to_token,
-                    amount=str(amount),
+                    amount=amount,
+                    api_key=jupiter_api_key,
                 )
+                tx_hash = result.get("tx_hash", "")
             else:
-                # Fallback: direct swap call if available
-                result = provider.swap(
-                    from_token=from_token, to_token=to_token, amount=str(amount)
-                )
+                # EVM: AgentKit swap via action provider
+                agent_kit = self._get_agent_kit(provider)
+                actions = agent_kit.get_actions()
+                swap_action = None
+                for action in actions:
+                    if "swap" in getattr(action, "name", "").lower():
+                        swap_action = action
+                        break
 
-            tx_hash = str(result) if result else ""
+                if swap_action:
+                    result = swap_action.execute(
+                        from_token=from_token,
+                        to_token=to_token,
+                        amount=str(amount),
+                    )
+                else:
+                    # Fallback: direct swap call if available
+                    result = provider.swap(
+                        from_token=from_token, to_token=to_token, amount=str(amount)
+                    )
+                tx_hash = str(result) if result else ""
             await self._auditor.update_status(
                 audit_id, "executed", transaction_ref=tx_hash
             )
@@ -303,6 +323,36 @@ class PaymentsManager:
                     "error": "Swap quotes not available with local wallet provider",
                     "chain": self._chain,
                 }
+
+            # Solana: use Jupiter Ultra quote
+            if self._chain in ("solana", "solana-devnet"):
+                jupiter_api_key = (
+                    self._vault.get("jupiter_api_key") if self._vault else ""
+                )
+                if not jupiter_api_key:
+                    return {
+                        "from_token": from_token,
+                        "to_token": to_token,
+                        "amount": amount,
+                        "error": "Jupiter API key not configured",
+                        "chain": self._chain,
+                    }
+                quote = provider.jupiter_quote(
+                    from_token=from_token,
+                    to_token=to_token,
+                    amount=amount,
+                    api_key=jupiter_api_key,
+                )
+                return {
+                    "from_token": from_token,
+                    "to_token": to_token,
+                    "amount": amount,
+                    "quote": str(quote.get("output_amount", "")),
+                    "price": quote.get("price", 0),
+                    "chain": self._chain,
+                }
+
+            # EVM: AgentKit price action
             agent_kit = self._get_agent_kit(provider)
             actions = agent_kit.get_actions()
             for action in actions:
