@@ -457,7 +457,10 @@ class SkillManager:
 
         Returns (safe, messages) where safe=False means the skill is blocked.
         """
-        content_lower = content.lower()
+        # Strip fenced code blocks — they are documentation examples,
+        # not executable instructions, and should not trigger security rules.
+        stripped = re.sub(r"```[^\n]*\n.*?```", "", content, flags=re.DOTALL)
+        content_lower = stripped.lower()
 
         # Check blocked patterns
         for pattern, reason in SKILL_BLOCKED_PATTERNS:
