@@ -1,6 +1,6 @@
 # EloPhanto — Agent Payments
 
-> **Status: Phase 1 Done** — Core crypto wallet with dual provider support: local self-custody wallet (default, zero config) + Coinbase AgentKit (optional, managed custody, gasless, swaps). 7 tools, spending limits, audit trail. Phase 2 (fiat/Stripe) and Phase 3 (invoicing) planned.
+> **Status: Phase 1 Done** — Core crypto wallet with dual provider support: local self-custody wallet (default, zero config, Solana DEX swaps via Jupiter) + Coinbase AgentKit (optional, managed custody, gasless, EVM swaps). 7 tools, spending limits, audit trail. Phase 2 (fiat/Stripe) and Phase 3 (invoicing) planned.
 
 ## Overview
 
@@ -241,7 +241,7 @@ EloPhanto supports two wallet providers, selectable via `config.yaml`:
 | **Setup** | Zero config — wallet auto-creates on first use | Requires free CDP API key from portal.cdp.coinbase.com |
 | **Dependencies** | `eth-account` (EVM) or `solders` + `base58` (Solana) — installed by setup.sh | `coinbase-agentkit` (install via setup.sh when configured) |
 | **Transfers** | ETH + ERC-20 (USDC, etc.) on EVM; SOL + SPL (USDC) on Solana | ETH + ERC-20 (USDC, etc.) |
-| **DEX swaps** | Not supported | Supported (ETH↔USDC etc.) |
+| **DEX swaps** | Solana: supported via Jupiter Ultra API. EVM: not supported | Supported (ETH↔USDC etc.) |
 | **Gas fees** | EVM: user pays from ETH balance (< $0.01 on Base). Solana: ~$0.00025/tx | Gasless on Base via paymaster |
 | **Chains** | Base (default), Base Sepolia, Ethereum, **Solana**, Solana Devnet | All EVM chains + Solana |
 | **Best for** | Local-first users, simple transfers, full self-custody | Users who need swaps, gasless transactions, or multi-chain |

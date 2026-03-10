@@ -1,8 +1,8 @@
 """SolanaWalletProvider — self-custody wallet using solders + solana-py.
 
 Stores the private key encrypted in the EloPhanto vault.
-Supports native SOL transfers and SPL token transfers (USDC) on Solana.
-Does NOT support DEX swaps (requires external integration).
+Supports native SOL transfers, SPL token transfers (USDC), and
+DEX swaps via Jupiter Ultra API on Solana.
 """
 
 from __future__ import annotations
@@ -32,6 +32,15 @@ _SOLANA_TOKEN_DECIMALS: dict[str, int] = {
     "usdc": 6,
     "usdt": 6,
 }
+
+# Well-known token mint addresses (mainnet) for Jupiter swaps
+_SOLANA_TOKEN_MINTS: dict[str, str] = {
+    "sol": "So11111111111111111111111111111111111111112",
+    "usdc": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "usdt": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+}
+
+_JUPITER_BASE_URL = "https://api.jup.ag"
 
 # SPL Token Program ID
 _TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -275,8 +284,173 @@ class SolanaWalletProvider:
         return base58.b58encode(bytes(self._keypair)).decode("ascii")
 
     def supports_swap(self) -> bool:
-        """Local Solana wallet does not support DEX swaps."""
-        return False
+        """Solana wallet supports DEX swaps via Jupiter Ultra API."""
+        return True
+
+    # ------------------------------------------------------------------
+    # Jupiter Ultra API — DEX swaps
+    # ------------------------------------------------------------------
+
+    def jupiter_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        api_key: str,
+    ) -> dict[str, Any]:
+        """Get a swap quote from Jupiter Ultra API without executing.
+
+        Returns the order response including inAmount, outAmount, and price info.
+        """
+        input_mint = self._resolve_mint(from_token)
+        output_mint = self._resolve_mint(to_token)
+        decimals = _SOLANA_TOKEN_DECIMALS.get(from_token.lower(), 9)
+        raw_amount = int(amount * 10**decimals)
+
+        url = (
+            f"{_JUPITER_BASE_URL}/ultra/v1/order"
+            f"?inputMint={input_mint}"
+            f"&outputMint={output_mint}"
+            f"&amount={raw_amount}"
+            f"&taker={self.get_address()}"
+        )
+        data = self._jupiter_request("GET", url, api_key=api_key)
+
+        # Parse human-readable amounts
+        out_decimals = _SOLANA_TOKEN_DECIMALS.get(to_token.lower(), 9)
+        in_amount = int(data.get("inAmount", raw_amount)) / 10**decimals
+        out_amount = int(data.get("outAmount", 0)) / 10**out_decimals
+
+        return {
+            "from_token": from_token.upper(),
+            "to_token": to_token.upper(),
+            "input_amount": in_amount,
+            "output_amount": out_amount,
+            "price": out_amount / in_amount if in_amount else 0,
+            "request_id": data.get("requestId", ""),
+        }
+
+    def jupiter_swap(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        api_key: str,
+    ) -> dict[str, Any]:
+        """Execute a swap via Jupiter Ultra API.
+
+        Flow: GET /ultra/v1/order → sign transaction → POST /ultra/v1/execute
+        """
+        import base64
+
+        from solders.transaction import VersionedTransaction  # type: ignore[import-untyped]
+
+        input_mint = self._resolve_mint(from_token)
+        output_mint = self._resolve_mint(to_token)
+        decimals = _SOLANA_TOKEN_DECIMALS.get(from_token.lower(), 9)
+        raw_amount = int(amount * 10**decimals)
+
+        # Step 1: Get order (unsigned transaction)
+        order_url = (
+            f"{_JUPITER_BASE_URL}/ultra/v1/order"
+            f"?inputMint={input_mint}"
+            f"&outputMint={output_mint}"
+            f"&amount={raw_amount}"
+            f"&taker={self.get_address()}"
+        )
+        order = self._jupiter_request("GET", order_url, api_key=api_key)
+
+        tx_base64 = order.get("transaction")
+        request_id = order.get("requestId")
+        if not tx_base64 or not request_id:
+            raise RuntimeError(
+                f"Jupiter order failed: {order.get('error', 'no transaction returned')}"
+            )
+
+        # Step 2: Deserialize and sign the transaction
+        tx_bytes = base64.b64decode(tx_base64)
+        tx = VersionedTransaction.from_bytes(tx_bytes)
+        # VersionedTransaction requires signing via .sign() with keypair list
+        tx.sign([self._keypair])
+        signed_bytes = bytes(tx)
+        signed_b64 = base64.b64encode(signed_bytes).decode("ascii")
+
+        # Step 3: Execute the signed transaction
+        execute_url = f"{_JUPITER_BASE_URL}/ultra/v1/execute"
+        result = self._jupiter_request(
+            "POST",
+            execute_url,
+            api_key=api_key,
+            body={
+                "signedTransaction": signed_b64,
+                "requestId": request_id,
+            },
+        )
+
+        # Parse result
+        out_decimals = _SOLANA_TOKEN_DECIMALS.get(to_token.lower(), 9)
+        in_amount = int(order.get("inAmount", raw_amount)) / 10**decimals
+        out_amount = int(order.get("outAmount", 0)) / 10**out_decimals
+        tx_id = result.get("signature", result.get("transactionId", ""))
+
+        logger.info(
+            f"Jupiter swap executed: {in_amount} {from_token} → "
+            f"{out_amount} {to_token} (tx: {tx_id})"
+        )
+
+        return {
+            "tx_hash": tx_id,
+            "from_token": from_token.upper(),
+            "to_token": to_token.upper(),
+            "input_amount": in_amount,
+            "output_amount": out_amount,
+            "request_id": request_id,
+        }
+
+    def _resolve_mint(self, symbol: str) -> str:
+        """Resolve a token symbol or mint address to a mint address."""
+        # If it looks like a mint address already, return as-is
+        if len(symbol) > 20:
+            return symbol
+        mint = _SOLANA_TOKEN_MINTS.get(symbol.lower())
+        if not mint:
+            raise ValueError(
+                f"Unknown token: {symbol}. Supported: "
+                f"{', '.join(s.upper() for s in _SOLANA_TOKEN_MINTS)}. "
+                f"Or pass a mint address directly."
+            )
+        return mint
+
+    def _jupiter_request(
+        self,
+        method: str,
+        url: str,
+        api_key: str,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Make an HTTP request to Jupiter API."""
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "User-Agent": "EloPhanto/0.1",
+        }
+
+        data = json.dumps(body).encode("utf-8") if body else None
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="replace")
+            try:
+                error_data = json.loads(error_body)
+                msg = error_data.get("error", error_data.get("message", error_body))
+            except (json.JSONDecodeError, AttributeError):
+                msg = error_body
+            raise RuntimeError(f"Jupiter API error ({e.code}): {msg}") from e
+
+        return result
 
     # ------------------------------------------------------------------
     # JSON-RPC
