@@ -1058,6 +1058,7 @@ class Agent:
         """Inject payments manager into payment tools."""
         payment_tools = (
             "wallet_status",
+            "wallet_export",
             "payment_balance",
             "payment_validate",
             "payment_preview",

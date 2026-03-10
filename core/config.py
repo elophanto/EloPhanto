@@ -403,14 +403,14 @@ class PaymentCryptoConfig:
     """Crypto payment settings — local wallet (default) or Coinbase AgentKit."""
 
     enabled: bool = False
-    default_chain: str = "base"
+    default_chain: str = "base"  # "base", "ethereum", "solana", "solana-devnet"
     provider: str = "local"  # "local" (self-custody) or "agentkit" (Coinbase CDP)
     rpc_url: str = ""  # override RPC endpoint; empty = chain default
     cdp_api_key_name_ref: str = "cdp_api_key_name"
     cdp_api_key_private_ref: str = "cdp_api_key_private"
     gas_priority: str = "normal"
     max_gas_percentage: int = 10
-    chains: list[str] = field(default_factory=lambda: ["base"])
+    chains: list[str] = field(default_factory=lambda: ["base", "solana"])
 
 
 @dataclass
