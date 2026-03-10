@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-978%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-43%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-47%2B%20pages-blue" alt="Docs"></a>
 </p>
 
 An open-source AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
@@ -377,7 +377,7 @@ Other agents crash when they hit a wall. This one builds a door.
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (137+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (140+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -494,7 +494,7 @@ EloPhanto/
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (43+ docs)
+└── docs/                # Full specification (47+ docs)
 ```
 
 </details>
@@ -747,6 +747,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Context documents** — structured self-awareness docs ([inspired by Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184)) that give the agent deep knowledge of its own capabilities, target audience, visual identity, and domain model. 4 curated references in `knowledge/system/`: capabilities inventory (140+ tools, 6 channels, 4 providers, 147 skills), 8 ideal customer profiles with autonomy-first framing, brand styleguide (colors, typography, tone), and domain model reference (5 stacks, 25 tables). Auto-indexed into knowledge base, surfaced by semantic search. See [docs/45-CONTEXT-DOCUMENTS.md](docs/45-CONTEXT-DOCUMENTS.md)
 - **Solana ecosystem** — native Solana wallet (self-custody, auto-create), DEX swaps via Jupiter Ultra API (any token pair, best-price routing), 27 Solana skills from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai) covering DeFi (Jupiter, Drift, Orca, Raydium, Kamino, Meteora, PumpFun), NFTs (Metaplex), oracles (Pyth, Switchboard), bridges (deBridge), infrastructure (Helius, QuickNode), and security (VulnHunter). Solana MCP server configs included. See [docs/44-SOLANA-ECOSYSTEM.md](docs/44-SOLANA-ECOSYSTEM.md)
 - **120 skills + 75 organization role templates** — massive skill library expansion adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents). 57 new skills across engineering, design, marketing, product, project management, support, testing, specialized, and spatial computing divisions. NEXUS strategy system as skills (7-phase playbooks, 4 scenario runbooks). 75 organization role templates for `organization_spawn` — full persona definitions that seed specialist identity, knowledge, and capabilities
 - **VS Code extension** — IDE-integrated chat sidebar that connects to the EloPhanto gateway as another channel adapter. Chat with the agent from VS Code with full IDE context injection (active file, selection, diagnostics, open files). Tool approvals via native VS Code notifications with risk classification. Chat history panel, new chat, streaming responses, tool step indicators. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Matches the web dashboard's visual design. Same conversation across all channels — the extension is just another WebSocket client. Does not auto-launch the gateway (vault password requires manual terminal input). See [docs/43-VSCODE-EXTENSION.md](docs/43-VSCODE-EXTENSION.md)
