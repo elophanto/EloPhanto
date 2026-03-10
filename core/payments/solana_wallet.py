@@ -232,7 +232,7 @@ class SolanaWalletProvider:
                         pubkey=token_program, is_signer=False, is_writable=False
                     ),
                 ],
-                data=bytes(),
+                data=b"",
             )
             instructions.append(create_ata_ix)
 

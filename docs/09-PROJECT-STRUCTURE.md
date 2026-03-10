@@ -509,7 +509,7 @@ uvicorn              # ASGI server
 pip install elophanto
 
 # Or clone and install
-git clone https://github.com/elophanto/elophanto.git
+git clone https://github.com/elophanto/EloPhanto.git
 cd elophanto
 uv sync
 
