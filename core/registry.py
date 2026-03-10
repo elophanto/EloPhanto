@@ -187,9 +187,11 @@ class ToolRegistry:
         from tools.payments.swap_tool import CryptoSwapTool
         from tools.payments.transfer_tool import CryptoTransferTool
         from tools.payments.validate_tool import PaymentValidateTool
+        from tools.payments.wallet_export_tool import WalletExportTool
         from tools.payments.wallet_status_tool import WalletStatusTool
 
         self.register(WalletStatusTool())
+        self.register(WalletExportTool())
         self.register(PaymentBalanceTool())
         self.register(PaymentValidateTool())
         self.register(PaymentPreviewTool())

@@ -267,6 +267,18 @@ def _build_welcome_panel(
     )
     info.add_row("Mode", f"[{_C_ACCENT}]{cfg.permission_mode}[/]")
 
+    # Wallet status
+    _pm = getattr(agent, "_payments_manager", None)
+    if _pm and _pm.wallet_address:
+        _addr = _pm.wallet_address
+        _short = f"{_addr[:6]}...{_addr[-4:]}" if len(_addr) > 14 else _addr
+        info.add_row(
+            "Wallet",
+            f"[{_C_SUCCESS}]●[/] {_short}  [{_C_DIM}]on {_pm.chain}[/]",
+        )
+    elif _pm:
+        info.add_row("Wallet", f"[{_C_DIM}]not created[/]")
+
     # Knowledge / embedding health with visual bar
     try:
         _db = agent._db
@@ -790,6 +802,18 @@ async def _chat_gateway(cfg: Any) -> None:
         _build_feature_badges(agent, cfg, extra=["gateway"] + adapters_started),
     )
     info.add_row("Mode", f"[{_C_ACCENT}]{cfg.permission_mode}[/]")
+
+    # Wallet status
+    _pm = getattr(agent, "_payments_manager", None)
+    if _pm and _pm.wallet_address:
+        _addr = _pm.wallet_address
+        _short = f"{_addr[:6]}...{_addr[-4:]}" if len(_addr) > 14 else _addr
+        info.add_row(
+            "Wallet",
+            f"[{_C_SUCCESS}]●[/] {_short}  [{_C_DIM}]on {_pm.chain}[/]",
+        )
+    elif _pm:
+        info.add_row("Wallet", f"[{_C_DIM}]not created[/]")
 
     # Divider + commands
     divider = Rule(style=_C_DIM)

@@ -225,9 +225,9 @@ Direct blockchain transactions for crypto-native services.
 | Component | Detail |
 |-----------|--------|
 | **Wallet** | Local self-custody (default) or Coinbase AgentKit (optional) |
-| **Chains** | Base (default), Ethereum (extensible) |
-| **Tokens** | Native tokens (ETH) + ERC-20 tokens (USDC, USDT, DAI) |
-| **Gas** | Local wallet: user pays gas (< $0.01 on Base). CDP: gasless via paymaster |
+| **Chains** | Base (default), Ethereum, Solana |
+| **Tokens** | ETH + ERC-20 (USDC, USDT, DAI) on EVM; SOL + SPL (USDC) on Solana |
+| **Gas** | Local wallet: user pays gas (< $0.01 on Base). CDP: gasless via paymaster. Solana: ~$0.00025/tx |
 | **Protocols** | x402 for machine-to-machine stablecoin payments (CDP only) |
 
 ### Wallet Providers
@@ -239,14 +239,14 @@ EloPhanto supports two wallet providers, selectable via `config.yaml`:
 | **Provider** | `local` | `agentkit` |
 | **Custody** | Self-custody — private key encrypted in vault, never leaves your machine | Managed — Coinbase holds keys via Developer Platform |
 | **Setup** | Zero config — wallet auto-creates on first use | Requires free CDP API key from portal.cdp.coinbase.com |
-| **Dependencies** | `eth-account` (installed by setup.sh) | `coinbase-agentkit` (install via setup.sh when configured) |
-| **Transfers** | ETH + ERC-20 (USDC, etc.) | ETH + ERC-20 (USDC, etc.) |
+| **Dependencies** | `eth-account` (EVM) or `solders` + `base58` (Solana) — installed by setup.sh | `coinbase-agentkit` (install via setup.sh when configured) |
+| **Transfers** | ETH + ERC-20 (USDC, etc.) on EVM; SOL + SPL (USDC) on Solana | ETH + ERC-20 (USDC, etc.) |
 | **DEX swaps** | Not supported | Supported (ETH↔USDC etc.) |
-| **Gas fees** | User pays from ETH balance (< $0.01 on Base) | Gasless on Base via paymaster |
-| **Chains** | Base (default), Base Sepolia, Ethereum | All EVM chains + Solana |
+| **Gas fees** | EVM: user pays from ETH balance (< $0.01 on Base). Solana: ~$0.00025/tx | Gasless on Base via paymaster |
+| **Chains** | Base (default), Base Sepolia, Ethereum, **Solana**, Solana Devnet | All EVM chains + Solana |
 | **Best for** | Local-first users, simple transfers, full self-custody | Users who need swaps, gasless transactions, or multi-chain |
 
-Recommended default: **Local wallet** on **Base** — zero config, self-custody, minimal gas fees. Switch to Coinbase CDP when you need swaps or gasless transactions.
+Recommended default: **Local wallet** on **Base** — zero config, self-custody, minimal gas fees. For Solana, set `default_chain: solana`. Switch to Coinbase CDP when you need swaps or gasless transactions.
 
 ### Token Swaps (Coinbase CDP only)
 
@@ -271,9 +271,35 @@ Chain          │ Native Token │ Stablecoins     │ DEX              │ Gas
 Base (default) │ ETH          │ USDC            │ Uniswap (CDP)    │ Yes (CDP paymaster)
 Base Sepolia   │ ETH          │ USDC (test)     │ —                │ No
 Ethereum       │ ETH          │ USDC, USDT, DAI │ Uniswap (CDP)    │ No
+Solana         │ SOL          │ USDC            │ —                │ No
+Solana Devnet  │ SOL          │ USDC (test)     │ —                │ No
 ```
 
 Chains are configured in `config.yaml`. The agent selects the optimal chain based on cost (gas fees) and recipient requirements.
+
+### Solana Wallet Setup
+
+```yaml
+# config.yaml — Solana wallet
+payments:
+  enabled: true
+  crypto:
+    enabled: true
+    default_chain: solana    # or solana-devnet for testing
+    provider: local          # self-custody, auto-creates Solana keypair
+    rpc_url: ""              # empty = default (api.mainnet-beta.solana.com)
+```
+
+On first startup, a Solana keypair is generated and stored encrypted in the vault. The public key (wallet address) is displayed for funding.
+
+**Owner access to wallet:**
+- Use `wallet_export` tool to retrieve the private key (base58 format)
+- Import into Phantom, Solflare, or any Solana wallet
+- Both agent and owner can use the same wallet
+
+**Vault keys (Solana):**
+- `solana_wallet_private_key` — base58-encoded 64-byte keypair
+- `crypto_wallet_address` — public key (base58)
 
 ## Payment Tools
 
@@ -282,6 +308,7 @@ Chains are configured in `config.yaml`. The agent selects the optimal chain base
 | Tool | Permission | Purpose |
 |------|-----------|---------|
 | `wallet_status` | SAFE | Show agent wallet address, balances, chain |
+| `wallet_export` | CRITICAL | Export wallet private key for owner to import into Phantom/MetaMask |
 | `payment_balance` | SAFE | Check balances (card, bank, crypto wallets) |
 | `payment_validate` | SAFE | Validate address format, IBAN, card token |
 | `payment_preview` | SAFE | Show fees, exchange rates, total cost — no execution |
@@ -416,7 +443,7 @@ Vault Keys:
 - Raw credit card numbers (use tokenized references)
 - Bank login credentials (use Open Banking APIs)
 
-Note: The local wallet provider stores the private key encrypted in the vault (`local_wallet_private_key`). This is secure — the vault uses Fernet encryption with PBKDF2 key derivation.
+Note: The local wallet provider stores the private key encrypted in the vault (`local_wallet_private_key` for EVM, `solana_wallet_private_key` for Solana). This is secure — the vault uses Fernet encryption with PBKDF2 key derivation. Use the `wallet_export` tool to share keys with the owner.
 
 ### CLI Setup
 
@@ -514,6 +541,7 @@ payments:
     max_gas_percentage: 10            # Reject if gas > 10% of amount
     chains:
       - base
+      - solana
       - ethereum
 
   providers:
@@ -538,19 +566,23 @@ tool_overrides:
 
 ## Status
 
-**Phase 1 Done** — Crypto payments with dual wallet provider support. 7 tools, spending limits, audit trail, chat-based setup.
+**Phase 1 Done** — Crypto payments with dual wallet provider support (EVM + Solana). 8 tools, spending limits, audit trail, chat-based setup, key export for owner access.
 
 ### Implemented
 
 | Rail | Provider | Status |
 |------|----------|--------|
-| **Crypto (local)** | Local self-custody via `eth-account` | Done — default provider, zero config |
+| **Crypto — EVM (local)** | Local self-custody via `eth-account` | Done — default provider, zero config |
+| **Crypto — Solana (local)** | Local self-custody via `solders` | Done — set `default_chain: solana` |
 | **Crypto (CDP)** | Coinbase AgentKit | Done — optional, requires CDP API key |
+| **Key export** | `wallet_export` tool | Done — owner can import keys into Phantom/MetaMask |
 | **Fiat** | Stripe | Planned (Phase 2) |
 | **Invoicing** | Parse + pay | Planned (Phase 3) |
 
 ### Quick Start
 
-**Local wallet (default):** Enable `payments.enabled: true` and `payments.crypto.enabled: true` in config.yaml (or ask the agent to set it up from chat). Wallet auto-creates on first run.
+**Local EVM wallet (default):** Enable `payments.enabled: true` and `payments.crypto.enabled: true` in config.yaml. Wallet auto-creates on first run.
+
+**Local Solana wallet:** Set `default_chain: solana` in crypto config. Keypair auto-creates, owner can export via `wallet_export`.
 
 **Coinbase CDP:** Set `payments.crypto.provider: agentkit`, store CDP credentials in vault, run `./setup.sh` to install AgentKit dependencies.

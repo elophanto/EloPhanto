@@ -281,11 +281,14 @@ payments:
     cooldown_seconds: 300
   crypto:
     enabled: true
-    default_chain: base
-    provider: local
-    rpc_url: ""
+    default_chain: base              # "base", "ethereum", "solana", "solana-devnet"
+    provider: local                  # "local" (self-custody) or "agentkit" (Coinbase CDP)
+    rpc_url: ""                      # empty = chain default
     cdp_api_key_name_ref: "cdp_api_key_name"
     cdp_api_key_private_ref: "cdp_api_key_private"
+    chains:
+      - base
+      - solana
 
 # --- Email ---
 

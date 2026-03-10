@@ -60,29 +60,45 @@ class PaymentsManager:
             return
 
         if not self._vault:
-            logger.warning("Vault not available — payments require vault for credentials")
+            logger.warning(
+                "Vault not available — payments require vault for credentials"
+            )
             return
 
-        # Check if we have a stored wallet address
-        stored_address = self._vault.get("crypto_wallet_address")
+        # Check if we have a stored wallet address (chain-specific key)
+        vault_addr_key = self._wallet_address_vault_key()
+        stored_address = self._vault.get(vault_addr_key)
+        # Fallback: legacy key — only if it matches the current chain's address format
+        if not stored_address:
+            legacy = self._vault.get("crypto_wallet_address")
+            if legacy and self.validate_address(legacy, self._chain):
+                stored_address = legacy
         if stored_address:
             self._wallet_address = stored_address
             logger.info(f"Loaded wallet: {self._wallet_address} on {self._chain}")
         elif self._config.wallet.auto_create:
             await self.create_wallet()
 
+    def _wallet_address_vault_key(self) -> str:
+        """Return the chain-specific vault key for the wallet address."""
+        if self._chain in ("solana", "solana-devnet"):
+            return "solana_wallet_address"
+        return "crypto_wallet_address"  # EVM chains share one key
+
     async def create_wallet(self) -> str:
-        """Create a new agent wallet via AgentKit. Returns the address."""
+        """Create a new agent wallet. Returns the address."""
         provider = await self._get_wallet_provider()
         try:
             details = provider.get_wallet_details()
             self._wallet_address = details.get("address", "")
             if not self._wallet_address:
-                # Try alternate attribute access
                 wallet = getattr(provider, "get_address", lambda: "")()
                 self._wallet_address = str(wallet) if wallet else ""
 
             if self._wallet_address and self._vault:
+                vault_key = self._wallet_address_vault_key()
+                self._vault.set(vault_key, self._wallet_address)
+                # Also set generic key for backwards compat
                 self._vault.set("crypto_wallet_address", self._wallet_address)
 
             logger.info(f"Created wallet: {self._wallet_address} on {self._chain}")
@@ -124,8 +140,14 @@ class PaymentsManager:
             else:
                 # Local provider has get_erc20_balance; CDP uses get_wallet_details
                 if hasattr(provider, "get_erc20_balance"):
-                    balance = provider.get_erc20_balance(provider._get_token_address(token))
-                    return {"token": token, "amount": str(balance), "chain": self._chain}
+                    balance = provider.get_erc20_balance(
+                        provider._get_token_address(token)
+                    )
+                    return {
+                        "token": token,
+                        "amount": str(balance),
+                        "chain": self._chain,
+                    }
                 else:
                     details = provider.get_wallet_details()
                     return {
@@ -175,7 +197,9 @@ class PaymentsManager:
                 result = provider.transfer(to=to, amount=str(amount), token=token)
 
             tx_hash = str(result) if result else ""
-            await self._auditor.update_status(audit_id, "executed", transaction_ref=tx_hash)
+            await self._auditor.update_status(
+                audit_id, "executed", transaction_ref=tx_hash
+            )
 
             return {
                 "success": True,
@@ -206,7 +230,9 @@ class PaymentsManager:
             )
 
         # Check spending limits (use amount in from_token terms)
-        check = await self._limiter.check(amount, from_token, f"swap:{from_token}->{to_token}")
+        check = await self._limiter.check(
+            amount, from_token, f"swap:{from_token}->{to_token}"
+        )
         if not check.allowed:
             raise PaymentsError(f"Spending limit exceeded: {check.reason}")
 
@@ -242,10 +268,14 @@ class PaymentsManager:
                 )
             else:
                 # Fallback: direct swap call if available
-                result = provider.swap(from_token=from_token, to_token=to_token, amount=str(amount))
+                result = provider.swap(
+                    from_token=from_token, to_token=to_token, amount=str(amount)
+                )
 
             tx_hash = str(result) if result else ""
-            await self._auditor.update_status(audit_id, "executed", transaction_ref=tx_hash)
+            await self._auditor.update_status(
+                audit_id, "executed", transaction_ref=tx_hash
+            )
 
             return {
                 "success": True,
@@ -259,7 +289,9 @@ class PaymentsManager:
             await self._auditor.update_status(audit_id, "failed", error=str(e))
             raise PaymentsError(f"Swap failed: {e}") from e
 
-    async def get_swap_price(self, from_token: str, to_token: str, amount: float) -> dict[str, Any]:
+    async def get_swap_price(
+        self, from_token: str, to_token: str, amount: float
+    ) -> dict[str, Any]:
         """Get a price quote for a swap without executing."""
         try:
             provider = await self._get_wallet_provider()
@@ -320,6 +352,36 @@ class PaymentsManager:
             return "always_ask"
         return "standard"
 
+    async def export_wallet_keys(self) -> dict[str, Any]:
+        """Export wallet keys for owner access. Returns chain-appropriate key data."""
+        provider = await self._get_wallet_provider()
+        result: dict[str, Any] = {
+            "address": self._wallet_address,
+            "chain": self._chain,
+            "provider": self._config.crypto.provider,
+        }
+
+        if self._chain in ("solana", "solana-devnet"):
+            if hasattr(provider, "get_private_key_base58"):
+                result["private_key"] = provider.get_private_key_base58()
+                result["format"] = "base58 (64-byte keypair)"
+                result["import_instructions"] = (
+                    "Import into Phantom/Solflare: Settings > Import Private Key > "
+                    "paste the base58 key"
+                )
+        else:
+            # EVM wallet
+            stored_key = self._vault.get("local_wallet_private_key")
+            if stored_key:
+                result["private_key"] = stored_key
+                result["format"] = "hex (32-byte private key)"
+                result["import_instructions"] = (
+                    "Import into MetaMask: Settings > Import Account > "
+                    "paste the hex private key (with 0x prefix)"
+                )
+
+        return result
+
     async def check_low_balance(self) -> str | None:
         """Check if wallet balance is below alert threshold. Returns message or None."""
         if not self._wallet_address or not self._config.crypto.enabled:
@@ -348,7 +410,10 @@ class PaymentsManager:
         provider_type = self._config.crypto.provider
 
         if provider_type == "local":
-            self._wallet_provider = self._init_local_provider()
+            if self._chain in ("solana", "solana-devnet"):
+                self._wallet_provider = self._init_solana_provider()
+            else:
+                self._wallet_provider = self._init_local_provider()
         elif provider_type == "agentkit":
             self._wallet_provider = self._init_cdp_provider()
         else:
@@ -357,7 +422,7 @@ class PaymentsManager:
         return self._wallet_provider
 
     def _init_local_provider(self) -> Any:
-        """Initialize local self-custody wallet provider."""
+        """Initialize local self-custody EVM wallet provider."""
         try:
             from core.payments.local_wallet import LocalWalletProvider
 
@@ -370,6 +435,22 @@ class PaymentsManager:
         except ImportError as err:
             raise PaymentsError(
                 "eth-account not installed. Run ./setup.sh to reinstall dependencies."
+            ) from err
+
+    def _init_solana_provider(self) -> Any:
+        """Initialize local self-custody Solana wallet provider."""
+        try:
+            from core.payments.solana_wallet import SolanaWalletProvider
+
+            rpc_url = getattr(self._config.crypto, "rpc_url", "") or None
+            return SolanaWalletProvider(
+                vault=self._vault,
+                chain=self._chain,
+                rpc_url=rpc_url,
+            )
+        except ImportError as err:
+            raise PaymentsError(
+                "solders and base58 not installed. Run: uv add solders base58"
             ) from err
 
     def _init_cdp_provider(self) -> Any:
@@ -411,7 +492,9 @@ class PaymentsManager:
         try:
             from coinbase_agentkit import AgentKit, AgentKitConfig
 
-            self._agent_kit_instance = AgentKit(AgentKitConfig(wallet_provider=provider))
+            self._agent_kit_instance = AgentKit(
+                AgentKitConfig(wallet_provider=provider)
+            )
             return self._agent_kit_instance
         except ImportError as err:
             raise PaymentsError("coinbase-agentkit not installed") from err

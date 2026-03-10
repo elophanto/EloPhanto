@@ -78,6 +78,11 @@ if grep -q "desktop:" config.yaml 2>/dev/null && grep -A1 "desktop:" config.yaml
         echo "  ⚠ Desktop deps install failed (optional — run: uv pip install -e '.[desktop]')"
 fi
 
+# Detect Solana chain
+if grep -q "default_chain: solana" config.yaml 2>/dev/null; then
+    echo "  ✓ Solana wallet detected (solders + base58 included in core deps)"
+fi
+
 # Install Coinbase AgentKit if configured
 if grep -q "provider: agentkit" config.yaml 2>/dev/null; then
     echo "  → Installing Coinbase AgentKit (CDP provider detected)..."
@@ -123,6 +128,11 @@ echo ""
 echo "  Optional extras:"
 echo "    uv pip install -e '.[desktop]'        # Desktop GUI agent (pyautogui)"
 echo "    uv pip install -e '.[payments-cdp]'   # Coinbase AgentKit (managed wallet)"
+echo ""
+echo "  Wallet chains (set default_chain in config.yaml):"
+echo "    base (default)  — EVM, low gas fees"
+echo "    solana           — Solana, SOL + USDC"
+echo "    ethereum         — Ethereum mainnet"
 echo ""
 echo "  The setup wizard (elophanto init) configures:"
 echo "    LLM providers, models, permissions, browser, desktop,"

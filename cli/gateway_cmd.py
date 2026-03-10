@@ -249,6 +249,18 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     )
     info.add_row("Mode", f"[{_C_ACCENT}]{cfg.permission_mode}[/]")
 
+    # Wallet status
+    _pm = getattr(agent, "_payments_manager", None)
+    if _pm and _pm.wallet_address:
+        _addr = _pm.wallet_address
+        _short = f"{_addr[:6]}...{_addr[-4:]}" if len(_addr) > 14 else _addr
+        info.add_row(
+            "Wallet",
+            f"[{_C_SUCCESS}]●[/] {_short}  [{_C_DIM}]on {_pm.chain}[/]",
+        )
+    elif _pm:
+        info.add_row("Wallet", f"[{_C_DIM}]not created[/]")
+
     console.print(
         Panel(
             info,

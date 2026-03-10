@@ -427,7 +427,7 @@ Slack Adapter ─────┘                   ▼
 - **Document & media analysis** — PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel. Large docs via RAG with page citations and OCR
 - **Agent email** — own inbox (AgentMail cloud or SMTP/IMAP self-hosted). Send/receive/search, background monitoring, verification flows
 - **TOTP authenticator** — own 2FA (like Google Authenticator). Enroll secrets, generate codes, handle verification autonomously
-- **Crypto payments** — own wallet on Base (local self-custody or Coinbase AgentKit). USDC/ETH, spending limits, audit trail
+- **Crypto payments** — own wallet on Base or Solana (local self-custody or Coinbase AgentKit). USDC/ETH/SOL, spending limits, audit trail. Owner can export keys to import into Phantom/MetaMask
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document
 - **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection, file-pattern routing, remembers past tasks across sessions
 - **Scheduling** — cron-based recurring tasks with natural language schedules
@@ -454,7 +454,7 @@ Slack Adapter ─────┘                   ▼
 | Goals | goal_create, goal_status, goal_manage | 3 |
 | Identity | identity_status, identity_update, identity_reflect | 3 |
 | Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search, email_monitor | 7 |
-| Payments | wallet_status, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 7 |
+| Payments | wallet_status, wallet_export, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history | 8 |
 | Verification | totp_enroll, totp_generate, totp_list, totp_delete | 4 |
 | Swarm | swarm_spawn, swarm_status, swarm_redirect, swarm_stop | 4 |
 | Organization | organization_spawn, organization_delegate, organization_review, organization_teach, organization_status | 5 |
@@ -691,7 +691,8 @@ payments:
   enabled: false
   crypto:
     enabled: true
-    default_chain: base
+    default_chain: base             # base | base-sepolia | solana | solana-devnet
+    chains: [base, solana]
     provider: local
 
 telegram:
@@ -780,7 +781,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Credits
 
-Built by Petr Royce @ ROGA AI. Browser engine from [FellouAI/eko](https://github.com/FellouAI/eko). Skills from [Anthropic](https://github.com/anthropics/skills), [Vercel](https://github.com/vercel-labs/agent-skills), [Supabase](https://github.com/supabase/agent-skills), [ui-skills.com](https://www.ui-skills.com/). Organization roles and specialized skills adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents) (Apache 2.0). Email by [AgentMail](https://agentmail.to). Payments by [eth-account](https://github.com/ethereum/eth-account) + [Coinbase AgentKit](https://github.com/coinbase/agentkit).
+Built by Petr Royce @ ROGA AI. Browser engine from [FellouAI/eko](https://github.com/FellouAI/eko). Skills from [Anthropic](https://github.com/anthropics/skills), [Vercel](https://github.com/vercel-labs/agent-skills), [Supabase](https://github.com/supabase/agent-skills), [ui-skills.com](https://www.ui-skills.com/). Organization roles and specialized skills adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents) (Apache 2.0). Email by [AgentMail](https://agentmail.to). Payments by [eth-account](https://github.com/ethereum/eth-account) + [solders](https://github.com/kevinheavey/solders) + [Coinbase AgentKit](https://github.com/coinbase/agentkit).
 
 ## License
 
