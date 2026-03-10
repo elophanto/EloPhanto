@@ -201,6 +201,22 @@ mcp:
   #     env:
   #       GITHUB_PERSONAL_ACCESS_TOKEN: "vault:github_token"
   #     permission_level: destructive
+  #
+  # Solana ecosystem servers:
+  #   solana-dev:
+  #     command: npx
+  #     args: ["-y", "@solana/dev-mcp"]
+  #     # Official Solana + Anchor docs — https://mcp.solana.com/
+  #   quicknode:
+  #     command: npx
+  #     args: ["-y", "@quicknode/mcp"]
+  #     env:
+  #       QUICKNODE_API_KEY: "vault:quicknode_api_key"
+  #     # Managed Solana RPC, Jupiter API, gRPC streams
+  #   dflow:
+  #     command: npx
+  #     args: ["-y", "@dflow/mcp-server"]
+  #     # Spot + prediction market trading on Solana
 
 # --- Agent Swarm ---
 # Spawn external coding agents (Claude Code, Codex, Gemini CLI) on tasks.
