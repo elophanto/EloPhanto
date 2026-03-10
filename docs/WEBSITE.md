@@ -43,25 +43,27 @@ Hero section with:
 - Quick install snippet: `git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh`
 - CTA buttons: **Get Started** → `/download`, **Browse Skills** → `/hub`
 
-Feature grid (12 cards):
+Feature grid (14 cards):
 | Feature | Description |
 |---------|-------------|
 | Local-first | Runs entirely on your machine. Your data stays yours. |
 | Multi-channel | CLI, Web, VS Code, Telegram, Discord, Slack — one agent, all channels. |
 | VS Code extension | IDE-integrated chat sidebar with context injection — active file, selection, diagnostics. Tool approvals via native notifications. |
-| Browser control | Real Chrome automation with 49 tools using your existing sessions. |
+| Browser control | Real Chrome automation with 49 tools using your existing sessions. Stealth mode strips all Playwright automation flags. |
 | MCP tool servers | Connect any MCP server — filesystem, GitHub, databases, Slack, and more. Agent manages setup through conversation. |
 | Self-evolving | Learns from tasks, builds its own tools, evolves its identity. |
-| Skill ecosystem | 37 bundled skills + community hub with one-command install. |
-| Business launcher | 7-phase pipeline to spin up businesses — SaaS, local service, ecommerce, B2B/B2C. |
-| Multi-model | Claude, GPT-5, and OpenAI models as first-class providers with smart tool routing. |
-| Agent email | Own inbox with dual provider support — AgentMail cloud or your SMTP/IMAP server. |
-| Crypto payments | Agent wallet on Base with spending limits, audit trail, and preview-before-execute. |
+| Skill ecosystem | 147 bundled skills + community hub with one-command install. 27 Solana ecosystem skills, 75 organization role templates. |
+| Solana ecosystem | Native Solana wallet, Jupiter DEX swaps (any token pair via Ultra API), 27 DeFi/NFT/infra/dev skills from awesome-solana-ai. |
+| Business launcher | 7-phase pipeline to spin up businesses — SaaS, local service, ecommerce, B2B/B2C with type-aware launch channels. |
+| Multi-model | Claude, GPT-5, OpenAI, OpenRouter, Ollama, Z.ai — smart tool profiles route the right tools per task. |
+| Agent email | Own inbox with dual provider support — AgentMail cloud or your SMTP/IMAP server. Attachments supported. |
+| Crypto payments | Solana wallet with Jupiter DEX swaps + Base/EVM wallet via AgentKit. Spending limits, audit trail, preview-before-execute. |
+| Agent organization | Spawn persistent specialist agents (marketing, research, design) — each a full EloPhanto clone with its own identity, knowledge, and autonomous mind. |
 | Web dashboard | 10-page real-time monitoring UI — chat, tools, knowledge, mind, schedule, channels, settings, history. |
 
 Architecture diagram (simplified visual version of the ASCII one in README).
 
-Stats strip: **37 skills** · **107+ tools** · **6 channels** · **MCP support** · **43 docs**.
+Stats strip: **147 skills** · **140+ tools** · **6 channels** · **MCP support** · **47 docs**.
 
 ### 2. Documentation (`/docs`)
 
@@ -72,8 +74,9 @@ Left sidebar navigation grouped by category:
 - **Core Systems** — 03-TOOLS, 04-SELF-DEVELOPMENT, 05-KNOWLEDGE-SYSTEM, 06-LLM-ROUTING, 07-SECURITY, 08-BROWSER
 - **Infrastructure** — 09-PROJECT-STRUCTURE, 10-ROADMAP, 12-INSTALLER
 - **Channels** — 11-TELEGRAM, 43-VSCODE-EXTENSION
-- **Ecosystem** — 13-SKILLS, 13-GOAL-LOOP, 14-SELF-LEARNING, 19-SKILL-SECURITY
+- **Ecosystem** — 13-SKILLS, 13-GOAL-LOOP, 14-SELF-LEARNING, 19-SKILL-SECURITY, 44-SOLANA-ECOSYSTEM
 - **Capabilities** — 15-PAYMENTS, 16-DOCUMENT-ANALYSIS, 17-IDENTITY, 18-EMAIL, 23-MCP, 42-BUSINESS-LAUNCHER
+- **Advanced** — 27-SECURITY-HARDENING, 37-AUTONOMOUS-EXPERIMENTATION, 38-SESSION-SEARCH, 39-CODE-EXECUTION-SANDBOX, 40-ENHANCED-SKILL-SECURITY, 41-PROACTIVE-NUDGING
 
 Search across all docs (client-side full-text, e.g. Pagefind or Fuse.js).
 
@@ -84,7 +87,7 @@ The core of this spec. A browsable, searchable registry for EloPhanto skills.
 #### 3a. Hub Home (`/hub`)
 
 - Search bar (prominent, top center)
-- Category tags for quick filtering: `productivity`, `automation`, `browser`, `development`, `devops`, `email`, `data`, `security`, `design`
+- Category tags for quick filtering: `productivity`, `automation`, `browser`, `development`, `devops`, `email`, `data`, `security`, `design`, `defi`, `solana`, `crypto`, `strategy`
 - **Featured skills** — curated list (manually pinned in index.json via `featured: true`)
 - **Recently added** — sorted by `created_at`
 - **Most popular** — sorted by `downloads`
@@ -155,6 +158,9 @@ Quick start after install:
 **VS Code extension**: Install from `vscode-extension/` — connects to the gateway
 as another channel. See [43-VSCODE-EXTENSION.md](43-VSCODE-EXTENSION.md).
 
+**Solana wallet**: Set `default_chain: solana` in config. Wallet auto-creates on first use.
+Jupiter DEX swaps need a free API key from [portal.jup.ag](https://portal.jup.ag) — paste it in chat when prompted.
+
 ### 5. Blog (`/blog`) — Phase 2
 
 Markdown-based blog for release notes, guides, tutorials. Not needed for launch.
@@ -224,7 +230,11 @@ Current schema works, add a few fields for the website:
     { "id": "data", "label": "Data", "icon": "database" },
     { "id": "security", "label": "Security", "icon": "shield" },
     { "id": "design", "label": "Design", "icon": "palette" },
-    { "id": "integration", "label": "Integration", "icon": "plug" }
+    { "id": "integration", "label": "Integration", "icon": "plug" },
+    { "id": "defi", "label": "DeFi", "icon": "coins" },
+    { "id": "solana", "label": "Solana", "icon": "circle-dot" },
+    { "id": "crypto", "label": "Crypto", "icon": "wallet" },
+    { "id": "strategy", "label": "Strategy", "icon": "target" }
   ]
 }
 ```
@@ -705,10 +715,11 @@ elophanto.com/
 - [ ] Deploy to Vercel, point elophanto.com
 
 ### v2 — Docs & Polish
-- [ ] `/docs` auto-rendered from repo
+- [ ] `/docs` auto-rendered from repo (47 docs)
 - [ ] Full-text docs search
 - [ ] SEO meta tags, Open Graph images
 - [ ] `/blog` for release notes
+- [ ] Solana ecosystem landing section (wallet + Jupiter + 27 skills)
 
 ### v3 — Self-Learning & Community
 - [x] `/v1/collect` endpoint for training data collection
@@ -721,6 +732,16 @@ elophanto.com/
 - [ ] Skill ratings / reviews
 - [ ] Author profiles
 - [ ] "Install with one click" deep link: `elophanto://install/<skill>`
+
+### v4 — Solana & Crypto (Done in Agent)
+- [x] Native Solana wallet (self-custody, auto-create, encrypted in vault)
+- [x] Jupiter DEX swaps via Ultra API (any token pair, best-price routing)
+- [x] 27 Solana ecosystem skills (DeFi, NFTs, infra, dev, security)
+- [x] MCP server configs for Solana Developer, QuickNode, DFlow
+- [x] SPL token transfers (USDC)
+- [x] `wallet_export` tool for Phantom/Solflare import
+- [ ] Website: Solana showcase page with live wallet demo
+- [ ] Hub: DeFi/Solana/Crypto category filters
 
 ---
 
