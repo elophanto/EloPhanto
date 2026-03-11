@@ -637,6 +637,7 @@ export class AwareBrowserAgent {
 
   // ==================== INSTRUMENTATION (Console/Network) ====================
   private instrumentedPages = new WeakSet<PlaywrightPage>();
+  private _fileChooserToolActive = false; // suppress global auto-dismiss during browser_file_chooser
   private consoleLog: ConsoleLogEntry[] = [];
   private networkLog: NetworkLogEntry[] = [];
   private requestIdByRequest = new WeakMap<PlaywrightRequest, string>();
@@ -859,6 +860,28 @@ export class AwareBrowserAgent {
             if (!keep.has(k)) this.responseByNetId.delete(k);
           }
         }
+      } catch {
+        // ignore
+      }
+    });
+
+    // Auto-dismiss unexpected native file dialogs.
+    // If browser_file_chooser is active, its own waitForEvent() fires first.
+    // This global listener catches dialogs triggered by accidental clicks
+    // (e.g. profile photo buttons, import buttons) that would otherwise
+    // hang the browser permanently since the agent can't interact with
+    // native OS dialogs.
+    page.on('filechooser', (chooser: any) => {
+      // Skip when browser_file_chooser tool is actively handling a dialog
+      if (this._fileChooserToolActive) return;
+      try {
+        // Cancel the dialog by setting no files
+        chooser.setFiles([]).catch(() => {});
+        this.consoleLog.push({
+          ts: Date.now(),
+          type: 'warning',
+          text: '[EloPhanto] Native file dialog auto-dismissed. Use browser_file_chooser tool to upload files.',
+        });
       } catch {
         // ignore
       }
@@ -3662,57 +3685,64 @@ export class AwareBrowserAgent {
       }
     }
 
-    // Set up filechooser listener BEFORE clicking the trigger
-    const chooserPromise = page.waitForEvent('filechooser', { timeout: 10000 });
+    // Suppress global auto-dismiss while this tool is active
+    this._fileChooserToolActive = true;
 
-    // Click the trigger element (same logic as clickElementByIndex but inlined for atomicity)
-    const elementHandle = await page.evaluateHandle(`
-      (function() {
-        var idx = ${triggerIndex};
-        var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
-        if (!el) {
-          var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
-          var elements = document.querySelectorAll(interactiveSelectors);
-          if (idx >= 0 && idx < elements.length) el = elements[idx];
-        }
-        if (!el) throw new Error('Element ' + idx + ' not found. Re-run browser_get_elements to refresh indices.');
-        try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch(e) {}
-        return el;
-      })()
-    `);
-
-    const triggerInfo = await page.evaluate(
-      (el: any) => '<' + (el.tagName?.toLowerCase() || 'unknown') + '> "' + (el.innerText || '').slice(0, 50).trim() + '"',
-      elementHandle
-    );
-
-    // Click the trigger
     try {
-      await (elementHandle as any).click({ delay: Math.random() * 50 + 20 });
-    } catch {
-      // Fallback to DOM click
-      await page.evaluate(`
+      // Set up filechooser listener BEFORE clicking the trigger
+      const chooserPromise = page.waitForEvent('filechooser', { timeout: 10000 });
+
+      // Click the trigger element (same logic as clickElementByIndex but inlined for atomicity)
+      const elementHandle = await page.evaluateHandle(`
         (function() {
           var idx = ${triggerIndex};
           var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
           if (!el) {
-            var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"]';
-            el = document.querySelectorAll(interactiveSelectors)[idx];
+            var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"], [role="radio"], [role="checkbox"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="slider"], [role="combobox"], [role="listbox"], [contenteditable="true"], details, summary, [onclick], [tabindex], [draggable="true"], [class*="cursor-pointer"], [class*="cursor-grab"], [style*="cursor: pointer"], [style*="cursor:pointer"], [style*="cursor: grab"], [style*="cursor:grab"]';
+            var elements = document.querySelectorAll(interactiveSelectors);
+            if (idx >= 0 && idx < elements.length) el = elements[idx];
           }
-          if (el) el.click();
+          if (!el) throw new Error('Element ' + idx + ' not found. Re-run browser_get_elements to refresh indices.');
+          try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch(e) {}
+          return el;
         })()
       `);
+
+      const triggerInfo = await page.evaluate(
+        (el: any) => '<' + (el.tagName?.toLowerCase() || 'unknown') + '> "' + (el.innerText || '').slice(0, 50).trim() + '"',
+        elementHandle
+      );
+
+      // Click the trigger
+      try {
+        await (elementHandle as any).click({ delay: Math.random() * 50 + 20 });
+      } catch {
+        // Fallback to DOM click
+        await page.evaluate(`
+          (function() {
+            var idx = ${triggerIndex};
+            var el = (window.get_highlight_element && window.get_highlight_element(idx)) || document.querySelector('[data-aware-idx="' + idx + '"]');
+            if (!el) {
+              var interactiveSelectors = 'a, button, input, select, textarea, canvas, svg, [role="button"], [role="link"]';
+              el = document.querySelectorAll(interactiveSelectors)[idx];
+            }
+            if (el) el.click();
+          })()
+        `);
+      }
+
+      // Wait for the file chooser dialog
+      const fileChooser = await chooserPromise;
+      await fileChooser.setFiles(filePaths);
+
+      return {
+        success: true,
+        files: filePaths.map(fp => path.basename(fp)),
+        triggerInfo,
+      };
+    } finally {
+      this._fileChooserToolActive = false;
     }
-
-    // Wait for the file chooser dialog
-    const fileChooser = await chooserPromise;
-    await fileChooser.setFiles(filePaths);
-
-    return {
-      success: true,
-      files: filePaths.map(fp => path.basename(fp)),
-      triggerInfo,
-    };
   }
 
   /**
