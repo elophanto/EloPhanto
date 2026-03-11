@@ -96,6 +96,22 @@ The user expects a rendered .mp4 file, not just source code.
 
 For complex videos, use swarm_spawn to delegate the build to a coding agent.
 
+## Design System — Apply Every Time
+
+**CRITICAL**: Always read `knowledge/system/remotion-video-creation.md` before writing any video code.
+It contains the full design system (colors, fonts, animations, scene templates) that must be applied
+to every video regardless of content. Key rules:
+
+- **Background**: `#0A0A0A` or gradient — never flat `#000` or default blue (`#0f172a`)
+- **Font**: Geist Sans (load via CDN @font-face) — not `system-ui` as the primary face
+- **Headings**: Always use negative letter-spacing (`-3px` to `-5px` for large text)
+- **Scenes**: Minimum 5 seconds (150 frames) per scene — do not rush, people need to read
+- **Animations**: `spring({ damping: 200 })` for smooth professional motion
+- **Lists/cards**: Stagger entrances by 12–15 frames (0.4–0.5s) between items
+- **Glow**: Every scene needs at least one radial-gradient glow spot behind key elements
+- **Accent**: Pick ONE hero color (violet `#8B5CF6` is default) — use sparingly on CTAs only
+- **Glass cards**: `background: rgba(255,255,255,0.03)`, `border: 1px solid rgba(255,255,255,0.08)`
+
 ## When to use
 
 Use this skill whenever you are dealing with Remotion code or asked to create videos programmatically.
