@@ -9,9 +9,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-import pytest
-
-from core.config import Config, LLMConfig, WebhookConfig
+from core.config import Config, WebhookConfig
 
 
 class TestWebhookConfig:
