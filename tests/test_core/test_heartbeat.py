@@ -5,13 +5,12 @@ Tests the periodic HEARTBEAT.md reader without making actual LLM calls.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.config import Config, HeartbeatConfig, LLMConfig
+from core.config import Config, HeartbeatConfig
 from core.heartbeat import HeartbeatEngine
 
 
