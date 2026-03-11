@@ -279,6 +279,7 @@ class Agent:
         )
         self._parent_adapter: Any = None  # ParentChannelAdapter, set during initialize
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
+        self._heartbeat_engine: Any = None  # HeartbeatEngine, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
@@ -583,6 +584,29 @@ class Agent:
                 logger.info("Autonomous mind ready (starts on gateway boot)")
             except Exception as e:
                 logger.warning(f"Autonomous mind setup failed: {e}")
+
+        # Initialize heartbeat engine
+        if self._config.heartbeat.enabled:
+            _status("Preparing heartbeat engine")
+            try:
+                from core.heartbeat import HeartbeatEngine
+
+                self._heartbeat_engine = HeartbeatEngine(
+                    agent=self,
+                    gateway=self._gateway,
+                    config=self._config.heartbeat,
+                    project_root=self._config.project_root,
+                )
+                # Link to gateway for webhook wake triggers
+                if self._gateway:
+                    self._gateway._heartbeat_engine = self._heartbeat_engine
+                logger.info(
+                    "Heartbeat engine ready (checking %s every %ds)",
+                    self._config.heartbeat.file_path,
+                    self._config.heartbeat.check_interval_seconds,
+                )
+            except Exception as e:
+                logger.warning(f"Heartbeat engine setup failed: {e}")
 
         # Initialize identity system
         if self._config.identity.enabled:
@@ -894,6 +918,11 @@ class Agent:
                 await self._autonomous_mind.cancel()
             except Exception as e:
                 logger.debug("Autonomous mind shutdown error: %s", e)
+        if self._heartbeat_engine:
+            try:
+                await self._heartbeat_engine.cancel()
+            except Exception as e:
+                logger.debug("Heartbeat engine shutdown error: %s", e)
         if self._email_monitor:
             try:
                 await self._email_monitor.stop()
@@ -993,6 +1022,11 @@ class Agent:
         list_tool = self._registry.get("schedule_list")
         if list_tool and self._scheduler:
             list_tool._scheduler = self._scheduler
+
+        heartbeat_tool = self._registry.get("heartbeat")
+        if heartbeat_tool:
+            heartbeat_tool._heartbeat_engine = self._heartbeat_engine
+            heartbeat_tool._project_root = self._config.project_root
 
     def _inject_skill_deps(self) -> None:
         """Inject skill manager into skill tools."""
@@ -1198,6 +1232,8 @@ class Agent:
             self._goal_runner.notify_user_interaction()
         if self._autonomous_mind and self._autonomous_mind.is_running:
             self._autonomous_mind.notify_user_interaction()
+        if self._heartbeat_engine and self._heartbeat_engine.is_running:
+            self._heartbeat_engine.notify_user_interaction()
 
         # Temporarily override callbacks for this session
         prev_approval = self._executor._approval_callback
@@ -1225,6 +1261,9 @@ class Agent:
             # Resume autonomous mind after user task
             if self._autonomous_mind and self._autonomous_mind.is_paused:
                 asyncio.create_task(self._autonomous_mind.notify_task_complete())
+            # Resume heartbeat engine after user task
+            if self._heartbeat_engine and self._heartbeat_engine.is_paused:
+                self._heartbeat_engine.notify_task_complete()
 
     async def run(
         self, goal: str, *, max_steps_override: int | None = None

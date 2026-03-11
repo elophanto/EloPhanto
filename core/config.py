@@ -296,6 +296,26 @@ class AutonomousMindConfig:
 
 
 @dataclass
+class HeartbeatConfig:
+    """Periodic HEARTBEAT.md file-based standing orders."""
+
+    enabled: bool = False
+    file_path: str = "HEARTBEAT.md"  # relative to project root
+    check_interval_seconds: int = 1800  # 30 min default
+    max_rounds: int = 8  # max tool call rounds per heartbeat task
+    suppress_idle: bool = True  # don't broadcast when nothing to do
+
+
+@dataclass
+class WebhookConfig:
+    """HTTP webhook endpoints on the gateway for external triggers."""
+
+    enabled: bool = False
+    auth_token_ref: str = ""  # vault key for webhook auth (separate from gateway auth)
+    max_payload_bytes: int = 65536  # 64 KB
+
+
+@dataclass
 class IdentityConfig:
     """Evolving agent identity configuration."""
 
@@ -622,6 +642,8 @@ class Config:
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
     autonomous_mind: AutonomousMindConfig = field(default_factory=AutonomousMindConfig)
+    heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
+    webhooks: WebhookConfig = field(default_factory=WebhookConfig)
     organization: OrganizationConfig = field(default_factory=OrganizationConfig)
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     commune: CommuneConfig = field(default_factory=CommuneConfig)
@@ -1162,6 +1184,24 @@ def load_config(config_path: Path | str | None = None) -> Config:
         verbosity=am_raw.get("verbosity", "normal"),
     )
 
+    # Parse heartbeat section
+    hb_raw = raw.get("heartbeat", {})
+    heartbeat_config = HeartbeatConfig(
+        enabled=hb_raw.get("enabled", False),
+        file_path=hb_raw.get("file_path", "HEARTBEAT.md"),
+        check_interval_seconds=hb_raw.get("check_interval_seconds", 1800),
+        max_rounds=hb_raw.get("max_rounds", 8),
+        suppress_idle=hb_raw.get("suppress_idle", True),
+    )
+
+    # Parse webhooks section
+    wh_raw = raw.get("webhooks", {})
+    webhooks_config = WebhookConfig(
+        enabled=wh_raw.get("enabled", False),
+        auth_token_ref=wh_raw.get("auth_token_ref", ""),
+        max_payload_bytes=wh_raw.get("max_payload_bytes", 65536),
+    )
+
     # Parse organization section
     org_raw = raw.get("organization", {})
     org_specs: dict[str, ChildSpecConfig] = {}
@@ -1270,6 +1310,8 @@ def load_config(config_path: Path | str | None = None) -> Config:
         self_learning=self_learning_config,
         swarm=swarm_config,
         autonomous_mind=autonomous_mind_config,
+        heartbeat=heartbeat_config,
+        webhooks=webhooks_config,
         organization=organization_config,
         deployment=deployment_config,
         commune=commune_config,

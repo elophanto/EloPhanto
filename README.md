@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python">
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-978%2B-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
   <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-47%2B%20pages-blue" alt="Docs"></a>
 </p>
 
@@ -431,7 +431,7 @@ Slack Adapter ─────┘                   ▼
 - **Crypto payments** — own wallet on Base or Solana (local self-custody or Coinbase AgentKit). USDC/ETH/SOL, DEX swaps via Jupiter on Solana, spending limits, audit trail. Owner can export keys to import into Phantom/MetaMask
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document
 - **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection, file-pattern routing, remembers past tasks across sessions
-- **Scheduling** — cron-based recurring tasks with natural language schedules
+- **Scheduling** — cron-based recurring tasks with natural language schedules. Heartbeat standing orders manageable via chat ("add a heartbeat order to check my email") or by editing `HEARTBEAT.md` directly
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 - **Prompt injection defense** — multi-layer guard against injection attacks via websites, emails, and documents
 - **Security hardening** — PII detection/redaction, swarm boundary security, provider transparency
@@ -464,7 +464,7 @@ Slack Adapter ─────┘                   ▼
 | Image Gen | replicate_generate | 1 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
-| Scheduling | schedule_task, schedule_list | 2 |
+| Scheduling | schedule_task, schedule_list, heartbeat | 3 |
 
 </details>
 
@@ -675,6 +675,18 @@ autonomous_mind:
   budget_pct: 100.0
   max_rounds_per_wakeup: 8
 
+heartbeat:
+  enabled: true
+  file_path: "HEARTBEAT.md"
+  check_interval_seconds: 1800       # 30 minutes
+  max_rounds: 8
+  suppress_idle: true
+
+webhooks:
+  enabled: true
+  auth_token_ref: ""                 # vault key for Bearer auth
+  max_payload_bytes: 65536
+
 organization:
   enabled: false
   max_children: 5
@@ -757,6 +769,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Proactive Engine** — heartbeat standing orders + webhook endpoints + chat management. Write tasks in `HEARTBEAT.md` (or manage via chat: "add a heartbeat order to check my email") and the agent executes them every 30 minutes. Zero LLM cost when idle. External systems trigger actions via `POST /hooks/wake` and `POST /hooks/task`. See [docs/46-PROACTIVE-ENGINE.md](docs/46-PROACTIVE-ENGINE.md)
 - **Context documents** — structured self-awareness docs ([inspired by Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184)) that give the agent deep knowledge of its own capabilities, target audience, visual identity, and domain model. 4 curated references in `knowledge/system/`: capabilities inventory (140+ tools, 6 channels, 4 providers, 147 skills), 8 ideal customer profiles with autonomy-first framing, brand styleguide (colors, typography, tone), and domain model reference (5 stacks, 25 tables). Auto-indexed into knowledge base, surfaced by semantic search. See [docs/45-CONTEXT-DOCUMENTS.md](docs/45-CONTEXT-DOCUMENTS.md)
 - **Solana ecosystem** — native Solana wallet (self-custody, auto-create), DEX swaps via Jupiter Ultra API (any token pair, best-price routing), 27 Solana skills from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai) covering DeFi (Jupiter, Drift, Orca, Raydium, Kamino, Meteora, PumpFun), NFTs (Metaplex), oracles (Pyth, Switchboard), bridges (deBridge), infrastructure (Helius, QuickNode), and security (VulnHunter). Solana MCP server configs included. See [docs/44-SOLANA-ECOSYSTEM.md](docs/44-SOLANA-ECOSYSTEM.md)
 - **120 skills + 75 organization role templates** — massive skill library expansion adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents). 57 new skills across engineering, design, marketing, product, project management, support, testing, specialized, and spatial computing divisions. NEXUS strategy system as skills (7-phase playbooks, 4 scenario runbooks). 75 organization role templates for `organization_spawn` — full persona definitions that seed specialist identity, knowledge, and capabilities
@@ -783,7 +796,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (978 passing)
+pytest tests/ -v                   # Run tests (1053 passing)
 ruff check .                       # Lint
 ```
 

@@ -151,6 +151,12 @@
         "module": "tools.scheduling.list_tool",
         "class": "ScheduleListTool",
         "permission_level": "safe"
+      },
+      {
+        "name": "heartbeat",
+        "module": "tools.scheduling.heartbeat_tool",
+        "class": "HeartbeatTool",
+        "permission_level": "moderate"
       }
     ],
     "plugins": []

@@ -64,6 +64,11 @@ class EventType(StrEnum):
     MIND_RESUMED = "mind_resumed"
     MIND_REVENUE = "mind_revenue"
     MIND_ERROR = "mind_error"
+    HEARTBEAT_CHECK = "heartbeat_check"
+    HEARTBEAT_ACTION = "heartbeat_action"
+    HEARTBEAT_IDLE = "heartbeat_idle"
+    WEBHOOK_RECEIVED = "webhook_received"
+    WEBHOOK_TASK_STARTED = "webhook_task_started"
     SHUTDOWN = "shutdown"
 
 
