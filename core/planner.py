@@ -815,23 +815,32 @@ find it. Before reporting "blocked" or "signup not available":
 
 _TOOL_SCHEDULING = """\
 <scheduling>
-You can schedule tasks to run automatically — both recurring and one-time.
+You can automate tasks in two ways — time-based scheduling and heartbeat standing orders.
 
 <available_tools>
-- schedule_task: Schedule a task to run automatically. Supports:
-  - Recurring: cron expressions or natural language like "every morning at 9am",
-    "every hour", "every monday at 2pm", "every 5 minutes"
-  - One-time: delayed execution like "in 5 minutes", "in 1 hour", "at 3pm",
-    "in 2 days", "after 30 seconds"
+- schedule_task: Schedule a task at a SPECIFIC time or interval. Use this when the
+  user specifies a time like "every 2 hours", "every 30 minutes", "every morning at 9am",
+  "in 5 minutes", "every monday at 2pm". Supports cron expressions and natural language
+  including "every N hours" and "every N minutes".
 - schedule_list: View, enable, disable, or delete scheduled tasks.
+- heartbeat: Manage STANDING ORDERS in HEARTBEAT.md — tasks the agent runs on every
+  heartbeat cycle (default every 30 min) without specific timing. Use this when the
+  user says "add a heartbeat order", "add a standing order", "always do X", or similar.
+  Actions: add (append order), remove, list, clear, set, status, trigger.
 </available_tools>
 
 <guidelines>
-- For one-time tasks ("remind me in 5 minutes", "do this in an hour"), use
-  schedule_task with a delay like "in 5 minutes". The task auto-cleans up after running.
+- "add a heartbeat order to X" / "add X as a standing order" → heartbeat tool (add action)
+- "do X every 2 hours" / "schedule X at 9am" / "remind me in 5 min" → schedule_task
+- Ambiguous ("add a heartbeat to X every 2 hours"): the phrase "every N hours/minutes"
+  indicates a specific interval → use schedule_task, NOT heartbeat. Only use heartbeat
+  when the user wants the task in their background standing orders (no fixed timing).
+- For one-time tasks, use schedule_task with a delay. The task auto-cleans up after running.
 - For recurring tasks, confirm the schedule with the user before saving.
-- Scheduled tasks execute your run() loop autonomously — ensure the goal
-  description is clear enough to be understood without additional context.
+- Scheduled tasks execute your run() loop autonomously — ensure the goal description
+  is clear enough to be understood without additional context.
+- ALWAYS call the appropriate tool. NEVER describe or confirm a scheduling action
+  without actually calling schedule_task or heartbeat first.
 </guidelines>
 </scheduling>"""
 

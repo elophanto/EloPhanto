@@ -47,8 +47,9 @@ class ScheduleTaskTool(BaseTool):
                     "type": "string",
                     "description": (
                         "When to run. Recurring: cron expression or natural language "
-                        "('every hour', 'every monday at 2pm'). One-time: 'in 5 minutes', "
-                        "'in 1 hour', 'at 3pm'."
+                        "('every hour', 'every 2 hours', 'every 30 minutes', "
+                        "'every monday at 2pm', 'every morning at 9am'). "
+                        "One-time: 'in 5 minutes', 'in 1 hour', 'at 3pm'."
                     ),
                 },
                 "description": {
