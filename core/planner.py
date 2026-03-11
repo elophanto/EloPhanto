@@ -559,14 +559,20 @@ interact with it. If it appeared on its own (cookie banner on page load), it is
 a BLOCKER — dismiss it. NEVER close a modal that is part of a publish/submit flow.
 </critical_protocol>
 
-FILE UPLOADS — two tools, choose the right one:
+FILE UPLOADS — CRITICAL: Never click upload/photo/import buttons with browser_click!
+Clicking these with browser_click opens a native OS file dialog that BLOCKS the browser.
+You CANNOT interact with native file dialogs. They will hang the session.
+
+Two dedicated tools exist — use ONLY these for any file upload:
 - browser_upload_file {index, files} — Use when you see an <input type="file"> in the element list.
   Just set files directly on the input. No click needed.
 - browser_file_chooser {triggerIndex, files} — Use when a button/area OPENS a file picker dialog
-  (no visible file input). This clicks the trigger and intercepts the native dialog.
+  (no visible file input). This clicks the trigger and intercepts the native dialog safely.
 When the task requires uploading an image or file, check the element list:
   - If you see an input[type="file"], use browser_upload_file.
   - If you only see an "Upload" button or drop zone, use browser_file_chooser.
+  - If the task does NOT require uploading a file, SKIP upload buttons entirely. Do not click
+    profile photo buttons, "Add media" buttons, or import buttons unless you have a file to upload.
 Provide ABSOLUTE file paths. After upload, always screenshot to verify the file was accepted.
 
 <session_handling>
