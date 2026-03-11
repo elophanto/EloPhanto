@@ -4,7 +4,7 @@
 
 EloPhanto uses multiple LLM models for different purposes. Not every task needs the most powerful (and expensive) model. The routing layer decides which model to use based on the task type, user configuration, and available providers.
 
-The routing layer is built on `litellm` for OpenRouter, OpenAI, and Ollama, with a custom adapter for Z.ai/GLM (since GLM has OpenAI-compatible endpoints but requires specific message formatting rules).
+The routing layer is built on `litellm` for OpenRouter, OpenAI, and Ollama, with custom adapters for Z.ai/GLM (which requires specific message formatting) and Kimi/Moonshot AI (routed through the Kilo Code AI Gateway).
 
 ## Providers
 
@@ -80,6 +80,34 @@ Accept-Language: en-US,en
 
 The `Accept-Language` header is important — without it, responses may default to Chinese.
 
+### Kimi / Moonshot AI (via Kilo Code Gateway)
+
+Cloud-hosted Kimi K2.5 from Moonshot AI, accessed via the Kilo Code AI Gateway. Kimi K2.5 is a native multimodal vision model with strong coding and agentic capabilities.
+
+- **Pros**: Native multimodal vision (text + image input), strong coding ability, OpenAI-compatible API, competitive pricing via Kilo Gateway
+- **Cons**: Requires internet, requires Kilo Code subscription for the gateway API key
+- **Setup**: User gets a Kilo Gateway API key from [app.kilo.ai](https://app.kilo.ai). The adapter maps internal model names (e.g. `kimi-k2.5`) to gateway model IDs (`moonshotai/kimi-k2.5`) automatically.
+- **Base URL**: `https://api.kilo.ai/api/gateway`
+- **Kilo Gateway docs**: [kilo.ai/docs/gateway](https://kilo.ai/docs/gateway)
+- **Environment variable**: `KIMI_API_KEY`
+
+#### Available Kimi Models
+
+| Model ID (internal) | Gateway Model ID | Best For |
+|---|---|---|
+| `kimi-k2.5` | `moonshotai/kimi-k2.5` | Multimodal vision + coding (recommended) |
+| `kimi-k2-thinking-turbo` | `moonshotai/kimi-k2.5` | Simple/fast tasks (maps to k2.5 on gateway) |
+
+#### Kilo Code Gateway
+
+The Kilo AI Gateway is a universal AI inference API that is fully OpenAI-compatible. Unlike the direct Moonshot API (`api.moonshot.ai`), the gateway uses JWT tokens from [app.kilo.ai](https://app.kilo.ai) for authentication and model IDs in `provider/model` format (e.g. `moonshotai/kimi-k2.5`). The adapter handles this mapping transparently — the rest of EloPhanto works with short model names like `kimi-k2.5`.
+
+#### Approximate Cost (Kilo Gateway)
+
+| Model | Input (per 1M tokens) | Output (per 1M tokens) |
+|---|---|---|
+| `kimi-k2.5` | $0.45 | $2.20 |
+
 ### Ollama
 
 Locally-hosted models running on the user's machine.
@@ -94,9 +122,10 @@ Locally-hosted models running on the user's machine.
 Users configure a priority order in the config. Default:
 
 1. **OpenAI** — direct access to GPT-5.4, o3, o1. Strong reasoning and tool use
-2. **Z.ai/GLM** (for coding tasks specifically) — excellent quality/cost ratio with Coding Plan
-3. **OpenRouter** — access to all models (Claude, Gemini, Llama, etc.), fallback for everything else
-4. **Ollama** (if a capable model is available for the task type) — local, free, private
+2. **Kimi** — native multimodal vision model via Kilo Gateway. Strong coding and agentic capabilities
+3. **Z.ai/GLM** (for coding tasks specifically) — excellent quality/cost ratio with Coding Plan
+4. **OpenRouter** — access to all models (Claude, Gemini, Llama, etc.), fallback for everything else
+5. **Ollama** (if a capable model is available for the task type) — local, free, private
 
 The user can override this to any custom priority order, or set per-task-type provider preferences.
 
@@ -180,23 +209,24 @@ The router uses this decision process:
 
 ### Provider Adapter Architecture
 
-Since we have four providers with different APIs:
+Since we have five providers with different APIs:
 
 ```
-┌──────────────────────────────────────────────────┐
-│                  LLM Router                       │
-│           (selects provider + model)              │
-├────────────┬───────────┬───────────┬─────────────┤
-│ litellm    │ Z.ai      │ litellm   │ litellm     │
-│ adapter    │ adapter   │ adapter   │ adapter     │
-│            │ (custom)  │           │             │
-├────────────┼───────────┼───────────┼─────────────┤
-│ OpenRouter │ Z.ai API  │ OpenAI    │ Ollama      │
-└────────────┴───────────┴───────────┴─────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                        LLM Router                              │
+│                 (selects provider + model)                     │
+├────────────┬───────────┬───────────┬───────────┬──────────────┤
+│ litellm    │ Z.ai      │ Kimi      │ litellm   │ litellm      │
+│ adapter    │ adapter   │ adapter   │ adapter   │ adapter      │
+│            │ (custom)  │ (custom)  │           │              │
+├────────────┼───────────┼───────────┼───────────┼──────────────┤
+│ OpenRouter │ Z.ai API  │ Kilo GW   │ OpenAI    │ Ollama       │
+└────────────┴───────────┴───────────┴───────────┴──────────────┘
 ```
 
 - **OpenRouter + OpenAI + Ollama**: Handled by `litellm` natively (unified API)
 - **Z.ai/GLM**: Custom adapter that wraps the OpenAI-compatible API with GLM-specific message formatting, header requirements, and error handling
+- **Kimi**: Custom adapter that routes through the Kilo Code AI Gateway. Maps internal model names to gateway model IDs (`kimi-k2.5` → `moonshotai/kimi-k2.5`) and uses JWT token auth. No special message formatting needed — the gateway is fully OpenAI-compatible
 
 The custom Z.ai adapter:
 1. Accepts the same input format as litellm (standard messages array)
@@ -231,12 +261,19 @@ llm:
       base_url_paygo: "https://api.z.ai/api/paas/v4"
       default_model: "glm-4.7"
 
+    kimi:
+      api_key_ref: "kimi_api_key"  # Kilo Gateway JWT token
+      enabled: true
+      base_url: "https://api.kilo.ai/api/gateway"
+      default_model: "kimi-k2.5"   # → moonshotai/kimi-k2.5 on gateway
+
     ollama:
       base_url: "http://localhost:11434"
       enabled: true
 
   provider_priority:
     - openai
+    - kimi
     - zai
     - openrouter
     - ollama
@@ -246,6 +283,7 @@ llm:
       preferred_provider: openai
       models:                                  # provider → model map
         openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         openrouter: "anthropic/claude-sonnet-4.6"
         zai: "glm-5"
         ollama: "qwen2.5:32b"
@@ -253,6 +291,7 @@ llm:
       preferred_provider: openai
       models:
         openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         zai: "glm-4.7"
         openrouter: "qwen/qwen3.5-plus-02-15"
         ollama: "qwen2.5-coder:32b"
@@ -260,6 +299,7 @@ llm:
       preferred_provider: openai
       models:
         openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         openrouter: "google/gemini-3.1-pro-preview"
         zai: "glm-4.7"
         ollama: "qwen2.5:14b"
@@ -267,6 +307,7 @@ llm:
       preferred_provider: openrouter
       models:
         openrouter: "minimax/minimax-m2.5"
+        kimi: "kimi-k2-thinking-turbo"
         zai: "glm-4.7"
         ollama: "llama3.2:3b"
 
@@ -294,8 +335,11 @@ On startup and periodically, the router:
 2. Validates OpenAI connectivity (`GET /v1/models` with Bearer token)
 3. Validates that configured OpenRouter models are accessible (quick API check)
 4. Validates Z.ai connectivity and confirms which plan is active (Coding Plan vs pay-as-you-go)
-5. Updates an internal model registry with capabilities (context window size, strengths, cost per token)
-6. Logs any mismatches between config and reality (e.g., configured local model not installed, Z.ai key expired)
+5. Validates Kimi connectivity via Kilo Gateway (minimal chat completion with `max_tokens: 1`)
+6. Updates an internal model registry with capabilities (context window size, strengths, cost per token)
+7. Logs any mismatches between config and reality (e.g., configured local model not installed, Z.ai key expired)
+
+**Dashboard health indicators**: The startup dashboard shows all configured providers with color-coded status — green (●) for healthy providers that passed the health check, yellow (●) for degraded providers that are configured and enabled but failed the startup health check (still eligible for routing — cloud providers auto-recover after 60s cooldown).
 
 ## Cross-Provider Review Strategy
 

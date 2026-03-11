@@ -692,6 +692,11 @@ def _apply_env_overrides(config: Config) -> None:
         config.llm.providers["zai"].api_key = env_key
         config.llm.providers["zai"].enabled = True
 
+    env_key = os.environ.get("KIMI_API_KEY")
+    if env_key and "kimi" in config.llm.providers:
+        config.llm.providers["kimi"].api_key = env_key
+        config.llm.providers["kimi"].enabled = True
+
 
 def load_config(config_path: Path | str | None = None) -> Config:
     """Load and validate configuration from YAML file.

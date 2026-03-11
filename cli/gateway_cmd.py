@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.status import Status
 from rich.table import Table
 
-from cli.chat_cmd import _build_banner
+from cli.chat_cmd import _build_banner, _build_provider_parts
 from core.agent import Agent
 from core.config import load_config
 from core.log_setup import setup_logging
@@ -226,16 +226,12 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     # Show status panel
     tool_count = len(agent._registry.list_tools())
     skill_count = len(agent._skill_manager.list_skills())
-    health = getattr(agent, "_provider_health", {})
-    providers = [k for k, v in health.items() if v]
-
     info = Table.grid(padding=(0, 2))
     info.add_column(style=_C_DIM, justify="right", min_width=14)
     info.add_column()
     info.add_row("Gateway", f"[{_C_SUCCESS}]{gw_url}[/]")
 
-    prov_parts = [f"[{_C_SUCCESS}]●[/] {p}" for p in providers] or ["[red]● none[/]"]
-    info.add_row("Providers", "  ".join(prov_parts))
+    info.add_row("Providers", "  ".join(_build_provider_parts(agent)))
     info.add_row("Tools", f"[bold]{tool_count}[/] registered")
     info.add_row("Skills", f"[bold]{skill_count}[/] loaded")
 

@@ -1,6 +1,6 @@
 """LLM Router: selects provider and model, makes calls, tracks cost.
 
-Routes LLM calls to the correct provider (Ollama, Z.ai, OpenRouter, OpenAI)
+Routes LLM calls to the correct provider (Ollama, Z.ai, Kimi, OpenRouter, OpenAI)
 based on task type, user configuration, and provider availability.
 """
 
@@ -129,8 +129,9 @@ class LLMRouter:
         self._cost_tracker = CostTracker()
         self._provider_health: dict[str, bool] = {}
         self._provider_failed_at: dict[str, float] = {}
-        # Lazy singleton — avoids re-creating HTTP client per call
+        # Lazy singletons — avoid re-creating HTTP clients per call
         self._zai_adapter: Any = None
+        self._kimi_adapter: Any = None
         # Provider transparency tracker (Gap 5)
         self._provider_tracker = ProviderTracker()
 
@@ -174,6 +175,10 @@ class LLMRouter:
             try:
                 if provider == "zai":
                     result = await self._call_zai(
+                        messages, model, tools, temperature, max_tokens
+                    )
+                elif provider == "kimi":
+                    result = await self._call_kimi(
                         messages, model, tools, temperature, max_tokens
                     )
                 else:
@@ -442,6 +447,8 @@ class LLMRouter:
             return "openrouter"
         if model.startswith("glm-"):
             return "zai"
+        if model.startswith("kimi-"):
+            return "kimi"
         if model.startswith("gpt-") or model.startswith("o1") or model.startswith("o3"):
             return "openai"
         return "ollama"
@@ -473,6 +480,9 @@ class LLMRouter:
         if provider == "zai":
             zai_cfg = self._config.llm.providers.get("zai")
             return zai_cfg.default_model if zai_cfg else None
+        if provider == "kimi":
+            kimi_cfg = self._config.llm.providers.get("kimi")
+            return kimi_cfg.default_model if kimi_cfg else None
         if provider == "openai":
             oai_cfg = self._config.llm.providers.get("openai")
             return oai_cfg.default_model if oai_cfg and oai_cfg.default_model else None
@@ -640,6 +650,41 @@ class LLMRouter:
             self._mark_unhealthy("zai")
             raise
 
+    def _get_kimi_adapter(self) -> Any:
+        """Get or create the shared KimiAdapter instance."""
+        if self._kimi_adapter is None:
+            from core.kimi_adapter import KimiAdapter
+
+            self._kimi_adapter = KimiAdapter(self._config)
+        return self._kimi_adapter
+
+    async def _call_kimi(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int | None,
+    ) -> LLMResponse:
+        """Call via Kimi custom adapter."""
+        adapter = self._get_kimi_adapter()
+        try:
+            response = await adapter.complete(
+                messages, model, tools, temperature, max_tokens
+            )
+            self._cost_tracker.record(
+                "kimi",
+                model,
+                response.input_tokens,
+                response.output_tokens,
+                response.cost_estimate,
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Kimi call failed ({model}): {e}")
+            self._mark_unhealthy("kimi")
+            raise
+
     async def health_check(self) -> dict[str, bool]:
         """Check provider connectivity on startup.
 
@@ -709,6 +754,20 @@ class LLMRouter:
                 logger.warning(f"Z.ai not reachable: {e}")
                 return ("zai", False)
 
+        async def _check_kimi() -> tuple[str, bool]:
+            kimi_cfg = self._config.llm.providers.get("kimi")
+            if not (kimi_cfg and kimi_cfg.enabled and kimi_cfg.api_key):
+                return ("kimi", False)
+            try:
+                adapter = self._get_kimi_adapter()
+                healthy = await adapter.health_check()
+                if not healthy:
+                    logger.warning("Kimi health check returned non-200")
+                return ("kimi", healthy)
+            except Exception as e:
+                logger.warning(f"Kimi not reachable: {e}")
+                return ("kimi", False)
+
         # Run all health checks in parallel
         tasks = []
         ollama_cfg = self._config.llm.providers.get("ollama")
@@ -723,6 +782,9 @@ class LLMRouter:
         zai_cfg = self._config.llm.providers.get("zai")
         if zai_cfg and zai_cfg.enabled and zai_cfg.api_key:
             tasks.append(_check_zai())
+        kimi_cfg = self._config.llm.providers.get("kimi")
+        if kimi_cfg and kimi_cfg.enabled and kimi_cfg.api_key:
+            tasks.append(_check_kimi())
 
         if tasks:
             check_results = await asyncio.gather(*tasks)

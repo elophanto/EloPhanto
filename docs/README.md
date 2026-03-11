@@ -74,7 +74,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 
 **What it does**: EloPhanto runs on your machine with access to your filesystem, shell, browser (your real browser with your sessions), email, and more. You give it goals in natural language. It plans, executes using its tools, and reflects on the results. When it encounters something it can't do, it builds a new tool — complete with tests, code review, and documentation.
 
-**How it thinks**: Multiple LLM models via OpenRouter (cloud) and Ollama (local). A routing layer picks the right model for each subtask. The strongest models handle planning and code generation. Cheap models handle simple tasks. Local models are preferred for privacy and cost.
+**How it thinks**: Multiple LLM models via 5 providers — OpenAI, Kimi (via Kilo Gateway), Z.ai, OpenRouter (cloud), and Ollama (local). A routing layer picks the right model for each subtask. The strongest models handle planning and code generation. Cheap models handle simple tasks. Local models are preferred for privacy and cost.
 
 **How it remembers**: SQLite database for structured data and task history. Markdown files for knowledge (both user-provided and self-generated). Vector embeddings for semantic search. FTS5 full-text search across past conversation sessions. Everything persists across sessions — the agent recalls past tasks when starting new ones, so it knows what it did for you yesterday.
 
