@@ -156,6 +156,19 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
             )
         )
 
+    # Wire up HeartbeatEngine with gateway reference + start
+    if agent._heartbeat_engine:
+        agent._heartbeat_engine._gateway = gateway
+        gateway._heartbeat_engine = agent._heartbeat_engine
+        hb_task = asyncio.create_task(agent._heartbeat_engine.start())
+        hb_task.add_done_callback(
+            lambda t: (
+                logger.error("Heartbeat startup failed: %s", t.exception())
+                if not t.cancelled() and t.exception()
+                else None
+            )
+        )
+
     # Update EmailMonitor with gateway reference (user starts via tool)
     if agent._email_monitor:
         agent._email_monitor._gateway = gateway

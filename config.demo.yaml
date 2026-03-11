@@ -37,17 +37,17 @@ llm:
       base_url: "http://localhost:11434"
 
   provider_priority:
-    - openai
     - kimi
     - zai
     - openrouter
+    - openai
     - ollama
 
   # Per-task model routing — each task type maps provider → model.
   # The router tries preferred_provider first, then walks provider_priority.
   routing:
     planning:
-      preferred_provider: openai
+      preferred_provider: kimi
       models:
         openai: "gpt-5.4"                               # latest GPT
         kimi: "kimi-k2.5"                               # multimodal vision + reasoning
@@ -56,7 +56,7 @@ llm:
         ollama: "qwen2.5:14b"
 
     coding:
-      preferred_provider: openai
+      preferred_provider: kimi
       models:
         openai: "gpt-5.4"                               # strong coding
         kimi: "kimi-k2.5"                               # strong coding + vision
@@ -65,7 +65,7 @@ llm:
         ollama: "qwen2.5-coder:7b"
 
     analysis:
-      preferred_provider: openai
+      preferred_provider: kimi
       models:
         openai: "gpt-5.4"                               # balanced
         kimi: "kimi-k2.5"                               # multimodal analysis
@@ -228,6 +228,26 @@ mcp:
   #     command: npx
   #     args: ["-y", "@dflow/mcp-server"]
   #     # Spot + prediction market trading on Solana
+
+# --- Heartbeat Engine ---
+# Periodically reads HEARTBEAT.md from the project root.
+# Write standing orders in that file — the agent picks them up automatically.
+# No LLM call is made when the file is empty or missing.
+heartbeat:
+  enabled: true
+  file_path: "HEARTBEAT.md"          # relative to project root
+  check_interval_seconds: 1800       # 30 minutes
+  max_rounds: 8                      # max tool call rounds per heartbeat task
+  suppress_idle: true                # don't broadcast when nothing to do
+
+# --- Webhook Endpoints ---
+# HTTP endpoints on the gateway for external triggers.
+# POST /hooks/wake  — trigger an immediate heartbeat check
+# POST /hooks/task  — inject an ad-hoc task for the agent
+webhooks:
+  enabled: true
+  auth_token_ref: ""                 # vault key for Bearer auth (empty = no auth)
+  max_payload_bytes: 65536           # 64 KB max request body
 
 # --- Agent Swarm ---
 # Spawn external coding agents (Claude Code, Codex, Gemini CLI) on tasks.

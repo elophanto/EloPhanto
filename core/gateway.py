@@ -102,6 +102,11 @@ class Gateway:
         # Remote shutdown signal (set by exit/shutdown commands from any channel)
         self._shutdown_event: asyncio.Event = asyncio.Event()
 
+        # Webhook config
+        self._webhook_config = getattr(config, "webhooks", None)
+        self._webhook_auth_token: str | None = None  # resolved during start
+        self._heartbeat_engine: Any = None  # set by agent initialization
+
     @property
     def url(self) -> str:
         return f"ws://{self._host}:{self._port}"
@@ -111,7 +116,7 @@ class Gateway:
         return self._server is not None
 
     def _process_http_request(self, connection: Any, request: Any) -> Any:
-        """Handle plain HTTP requests (health check) before WebSocket upgrade."""
+        """Handle plain HTTP requests (health, webhooks) before WebSocket upgrade."""
         from websockets.datastructures import Headers
         from websockets.http11 import Response
 
@@ -128,7 +133,173 @@ class Gateway:
                 Headers({"Content-Type": "application/json"}),
                 body,
             )
+
+        # --- Webhook endpoints ---
+        if request.path.startswith("/hooks/"):
+            return self._handle_webhook(request)
+
         return None  # Continue with WebSocket upgrade
+
+    def _handle_webhook(self, request: Any) -> Any:
+        """Route webhook HTTP requests."""
+        from websockets.datastructures import Headers
+        from websockets.http11 import Response
+
+        # Check if webhooks are enabled
+        if not self._webhook_config or not self._webhook_config.enabled:
+            body = json.dumps({"error": "webhooks disabled"}).encode()
+            return Response(
+                404, "Not Found", Headers({"Content-Type": "application/json"}), body
+            )
+
+        # Auth check
+        if self._webhook_auth_token:
+            auth_header = request.headers.get("Authorization", "")
+            expected = f"Bearer {self._webhook_auth_token}"
+            if auth_header != expected:
+                body = json.dumps({"error": "unauthorized"}).encode()
+                return Response(
+                    401,
+                    "Unauthorized",
+                    Headers({"Content-Type": "application/json"}),
+                    body,
+                )
+
+        # Parse body (websockets provides body as bytes on the request)
+        raw_body = getattr(request, "body", b"") or b""
+        max_bytes = self._webhook_config.max_payload_bytes
+        if len(raw_body) > max_bytes:
+            body = json.dumps(
+                {"error": f"payload too large (max {max_bytes} bytes)"}
+            ).encode()
+            return Response(
+                413,
+                "Payload Too Large",
+                Headers({"Content-Type": "application/json"}),
+                body,
+            )
+
+        payload: dict[str, Any] = {}
+        if raw_body:
+            try:
+                payload = json.loads(raw_body)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                body = json.dumps({"error": "invalid JSON"}).encode()
+                return Response(
+                    400,
+                    "Bad Request",
+                    Headers({"Content-Type": "application/json"}),
+                    body,
+                )
+
+        path = request.path
+
+        if path == "/hooks/wake":
+            return self._webhook_wake(payload)
+        elif path == "/hooks/task":
+            return self._webhook_task(payload)
+        else:
+            body = json.dumps(
+                {"error": "unknown hook", "available": ["/hooks/wake", "/hooks/task"]}
+            ).encode()
+            return Response(
+                404, "Not Found", Headers({"Content-Type": "application/json"}), body
+            )
+
+    def _webhook_wake(self, payload: dict[str, Any]) -> Any:
+        """POST /hooks/wake — trigger an immediate heartbeat check."""
+        from websockets.datastructures import Headers
+        from websockets.http11 import Response
+
+        heartbeat = self._heartbeat_engine
+        if not heartbeat or not heartbeat.is_running:
+            body = json.dumps({"error": "heartbeat engine not running"}).encode()
+            return Response(
+                503,
+                "Service Unavailable",
+                Headers({"Content-Type": "application/json"}),
+                body,
+            )
+
+        # Inject event into autonomous mind if available
+        event_text = payload.get("event", "External wake trigger received")
+        mind = getattr(self._agent, "_autonomous_mind", None)
+        if mind:
+            mind.inject_event(f"[WEBHOOK] {event_text}")
+
+        # Schedule heartbeat check on next event loop iteration
+        asyncio.get_event_loop().create_task(heartbeat._check_and_execute())
+
+        # Broadcast webhook received event
+        asyncio.get_event_loop().create_task(
+            self.broadcast(
+                event_message(
+                    "",
+                    EventType.WEBHOOK_RECEIVED,
+                    {"hook": "wake", "event": event_text[:200]},
+                ),
+                session_id=None,
+            )
+        )
+
+        body = json.dumps({"status": "ok", "action": "heartbeat_triggered"}).encode()
+        return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
+
+    def _webhook_task(self, payload: dict[str, Any]) -> Any:
+        """POST /hooks/task — inject an ad-hoc task for the agent to execute."""
+        from websockets.datastructures import Headers
+        from websockets.http11 import Response
+
+        task_goal = payload.get("goal", "")
+        if not task_goal:
+            body = json.dumps({"error": "missing 'goal' in payload"}).encode()
+            return Response(
+                400,
+                "Bad Request",
+                Headers({"Content-Type": "application/json"}),
+                body,
+            )
+
+        # Cap goal length
+        task_goal = task_goal[:2000]
+
+        # Schedule the task asynchronously
+        asyncio.get_event_loop().create_task(
+            self._execute_webhook_task(task_goal, payload)
+        )
+
+        body = json.dumps({"status": "accepted", "goal": task_goal[:200]}).encode()
+        return Response(
+            202, "Accepted", Headers({"Content-Type": "application/json"}), body
+        )
+
+    async def _execute_webhook_task(self, goal: str, payload: dict[str, Any]) -> None:
+        """Execute a webhook-injected task through the agent."""
+        await self.broadcast(
+            event_message(
+                "",
+                EventType.WEBHOOK_TASK_STARTED,
+                {"goal": goal[:200], "source": payload.get("source", "webhook")},
+            ),
+            session_id=None,
+        )
+
+        # Isolate conversation history
+        saved_history = list(self._agent._conversation_history)
+        self._agent._conversation_history.clear()
+
+        try:
+            max_rounds = 8
+            if hasattr(self._agent, "_config") and hasattr(
+                self._agent._config, "heartbeat"
+            ):
+                max_rounds = self._agent._config.heartbeat.max_rounds
+
+            await self._agent.run(goal, max_steps_override=max_rounds)
+        except Exception as e:
+            logger.error("Webhook task failed: %s", e, exc_info=True)
+        finally:
+            self._agent._conversation_history = saved_history
 
     async def start(self) -> None:
         """Start the WebSocket server (non-blocking)."""

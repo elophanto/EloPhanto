@@ -65,6 +65,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 43 | [VS Code Extension](43-VSCODE-EXTENSION.md) | IDE integration via gateway WebSocket, chat sidebar with history, tool approvals, IDE context injection |
 | 44 | [Solana Ecosystem](44-SOLANA-ECOSYSTEM.md) | Native Solana wallet, Jupiter DEX swaps, 27 Solana skills, MCP servers, agent economy roadmap |
 | 45 | [Context Documents](45-CONTEXT-DOCUMENTS.md) | Structured self-awareness docs: capabilities, ICPs, styleguide, domain model |
+| 46 | [Proactive Engine](46-PROACTIVE-ENGINE.md) | Heartbeat file-based standing orders, webhook wake/task endpoints, external trigger integration |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 
@@ -80,7 +81,9 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 
 **How it stays safe**: Encrypted credential vault. Three-tier permission system (Ask Always / Smart Auto / Full Auto) with per-tool overrides via `permissions.yaml`. Protected files system that prevents the agent from modifying its own safety-critical code. Log redaction strips API keys and secrets. Git-based rollback for all self-modifications. Full QA pipeline for self-developed code. Database-backed approval queue that works across all channels. Skills are scanned for invisible unicode, symlink escapes, binary files, and blocked patterns before loading.
 
-**How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as a control plane. Channel adapters (CLI, VS Code, Telegram, Discord, Slack) connect as thin WebSocket clients. By default, all channels share one unified session — chat from CLI, continue from Telegram, same conversation history. Cross-channel messages and responses are broadcast to all connected adapters. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use.
+**How it connects**: A WebSocket gateway (`ws://127.0.0.1:18789`) serves as a control plane. Channel adapters (CLI, VS Code, Telegram, Discord, Slack) connect as thin WebSocket clients. By default, all channels share one unified session — chat from CLI, continue from Telegram, same conversation history. Cross-channel messages and responses are broadcast to all connected adapters. Approval requests route to the correct channel. Direct mode (no gateway) is preserved for single-channel use. The gateway also exposes HTTP webhook endpoints (`POST /hooks/wake`, `POST /hooks/task`) so external systems (monitoring, CI/CD, email pipelines) can trigger agent actions without a chat message.
+
+**How it stays proactive**: Three mechanisms let the agent act without waiting for user messages. (1) **Heartbeat Engine** reads a `HEARTBEAT.md` file every 30 minutes — if it has content, the agent executes it as a task (zero LLM cost when idle). (2) **Autonomous Mind** is an LLM-driven background thinking loop that pursues goals, revenue, and maintenance on its own schedule. (3) **Webhook endpoints** on the gateway let external systems wake the agent or inject tasks via HTTP POST. All three pause when the user sends a message and resume when the user's task completes.
 
 **How it controls the browser**: A Node.js bridge spawns real Chrome (Playwright + stealth plugin) with the user's copied profile. In profile mode, existing sessions and cookies are preserved — no re-authentication needed. 47 browser tools cover navigation, clicking, typing, scrolling, screenshots, console/network inspection, and more.
 

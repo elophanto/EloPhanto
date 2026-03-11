@@ -104,6 +104,26 @@ fi
 
 # ── First-time setup ──
 
+# Create HEARTBEAT.md if it doesn't exist
+if [ ! -f "HEARTBEAT.md" ]; then
+    cat > HEARTBEAT.md << 'HEARTBEAT_EOF'
+# Standing Orders
+#
+# Add tasks below for the agent to execute on each heartbeat cycle.
+# The agent checks this file periodically (default: every 30 min).
+# When all tasks are done, it responds HEARTBEAT_OK and idles.
+# Remove or clear orders to stop background work.
+#
+# You can also manage orders via chat using the heartbeat tool:
+#   "add a heartbeat order to check my email"
+#   "list my standing orders"
+#   "clear all heartbeat orders"
+HEARTBEAT_EOF
+    echo "  ✓ HEARTBEAT.md created (edit to add standing orders)"
+else
+    echo "  ✓ HEARTBEAT.md found"
+fi
+
 echo ""
 if [ ! -f "config.yaml" ]; then
     echo "  → No config.yaml found. Running the setup wizard..."
@@ -137,7 +157,7 @@ echo ""
 echo "  The setup wizard (elophanto init) configures:"
 echo "    LLM providers, models, permissions, browser, desktop,"
 echo "    Telegram/Discord/Slack, email, payments, Replicate,"
-echo "    gateway, swarm, scheduler, MCP, autonomous mind."
+echo "    gateway, swarm, scheduler, MCP, autonomous mind, heartbeat."
 echo ""
 echo "  Edit any section later: elophanto init edit <section>"
 echo ""

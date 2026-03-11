@@ -735,6 +735,19 @@ async def _chat_gateway(cfg: Any) -> None:
             )
         )
 
+    # Wire up HeartbeatEngine with gateway reference + start
+    if agent._heartbeat_engine:
+        agent._heartbeat_engine._gateway = gateway
+        gateway._heartbeat_engine = agent._heartbeat_engine
+        _hb_task = asyncio.create_task(agent._heartbeat_engine.start())
+        _hb_task.add_done_callback(
+            lambda t: (
+                logger.error("Heartbeat startup failed: %s", t.exception())
+                if not t.cancelled() and t.exception()
+                else None
+            )
+        )
+
     # Wire up EmailMonitor with gateway reference
     if agent._email_monitor:
         agent._email_monitor._gateway = gateway
