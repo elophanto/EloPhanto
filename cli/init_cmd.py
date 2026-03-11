@@ -235,6 +235,61 @@ def _edit_providers(config: dict) -> None:
 
     console.print()
 
+    # --- Kimi ---
+    console.print(
+        "[bold]Kimi / Moonshot AI[/bold] (Kimi K2.5 vision model — Kilo Code subscription)"
+    )
+    console.print(
+        "  [dim]Models: kimi-k2.5 (vision), kimi-k2, kimi-k2-thinking, kimi-k2-thinking-turbo[/dim]"
+    )
+    current_kimi_key = (
+        config.get("llm", {}).get("providers", {}).get("kimi", {}).get("api_key", "")
+    )
+    kimi_key = Prompt.ask(
+        (
+            "  API key (press Enter to keep current)"
+            if current_kimi_key
+            else "  API key (press Enter to skip)"
+        ),
+        default=current_kimi_key,
+        show_default=False,
+    )
+    if kimi_key:
+        _ensure_provider(config, "kimi")
+        config["llm"]["providers"]["kimi"]["api_key"] = kimi_key
+        config["llm"]["providers"]["kimi"]["enabled"] = True
+        config["llm"]["providers"]["kimi"].setdefault(
+            "base_url", "https://api.moonshot.ai/v1"
+        )
+        active_providers["kimi"] = True
+
+        current_default = (
+            config.get("llm", {})
+            .get("providers", {})
+            .get("kimi", {})
+            .get("default_model", "kimi-k2.5")
+        )
+        kimi_default = Prompt.ask(
+            "  Default Kimi model",
+            choices=[
+                "kimi-k2.5",
+                "kimi-k2",
+                "kimi-k2-thinking",
+                "kimi-k2-thinking-turbo",
+            ],
+            default=current_default,
+        )
+        config["llm"]["providers"]["kimi"]["default_model"] = kimi_default
+
+        console.print("  [green]Kimi configured.[/green]")
+    else:
+        _ensure_provider(config, "kimi")
+        config["llm"]["providers"]["kimi"]["enabled"] = False
+        active_providers["kimi"] = False
+        console.print("  [dim]Disabled.[/dim]")
+
+    console.print()
+
     # --- OpenAI ---
     console.print("[bold]OpenAI[/bold] (GPT-5.4, o3, o1 — direct from OpenAI)")
     console.print("  [dim]Models: gpt-5.4, gpt-4.1, o3, o1[/dim]")
@@ -356,7 +411,7 @@ def _edit_models(config: dict) -> None:
     priority = config.get("llm", {}).get("provider_priority", [])
 
     # Cloud providers that need interactive model selection
-    cloud_providers = ["openrouter", "zai"]
+    cloud_providers = ["openrouter", "zai", "kimi"]
 
     # Default models per (provider, task)
     defaults: dict[str, dict[str, str]] = {
@@ -371,6 +426,12 @@ def _edit_models(config: dict) -> None:
             "coding": "glm-4.7",
             "analysis": "glm-4.7",
             "simple": "glm-4.7",
+        },
+        "kimi": {
+            "planning": "kimi-k2.5",
+            "coding": "kimi-k2.5",
+            "analysis": "kimi-k2.5",
+            "simple": "kimi-k2-thinking-turbo",
         },
     }
 

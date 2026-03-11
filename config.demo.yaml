@@ -21,6 +21,12 @@ llm:
       base_url_paygo: "https://api.z.ai/api/paas/v4"
       default_model: "glm-4.7"
 
+    kimi:
+      api_key: "YOUR_KILO_API_KEY"   # from app.kilo.ai — Kilo Code Gateway
+      enabled: true
+      base_url: "https://api.kilo.ai/api/gateway"
+      default_model: "kimi-k2.5"     # → moonshotai/kimi-k2.5 on Kilo Gateway
+
     openrouter:
       api_key: "YOUR_OPENROUTER_KEY"
       enabled: true
@@ -32,6 +38,7 @@ llm:
 
   provider_priority:
     - openai
+    - kimi
     - zai
     - openrouter
     - ollama
@@ -43,6 +50,7 @@ llm:
       preferred_provider: openai
       models:
         openai: "gpt-5.4"                               # latest GPT
+        kimi: "kimi-k2.5"                               # multimodal vision + reasoning
         openrouter: "anthropic/claude-sonnet-4.6"        # strongest reasoning
         zai: "glm-5"
         ollama: "qwen2.5:14b"
@@ -51,6 +59,7 @@ llm:
       preferred_provider: openai
       models:
         openai: "gpt-5.4"                               # strong coding
+        kimi: "kimi-k2.5"                               # strong coding + vision
         openrouter: "qwen/qwen3.5-plus-02-15"           # strong coding model
         zai: "glm-4.7"
         ollama: "qwen2.5-coder:7b"
@@ -59,6 +68,7 @@ llm:
       preferred_provider: openai
       models:
         openai: "gpt-5.4"                               # balanced
+        kimi: "kimi-k2.5"                               # multimodal analysis
         openrouter: "google/gemini-3.1-pro-preview"      # balanced, good at summarization
         zai: "glm-4.7"
         ollama: "qwen2.5:7b"
@@ -67,6 +77,7 @@ llm:
       preferred_provider: openrouter
       models:
         openrouter: "minimax/minimax-m2.5"               # cheapest for formatting
+        kimi: "kimi-k2-thinking-turbo"                   # fast + cheap
         zai: "glm-4.7"
         ollama: "qwen2.5:3b"
 

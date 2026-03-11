@@ -15,7 +15,7 @@
 
 An open-source AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
 
-Runs locally. Your data stays on your machine. Works with OpenAI, free local models, Z.ai, or OpenRouter.
+Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, or OpenRouter.
 
 <p align="center">
   <img src="misc/screenshots/dashboard.png" alt="Web Dashboard" width="700">
@@ -40,8 +40,9 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 - At least one LLM provider:
   - **Ollama** (local, free) — [install](https://ollama.ai)
   - **OpenAI** (cloud, GPT-5.4) — [get API key](https://platform.openai.com/api-keys)
+  - **Kimi / Moonshot AI** (cloud, K2.5 vision) — [get API key](https://app.kilo.ai) via Kilo Code Gateway — Kimi K2.5 is a native multimodal vision model with strong coding and agentic capabilities
   - **OpenRouter** (cloud, all models) — [get API key](https://openrouter.ai)
-  - **Z.ai / GLM** (cloud, cost-effective) — [get API key](https://z.ai/manage-apikey/apikey-list) — **recommended**: the Z.ai coding subscription gives you unlimited GLM-4.7/GLM-5 calls at a flat monthly rate, making it the most cost-effective option for agents that run autonomously 24/7
+  - **Z.ai / GLM** (cloud, cost-effective) — [get API key](https://z.ai/manage-apikey/apikey-list) — the Z.ai coding subscription gives you unlimited GLM-4.7/GLM-5 calls at a flat monthly rate
 
 </details>
 
@@ -350,7 +351,7 @@ Other agents crash when they hit a wall. This one builds a door.
 | **Has its own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
 | **Has its own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
 | **Chat from anywhere** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
-| **Any LLM provider** | ✅ OpenAI, Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
+| **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
 | **Learns from corrections** | ✅ Permanent knowledge | ❌ | ❌ | ❌ | ❌ |
 | **Your data stays local** | ✅ Runs on your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
 
@@ -567,6 +568,11 @@ llm:
       enabled: true
       default_model: "gpt-5.4"
       max_tools: 128                 # Provider tool limit (auto for OpenAI)
+    kimi:
+      api_key: "YOUR_KILO_API_KEY"  # from app.kilo.ai (Kilo Code Gateway)
+      enabled: true
+      base_url: "https://api.kilo.ai/api/gateway"
+      default_model: "kimi-k2.5"    # → moonshotai/kimi-k2.5 on gateway
     zai:
       api_key: "YOUR_ZAI_KEY"
       enabled: true
@@ -577,13 +583,14 @@ llm:
     ollama:
       enabled: true
       base_url: "http://localhost:11434"
-  provider_priority: [openai, zai, openrouter, ollama]
+  provider_priority: [openai, kimi, zai, openrouter, ollama]
   routing:                         # Per-task model routing
     planning:
       preferred_provider: openai
       tool_profile: full
       models:
         openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         openrouter: "anthropic/claude-sonnet-4.6"
         zai: "glm-5"
         ollama: "qwen2.5:14b"
@@ -592,6 +599,7 @@ llm:
       tool_profile: coding
       models:
         openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         openrouter: "qwen/qwen3.5-plus-02-15"
         zai: "glm-4.7"
         ollama: "qwen2.5-coder:7b"
@@ -599,11 +607,13 @@ llm:
       preferred_provider: openai
       models:
         openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         openrouter: "google/gemini-3.1-pro-preview"
     simple:
       preferred_provider: openrouter
       models:
         openrouter: "minimax/minimax-m2.5"
+        kimi: "kimi-k2-thinking-turbo"
   budget:
     daily_limit_usd: 10.0
     per_task_limit_usd: 2.0
@@ -801,7 +811,7 @@ Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 一个开源 AI 智能体，能创建企业、扩大受众、交付代码、自主赚钱——在你睡觉的时候。告诉它你想要什么，它负责其余一切：验证市场、构建产品、部署上线、在合适的平台发布、生成营销团队、持续自主增长。遇到做不了的事，它自己造工具。任务复杂时，它克隆自己成为专业智能体。它用得越多越聪明。
 
-本地运行。数据留在你的机器上。支持 OpenAI、免费本地模型、Z.ai 或 OpenRouter。
+本地运行。数据留在你的机器上。支持 OpenAI、Kimi、免费本地模型、Z.ai 或 OpenRouter。
 
 > 它已经在互联网上独立运作了。
 

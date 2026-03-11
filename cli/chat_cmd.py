@@ -46,6 +46,29 @@ _C_USER = "bold bright_white"
 _C_AGENT = "bold bright_green"
 _C_BORDER = "grey50"
 
+
+def _build_provider_parts(agent: Agent) -> list[str]:
+    """Build Rich-formatted provider status parts for the dashboard.
+
+    ● green  = healthy (health check passed)
+    ● yellow = degraded (configured & enabled, health check failed but still eligible)
+    ● red    = none available
+    """
+    health: dict[str, bool] = getattr(agent, "_provider_health", {})
+    cfg = getattr(agent, "_config", None)
+    configured: dict = cfg.llm.providers if cfg else {}
+
+    parts: list[str] = []
+    for name, pcfg in configured.items():
+        if not getattr(pcfg, "enabled", False):
+            continue
+        if health.get(name, False):
+            parts.append(f"[{_C_SUCCESS}]●[/] {name}")
+        else:
+            parts.append(f"[{_C_WARN}]●[/] {name}")
+    return parts or ["[red]● none[/]"]
+
+
 # ──────────────────────────────────────────────────────────────────
 # ASCII Art — Monochrome gradient (dark grey → bright white)
 # ──────────────────────────────────────────────────────────────────
@@ -243,8 +266,6 @@ def _build_welcome_panel(
     cfg: Any, agent: Agent, skill_count: int, telegram_running: bool = False
 ) -> Panel:
     """Build the system info panel shown at startup."""
-    health = getattr(agent, "_provider_health", {})
-    providers = [k for k, v in health.items() if v]
     tool_count = len(agent._registry.list_tools())
 
     # Build info table
@@ -252,13 +273,7 @@ def _build_welcome_panel(
     info.add_column(style=_C_DIM, justify="right", min_width=14)
     info.add_column()
 
-    prov_parts = []
-    for p in providers:
-        prov_parts.append(f"[{_C_SUCCESS}]●[/] {p}")
-    if not prov_parts:
-        prov_parts = ["[red]● none[/]"]
-
-    info.add_row("Providers", "  ".join(prov_parts))
+    info.add_row("Providers", "  ".join(_build_provider_parts(agent)))
     info.add_row("Tools", f"[bold]{tool_count}[/] registered")
     info.add_row("Skills", f"[bold]{skill_count}[/] loaded")
     info.add_row(
@@ -784,8 +799,6 @@ async def _chat_gateway(cfg: Any) -> None:
 
     # Show status panel — reuse shared builder with gateway extras
     skill_count = len(agent._skill_manager.list_skills())
-    health = getattr(agent, "_provider_health", {})
-    providers = [k for k, v in health.items() if v]
     tool_count = len(agent._registry.list_tools())
 
     # Build info table
@@ -793,8 +806,7 @@ async def _chat_gateway(cfg: Any) -> None:
     info.add_column(style=_C_DIM, justify="right", min_width=14)
     info.add_column()
 
-    prov_parts = [f"[{_C_SUCCESS}]●[/] {p}" for p in providers] or ["[red]● none[/]"]
-    info.add_row("Providers", "  ".join(prov_parts))
+    info.add_row("Providers", "  ".join(_build_provider_parts(agent)))
     info.add_row("Tools", f"[bold]{tool_count}[/] registered")
     info.add_row("Skills", f"[bold]{skill_count}[/] loaded")
     info.add_row(

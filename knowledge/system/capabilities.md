@@ -164,13 +164,14 @@ Metric-driven experiment loop: modify → measure → keep/discard → repeat.
 
 All channels connect through the WebSocket gateway (ws://127.0.0.1:18789).
 
-## LLM Providers (4)
+## LLM Providers (5)
 
 | Provider | Models | Notes |
 |----------|--------|-------|
 | OpenAI | GPT-5, GPT-4, o1, o3 | Direct API, 128 tool limit handled |
+| Kimi / Moonshot AI | K2.5 (vision) via Kilo Gateway | Custom adapter, Kilo Code Gateway (`api.kilo.ai`), native multimodal |
 | OpenRouter | Claude, GPT, Gemini, Llama, etc. | Multi-model aggregator |
-| Z.ai | GLM-4.7, GLM-4.7-flash | Custom adapter |
+| Z.ai | GLM-4.7, GLM-4.7-flash | Custom adapter, coding subscription |
 | Ollama | Any local model | Auto-detected, zero config |
 
 Smart tool profiles (7 built-in) route the right tool subset per task type. Provider-level `tool_deny` and `max_tools` for compatibility.
