@@ -31,11 +31,12 @@ This is an **addition** to existing capabilities. The agent can still use browse
 |---|---|---|---|
 | **Setup** | API key only | SMTP/IMAP host, port, credentials | Login flow, 2FA, cookie management |
 | **Inbox creation** | Programmatic, instant | Use existing address | Manual, requires verification |
+| **Custom domains** | Yes — any verified domain (e.g. name@yourdomain.com) | Yes (you own the server) | Depends on provider |
 | **Receiving** | API polling | IMAP polling | Scraping, fragile selectors |
 | **Search** | Keyword search | IMAP SEARCH + keyword scoring | Provider-specific |
 | **Dependencies** | `agentmail` SDK | Python stdlib only | Browser tools |
 | **Self-hosted** | No (cloud service) | Yes | No |
-| **Best for** | Agent-native workflows | Existing email accounts | One-off web interactions |
+| **Best for** | Agent-native + branded email | Existing mail servers | One-off web interactions |
 
 ## Architecture
 
@@ -120,9 +121,16 @@ email:
   → Agent stores key with vault_set
   → Agent creates inbox: elophanto-a7f3@agentmail.to
   → Agent updates identity beliefs with new address
+
+# For a branded address (e.g. elophanto@elophanto.com):
+  → Agent calls email_create_inbox(username="elophanto", domain="elophanto.com", force=true)
+  → No SMTP credentials needed — AgentMail handles any verified domain
+  → Agent updates identity beliefs to elophanto@elophanto.com
 ```
 
-Custom domains require a paid AgentMail plan — set `domain: yourdomain.com` in config.
+Custom domain inboxes require the domain to be verified in the AgentMail console. No SMTP
+credentials are needed — it's still the AgentMail API. Use `force=true` to switch from
+an existing `@agentmail.to` inbox to a custom domain inbox.
 
 ### SMTP/IMAP Provider
 
