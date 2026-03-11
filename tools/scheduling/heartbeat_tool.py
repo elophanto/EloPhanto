@@ -32,9 +32,12 @@ class HeartbeatTool(BaseTool):
     def description(self) -> str:
         return (
             "Manage heartbeat standing orders (HEARTBEAT.md). "
-            "Add, remove, list, or clear standing orders that the agent "
-            "executes periodically in the background. Also check engine status "
-            "or trigger an immediate heartbeat check."
+            "Standing orders run on every heartbeat cycle (default every 30 min) "
+            "— they have no per-order timing. "
+            "Use this for 'always do X in the background' instructions. "
+            "For time-based tasks ('every 2 hours', 'at 9am'), use schedule_task instead. "
+            "Actions: add (append order), remove (by number), list, clear, "
+            "set (replace all), status (engine info), trigger (run now)."
         )
 
     @property

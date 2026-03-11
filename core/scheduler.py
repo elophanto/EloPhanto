@@ -59,7 +59,9 @@ class TaskScheduler:
         self,
         db: Database,
         task_executor: Callable[[str], Coroutine[Any, Any, Any]],
-        result_notifier: Callable[[str, str, str], Coroutine[Any, Any, None]] | None = None,
+        result_notifier: (
+            Callable[[str, str, str], Coroutine[Any, Any, None]] | None
+        ) = None,
     ) -> None:
         self._db = db
         self._task_executor = task_executor
@@ -200,7 +202,9 @@ class TaskScheduler:
             except Exception:
                 pass
 
-        await self._db.execute_insert("DELETE FROM scheduled_tasks WHERE id = ?", (schedule_id,))
+        await self._db.execute_insert(
+            "DELETE FROM scheduled_tasks WHERE id = ?", (schedule_id,)
+        )
         return True
 
     async def enable_schedule(self, schedule_id: str) -> None:
@@ -234,12 +238,16 @@ class TaskScheduler:
 
     async def get_schedule(self, schedule_id: str) -> ScheduleEntry | None:
         """Get a single schedule by ID."""
-        rows = await self._db.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (schedule_id,))
+        rows = await self._db.execute(
+            "SELECT * FROM scheduled_tasks WHERE id = ?", (schedule_id,)
+        )
         if not rows:
             return None
         return self._row_to_entry(rows[0])
 
-    async def get_run_history(self, schedule_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    async def get_run_history(
+        self, schedule_id: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
         """Get execution history for a schedule."""
         rows = await self._db.execute(
             """SELECT * FROM schedule_runs
@@ -302,7 +310,9 @@ class TaskScheduler:
             # Notify connected channels
             if self._result_notifier:
                 try:
-                    await self._result_notifier(schedule.name, "completed", content[:1000])
+                    await self._result_notifier(
+                        schedule.name, "completed", content[:1000]
+                    )
                 except Exception:
                     logger.debug("Schedule notification failed", exc_info=True)
 
@@ -337,12 +347,16 @@ class TaskScheduler:
             if rows:
                 row = rows[0]
                 if row["retry_count"] >= row["max_retries"]:
-                    logger.error(f"Schedule '{schedule.name}' exceeded max retries, disabling")
+                    logger.error(
+                        f"Schedule '{schedule.name}' exceeded max retries, disabling"
+                    )
                     await self.disable_schedule(schedule_id)
 
     async def _load_from_db(self) -> list[ScheduleEntry]:
         """Load all schedules from the database."""
-        rows = await self._db.execute("SELECT * FROM scheduled_tasks ORDER BY created_at")
+        rows = await self._db.execute(
+            "SELECT * FROM scheduled_tasks ORDER BY created_at"
+        )
         return [self._row_to_entry(row) for row in rows]
 
     @staticmethod
@@ -455,6 +469,8 @@ def parse_natural_language_schedule(text: str) -> str:
     Examples:
         'every morning at 9am' -> '0 9 * * *'
         'every hour' -> '0 * * * *'
+        'every 2 hours' -> '0 */2 * * *'
+        'every 6 hours' -> '0 */6 * * *'
         'every monday at 2pm' -> '0 14 * * 1'
         'every 5 minutes' -> '*/5 * * * *'
         'daily at midnight' -> '0 0 * * *'
@@ -466,6 +482,11 @@ def parse_natural_language_schedule(text: str) -> str:
     m = re.match(r"every\s+(\d+)\s+minutes?", text_lower)
     if m:
         return f"*/{m.group(1)} * * * *"
+
+    m = re.match(r"every\s+(\d+)\s+hours?", text_lower)
+    if m:
+        n = int(m.group(1))
+        return f"0 */{n} * * *"
 
     if re.match(r"every\s+hour", text_lower):
         return "0 * * * *"
