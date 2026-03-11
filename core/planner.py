@@ -1056,20 +1056,25 @@ Present BOTH email providers clearly so the user can make an informed choice:
 - Cloud-hosted inbox via AgentMail API — purpose-built for AI agents.
 - Instant inbox creation — no server config needed.
 - API key only — sign up at https://console.agentmail.to (free tier available).
-- Best for: autonomous agents, service signups, verification flows.
+- Supports ANY domain: send from elophanto@elophanto.com without SMTP by setting
+  domain='elophanto.com' in email_create_inbox (user must have verified domain in AgentMail).
+- Best for: autonomous agents, service signups, verification flows, branded email.
+- IMPORTANT: If user wants a custom domain email (e.g. name@theirdomain.com),
+  AgentMail handles it — do NOT suggest SMTP just because of a custom domain.
 
 **SMTP/IMAP** (use your own email server)
 - Connect any existing email account (Gmail, Outlook, self-hosted, etc.).
 - Self-hosted — emails stay on your server, no third-party API.
 - Requires: SMTP host/port + IMAP host/port + username/password.
 - Uses Python stdlib only — no extra dependencies.
-- Best for: users who want to use an existing email identity.
+- Best for: users who already have a mail server and want to reuse it.
 - Trade-off: no semantic search (keyword only), no instant inbox creation.
 
 To enable with AgentMail:
 1. Ask the user for their AgentMail API key (from https://console.agentmail.to).
 2. Store it: vault_set agentmail_api_key <key>
 3. Update config.yaml: email.enabled: true, email.provider: agentmail
+4. Call email_create_inbox (with username + domain if they want a custom address).
 
 To enable with SMTP:
 1. Ask the user for their SMTP/IMAP server details and credentials.
@@ -1099,8 +1104,11 @@ Your email uses one of two providers (set in config.yaml email.provider):
 
 **AgentMail** (provider: "agentmail")
 - Cloud-hosted inbox via AgentMail API.
-- Inbox created programmatically via email_create_inbox.
+- Supports ANY domain — send from name@yourdomain.com without SMTP by passing
+  domain='yourdomain.com' to email_create_inbox (user must verify domain in AgentMail console).
 - API key stored in vault as agentmail_api_key.
+- To switch to a custom domain inbox: call email_create_inbox with username, domain, force=true.
+- NEVER suggest SMTP just because the user wants a custom domain email address.
 
 **SMTP/IMAP** (provider: "smtp")
 - Uses your own email server (Gmail, Outlook, self-hosted, etc.).

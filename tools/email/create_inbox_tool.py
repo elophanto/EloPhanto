@@ -31,8 +31,11 @@ class EmailCreateInboxTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Create a new email inbox for the agent. For AgentMail: creates a new inbox. "
-            "For SMTP: verifies server connection and stores the from_address. "
+            "Create or update the agent's email inbox. "
+            "AgentMail supports ANY domain — use domain='elophanto.com' to send from "
+            "elophanto@elophanto.com without SMTP. No SMTP credentials needed for custom domains. "
+            "Use force=true to switch to a different inbox (e.g. updating from a random "
+            "@agentmail.to address to a branded custom domain). "
             "The address is stored in identity beliefs so the agent remembers it."
         )
 
@@ -43,7 +46,7 @@ class EmailCreateInboxTool(BaseTool):
             "properties": {
                 "username": {
                     "type": "string",
-                    "description": "Local part of the email address (before @). e.g. 'elophanto' for elophanto@domain.com. If omitted, AgentMail generates a random one.",
+                    "description": "Local part of the email address (before @). e.g. 'elophanto' for elophanto@elophanto.com.",
                 },
                 "display_name": {
                     "type": "string",
@@ -51,7 +54,19 @@ class EmailCreateInboxTool(BaseTool):
                 },
                 "domain": {
                     "type": "string",
-                    "description": "Email domain (default: agentmail.to). Custom domains require paid plan.",
+                    "description": (
+                        "Email domain. Default: agentmail.to. AgentMail supports any domain "
+                        "the user has verified — set domain='elophanto.com' to send from "
+                        "elophanto@elophanto.com via AgentMail without SMTP."
+                    ),
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": (
+                        "Override the existing-inbox guard. Use when the user wants to switch "
+                        "to a different inbox (e.g. from random @agentmail.to to a custom domain). "
+                        "Default: false."
+                    ),
                 },
             },
         }
@@ -72,7 +87,9 @@ class EmailCreateInboxTool(BaseTool):
             )
 
         # ── Guard: refuse to create a new inbox if agent already has an email ──
-        if self._identity_manager:
+        # Bypass with force=True when user explicitly wants to switch domains.
+        force = params.get("force", False)
+        if not force and self._identity_manager:
             try:
                 identity = await self._identity_manager.get_identity()
                 existing_email = None
@@ -83,10 +100,9 @@ class EmailCreateInboxTool(BaseTool):
                         success=False,
                         error=(
                             f"You already have an email address: {existing_email}. "
-                            "You MUST use this address for all communication and "
-                            "account registrations. Creating a new inbox is not "
-                            "allowed — use your existing email. If you need to "
-                            "change your email address, ask the owner first."
+                            "Use that address for all communication. "
+                            "To switch to a different inbox (e.g. a custom domain via AgentMail), "
+                            "call email_create_inbox again with force=true."
                         ),
                     )
             except Exception as e:
