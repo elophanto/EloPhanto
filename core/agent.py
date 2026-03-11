@@ -168,6 +168,82 @@ def _compress_multimodal_msg(
     return {**msg, "content": new_parts}
 
 
+_CONTEXT_OVERFLOW_PHRASES = (
+    "prompt is too long",
+    "context length",
+    "context_length_exceeded",
+    "maximum context",
+    "tokens > ",
+    "token limit",
+    "too many tokens",
+    "input is too long",
+    "exceeds the maximum",
+)
+
+
+def _is_context_overflow_error(exc: Exception) -> bool:
+    """Return True when the LLM refused the call due to context length."""
+    msg = str(exc).lower()
+    return any(phrase in msg for phrase in _CONTEXT_OVERFLOW_PHRASES)
+
+
+# How many recent messages to keep on emergency overflow trim
+_OVERFLOW_KEEP_RECENT = 20
+
+
+def _emergency_trim_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggressively trim conversation history on context overflow.
+
+    Strategy (applied in order until the list fits):
+    1. Strip ALL images from every message.
+    2. Truncate every tool result to 500 chars.
+    3. Keep only the last _OVERFLOW_KEEP_RECENT messages, prepending a
+       summary placeholder so the agent knows history was dropped.
+    """
+    # Step 1: strip all images
+    trimmed: list[dict[str, Any]] = []
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list):
+            text_parts = [
+                p for p in content if isinstance(p, dict) and p.get("type") == "text"
+            ]
+            if text_parts:
+                m = {**m, "content": " ".join(p.get("text", "") for p in text_parts)}
+            else:
+                m = {**m, "content": "[image removed — context overflow trim]"}
+        trimmed.append(m)
+
+    # Step 2: truncate long tool results
+    _TOOL_RESULT_MAX = 500
+    for i, m in enumerate(trimmed):
+        if m.get("role") == "tool" and isinstance(m.get("content"), str):
+            if len(m["content"]) > _TOOL_RESULT_MAX:
+                trimmed[i] = {
+                    **m,
+                    "content": m["content"][:_TOOL_RESULT_MAX]
+                    + "\n[truncated — context overflow]",
+                }
+
+    # Step 3: drop old messages, keep only recent
+    if len(trimmed) > _OVERFLOW_KEEP_RECENT:
+        dropped = len(trimmed) - _OVERFLOW_KEEP_RECENT
+        summary_msg: dict[str, Any] = {
+            "role": "user",
+            "content": (
+                f"[{dropped} earlier messages were dropped to fit the context window. "
+                "Continue with the current task using the recent context below.]"
+            ),
+        }
+        trimmed = [summary_msg] + trimmed[-_OVERFLOW_KEEP_RECENT:]
+
+    logger.warning(
+        "Emergency context trim applied: %d messages remaining after overflow",
+        len(trimmed),
+    )
+    return trimmed
+
+
 def _estimate_context_chars(messages: list[dict[str, Any]]) -> int:
     """Rough estimate of total message content in characters."""
     total = 0
@@ -1578,12 +1654,40 @@ class Agent:
                     temperature=0.2,
                 )
             except Exception as e:
-                logger.error(f"Planning LLM call failed: {e}")
-                return AgentResponse(
-                    content=f"I encountered an error while thinking: {e}",
-                    steps_taken=step,
-                    tool_calls_made=tool_calls_made,
-                )
+                if _is_context_overflow_error(e):
+                    logger.warning(
+                        "Context overflow detected (%s). Applying emergency trim and retrying.",
+                        str(e)[:120],
+                    )
+                    messages = _emergency_trim_messages(messages)
+                    try:
+                        response = await self._router.complete(
+                            messages=[{"role": "system", "content": system_content}]
+                            + messages,
+                            task_type="planning",
+                            tools=_tools,
+                            temperature=0.2,
+                        )
+                    except Exception as retry_e:
+                        logger.error(
+                            "Planning LLM call failed after context trim: %s", retry_e
+                        )
+                        return AgentResponse(
+                            content=(
+                                "Our conversation history grew too large for the context window. "
+                                "I trimmed it to continue but that still wasn't enough. "
+                                "Please start a new conversation — I'll pick up from where we left off."
+                            ),
+                            steps_taken=step,
+                            tool_calls_made=tool_calls_made,
+                        )
+                else:
+                    logger.error("Planning LLM call failed: %s", e)
+                    return AgentResponse(
+                        content=f"I encountered an error while thinking: {e}",
+                        steps_taken=step,
+                        tool_calls_made=tool_calls_made,
+                    )
             logger.info(
                 "LLM call step %d: %.1fs (%s/%s)",
                 step,
