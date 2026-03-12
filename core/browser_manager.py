@@ -345,6 +345,7 @@ def _prepare_profile_copy(
     profile_directory: str = "Default",
     *,
     force_refresh: bool = False,
+    max_age_hours: float = 8.0,
 ) -> str:
     """Copy a Chrome profile to a temp directory for the browser bridge.
 
@@ -353,6 +354,11 @@ def _prepare_profile_copy(
     cookies alive and avoids re-copying multi-GB profiles.  Pass
     *force_refresh=True* (or delete the temp dir) to force a fresh copy.
 
+    The copy is automatically refreshed when it is older than *max_age_hours*
+    (default 8 h) so that new cookies from the real Chrome profile propagate
+    to the automation instance.  Anti-bot systems detect stale session signals
+    in old copies and serve CAPTCHAs; regular refresh prevents this.
+
     Args:
         source: Chrome user data directory
                 (e.g. ~/Library/Application Support/Google/Chrome).
@@ -360,6 +366,8 @@ def _prepare_profile_copy(
                           (e.g. "Default", "Profile 1").  Placed as
                           "Default" in the temp dir.
         force_refresh: Delete the existing copy and re-copy from source.
+        max_age_hours: Automatically re-copy if the existing copy is older
+                       than this many hours. Set to 0 to always re-copy.
     """
     src = Path(source)
     dest = _PROFILE_COPY_DIR
@@ -387,6 +395,17 @@ def _prepare_profile_copy(
                     profile_directory,
                 )
                 needs_copy = True
+            else:
+                updated_at = meta.get("updated_at", 0)
+                age_hours = (time.time() - updated_at) / 3600
+                if age_hours >= max_age_hours:
+                    logger.info(
+                        "Profile copy is %.1f h old (max %.1f h) — refreshing to pick up "
+                        "new cookies from real Chrome profile.",
+                        age_hours,
+                        max_age_hours,
+                    )
+                    needs_copy = True
 
     if needs_copy and dest.exists():
         shutil.rmtree(dest, ignore_errors=True)

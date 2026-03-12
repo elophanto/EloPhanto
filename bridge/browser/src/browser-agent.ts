@@ -950,27 +950,139 @@ export class AwareBrowserAgent {
   private async applyStealthScripts(ctx: PlaywrightBrowserContext): Promise<void> {
     try {
       await ctx.addInitScript(() => {
-        // Force navigator.webdriver to false
+        // ── navigator.webdriver ──────────────────────────────────────────────
+        // Playwright sets it to true via CDP; override at the JS level.
         Object.defineProperty(navigator, 'webdriver', {
           get: () => false,
           configurable: true,
         });
 
-        // Hide Playwright/automation-specific properties
+        // Remove the HTML attribute that Playwright sets on <html>
+        try {
+          document.documentElement.removeAttribute('webdriver');
+        } catch { /* noop */ }
+
+        // ── ChromeDriver / Playwright artifacts ──────────────────────────────
         // @ts-ignore
         delete window.__playwright;
         // @ts-ignore
         delete window.__pw_manual;
+        // @ts-ignore
+        delete window.__pw_injected;
 
-        // Ensure chrome.runtime exists (real Chrome has it, Playwright may not)
+        // Remove ChromeDriver/CDP artifacts that some bot-detect scripts look for
+        const cdcKeys = Object.keys(window).filter(k => k.startsWith('cdc_'));
+        for (const k of cdcKeys) {
+          try { delete (window as any)[k]; } catch { /* noop */ }
+        }
+
+        // ── chrome.* namespace — real Chrome has a rich API ──────────────────
         if (!(window as any).chrome) {
           (window as any).chrome = {};
         }
-        if (!(window as any).chrome.runtime) {
-          (window as any).chrome.runtime = {};
+        const chrome = (window as any).chrome;
+
+        if (!chrome.runtime) {
+          chrome.runtime = {
+            id: undefined,
+            connect: () => {},
+            sendMessage: () => {},
+            onMessage: { addListener: () => {}, removeListener: () => {} },
+            onConnect: { addListener: () => {}, removeListener: () => {} },
+          };
         }
 
-        // Patch permissions API to match real Chrome behavior
+        if (!chrome.app) {
+          chrome.app = {
+            isInstalled: false,
+            getDetails: () => null,
+            getIsInstalled: () => false,
+            runningState: () => 'cannot_run',
+            InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+            RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
+          };
+        }
+
+        if (!chrome.loadTimes) {
+          chrome.loadTimes = function() {
+            return {
+              requestTime: performance.timing?.navigationStart / 1000 || 0,
+              startLoadTime: performance.timing?.navigationStart / 1000 || 0,
+              commitLoadTime: performance.timing?.responseStart / 1000 || 0,
+              finishDocumentLoadTime: performance.timing?.domContentLoadedEventEnd / 1000 || 0,
+              finishLoadTime: performance.timing?.loadEventEnd / 1000 || 0,
+              firstPaintTime: 0,
+              firstPaintAfterLoadTime: 0,
+              navigationType: 'Other',
+              wasFetchedViaSpdy: false,
+              wasNpnNegotiated: false,
+              npnNegotiatedProtocol: 'http/1.1',
+              wasAlternateProtocolAvailable: false,
+              connectionInfo: 'http/1.1',
+            };
+          };
+        }
+
+        if (!chrome.csi) {
+          chrome.csi = function() {
+            return {
+              startE: performance.timing?.navigationStart || 0,
+              onloadT: performance.timing?.loadEventEnd || 0,
+              pageT: performance.now(),
+              tran: 15,
+            };
+          };
+        }
+
+        // ── navigator.maxTouchPoints (desktop = 0) ───────────────────────────
+        // Some headless detectors check for non-zero touch points on desktop.
+        try {
+          Object.defineProperty(navigator, 'maxTouchPoints', {
+            get: () => 0,
+            configurable: true,
+          });
+        } catch { /* noop */ }
+
+        // ── navigator.languages ──────────────────────────────────────────────
+        // Playwright may leave this empty; real Chrome always has at least ['en-US', 'en']
+        try {
+          if (!navigator.languages || navigator.languages.length === 0) {
+            Object.defineProperty(navigator, 'languages', {
+              get: () => ['en-US', 'en'],
+              configurable: true,
+            });
+          }
+        } catch { /* noop */ }
+
+        // ── Canvas fingerprint noise ─────────────────────────────────────────
+        // Headless Canvas produces identical pixel output every run — trivially
+        // detectable.  Add sub-pixel noise (invisible to users, breaks hashing).
+        try {
+          const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+          HTMLCanvasElement.prototype.toDataURL = function(type?: string, ...args: any[]) {
+            const ctx2d = this.getContext('2d');
+            if (ctx2d) {
+              const imageData = ctx2d.getImageData(0, 0, this.width || 1, this.height || 1);
+              // Flip one low bit of one blue channel — imperceptible to humans
+              if (imageData.data.length > 3) {
+                imageData.data[3] = imageData.data[3] ^ 1;
+                ctx2d.putImageData(imageData, 0, 0);
+              }
+            }
+            return origToDataURL.call(this, type, ...args);
+          };
+
+          const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+          CanvasRenderingContext2D.prototype.getImageData = function(sx: number, sy: number, sw: number, sh: number) {
+            const imageData = origGetImageData.call(this, sx, sy, sw, sh);
+            if (imageData.data.length > 3) {
+              imageData.data[3] = imageData.data[3] ^ 1;
+            }
+            return imageData;
+          };
+        } catch { /* noop */ }
+
+        // ── Permissions API ──────────────────────────────────────────────────
         const originalQuery = window.navigator.permissions?.query;
         if (originalQuery) {
           window.navigator.permissions.query = (parameters: any) =>
