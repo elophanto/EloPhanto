@@ -1535,6 +1535,15 @@ class Agent:
             identity_enabled=self._config.identity.enabled,
             payments_enabled=self._config.payments.enabled,
             email_enabled=self._config.email.enabled,
+            email_inbox_id=(
+                (
+                    self._vault.get("agentmail_inbox_id")
+                    or self._vault.get("smtp_from_address")
+                    or ""
+                )
+                if self._vault and self._config.email.enabled
+                else ""
+            ),
             mcp_enabled=bool(self._mcp_manager and self._mcp_manager.connected_servers),
             swarm_enabled=self._config.swarm.enabled,
             organization_enabled=self._config.organization.enabled,

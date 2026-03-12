@@ -32,11 +32,12 @@ class EmailCreateInboxTool(BaseTool):
     def description(self) -> str:
         return (
             "Create or update the agent's email inbox. "
-            "AgentMail supports ANY domain — use domain='elophanto.com' to send from "
-            "elophanto@elophanto.com without SMTP. No SMTP credentials needed for custom domains. "
+            "AgentMail supports ANY domain — use domain='yourdomain.com' to send from "
+            "name@yourdomain.com without SMTP. No SMTP credentials needed for custom domains. "
             "Use force=true to switch to a different inbox (e.g. updating from a random "
             "@agentmail.to address to a branded custom domain). "
-            "The address is stored in identity beliefs so the agent remembers it."
+            "After calling this, the returned inbox_id IS the new email address — "
+            "use identity_update to update beliefs if the old address was cached."
         )
 
     @property
@@ -56,8 +57,8 @@ class EmailCreateInboxTool(BaseTool):
                     "type": "string",
                     "description": (
                         "Email domain. Default: agentmail.to. AgentMail supports any domain "
-                        "the user has verified — set domain='elophanto.com' to send from "
-                        "elophanto@elophanto.com via AgentMail without SMTP."
+                        "the user has verified in AgentMail console — "
+                        "set domain='yourdomain.com' to send from name@yourdomain.com via AgentMail without SMTP."
                     ),
                 },
                 "force": {
