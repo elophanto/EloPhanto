@@ -728,7 +728,8 @@ class Agent:
                     self._email_monitor = EmailMonitor(
                         email_list_tool=email_list_tool,
                         config=self._email_config,
-                        data_dir=self._config.project_dir / "data",
+                        data_dir=self._config.project_root
+                        / self._config.storage.data_dir,
                     )
                     self._inject_email_monitor_dep()
                 logger.info("Email system ready")
@@ -1712,6 +1713,25 @@ class Agent:
                     response.finish_reason,
                     response.output_tokens,
                 )
+                # When model wanted to call tools but was cut off (finish_reason=tool_calls
+                # with no usable tool calls), inject a continuation nudge so the next
+                # step retries the tool call rather than treating it as completion.
+                if response.finish_reason == "tool_calls" and not response.tool_calls:
+                    if response.content:
+                        messages.append(
+                            {"role": "assistant", "content": response.content}
+                        )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your previous response was cut off before the tool call "
+                                "completed. Please retry the tool call now."
+                            ),
+                        }
+                    )
+                    step += 1
+                    continue
             last_model_used = response.model_used
 
             # Track response hash for dedup detection
@@ -2562,6 +2582,9 @@ User message:
             if text.startswith("```"):
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             result = json.loads(text)
+            # Normalize keys — some models return {"\"is_directive\"": ...} with embedded quotes
+            if isinstance(result, dict):
+                result = {k.strip('"').strip("'"): v for k, v in result.items()}
 
             if not result.get("is_directive"):
                 return
