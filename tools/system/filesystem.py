@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from core.protected import is_protected
+from core.protected import check_config_content, is_protected
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 
@@ -144,6 +144,12 @@ class FileWriteTool(BaseTool):
                 success=False,
                 error=f"Cannot write to protected file: {file_path}",
             )
+
+        # Check for protected config keys when writing config.yaml
+        if file_path.name == "config.yaml":
+            config_err = check_config_content(content)
+            if config_err:
+                return ToolResult(success=False, error=config_err)
 
         try:
             if create_dirs:
