@@ -1094,11 +1094,30 @@ the conversation — ask for credentials, store them with vault_set, update conf
 with file_write.
 </email_setup>"""
 
-_TOOL_EMAIL = """\
-<email>
-You have your own email and can send, receive, search, and reply to emails
-programmatically.
 
+def _build_tool_email(inbox_id: str = "") -> str:
+    """Build the email system prompt section, stamping in the active inbox address."""
+    inbox_block = ""
+    if inbox_id:
+        inbox_block = f"""\
+<active_email_address>
+YOUR EMAIL ADDRESS IS: {inbox_id}
+
+This is your ONLY email address. Use it everywhere — ALL signups, ALL forms,
+ALL communication. NEVER type a different address into any form or field.
+NEVER generate, invent, or hallucinate a different email address.
+If you see a different address in identity beliefs, it is STALE — your real
+active inbox is {inbox_id}. Always use this exact address.
+</active_email_address>
+
+"""
+    return (
+        "<email>\n"
+        "You have your own email and can send, receive, search, and reply to emails\n"
+        "programmatically.\n"
+        "\n"
+        + inbox_block
+        + """\
 <email_providers>
 Your email uses one of two providers (set in config.yaml email.provider):
 
@@ -1120,9 +1139,10 @@ update config.yaml with file_write. Restart required after switching.
 </email_providers>
 
 <available_tools>
-- email_create_inbox: FIRST-TIME ONLY — create/verify an email inbox. Will be
-  REJECTED if you already have an email address (check identity_status first).
-  You almost certainly already have an email — use it instead of calling this.
+- email_create_inbox: Creates or switches the agent email inbox. Use with
+  force=true to switch to a different inbox (e.g. custom domain). After
+  calling this, the inbox_id returned IS your new email address — update
+  identity beliefs with identity_update if beliefs are stale.
 - email_send: Send an email from your inbox. Supports plain text and HTML.
 - email_list: List emails in your inbox with optional filtering (unread, sender).
 - email_read: Read the full content of a specific email by message ID.
@@ -1138,23 +1158,19 @@ update config.yaml with file_write. Restart required after switching.
 <email_protocol>
 MANDATORY — before ANY email-related action or account signup:
 
-1. ALWAYS call identity_status FIRST to check if you already have an email
-   address in your beliefs. This is not optional — do it every time.
+1. Your active email address is shown in <active_email_address> above. Use it.
+   Do NOT call identity_status to find your email — the address is already here.
+   Do NOT call email_create_inbox unless the user explicitly asks to change it.
 
-2. If you ALREADY HAVE an email address (identity beliefs contain "email"):
-   - Use that EXACT address for ALL communication, signups, forms, and
-     verification flows. No exceptions.
-   - Do NOT call email_create_inbox — the tool will reject the call.
-   - Do NOT generate, invent, or type a different email address into any form.
-   - Do NOT create throwaway or temporary addresses.
-   - You have ONE email identity. Use it consistently everywhere.
+2. Use that EXACT address for ALL communication, signups, forms, and
+   verification flows. No exceptions. Not a @agentmail.to fallback,
+   not a generated placeholder — the address in <active_email_address>.
 
-3. If you do NOT have an email yet (no "email" in identity beliefs):
+3. If <active_email_address> is absent (email just configured, no inbox yet):
    - Present BOTH providers to the user and ask which they prefer:
-     • AgentMail — cloud API, instant inbox, API key only
+     • AgentMail — cloud API, instant inbox, API key only, ANY domain
      • SMTP/IMAP — use existing email server (Gmail, Outlook, etc.)
    - Only THEN call email_create_inbox after the user chooses.
-   - This is the ONLY time email_create_inbox should be called.
 
 4. If a tool returns a "credentials not found" error, ask the user for the
    relevant credentials and store them with vault_set. Handle it conversationally
@@ -1171,6 +1187,8 @@ MANDATORY — before ANY email-related action or account signup:
 8. ALWAYS tell the user what you're doing at each step — do not silently call tools.
 </email_protocol>
 </email>"""
+    )
+
 
 _TOOL_VERIFICATION = """\
 <verification>
@@ -1612,6 +1630,7 @@ def build_system_prompt(
     identity_enabled: bool = False,
     payments_enabled: bool = False,
     email_enabled: bool = False,
+    email_inbox_id: str = "",
     mcp_enabled: bool = False,
     swarm_enabled: bool = False,
     organization_enabled: bool = False,
@@ -1643,6 +1662,7 @@ def build_system_prompt(
         identity_enabled: Whether identity tools are available.
         payments_enabled: Whether payment tools are available.
         email_enabled: Whether email tools are available.
+        email_inbox_id: The active inbox address from vault (agentmail_inbox_id or smtp_from_address).
         knowledge_context: Pre-formatted knowledge chunks from WorkingMemory.
         available_skills: Pre-formatted XML block from SkillManager.
         goal_context: Pre-built XML from GoalManager.build_goal_context().
@@ -1713,7 +1733,7 @@ def build_system_prompt(
         sections.append(_TOOL_PAYMENTS_SETUP)
 
     if email_enabled:
-        sections.append(_TOOL_EMAIL)
+        sections.append(_build_tool_email(email_inbox_id))
     else:
         sections.append(_TOOL_EMAIL_SETUP)
 
