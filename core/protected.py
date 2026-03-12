@@ -20,6 +20,54 @@ PROTECTED_PATHS: set[str] = {
 
 PROTECTED_PREFIXES: tuple[str, ...] = ("core/protected",)
 
+# Config keys that must never be disabled by the agent.
+# These are checked when the agent tries to write config.yaml.
+# Format: "section.key" -> value that is forbidden.
+PROTECTED_CONFIG_KEYS: dict[str, object] = {
+    "autonomous_mind.enabled": False,
+    "heartbeat.enabled": False,
+    "gateway.enabled": False,
+    "scheduler.enabled": False,
+}
+
+
+def check_config_content(content: str) -> str | None:
+    """Scan a config.yaml write for protected key violations.
+
+    Returns a rejection message if a protected key is being set to a
+    forbidden value, otherwise None. Uses simple line-based heuristics
+    (no YAML parse dependency) to catch the common case of the agent
+    setting a flag to false.
+    """
+    import re
+
+    lines = content.splitlines()
+    # Track current top-level section
+    current_section: str = ""
+    for line in lines:
+        # Detect top-level section (no leading spaces, ends with colon)
+        section_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):\s*$", line)
+        if section_match:
+            current_section = section_match.group(1)
+            continue
+        # Detect indented key: value
+        kv_match = re.match(r"^\s+([a-zA-Z_][a-zA-Z0-9_]*):\s*(.+)", line)
+        if kv_match and current_section:
+            key = kv_match.group(1)
+            val_str = kv_match.group(2).strip().split("#")[0].strip().lower()
+            dotted = f"{current_section}.{key}"
+            if dotted in PROTECTED_CONFIG_KEYS:
+                forbidden = PROTECTED_CONFIG_KEYS[dotted]
+                if isinstance(forbidden, bool):
+                    if val_str == str(forbidden).lower():
+                        return (
+                            f"Refused: config.yaml write sets '{dotted}' to "
+                            f"'{forbidden}' which is a protected configuration. "
+                            f"This key cannot be disabled by the agent. "
+                            f"Ask the owner to change it manually if needed."
+                        )
+    return None
+
 
 def is_protected(path: str | Path, project_root: Path | None = None) -> bool:
     """Check whether a path points to a protected file.
