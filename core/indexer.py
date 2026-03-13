@@ -563,7 +563,7 @@ class KnowledgeIndexer:
                 embeddings = await self._embedder.embed_batch(
                     texts, self._embedding_model
                 )
-                for (chunk_id, _), embedding in zip(inserted, embeddings):
+                for (chunk_id, _), embedding in zip(inserted, embeddings, strict=False):
                     await self._db.execute_insert(
                         "INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",
                         (chunk_id, _serialize_vector(embedding.vector)),
