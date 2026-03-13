@@ -203,6 +203,19 @@ class ZaiAdapter:
         for msg in non_system:
             formatted = dict(msg)
 
+            # Strip multimodal content — GLM/Z.ai doesn't support image_url blocks.
+            # When content is a list, extract only text parts; discard images.
+            content = formatted.get("content")
+            if isinstance(content, list):
+                text_parts = [
+                    p.get("text", "")
+                    for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                ]
+                formatted["content"] = (
+                    "\n".join(text_parts) if text_parts else "[image]"
+                )
+
             # Constraint 2: Assistant messages with tool_calls must have content: null
             if formatted.get("role") == "assistant" and formatted.get("tool_calls"):
                 formatted["content"] = None
@@ -211,12 +224,6 @@ class ZaiAdapter:
                     tc_id = tc.get("id", "")
                     if tc_id:
                         seen_tool_call_ids.add(tc_id)
-
-            # Constraint 5: Skip duplicate tool results for the same tool_call_id
-            if formatted.get("role") == "tool":
-                tc_id = formatted.get("tool_call_id", "")
-                # We don't filter duplicates here since our agent loop
-                # already ensures one result per tool_call_id
 
             result.append(formatted)
 

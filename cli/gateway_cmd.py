@@ -83,8 +83,13 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
 
     def _safe_ceh(ctx: dict) -> None:  # type: ignore[override]
         msg = ctx.get("message", "")
-        if any(x in msg for x in ("Unclosed client session", "Unclosed connector")):
-            logger.debug("[asyncio] Suppressed benign aiohttp cleanup warning: %s", msg)
+        # Suppress all asyncio informational contexts that carry no real exception
+        # (GC-level warnings: unclosed sessions, destroyed pending tasks, etc.).
+        # These have no traceback and print "Exception None" via prompt_toolkit.
+        if ctx.get("exception") is None:
+            logger.debug(
+                "[asyncio] Suppressed no-exception event loop warning: %s", msg
+            )
             return
         _orig_ceh(ctx)
 
