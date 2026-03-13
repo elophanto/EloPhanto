@@ -559,197 +559,83 @@ Compatible with [ui-skills.com](https://www.ui-skills.com/), [anthropics/skills]
 <details>
 <summary>config.yaml reference</summary>
 
+**The full recommended config is in [`config.demo.yaml`](config.demo.yaml)** — copy it to `config.yaml` and fill in your API keys. The snippet below shows the key sections:
+
 ```yaml
 agent:
   permission_mode: full_auto       # ask_always | smart_auto | full_auto
 
 llm:
   providers:
-    openai:
-      api_key: "YOUR_OPENAI_KEY"
+    openrouter:
+      api_key: "YOUR_OPENROUTER_KEY"  # https://openrouter.ai/keys
       enabled: true
-      default_model: "gpt-5.4"
-      max_tools: 128                 # Provider tool limit (auto for OpenAI)
-    kimi:
-      api_key: "YOUR_KILO_API_KEY"  # from app.kilo.ai (Kilo Code Gateway)
-      enabled: true
-      base_url: "https://api.kilo.ai/api/gateway"
-      default_model: "kimi-k2.5"    # → moonshotai/kimi-k2.5 on gateway
     zai:
-      api_key: "YOUR_ZAI_KEY"
+      api_key: "YOUR_ZAI_KEY"         # https://z.ai/manage-apikey/apikey-list
       enabled: true
       coding_plan: true
-    openrouter:
-      api_key: "YOUR_OPENROUTER_KEY"
-      enabled: true
+      default_model: "glm-4.7"
+    openai:
+      api_key: "YOUR_OPENAI_KEY"
+      enabled: false
+      default_model: "gpt-5.4"
+    kimi:
+      api_key: "YOUR_KILO_API_KEY"    # https://app.kilo.ai
+      enabled: false
+      base_url: "https://api.kilo.ai/api/gateway"
+      default_model: "kimi-k2.5"
     ollama:
       enabled: true
       base_url: "http://localhost:11434"
-  provider_priority: [openai, kimi, zai, openrouter, ollama]
-  routing:                         # Per-task model routing
+
+  # Auto-routes to this model when messages contain screenshots/images
+  vision_model: "openrouter/x-ai/grok-4.1-fast"
+
+  provider_priority: [openrouter, zai, openai, kimi]
+  routing:
     planning:
-      preferred_provider: openai
-      tool_profile: full
+      preferred_provider: openrouter
       models:
-        openai: "gpt-5.4"
-        kimi: "kimi-k2.5"
-        openrouter: "anthropic/claude-sonnet-4.6"
+        openrouter: "openrouter/hunter-alpha"
         zai: "glm-5"
-        ollama: "qwen2.5:14b"
+        kimi: "kimi-k2.5"
+        openai: "gpt-5.4"
     coding:
-      preferred_provider: openai
-      tool_profile: coding
+      preferred_provider: openrouter
       models:
-        openai: "gpt-5.4"
-        kimi: "kimi-k2.5"
-        openrouter: "qwen/qwen3.5-plus-02-15"
+        openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
-        ollama: "qwen2.5-coder:7b"
-    analysis:
-      preferred_provider: openai
-      models:
-        openai: "gpt-5.4"
         kimi: "kimi-k2.5"
-        openrouter: "google/gemini-3.1-pro-preview"
+        openai: "gpt-5.4"
+    analysis:
+      preferred_provider: openrouter
+      models:
+        openrouter: "openrouter/hunter-alpha"
+        zai: "glm-4.7"
+        kimi: "kimi-k2.5"
+        openai: "gpt-5.4"
     simple:
       preferred_provider: openrouter
       models:
-        openrouter: "minimax/minimax-m2.5"
+        openrouter: "openrouter/hunter-alpha"
+        zai: "glm-4.7"
         kimi: "kimi-k2-thinking-turbo"
   budget:
-    daily_limit_usd: 10.0
-    per_task_limit_usd: 2.0
-
-shell:
-  timeout: 30
-  blacklist_patterns: ["rm -rf /", "mkfs", "DROP DATABASE"]
+    daily_limit_usd: 100.0
+    per_task_limit_usd: 20.0
 
 browser:
   enabled: true
-  mode: fresh                      # fresh | profile
-  headless: true
-  vision_model: google/gemini-2.0-flash-001
+  mode: profile                    # reuse your Chrome profile (keeps logins)
+  headless: false
+  vision_model: "x-ai/grok-4.1-fast"  # for screenshot analysis
 
-desktop:
-  enabled: false
-  mode: local                      # local (this PC) | remote (VM)
-  vm_ip: ""                        # required for remote mode
-  server_port: 5000
-  observation_type: screenshot
-  max_steps: 15
-
-knowledge:
-  embedding_provider: auto
-  embedding_openrouter_model: "google/gemini-embedding-001"
-  embedding_model: "nomic-embed-text"
-  embedding_fallback: "mxbai-embed-large"
-
-gateway:
-  enabled: true
-  host: "127.0.0.1"
-  port: 18789
-  unified_sessions: true
-
-goals:
-  enabled: true
-  max_checkpoints: 20
-  max_llm_calls_per_goal: 200
-  auto_continue: true
-
-scheduler:
-  enabled: true
-  max_concurrent_tasks: 1
-  default_max_retries: 3
-
-swarm:
-  enabled: true
-  max_concurrent_agents: 3
-  profiles:
-    claude-code:
-      command: claude
-      args: ["-p", "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"]
-      done_criteria: pr_created
-      max_time_seconds: 3600
-
-autonomous_mind:
-  enabled: true
-  wakeup_seconds: 300
-  budget_pct: 100.0
-  max_rounds_per_wakeup: 8
-
-heartbeat:
-  enabled: true
-  file_path: "HEARTBEAT.md"
-  check_interval_seconds: 1800       # 30 minutes
-  max_rounds: 8
-  suppress_idle: true
-
-webhooks:
-  enabled: true
-  auth_token_ref: ""                 # vault key for Bearer auth
-  max_payload_bytes: 65536
-
-organization:
-  enabled: false
-  max_children: 5
-  port_range_start: 18801
-  auto_approve_threshold: 10
-
-deployment:
-  enabled: false
-  default_provider: auto
-  vercel_token_ref: "vercel_token"
-  railway_token_ref: "railway_token"
-  supabase_token_ref: "supabase_access_token"
-
-commune:
-  enabled: false
-  api_key_ref: "commune_api_key"
-  heartbeat_interval_hours: 4
-
-email:
-  enabled: true
-  provider: agentmail
-
-payments:
-  enabled: false
-  crypto:
-    enabled: true
-    default_chain: base             # base | base-sepolia | solana | solana-devnet
-    chains: [base, solana]
-    provider: local
-    # Solana DEX swaps: get a free Jupiter API key at portal.jup.ag
-    # Paste it in chat when prompted — stored in vault as jupiter_api_key
-
-telegram:
-  enabled: false
-  bot_token_ref: "telegram_bot_token"
-
-discord:
-  enabled: false
-  bot_token_ref: "discord_bot_token"
-
-slack:
-  enabled: false
-  bot_token_ref: "slack_bot_token"
-  app_token_ref: "slack_app_token"
-
-mcp:
-  enabled: false
-  servers: {}
-
-hub:
-  enabled: true
-  auto_suggest: true
-
-recovery:
-  enabled: true
-  auto_enter_on_provider_failure: true
+# ... all other sections with defaults in config.demo.yaml
 ```
 
 </details>
 
-Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/configuration.md](docs/configuration.md) for full details.
+Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.demo.yaml` contains the full recommended setup** — provider priority, per-task model routing, vision model, browser settings, and all feature flags. See [docs/06-LLM-ROUTING.md](docs/06-LLM-ROUTING.md) for routing details.
 
 ---
 

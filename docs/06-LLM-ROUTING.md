@@ -119,15 +119,17 @@ Locally-hosted models running on the user's machine.
 
 ### Provider Priority
 
-Users configure a priority order in the config. Default:
+Recommended order (matches `config.demo.yaml`):
 
-1. **OpenAI** — direct access to GPT-5.4, o3, o1. Strong reasoning and tool use
-2. **Kimi** — native multimodal vision model via Kilo Gateway. Strong coding and agentic capabilities
-3. **Z.ai/GLM** (for coding tasks specifically) — excellent quality/cost ratio with Coding Plan
-4. **OpenRouter** — access to all models (Claude, Gemini, Llama, etc.), fallback for everything else
-5. **Ollama** (if a capable model is available for the task type) — local, free, private
+1. **OpenRouter** — access to all frontier models via a single key. Primary provider for all task types with `hunter-alpha` as the recommended model
+2. **Z.ai/GLM** — excellent coding quality/cost ratio with the Coding Plan (unlimited GLM-4.7/GLM-5 at flat monthly rate). Fallback for all tasks
+3. **OpenAI** — direct access to GPT-5.4. Enable if you need OpenAI-specific features
+4. **Kimi** — native multimodal vision model via Kilo Gateway. Enable for vision-heavy workloads
+5. **Ollama** — local, free, private. Useful for embeddings and offline use
 
 The user can override this to any custom priority order, or set per-task-type provider preferences.
+
+> **Recommended setup**: See `config.demo.yaml` for the full recommended configuration with all providers, models, and feature settings.
 
 ## Task Types and Model Selection
 
@@ -239,83 +241,95 @@ This means the agent core never knows or cares which provider is being used — 
 
 ## Configuration
 
-In `config.yaml`:
+> **Full recommended config**: Copy `config.demo.yaml` to `config.yaml` — it includes all providers, recommended models, vision routing, browser settings, and feature flags ready to use.
+
+Routing section reference (recommended setup from `config.demo.yaml`):
 
 ```yaml
 llm:
   providers:
     openrouter:
-      api_key_ref: "openrouter_api_key"  # reference to vault secret
+      api_key: "YOUR_OPENROUTER_KEY"
       enabled: true
-    
-    openai:
-      api_key_ref: "openai_api_key"  # reference to vault secret
-      enabled: true
-      default_model: "gpt-5.4"
-
+      base_url: "https://openrouter.ai/api/v1"
     zai:
-      api_key_ref: "zai_api_key"  # reference to vault secret
+      api_key: "YOUR_ZAI_KEY"
       enabled: true
-      coding_plan: true  # if user has the Coding Plan subscription
+      coding_plan: true
       base_url_coding: "https://api.z.ai/api/coding/paas/v4"
       base_url_paygo: "https://api.z.ai/api/paas/v4"
       default_model: "glm-4.7"
-
+    openai:
+      api_key: "YOUR_OPENAI_KEY"
+      enabled: false
+      default_model: "gpt-5.4"
     kimi:
-      api_key_ref: "kimi_api_key"  # Kilo Gateway JWT token
-      enabled: true
+      api_key: "YOUR_KILO_API_KEY"
+      enabled: false
       base_url: "https://api.kilo.ai/api/gateway"
-      default_model: "kimi-k2.5"   # → moonshotai/kimi-k2.5 on gateway
-
+      default_model: "kimi-k2.5"
     ollama:
       base_url: "http://localhost:11434"
       enabled: true
 
+  # Auto-routes to vision model when messages contain image_url blocks
+  vision_model: "openrouter/x-ai/grok-4.1-fast"
+
   provider_priority:
+    - openrouter
+    - zai
     - openai
     - kimi
-    - zai
-    - openrouter
-    - ollama
 
   routing:
     planning:
-      preferred_provider: openai
-      models:                                  # provider → model map
-        openai: "gpt-5.4"
-        kimi: "kimi-k2.5"
-        openrouter: "anthropic/claude-sonnet-4.6"
+      preferred_provider: openrouter
+      models:
+        openrouter: "openrouter/hunter-alpha"
         zai: "glm-5"
-        ollama: "qwen2.5:32b"
+        kimi: "kimi-k2.5"
+        openai: "gpt-5.4"
+        ollama: "nomic-embed-text:latest"
     coding:
-      preferred_provider: openai
+      preferred_provider: openrouter
       models:
-        openai: "gpt-5.4"
-        kimi: "kimi-k2.5"
+        openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
-        openrouter: "qwen/qwen3.5-plus-02-15"
-        ollama: "qwen2.5-coder:32b"
+        kimi: "kimi-k2.5"
+        openai: "gpt-5.4"
+        ollama: "nomic-embed-text:latest"
     analysis:
-      preferred_provider: openai
+      preferred_provider: openrouter
       models:
-        openai: "gpt-5.4"
-        kimi: "kimi-k2.5"
-        openrouter: "google/gemini-3.1-pro-preview"
+        openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
-        ollama: "qwen2.5:14b"
+        kimi: "kimi-k2.5"
+        openai: "gpt-5.4"
+        ollama: "nomic-embed-text:latest"
     simple:
       preferred_provider: openrouter
       models:
-        openrouter: "minimax/minimax-m2.5"
-        kimi: "kimi-k2-thinking-turbo"
+        openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
-        ollama: "llama3.2:3b"
+        kimi: "kimi-k2-thinking-turbo"
+        ollama: "nomic-embed-text:latest"
 
   budget:
-    daily_limit_usd: 10.00
-    per_task_limit_usd: 2.00
-    warn_at_percent: 80
+    daily_limit_usd: 100.00
+    per_task_limit_usd: 20.00
 ```
+
+### Vision Routing
+
+When any message in the conversation history contains an `image_url` content block (browser screenshots, Telegram images, etc.), the router automatically uses `llm.vision_model` instead of the normal priority chain. Set this to any vision-capable OpenRouter model:
+
+```yaml
+llm:
+  vision_model: "openrouter/x-ai/grok-4.1-fast"   # recommended
+  # vision_model: "openrouter/google/gemini-2.0-flash-001"  # alternative
+```
+
+Leave empty (`""`) to disable — images will be stripped before sending to text-only providers.
 
 ## Cost Tracking
 
