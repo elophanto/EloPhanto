@@ -72,6 +72,24 @@ def gateway_cmd(config_path: str | None, debug: bool, no_cli: bool) -> None:
 
 async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     """Initialize agent, start gateway, launch adapters."""
+    # Suppress benign aiohttp "Unclosed client session" GC warnings that come from
+    # litellm's internal sessions.  Without this, prompt_toolkit's asyncio exception
+    # handler fires, calls ensure_future() from thread 'asyncio_1' (which has no
+    # running loop in Python 3.10+), and logs a noisy "Unhandled error in exception
+    # handler" RuntimeError.  We intercept at call_exception_handler so it never
+    # reaches prompt_toolkit.
+    _loop = asyncio.get_event_loop()
+    _orig_ceh = _loop.call_exception_handler
+
+    def _safe_ceh(ctx: dict) -> None:  # type: ignore[override]
+        msg = ctx.get("message", "")
+        if any(x in msg for x in ("Unclosed client session", "Unclosed connector")):
+            logger.debug("[asyncio] Suppressed benign aiohttp cleanup warning: %s", msg)
+            return
+        _orig_ceh(ctx)
+
+    _loop.call_exception_handler = _safe_ceh  # type: ignore[method-assign]
+
     cfg = load_config(config_path)
 
     if not cfg.gateway.enabled:
