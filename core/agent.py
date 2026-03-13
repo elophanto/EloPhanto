@@ -93,6 +93,8 @@ _PARALLEL_SAFE_TOOLS = frozenset(
 _KEEP_RECENT_SCREENSHOTS = 3  # Keep last N screenshots as actual images
 _MAX_ELEMENTS_CHARS = 4000  # Truncate pseudo-HTML element lists beyond this
 _MAX_CONTEXT_CHARS = 800_000  # ~200K tokens — aggressively compress above this
+_KEEP_RECENT_TOOL_RESULTS = 6  # Keep last N tool results at full size
+_MAX_OLD_TOOL_RESULT_CHARS = 1500  # Truncate older tool results to this length
 
 
 def _compress_browser_context(messages: list[dict[str, Any]]) -> None:
@@ -102,6 +104,9 @@ def _compress_browser_context(messages: list[dict[str, Any]]) -> None:
     2. Truncate long element text in all non-recent browser messages.
     3. If total estimated size still exceeds _MAX_CONTEXT_CHARS, aggressively
        strip ALL images and truncate all element text.
+    4. Always truncate old tool results (role=tool) beyond the last N — these
+       are the primary driver of unbounded context growth (shell output, web
+       scrapes, knowledge reads, etc.).
     """
     # --- Phase 1: Identify multimodal messages (screenshots + elements) ---
     screenshot_indices = [
@@ -138,6 +143,25 @@ def _compress_browser_context(messages: list[dict[str, Any]]) -> None:
                         **m,
                         "content": "\n".join(lines[:5]) + "\n[elements truncated]",
                     }
+
+    # --- Phase 3: Proactively trim old tool results ---
+    # Shell outputs, web scrapes, knowledge reads etc. accumulate as role=tool
+    # messages and are the primary driver of context overflow.  Keep the last
+    # _KEEP_RECENT_TOOL_RESULTS at full size; truncate older ones.
+    tool_indices = [
+        i
+        for i, m in enumerate(messages)
+        if m.get("role") == "tool" and isinstance(m.get("content"), str)
+    ]
+    if len(tool_indices) > _KEEP_RECENT_TOOL_RESULTS:
+        for i in tool_indices[:-_KEEP_RECENT_TOOL_RESULTS]:
+            content = messages[i]["content"]
+            if len(content) > _MAX_OLD_TOOL_RESULT_CHARS:
+                messages[i] = {
+                    **messages[i],
+                    "content": content[:_MAX_OLD_TOOL_RESULT_CHARS]
+                    + "\n[truncated — old tool result]",
+                }
 
 
 def _compress_multimodal_msg(

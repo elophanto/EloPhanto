@@ -220,6 +220,28 @@ class LLMRouter:
                     self._mark_unhealthy(provider)
                     raise
 
+                # Context-length errors are deterministic — retrying the same
+                # messages with the same provider will always fail.  Skip to
+                # next provider immediately (no sleep, no retries).
+                _err_lower = str(e).lower()
+                is_context_overflow = any(
+                    p in _err_lower
+                    for p in (
+                        "context length",
+                        "context_length_exceeded",
+                        "maximum context",
+                        "exceeds the model",
+                        "too many tokens",
+                        "input too long",
+                    )
+                )
+                if is_context_overflow:
+                    logger.warning(
+                        f"[TIMING] {provider}/{model} context overflow after {elapsed:.2f}s "
+                        f"— skipping to next provider immediately"
+                    )
+                    raise
+
                 delay = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)]
                 if attempt < self.MAX_RETRIES - 1:
                     logger.warning(
