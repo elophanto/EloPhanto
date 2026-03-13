@@ -13,10 +13,13 @@ import logging
 import signal
 import time as _time
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.patch_stdout import patch_stdout as pt_patch_stdout
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Confirm
 from rich.rule import Rule
 from rich.status import Status
 from rich.text import Text
@@ -161,177 +164,182 @@ class CLIAdapter(ChannelAdapter):
 
     async def _repl_loop(self) -> None:
         """Main REPL — read input, send to gateway, display response."""
-        loop = asyncio.get_event_loop()
-
         console.print(f"\n  [{_C_DIM}]Connected to gateway at {self._gateway_url}[/]")
         console.print(
             f"  [{_C_DIM}]Type a message, /clear to reset, Ctrl+C to cancel, or exit to quit.[/]\n"
         )
 
-        while self._running:
-            try:
-                user_input = await loop.run_in_executor(
-                    None, lambda: Prompt.ask(f"  [{_C_USER}]❯[/]")
-                )
-            except (EOFError, KeyboardInterrupt):
-                break
+        session = PromptSession()
+        _prompt = FormattedText([("bold", "  ❯ ")])
 
-            stripped = user_input.strip().lower()
-            if stripped in ("exit", "quit", "q"):
-                break
-            if not user_input.strip():
-                continue
+        # patch_stdout routes all sys.stdout writes (including Rich console.print)
+        # above the current input line — eliminates mind-output clobbering user input.
+        with pt_patch_stdout(raw=True):
+            while self._running:
+                try:
+                    user_input = await session.prompt_async(_prompt)
+                except (EOFError, KeyboardInterrupt):
+                    break
 
-            # Slash commands: /clear, /status, /mind stop, etc.
-            # Skip paths like /Users/... or /tmp/... (contain "/" after first char)
-            if stripped.startswith("/") and "/" not in stripped[1:]:
-                parts = stripped[1:].split(None, 1)
-                cmd = parts[0]
-                cmd_args = parts[1] if len(parts) > 1 else ""
-
-                # Handle local-only commands
-                if cmd == "clear":
-                    await self.send_command(
-                        "clear",
-                        user_id=self._user_id,
-                        session_id=self._session_id,
-                    )
-                    self._session_id = ""
-                    console.print(f"  [{_C_SUCCESS}]Session and memory cleared.[/]\n")
+                stripped = user_input.strip().lower()
+                if stripped in ("exit", "quit", "q"):
+                    break
+                if not user_input.strip():
                     continue
 
-                if cmd == "stats":
-                    cmd = "status"  # alias to gateway's status command
+                # Slash commands: /clear, /status, /mind stop, etc.
+                # Skip paths like /Users/... or /tmp/... (contain "/" after first char)
+                if stripped.startswith("/") and "/" not in stripped[1:]:
+                    parts = stripped[1:].split(None, 1)
+                    cmd = parts[0]
+                    cmd_args = parts[1] if len(parts) > 1 else ""
 
-                if cmd == "stop":
-                    await self.send_command(
-                        "cancel", user_id=self._user_id, session_id=self._session_id
-                    )
-                    console.print(f"  [{_C_WARN}]Cancel requested.[/]\n")
-                    continue
-
-                if cmd == "help":
-                    console.print(
-                        f"\n  [{_C_ACCENT}]Commands[/]\n"
-                        f"  /clear      — Reset session and wipe task memory\n"
-                        f"  /stop       — Cancel running request (or Ctrl+C)\n"
-                        f"  /status     — Show gateway status\n"
-                        f"  /mind       — Autonomous mind status\n"
-                        f"  /mind stop  — Stop the autonomous mind\n"
-                        f"  /mind start — Start the autonomous mind\n"
-                        f"  /health     — Provider health report\n"
-                        f"  /config     — Read/update config\n"
-                        f"  /provider   — Enable/disable providers\n"
-                        f"  /restart    — Re-initialize agent\n"
-                        f"  /recovery   — Enter/exit recovery mode\n"
-                        f"  /help       — This message\n"
-                        f"  exit        — Quit\n"
-                    )
-                    continue
-
-                await self.send_command(
-                    cmd,
-                    args={"subcommand": cmd_args} if cmd_args else None,
-                    user_id=self._user_id,
-                    session_id=self._session_id,
-                )
-                continue
-
-            # Send chat message and wait for response
-            console.print()
-            self._status = Status(
-                f"  [{_C_DIM}]Thinking...[/]", console=console, spinner="moon"
-            )
-            self._status.start()
-
-            # Wrap in asyncio.Task so SIGINT can cancel it properly.
-            # KeyboardInterrupt does NOT propagate through asyncio awaits,
-            # so we use loop.add_signal_handler to cancel the task instead.
-            self._chat_task = asyncio.create_task(
-                self.send_chat(
-                    content=user_input,
-                    user_id=self._user_id,
-                    session_id=self._session_id,
-                )
-            )
-
-            _sigint_fired = False
-            _last_sigint = 0.0
-
-            def _on_sigint() -> None:
-                nonlocal _sigint_fired, _last_sigint
-                now = _time.monotonic()
-                if now - _last_sigint < 1.0:
-                    # Double Ctrl+C within 1 second — force exit
-                    import os
-
-                    os._exit(1)
-                _last_sigint = now
-                _sigint_fired = True
-                task = self._chat_task
-                if task and not task.done():
-                    task.cancel()
-
-            loop.add_signal_handler(signal.SIGINT, _on_sigint)
-
-            try:
-                response = await self._chat_task
-
-                if self._status:
-                    self._status.stop()
-                    self._status = None
-
-                # Track session for future messages
-                if response.session_id:
-                    self._session_id = response.session_id
-
-                content = response.data.get("content", "No response")
-                console.print(
-                    Panel(
-                        Markdown(content),
-                        title=_LOGO_SMALL,
-                        border_style=_C_BORDER,
-                        padding=(1, 2),
-                    )
-                )
-                console.print()
-
-            except asyncio.CancelledError:
-                if self._status:
-                    self._status.stop()
-                    self._status = None
-                if _sigint_fired:
-                    # User pressed Ctrl+C — cancel request and continue REPL
-                    console.print(f"\n  [{_C_WARN}]Cancelling...[/]")
-                    try:
+                    # Handle local-only commands
+                    if cmd == "clear":
                         await self.send_command(
-                            "cancel",
+                            "clear",
                             user_id=self._user_id,
                             session_id=self._session_id,
                         )
+                        self._session_id = ""
+                        console.print(
+                            f"  [{_C_SUCCESS}]Session and memory cleared.[/]\n"
+                        )
+                        continue
+
+                    if cmd == "stats":
+                        cmd = "status"  # alias to gateway's status command
+
+                    if cmd == "stop":
+                        await self.send_command(
+                            "cancel", user_id=self._user_id, session_id=self._session_id
+                        )
+                        console.print(f"  [{_C_WARN}]Cancel requested.[/]\n")
+                        continue
+
+                    if cmd == "help":
+                        console.print(
+                            f"\n  [{_C_ACCENT}]Commands[/]\n"
+                            f"  /clear      — Reset session and wipe task memory\n"
+                            f"  /stop       — Cancel running request (or Ctrl+C)\n"
+                            f"  /status     — Show gateway status\n"
+                            f"  /mind       — Autonomous mind status\n"
+                            f"  /mind stop  — Stop the autonomous mind\n"
+                            f"  /mind start — Start the autonomous mind\n"
+                            f"  /health     — Provider health report\n"
+                            f"  /config     — Read/update config\n"
+                            f"  /provider   — Enable/disable providers\n"
+                            f"  /restart    — Re-initialize agent\n"
+                            f"  /recovery   — Enter/exit recovery mode\n"
+                            f"  /help       — This message\n"
+                            f"  exit        — Quit\n"
+                        )
+                        continue
+
+                    await self.send_command(
+                        cmd,
+                        args={"subcommand": cmd_args} if cmd_args else None,
+                        user_id=self._user_id,
+                        session_id=self._session_id,
+                    )
+                    continue
+
+                # Send chat message and wait for response
+                console.print()
+                self._status = Status(
+                    f"  [{_C_DIM}]Thinking...[/]", console=console, spinner="moon"
+                )
+                self._status.start()
+
+                # Wrap in asyncio.Task so SIGINT can cancel it properly.
+                # KeyboardInterrupt does NOT propagate through asyncio awaits,
+                # so we use loop.add_signal_handler to cancel the task instead.
+                loop = asyncio.get_event_loop()
+                self._chat_task = asyncio.create_task(
+                    self.send_chat(
+                        content=user_input,
+                        user_id=self._user_id,
+                        session_id=self._session_id,
+                    )
+                )
+
+                _sigint_fired = False
+                _last_sigint = 0.0
+
+                def _on_sigint() -> None:
+                    nonlocal _sigint_fired, _last_sigint
+                    now = _time.monotonic()
+                    if now - _last_sigint < 1.0:
+                        # Double Ctrl+C within 1 second — force exit
+                        import os
+
+                        os._exit(1)
+                    _last_sigint = now
+                    _sigint_fired = True
+                    task = self._chat_task
+                    if task and not task.done():
+                        task.cancel()
+
+                loop.add_signal_handler(signal.SIGINT, _on_sigint)
+
+                try:
+                    response = await self._chat_task
+
+                    if self._status:
+                        self._status.stop()
+                        self._status = None
+
+                    # Track session for future messages
+                    if response.session_id:
+                        self._session_id = response.session_id
+
+                    content = response.data.get("content", "No response")
+                    console.print(
+                        Panel(
+                            Markdown(content),
+                            title=_LOGO_SMALL,
+                            border_style=_C_BORDER,
+                            padding=(1, 2),
+                        )
+                    )
+                    console.print()
+
+                except asyncio.CancelledError:
+                    if self._status:
+                        self._status.stop()
+                        self._status = None
+                    if _sigint_fired:
+                        # User pressed Ctrl+C — cancel request and continue REPL
+                        console.print(f"\n  [{_C_WARN}]Cancelling...[/]")
+                        try:
+                            await self.send_command(
+                                "cancel",
+                                user_id=self._user_id,
+                                session_id=self._session_id,
+                            )
+                        except Exception:
+                            pass
+                        console.print()
+                        continue
+                    else:
+                        # Outer task cancelled (app shutdown) — propagate
+                        raise
+
+                except TimeoutError:
+                    if self._status:
+                        self._status.stop()
+                        self._status = None
+                    console.print(f"\n  [{_C_WARN}]Request timed out.[/]")
+                except Exception as e:
+                    if self._status:
+                        self._status.stop()
+                        self._status = None
+                    console.print(f"\n  [bold red]Error:[/] {e}")
+                finally:
+                    try:
+                        loop.remove_signal_handler(signal.SIGINT)
                     except Exception:
                         pass
-                    console.print()
-                    continue
-                else:
-                    # Outer task cancelled (app shutdown) — propagate
-                    raise
-
-            except TimeoutError:
-                if self._status:
-                    self._status.stop()
-                    self._status = None
-                console.print(f"\n  [{_C_WARN}]Request timed out.[/]")
-            except Exception as e:
-                if self._status:
-                    self._status.stop()
-                    self._status = None
-                console.print(f"\n  [bold red]Error:[/] {e}")
-            finally:
-                try:
-                    loop.remove_signal_handler(signal.SIGINT)
-                except Exception:
-                    pass
 
     def _display_goal_event(self, event: str, data: dict) -> None:
         """Display a goal lifecycle event with styled badges."""
@@ -382,11 +390,12 @@ class CLIAdapter(ChannelAdapter):
             last = data.get("last_action", "")
             total = data.get("total_cycles_today", 0)
             scratchpad = data.get("scratchpad_preview", "")
+            ts = _time.strftime("%H:%M")
 
             console.print()
             console.print(
                 Rule(
-                    f"[bold {_M}]MIND[/] [{_C_DIM}]cycle #{cycle} · {total} today[/]",
+                    f"[bold {_M}]MIND[/] [{_C_DIM}]cycle #{cycle} · {total} today · {ts}[/]",
                     style=_M,
                 )
             )

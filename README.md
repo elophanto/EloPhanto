@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-47%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-49%2B%20pages-blue" alt="Docs"></a>
 </p>
 
 An open-source AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
@@ -126,7 +126,7 @@ Multi-day process. Owner approves at each gate. Goal system tracks progress acro
 ### The mind works while you're away
 
 ```
-────────── MIND  cycle #47 · 12 today ──────────
+────────── MIND  cycle #47 · 12 today · 02:14 ──────────
   Budget: [████████████░░░] 78%  $3.12 / $4.00
   Active goal: "Grow Twitter to 5k" — 3,847 followers
   Last: Posted thread on AI agent trends
@@ -142,7 +142,7 @@ Multi-day process. Owner approves at each gate. Goal system tracks progress acro
   Sleeping · next in 2h · budget left $3.04
 ──────────────────────────────────────────────────
 
-────────── MIND  cycle #48 · 13 today ──────────
+────────── MIND  cycle #48 · 13 today · 04:31 ──────────
   ● browser_navigate  twitter.com/notifications
   ● knowledge_write   engagement report saved
 
@@ -222,7 +222,7 @@ Each agent gets an isolated git worktree. The orchestrator monitors PRs, checks 
 
   ─── overnight ───
 
-────────── MIND  cycle #8 ──────────────────────
+────────── MIND  cycle #8 · 23:15 ──────────────
   ● organization_delegate  marketing → "Draft 5 posts for this week"
   ● organization_review    marketing → ✓ approved
     feedback: "shorter headlines next time"
@@ -230,7 +230,7 @@ Each agent gets an isolated git worktree. The orchestrator monitors PRs, checks 
   Sleeping · next in 3h 15m
 ──────────────────────────────────────────────────
 
-────────── MIND  cycle #9 ──────────────────────
+────────── MIND  cycle #9 · 02:47 ──────────────
   ● organization_delegate  research → "Scan for new competitors"
   ● organization_review    research → new entrant found
   ● knowledge_write        saved competitor update
@@ -253,7 +253,7 @@ Feedback teaches them. High-trust specialists get auto-approved over time.
 ### First boot — it becomes someone
 
 ```
-────────── MIND  cycle #1 · 1 today ──────────
+────────── MIND  cycle #1 · 1 today · 09:00 ──────────
   Budget: [███████████████] 100%  $0.00 / $10.00
 
   First cycle. Nothing configured.
@@ -333,7 +333,7 @@ Other agents crash when they hit a wall. This one builds a door.
 - **Your real browser, not a sandbox** — already logged into AWS? It checks your EC2 instances using your existing sessions. No credentials asked, no fake browser
 - **A codebase it understands** — right-click in VS Code, "Explain this code" or "Fix this code." Same conversation from VS Code, Telegram, or the web dashboard
 - **Goals that run for weeks** — "Grow my Twitter to 10k followers" → decomposes into checkpoints, executes across sessions via the autonomous mind, self-evaluates, adjusts. Budget-controlled
-- **It gets better the more you use it** — corrections become knowledge. It checks its notes before acting. Specialists learn from feedback. The whole system improves with use
+- **It gets better the more you use it** — after every task, a lesson extractor distills what was novel into `knowledge/learned/lessons/`. Future similar tasks retrieve those lessons automatically. Task memory uses semantic search, not keyword matching. Verbose scraped content is compressed before storage. Corrections from feedback become permanent knowledge in specialists' vaults. The whole system compounds with use
 
 ---
 
@@ -430,7 +430,7 @@ Slack Adapter ─────┘                   ▼
 - **TOTP authenticator** — own 2FA (like Google Authenticator). Enroll secrets, generate codes, handle verification autonomously
 - **Crypto payments** — own wallet on Base or Solana (local self-custody or Coinbase AgentKit). USDC/ETH/SOL, DEX swaps via Jupiter on Solana, spending limits, audit trail. Owner can export keys to import into Phantom/MetaMask
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document
-- **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection, file-pattern routing, remembers past tasks across sessions
+- **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection, file-pattern routing, remembers past tasks across sessions. Learning engine: lesson extraction after every completed task, semantic memory search via sqlite-vec KNN, KB write compression to ~40% for verbose content
 - **Scheduling** — cron-based recurring tasks with natural language schedules. Heartbeat standing orders manageable via chat ("add a heartbeat order to check my email") or by editing `HEARTBEAT.md` directly
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
 - **Prompt injection defense** — multi-layer guard against injection attacks via websites, emails, and documents
@@ -769,6 +769,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. See [docs/co
 
 ## What's New
 
+- **Learning Engine** — three mechanisms that make every task improve future ones. (1) After each completed task, a fire-and-forget LLM call extracts 0–2 generalizable lessons and writes them to `knowledge/learned/lessons/` — auto-indexed, retrieved by future tasks. Recurring topics accumulate observations in the same file rather than creating duplicates. (2) Task memory now uses semantic search: goal+summary is embedded on store, retrieved by cosine similarity — "check email account" finds "log into ProtonMail inbox" without a keyword match. Falls back to LIKE search when no embedder is available. (3) `knowledge_write` gains `compress: bool` — verbose content (scraped pages, long summaries) compressed to ~40% before storage, all facts kept. See [docs/48-LEARNING-ENGINE.md](docs/48-LEARNING-ENGINE.md)
 - **Proactive Engine** — heartbeat standing orders + webhook endpoints + chat management. Write tasks in `HEARTBEAT.md` (or manage via chat: "add a heartbeat order to check my email") and the agent executes them every 30 minutes. Zero LLM cost when idle. External systems trigger actions via `POST /hooks/wake` and `POST /hooks/task`. See [docs/46-PROACTIVE-ENGINE.md](docs/46-PROACTIVE-ENGINE.md)
 - **Context documents** — structured self-awareness docs ([inspired by Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184)) that give the agent deep knowledge of its own capabilities, target audience, visual identity, and domain model. 4 curated references in `knowledge/system/`: capabilities inventory (140+ tools, 6 channels, 4 providers, 147 skills), 8 ideal customer profiles with autonomy-first framing, brand styleguide (colors, typography, tone), and domain model reference (5 stacks, 25 tables). Auto-indexed into knowledge base, surfaced by semantic search. See [docs/45-CONTEXT-DOCUMENTS.md](docs/45-CONTEXT-DOCUMENTS.md)
 - **Solana ecosystem** — native Solana wallet (self-custody, auto-create), DEX swaps via Jupiter Ultra API (any token pair, best-price routing), 27 Solana skills from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai) covering DeFi (Jupiter, Drift, Orca, Raydium, Kamino, Meteora, PumpFun), NFTs (Metaplex), oracles (Pyth, Switchboard), bridges (deBridge), infrastructure (Helius, QuickNode), and security (VulnHunter). Solana MCP server configs included. See [docs/44-SOLANA-ECOSYSTEM.md](docs/44-SOLANA-ECOSYSTEM.md)
