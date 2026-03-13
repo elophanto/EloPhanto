@@ -88,7 +88,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
             return
         _orig_ceh(ctx)
 
-    _loop.call_exception_handler = _safe_ceh  # type: ignore[method-assign]
+    _loop.call_exception_handler = _safe_ceh  # type: ignore[method-assign,assignment]
 
     cfg = load_config(config_path)
 
