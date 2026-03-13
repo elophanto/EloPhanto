@@ -134,6 +134,9 @@ class BrowserConfig:
     viewport_width: int = 1280
     viewport_height: int = 720
     vision_model: str = "google/gemini-2.0-flash-001"
+    profile_refresh_hours: float = (
+        8.0  # 0 = never auto-refresh (agent sessions persist)
+    )
 
 
 @dataclass
