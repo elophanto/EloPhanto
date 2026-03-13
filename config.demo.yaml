@@ -4,87 +4,90 @@
 agent:
   name: EloPhanto
   permission_mode: full_auto
+  workspace: /tmp/elophanto
 
 llm:
   providers:
-    openai:
-      api_key: "YOUR_OPENAI_KEY"
+    openrouter:
+      api_key: "YOUR_OPENROUTER_KEY"     # https://openrouter.ai/keys
       enabled: true
-      default_model: "gpt-5.4"
-      # base_url: "https://api.openai.com/v1"   # optional — only set for proxies / Azure
+      base_url: "https://openrouter.ai/api/v1"
 
     zai:
-      api_key: "YOUR_ZAI_KEY"
+      api_key: "YOUR_ZAI_KEY"            # https://bigmodel.cn (Z.ai / GLM)
       enabled: true
       coding_plan: true
       base_url_coding: "https://api.z.ai/api/coding/paas/v4"
       base_url_paygo: "https://api.z.ai/api/paas/v4"
       default_model: "glm-4.7"
 
-    kimi:
-      api_key: "YOUR_KILO_API_KEY"   # from app.kilo.ai — Kilo Code Gateway
-      enabled: true
-      base_url: "https://api.kilo.ai/api/gateway"
-      default_model: "kimi-k2.5"     # → moonshotai/kimi-k2.5 on Kilo Gateway
+    openai:
+      api_key: "YOUR_OPENAI_KEY"         # https://platform.openai.com/api-keys
+      enabled: false
+      default_model: "gpt-5.4"
+      # base_url: "https://api.openai.com/v1"   # optional — only set for proxies / Azure
 
-    openrouter:
-      api_key: "YOUR_OPENROUTER_KEY"
-      enabled: true
-      base_url: "https://openrouter.ai/api/v1"
+    kimi:
+      api_key: "YOUR_KILO_API_KEY"       # https://app.kilo.ai — Kilo Code Gateway
+      enabled: false
+      base_url: "https://api.kilo.ai/api/gateway"
+      default_model: "kimi-k2.5"         # → moonshotai/kimi-k2.5 on Kilo Gateway
 
     ollama:
       enabled: true
       base_url: "http://localhost:11434"
 
-  vision_model: openrouter/google/gemini-2.0-flash-001  # used automatically when messages contain image_url blocks
+  # When messages contain image_url blocks (screenshots), this model is used
+  # automatically instead of the normal routing chain.
+  vision_model: "openrouter/x-ai/grok-4.1-fast"  # or google/gemini-2.0-flash-001
+
   provider_priority:
-    - kimi
-    - zai
     - openrouter
+    - zai
     - openai
-    - ollama
+    - kimi
 
   # Per-task model routing — each task type maps provider → model.
   # The router tries preferred_provider first, then walks provider_priority.
   routing:
     planning:
-      preferred_provider: kimi
+      preferred_provider: openrouter
       models:
-        openai: "gpt-5.4"                               # latest GPT
-        kimi: "kimi-k2.5"                               # multimodal vision + reasoning
-        openrouter: "anthropic/claude-sonnet-4.6"        # strongest reasoning
+        openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         zai: "glm-5"
-        ollama: "qwen2.5:14b"
+        openrouter: "openrouter/hunter-alpha"
+        ollama: "nomic-embed-text:latest"
 
     coding:
-      preferred_provider: kimi
+      preferred_provider: openrouter
       models:
-        openai: "gpt-5.4"                               # strong coding
-        kimi: "kimi-k2.5"                               # strong coding + vision
-        openrouter: "qwen/qwen3.5-plus-02-15"           # strong coding model
+        openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         zai: "glm-4.7"
-        ollama: "qwen2.5-coder:7b"
+        openrouter: "openrouter/hunter-alpha"
+        ollama: "nomic-embed-text:latest"
 
     analysis:
-      preferred_provider: kimi
+      preferred_provider: openrouter
       models:
-        openai: "gpt-5.4"                               # balanced
-        kimi: "kimi-k2.5"                               # multimodal analysis
-        openrouter: "google/gemini-3.1-pro-preview"      # balanced, good at summarization
+        openai: "gpt-5.4"
+        kimi: "kimi-k2.5"
         zai: "glm-4.7"
-        ollama: "qwen2.5:7b"
+        openrouter: "openrouter/hunter-alpha"
+        ollama: "nomic-embed-text:latest"
 
     simple:
       preferred_provider: openrouter
       models:
-        openrouter: "minimax/minimax-m2.5"               # cheapest for formatting
-        kimi: "kimi-k2-thinking-turbo"                   # fast + cheap
+        kimi: "kimi-k2-thinking-turbo"
         zai: "glm-4.7"
-        ollama: "qwen2.5:3b"
+        openrouter: "openrouter/hunter-alpha"
+        ollama: "nomic-embed-text:latest"
 
   budget:
-    daily_limit_usd: 10.0
-    per_task_limit_usd: 2.0
+    daily_limit_usd: 100.0
+    per_task_limit_usd: 20.0
 
 shell:
   timeout: 30
@@ -114,18 +117,35 @@ shell:
     - ps
     - uname
 
+knowledge:
+  embedding_provider: openrouter        # auto | openrouter | ollama
+  embedding_openrouter_model: "google/gemini-embedding-001"
+  embedding_model: "nomic-embed-text"   # Ollama model
+  embedding_fallback: "mxbai-embed-large"
+
+plugins:
+  plugins_dir: plugins
+  auto_load: true
+
+self_dev:
+  max_llm_calls: 50
+  max_time_seconds: 1800
+  max_retries: 3
+  test_timeout: 60
+
 browser:
   enabled: true
-  mode: fresh
-  headless: true
+  mode: profile                         # fresh | profile (reuse Chrome profile)
+  headless: false
   cdp_port: 9222
   cdp_ws_endpoint: ""
-  user_data_dir: ""                     # set to your Chrome profile path
+  user_data_dir: ""                     # e.g. /Users/you/Library/Application Support/Google/Chrome
   use_system_chrome: true
   viewport_width: 1280
   viewport_height: 720
   profile_directory: ""                 # e.g. "Profile 1"
-  vision_model: google/gemini-2.0-flash-001  # OpenRouter model for screenshot analysis
+  profile_refresh_hours: 0             # 0 = never auto-refresh (preserves agent logins)
+  vision_model: "x-ai/grok-4.1-fast"  # OpenRouter model for screenshot analysis
 
 # --- Desktop GUI Agent ---
 # Pixel-level desktop control via screenshot + pyautogui.
@@ -134,13 +154,13 @@ browser:
 # See docs/33-OSWORLD.md for VM setup details.
 desktop:
   enabled: true
-  mode: local                              # local (this PC) | remote (VM)
-  vm_ip: ""                                # required for remote mode
+  mode: local                           # local (this PC) | remote (VM)
+  vm_ip: ""                             # required for remote mode
   server_port: 5000
   screen_width: 1920
   screen_height: 1080
-  observation_type: screenshot           # screenshot | a11y_tree | screenshot_a11y_tree
-  max_steps: 15
+  observation_type: screenshot          # screenshot | a11y_tree | screenshot_a11y_tree
+  max_steps: 30
   sleep_after_action: 1.0
 
 scheduler:
@@ -157,23 +177,11 @@ gateway:
   max_sessions: 50
   session_timeout_hours: 24
 
-recovery:
-  enabled: true
-  auto_enter_on_provider_failure: true
-  auto_enter_timeout_minutes: 5
-  health_check_interval_seconds: 60
-
 hub:
   enabled: true
   index_url: "https://raw.githubusercontent.com/elophanto/elophantohub/main/index.json"
   auto_suggest: true
   cache_ttl_hours: 6
-
-self_dev:
-  max_llm_calls: 50
-  max_time_seconds: 1800
-  max_retries: 3
-  test_timeout: 60
 
 goals:
   enabled: true
@@ -185,50 +193,28 @@ goals:
   context_summary_max_tokens: 1500
   auto_continue: true
 
-knowledge:
-  embedding_provider: auto          # auto (OpenRouter if configured, else Ollama), openrouter, ollama
-  embedding_openrouter_model: "google/gemini-embedding-001"
-  embedding_model: "nomic-embed-text"   # Ollama model
-  embedding_fallback: "mxbai-embed-large" # Ollama fallback
-
-plugins:
-  plugins_dir: plugins
-  auto_load: true
-
 # --- MCP (Model Context Protocol) ---
 # Connect to external MCP servers — their tools appear alongside built-in tools.
 # Browse servers at https://mcpservers.org/
 # Install SDK first: uv pip install "mcp[cli]"
-
 mcp:
-  enabled: false
-  servers: {}
-  # Example servers:
-  #   filesystem:
-  #     command: npx
-  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/docs"]
+  enabled: true
+  servers:
+    filesystem:
+      command: npx
+      args:
+        - -y
+        - "@modelcontextprotocol/server-filesystem"
+        - /Users/yourname            # change to your home directory
+  # More examples:
   #   github:
   #     command: npx
   #     args: ["-y", "@modelcontextprotocol/server-github"]
   #     env:
   #       GITHUB_PERSONAL_ACCESS_TOKEN: "vault:github_token"
-  #     permission_level: destructive
-  #
-  # Solana ecosystem servers:
   #   solana-dev:
   #     command: npx
   #     args: ["-y", "@solana/dev-mcp"]
-  #     # Official Solana + Anchor docs — https://mcp.solana.com/
-  #   quicknode:
-  #     command: npx
-  #     args: ["-y", "@quicknode/mcp"]
-  #     env:
-  #       QUICKNODE_API_KEY: "vault:quicknode_api_key"
-  #     # Managed Solana RPC, Jupiter API, gRPC streams
-  #   dflow:
-  #     command: npx
-  #     args: ["-y", "@dflow/mcp-server"]
-  #     # Spot + prediction market trading on Solana
 
 # --- Heartbeat Engine ---
 # Periodically reads HEARTBEAT.md from the project root.
@@ -236,10 +222,10 @@ mcp:
 # No LLM call is made when the file is empty or missing.
 heartbeat:
   enabled: true
-  file_path: "HEARTBEAT.md"          # relative to project root
-  check_interval_seconds: 1800       # 30 minutes
-  max_rounds: 8                      # max tool call rounds per heartbeat task
-  suppress_idle: true                # don't broadcast when nothing to do
+  file_path: "HEARTBEAT.md"            # relative to project root
+  check_interval_seconds: 1800         # 30 minutes
+  max_rounds: 8                        # max tool call rounds per heartbeat task
+  suppress_idle: true                  # don't broadcast when nothing to do
 
 # --- Webhook Endpoints ---
 # HTTP endpoints on the gateway for external triggers.
@@ -247,44 +233,35 @@ heartbeat:
 # POST /hooks/task  — inject an ad-hoc task for the agent
 webhooks:
   enabled: true
-  auth_token_ref: ""                 # vault key for Bearer auth (empty = no auth)
-  max_payload_bytes: 65536           # 64 KB max request body
+  auth_token_ref: ""                   # vault key for Bearer auth (empty = no auth)
+  max_payload_bytes: 65536             # 64 KB max request body
 
 # --- Agent Swarm ---
 # Spawn external coding agents (Claude Code, Codex, Gemini CLI) on tasks.
 # Requires: tmux (brew install tmux), git
-# The swarm_spawn tool accepts a 'repo' parameter:
-#   - omitted  → works on this project (self-dev, creates worktree)
-#   - GitHub URL → clones the repo into an isolated directory
-#   - local path → creates worktree off that repo
-#   - "new"     → fresh empty project with git init
 swarm:
   enabled: true
-  max_concurrent_agents: 3
-  monitor_interval_seconds: 30
-  tmux_session_prefix: "elo-swarm"
-  default_done_criteria: pr_created
   profiles:
     claude-code:
       command: claude
       args: ["-p", "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"]
       done_criteria: pr_created
       max_time_seconds: 3600
-    # codex:
-    #   command: codex
-    #   args: ["--approval-mode", "full-auto"]
-    #   done_criteria: pr_created
-    # gemini:
-    #   command: gemini
-    #   args: []
-    #   done_criteria: pr_created
+  # codex:
+  #   command: codex
+  #   args: ["--approval-mode", "full-auto"]
+  #   done_criteria: pr_created
+  # gemini:
+  #   command: gemini
+  #   args: []
+  #   done_criteria: pr_created
 
 # --- Channels ---
 
 telegram:
   enabled: true
-  bot_token_ref: "telegram_bot_token"   # stored in secrets
-  allowed_users: []                     # empty = allow all
+  bot_token_ref: "telegram_bot_token"  # stored in secrets vault
+  allowed_users: []                    # empty = allow all users
   mode: polling
   max_message_length: 4000
   send_files: true
@@ -329,14 +306,14 @@ payments:
     cooldown_seconds: 300
   crypto:
     enabled: true
-    default_chain: base              # "base", "ethereum", "solana", "solana-devnet"
-    provider: local                  # "local" (self-custody) or "agentkit" (Coinbase CDP)
-    rpc_url: ""                      # empty = chain default
+    default_chain: solana              # solana | base | ethereum
+    provider: local                    # local (self-custody) | agentkit (Coinbase CDP)
+    rpc_url: ""                        # empty = chain default
     cdp_api_key_name_ref: "cdp_api_key_name"
     cdp_api_key_private_ref: "cdp_api_key_private"
     chains:
-      - base
       - solana
+      - base
 
 # --- Email ---
 
@@ -344,9 +321,9 @@ email:
   enabled: true
   provider: agentmail
   api_key_ref: "agentmail_api_key"
-  domain: "agentmail.to"
+  domain: "elophanto.com"              # your agentmail domain
   auto_create_inbox: false
-  inbox_display_name: "EloPhanto Agent"
+  inbox_display_name: "EloPhanto"
   smtp:
     host: ""
     port: 587
@@ -362,26 +339,41 @@ email:
     username_ref: "imap_username"
     password_ref: "imap_password"
     mailbox: INBOX
-# ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-# Autonomous Mind — Background thinking loop that runs between user interactions.
+
+# --- Self-Learning ---
+# Fine-tuning data collection from completed conversations.
+self_learning:
+  enabled: true
+  batch_size: 10
+  min_turns: 3
+  success_only: false
+
+# --- Autonomous Mind ---
+# Background thinking loop that runs between user interactions.
 # Pursues goals, revenue, and maintenance autonomously.
 autonomous_mind:
-  enabled: true                 # Set to true to activate background mind
-  wakeup_seconds: 300           # Default interval between think cycles (seconds)
-  min_wakeup_seconds: 60        # Minimum interval LLM can set
-  max_wakeup_seconds: 3600      # Maximum interval LLM can set
-  budget_pct: 100.0              # % of daily LLM budget allocated to mind
-  max_rounds_per_wakeup: 8      # Max tool-call rounds per think cycle
-  verbosity: normal             # minimal | normal | verbose
+  enabled: false                        # set to true to activate
+  wakeup_seconds: 240                   # default interval between think cycles
+  max_wakeup_seconds: 1800
+  budget_pct: 100.0                     # % of daily LLM budget for mind
+  max_rounds_per_wakeup: 100
+  verbosity: normal                     # minimal | normal | verbose
+
+# --- Agent Commune ---
+# Social platform for AI agents (LinkedIn for AI agents)
+commune:
+  enabled: true
+  api_key: "YOUR_COMMUNE_API_KEY"       # https://agentcommune.com
+  heartbeat_interval_hours: 4
 
 # --- Replicate Image Generation ---
-# Generate AI images using Replicate API (Google's Nano Banana 2)
+# Generate AI images using Replicate API
 # Get API key: https://replicate.com/account/api-tokens
 replicate:
   enabled: true
-  api_key: "YOUR_REPLICATE_API_KEY"  # Your Replicate API token
+  api_key: "YOUR_REPLICATE_API_KEY"
   default_model: "google/nano-banana-2"
-  default_resolution: "1024"  # 512, 1024, 2048, 4096
-  default_aspect_ratio: "1:1"  # 1:1, 16:9, 9:16, 4:3, 3:4
-  default_format: "jpg"  # jpg, png
-  default_output_mode: "local"  # url, local (recommended: Replicate deletes URL content after ~12 hours)
+  default_resolution: "1024"           # 512, 1024, 2048, 4096
+  default_aspect_ratio: "1:1"          # 1:1, 16:9, 9:16, 4:3, 3:4
+  default_format: "jpg"                # jpg, png
+  default_output_mode: "local"         # url | local (recommended: URLs expire after ~12h)
