@@ -60,7 +60,9 @@ class TestLifecycle:
         assert len(identity.values) > 0
 
     @pytest.mark.asyncio
-    async def test_first_awakening(self, im: IdentityManager, router: AsyncMock) -> None:
+    async def test_first_awakening(
+        self, im: IdentityManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(
             content=json.dumps(
                 {
@@ -127,7 +129,9 @@ class TestFieldUpdates:
     async def test_cannot_update_creator(self, im: IdentityManager) -> None:
         im._config.first_awakening = False
         await im.load_or_create()
-        ok = await im.update_field("creator", "NotEloPhanto", "Trying to change creator")
+        ok = await im.update_field(
+            "creator", "NotEloPhanto", "Trying to change creator"
+        )
         assert not ok
         identity = await im.get_identity()
         assert identity.creator == "EloPhanto"
@@ -205,10 +209,14 @@ class TestCapabilities:
 
 class TestReflection:
     @pytest.mark.asyncio
-    async def test_reflect_on_task_no_updates(self, im: IdentityManager, router: AsyncMock) -> None:
+    async def test_reflect_on_task_no_updates(
+        self, im: IdentityManager, router: AsyncMock
+    ) -> None:
         im._config.first_awakening = False
         await im.load_or_create()
-        router.complete.return_value = FakeLLMResponse(content=json.dumps({"updates": []}))
+        router.complete.return_value = FakeLLMResponse(
+            content=json.dumps({"updates": []})
+        )
         updates = await im.reflect_on_task("Read a file", "completed", ["file_read"])
         assert updates == []
 
@@ -217,6 +225,7 @@ class TestReflection:
         self, im: IdentityManager, router: AsyncMock
     ) -> None:
         im._config.first_awakening = False
+        im._config.light_reflection_frequency = 0  # Always reflect (no throttle)
         await im.load_or_create()
         router.complete.return_value = FakeLLMResponse(
             content=json.dumps(
@@ -232,7 +241,9 @@ class TestReflection:
                 }
             )
         )
-        updates = await im.reflect_on_task("Organize files", "completed", ["file_write"])
+        updates = await im.reflect_on_task(
+            "Organize files", "completed", ["file_write"]
+        )
         assert len(updates) == 1
         identity = await im.get_identity()
         assert "file management" in identity.capabilities
@@ -246,7 +257,9 @@ class TestReflection:
         assert updates == []
 
     @pytest.mark.asyncio
-    async def test_reflect_llm_failure(self, im: IdentityManager, router: AsyncMock) -> None:
+    async def test_reflect_llm_failure(
+        self, im: IdentityManager, router: AsyncMock
+    ) -> None:
         im._config.first_awakening = False
         await im.load_or_create()
         router.complete.side_effect = Exception("LLM error")
@@ -293,7 +306,9 @@ class TestReflection:
         await im.load_or_create()
 
         # Return no updates for light reflections, nature sections for deep
-        router.complete.return_value = FakeLLMResponse(content=json.dumps({"updates": []}))
+        router.complete.return_value = FakeLLMResponse(
+            content=json.dumps({"updates": []})
+        )
 
         await im.reflect_on_task("Task 1", "completed", [])
         assert im._tasks_since_deep_reflect == 1
@@ -331,7 +346,9 @@ class TestContextBuilding:
     async def test_context_includes_beliefs_accounts(self, im: IdentityManager) -> None:
         im._config.first_awakening = False
         await im.load_or_create()
-        await im.update_field("beliefs", {"email": "test@example.com"}, "Account created")
+        await im.update_field(
+            "beliefs", {"email": "test@example.com"}, "Account created"
+        )
         ctx = await im.build_identity_context()
         assert "test@example.com" in ctx
 
