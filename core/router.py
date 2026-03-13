@@ -220,9 +220,9 @@ class LLMRouter:
                     self._mark_unhealthy(provider)
                     raise
 
-                # Context-length errors are deterministic — retrying the same
-                # messages with the same provider will always fail.  Skip to
-                # next provider immediately (no sleep, no retries).
+                # Deterministic errors — retrying the same payload with the
+                # same provider will always fail.  Skip to next provider
+                # immediately (no sleep, no retries).
                 _err_lower = str(e).lower()
                 is_context_overflow = any(
                     p in _err_lower
@@ -239,6 +239,24 @@ class LLMRouter:
                     logger.warning(
                         f"[TIMING] {provider}/{model} context overflow after {elapsed:.2f}s "
                         f"— skipping to next provider immediately"
+                    )
+                    raise
+
+                # Capability mismatch (e.g. model doesn't support image input) —
+                # also deterministic, no point retrying.
+                is_capability_mismatch = any(
+                    p in _err_lower
+                    for p in (
+                        "no endpoints found",
+                        "unsupported media type",
+                        "does not support vision",
+                        "does not support image",
+                    )
+                )
+                if is_capability_mismatch:
+                    logger.warning(
+                        f"[TIMING] {provider}/{model} capability mismatch after {elapsed:.2f}s "
+                        f"— skipping to next provider immediately: {e}"
                     )
                     raise
 
