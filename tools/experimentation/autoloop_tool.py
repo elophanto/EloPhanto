@@ -95,11 +95,11 @@ class AutoloopControlTool(BaseTool):
                 return ToolResult(
                     success=True, data={"active": False, "status": "none"}
                 )
-            lock = json.loads(lock_path.read_text(encoding="utf-8"))
-            elapsed_h = (time.time() - lock.get("started_at", time.time())) / 3600
+            lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+            elapsed_h = (time.time() - lock_data.get("started_at", time.time())) / 3600
             return ToolResult(
                 success=True,
-                data={**lock, "elapsed_hours": round(elapsed_h, 2)},
+                data={**lock_data, "elapsed_hours": round(elapsed_h, 2)},
             )
 
         elif action == "start":
