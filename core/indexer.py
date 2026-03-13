@@ -531,13 +531,12 @@ class KnowledgeIndexer:
         for cid in old_chunk_ids:
             await self._db.execute("DELETE FROM vec_chunks WHERE chunk_id = ?", (cid,))
 
+        from core.pii_guard import redact_pii
+
+        # Pass 1: insert all chunks into knowledge_chunks and collect (chunk_id, content)
+        inserted: list[tuple[int, str]] = []
         for chunk in chunks:
-            # Redact PII before any storage — embeddings are permanent
-            from core.pii_guard import redact_pii
-
             clean_content = redact_pii(chunk.content)
-
-            # Insert into knowledge_chunks
             chunk_id = await self._db.execute_insert(
                 "INSERT INTO knowledge_chunks "
                 "(file_path, heading_path, content, tags, scope, "
@@ -555,22 +554,25 @@ class KnowledgeIndexer:
                     now,
                 ),
             )
+            inserted.append((chunk_id, clean_content))
 
-            # Embed and store in vec table
-            if self._db.vec_available:
-                try:
-                    embedding = await self._embedder.embed(
-                        clean_content, self._embedding_model
-                    )
+        # Pass 2: batch-embed all chunks in one API call, then insert into vec table
+        if self._db.vec_available and inserted:
+            try:
+                texts = [content for _, content in inserted]
+                embeddings = await self._embedder.embed_batch(
+                    texts, self._embedding_model
+                )
+                for (chunk_id, _), embedding in zip(inserted, embeddings):
                     await self._db.execute_insert(
                         "INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",
                         (chunk_id, _serialize_vector(embedding.vector)),
                     )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to embed chunk {chunk_id} "
-                        f"(model={self._embedding_model}): {e}"
-                    )
+            except Exception as e:
+                logger.error(
+                    f"Failed to batch-embed {len(inserted)} chunks for {file_path} "
+                    f"(model={self._embedding_model}): {e}"
+                )
 
 
 def _serialize_vector(vector: list[float]) -> bytes:
