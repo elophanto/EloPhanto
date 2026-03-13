@@ -326,10 +326,14 @@ def _format_profile_cookie_stats(source_root: Path) -> str:
     return ", ".join(parts) if parts else "(no profiles detected)"
 
 
-def _prepare_launch_profile(source: str, selected_profile: str) -> tuple[str, str]:
+def _prepare_launch_profile(
+    source: str, selected_profile: str, max_age_hours: float = 8.0
+) -> tuple[str, str]:
     """Prepare profile copy with strict, deterministic profile selection."""
     Path(source)
-    prepared = _prepare_profile_copy(source, selected_profile)
+    prepared = _prepare_profile_copy(
+        source, selected_profile, max_age_hours=max_age_hours
+    )
 
     logger.info(
         "Profile prepared: selected=%s copy_path=%s",
@@ -398,7 +402,7 @@ def _prepare_profile_copy(
             else:
                 updated_at = meta.get("updated_at", 0)
                 age_hours = (time.time() - updated_at) / 3600
-                if age_hours >= max_age_hours:
+                if max_age_hours > 0 and age_hours >= max_age_hours:
                     logger.info(
                         "Profile copy is %.1f h old (max %.1f h) — refreshing to pick up "
                         "new cookies from real Chrome profile.",
@@ -488,6 +492,7 @@ class BrowserManager:
         use_system_chrome: bool = True,
         viewport_width: int = 1280,
         viewport_height: int = 720,
+        profile_refresh_hours: float = 8.0,
         **kwargs: Any,
     ) -> None:
         self._mode = mode
@@ -498,6 +503,7 @@ class BrowserManager:
         self._profile_directory = profile_directory
         self._use_system_chrome = use_system_chrome
         self._viewport = {"width": viewport_width, "height": viewport_height}
+        self._profile_refresh_hours = profile_refresh_hours
 
         self._bridge = NodeBridge(
             str(_BRIDGE_SCRIPT),
@@ -527,6 +533,7 @@ class BrowserManager:
             use_system_chrome=getattr(config, "use_system_chrome", True),
             viewport_width=getattr(config, "viewport_width", 1280),
             viewport_height=getattr(config, "viewport_height", 720),
+            profile_refresh_hours=getattr(config, "profile_refresh_hours", 8.0),
         )
 
     @property
@@ -633,7 +640,11 @@ class BrowserManager:
                 logger.info(
                     "Chrome is already running — copying profile to launch separate instance",
                 )
-                copy_path = _prepare_profile_copy(source, self._profile_directory)
+                copy_path = _prepare_profile_copy(
+                    source,
+                    self._profile_directory,
+                    max_age_hours=self._profile_refresh_hours,
+                )
                 # The copy places selected profile as "Default" inside copy_path
                 config["userDataDir"] = copy_path
                 config["profileDirectory"] = "Default"
