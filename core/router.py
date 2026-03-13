@@ -277,6 +277,17 @@ class LLMRouter:
                     raise
         raise RuntimeError("Unreachable")  # pragma: no cover
 
+    @staticmethod
+    def _contains_images(messages: list[dict[str, Any]]) -> bool:
+        """Return True if any message has image_url content blocks."""
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        return True
+        return False
+
     async def complete(
         self,
         messages: list[dict[str, Any]],
@@ -300,6 +311,19 @@ class LLMRouter:
                 f"Budget exceeded. Daily: ${self._cost_tracker.daily_total:.2f}, "
                 f"Task: ${self._cost_tracker.task_total:.2f}"
             )
+
+        # Auto-route to vision model when messages contain image_url blocks
+        # and no explicit override was given.
+        if (
+            not model_override
+            and self._config.llm.vision_model
+            and self._contains_images(messages)
+        ):
+            logger.info(
+                "[router] messages contain images — routing to vision model: %s",
+                self._config.llm.vision_model,
+            )
+            model_override = self._config.llm.vision_model
 
         # Collect all providers to try (primary + fallbacks)
         tried: set[str] = set()
