@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 _SCRATCHPAD_PATH = Path("data/scratchpad.md")
 _ACTIONS_LOG_PATH = Path("data/mind_actions.log")
+_AUTOLOOP_LOCK_PATH = Path("data/autoloop.json")
+_AGENT_PROGRAM_PATH = Path("AGENT_PROGRAM.md")
 
 
 def _read_scratchpad(project_root: Path) -> str:
@@ -110,6 +112,44 @@ LAST WAKEUP: {last_wakeup} — {last_action}
 UTC NOW: {utc_now}
 
 Based on your current state, what is the highest-value action right now? Do it.
+"""
+
+
+_AUTOLOOP_PROMPT = """\
+You are in AUTOLOOP focus mode for experiment/{tag} (branch: {branch}).
+
+YOU NEVER STOP. YOU NEVER DEVIATE. Your ONLY task: run the next experiment iteration.
+The loop runs until you are manually interrupted by the user. Period.
+
+AUTOLOOP STATE:
+- Iterations run: {iterations_run} / {max_iterations}
+- Elapsed: {elapsed_h:.1f}h / {max_hours}h
+- Best metric so far: {best_metric}
+- Direction: {direction} is better
+
+{agent_program_section}
+
+EXPERIMENT STATUS (call experiment_status for latest):
+{experiment_status}
+
+YOUR TASK RIGHT NOW — follow this protocol exactly:
+1. Call experiment_status to read the current best metric and the last 10 journal entries.
+2. Based on what has worked and what hasn't, formulate ONE hypothesis.
+   Write it down in your reasoning. One change only — never modify two things at once.
+3. Implement the change in the target file(s).
+4. Call experiment_run with a clear description of your hypothesis.
+5. Done. The mind will wake you up for the next iteration automatically.
+
+RULES — no exceptions:
+- One change per iteration. Isolation is how you learn what works.
+- Prefer simpler over complex. Deleting code that holds the metric is a win.
+- When stuck (5+ consecutive discards): re-read the journal for near-misses,
+  try combining two near-misses, try the opposite of what failed,
+  try something more radical.
+- NEVER ask if you should continue. NEVER stop. NEVER do anything else.
+- You have {max_rounds} tool rounds. Use them for: experiment_status → edit file(s) → experiment_run.
+
+BUDGET: ${budget_remaining:.4f} remaining today. UTC: {utc_now}
 """
 
 
@@ -293,6 +333,47 @@ class AutonomousMind:
         }
 
     # ------------------------------------------------------------------
+    # AutoLoop focus lock helpers
+    # ------------------------------------------------------------------
+
+    def _read_autoloop_lock(self) -> dict[str, Any] | None:
+        """Read the AutoLoop focus lock file. Returns None if not active."""
+        import json as _json
+
+        lock_path = self._project_root / _AUTOLOOP_LOCK_PATH
+        if not lock_path.exists():
+            return None
+        try:
+            lock = _json.loads(lock_path.read_text(encoding="utf-8"))
+            if not lock.get("active"):
+                return None
+            if lock.get("status") == "paused":
+                return None
+            return lock
+        except Exception:
+            return None
+
+    def _write_autoloop_lock(self, lock: dict[str, Any]) -> None:
+        """Persist the updated lock state."""
+        import json as _json
+
+        lock_path = self._project_root / _AUTOLOOP_LOCK_PATH
+        try:
+            lock_path.write_text(_json.dumps(lock, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.warning("Failed to write autoloop lock: %s", e)
+
+    def _read_agent_program(self) -> str:
+        """Read AGENT_PROGRAM.md if present."""
+        path = self._project_root / _AGENT_PROGRAM_PATH
+        if path.exists():
+            try:
+                return path.read_text(encoding="utf-8")[:4000]
+            except Exception:
+                pass
+        return ""
+
+    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
@@ -344,7 +425,26 @@ class AutonomousMind:
                 except Exception as e:
                     logger.debug("Mind maintenance error: %s", e)
 
-                # Execute think cycle
+                # ── AutoLoop focus lock check ───────────────────────────────
+                # If an active lock exists, skip the normal priority stack and
+                # run a focused experiment iteration instead.
+                lock = self._read_autoloop_lock()
+                if lock is not None:
+                    try:
+                        await self._run_autoloop_cycle(lock)
+                        self._cycle_count += 1
+                    except Exception as e:
+                        logger.error("AutoLoop cycle error: %s", e, exc_info=True)
+                        await self._broadcast_event(
+                            EventType.MIND_ERROR,
+                            {
+                                "error": str(e)[:200],
+                                "recovery": "will retry next cycle",
+                            },
+                        )
+                    continue  # ← never fall through to normal _think()
+
+                # Execute normal think cycle
                 try:
                     await self._think()
                     self._cycle_count += 1
@@ -365,6 +465,273 @@ class AutonomousMind:
             raise
         finally:
             self._task = None
+
+    # ------------------------------------------------------------------
+    # AutoLoop cycle
+    # ------------------------------------------------------------------
+
+    async def _run_autoloop_cycle(self, lock: dict[str, Any]) -> None:
+        """Run one focused experiment iteration under the AutoLoop focus lock.
+
+        Checks stop conditions, builds a locked prompt (reading AGENT_PROGRAM.md),
+        runs the agent for exactly one iteration, then updates the lock state.
+        The mind wakeup interval is shortened to ~30s for tight iteration loops.
+        """
+        import json as _json
+
+        tag = lock.get("tag", "unknown")
+        branch = lock.get("branch", "")
+        iterations_run = lock.get("iterations_run", 0)
+        max_iterations = lock.get("max_iterations", 100)
+        max_hours = lock.get("max_hours", 8.0)
+        target_metric = lock.get("target_metric")
+        best_metric = lock.get("best_metric")
+        started_at = lock.get("started_at", time.time())
+        elapsed_h = (time.time() - started_at) / 3600
+
+        # --- Check stop conditions ---
+        stop_reason: str | None = None
+        if iterations_run >= max_iterations:
+            stop_reason = f"max_iterations ({max_iterations}) reached"
+        elif elapsed_h >= max_hours:
+            stop_reason = f"max_hours ({max_hours:.1f}h) elapsed"
+        elif target_metric is not None and best_metric is not None:
+            # Read direction from experiment config
+            direction = "lower"
+            config_path = self._project_root / ".experiment.json"
+            if config_path.exists():
+                try:
+                    cfg = _json.loads(config_path.read_text(encoding="utf-8"))
+                    direction = cfg.get("metric_direction", "lower")
+                except Exception:
+                    pass
+            target_met = (
+                best_metric <= target_metric
+                if direction == "lower"
+                else best_metric >= target_metric
+            )
+            if target_met:
+                stop_reason = (
+                    f"target metric {target_metric} reached (best: {best_metric})"
+                )
+
+        if stop_reason:
+            lock["active"] = False
+            lock["status"] = "completed"
+            self._write_autoloop_lock(lock)
+            msg = f"AutoLoop complete: {stop_reason}. Best metric: {best_metric}. Iterations: {iterations_run}."
+            logger.info("[autoloop] %s", msg)
+            await self._broadcast_event(
+                EventType.MIND_ACTION,
+                {
+                    "summary": f"[AutoLoop DONE] {msg}",
+                    "tools_used": [],
+                    "tool_count": 0,
+                    "cost": "$0.0000",
+                    "elapsed": "0.0s",
+                },
+            )
+            self._last_action = msg
+            # Resume normal wakeup interval
+            self._next_wakeup_sec = float(self._config.wakeup_seconds)
+            return
+
+        # --- Build the focused prompt ---
+        # Read direction for display
+        direction = "lower"
+        experiment_status_str = "(call experiment_status for current state)"
+        config_path = self._project_root / ".experiment.json"
+        if config_path.exists():
+            try:
+                cfg = _json.loads(config_path.read_text(encoding="utf-8"))
+                direction = cfg.get("metric_direction", "lower")
+                target_files = cfg.get("target_files", [])
+                experiment_status_str = (
+                    f"tag={tag}, target_files={target_files}, "
+                    f"direction={direction}, baseline={cfg.get('baseline')}"
+                )
+            except Exception:
+                pass
+
+        agent_program = self._read_agent_program()
+        agent_program_section = ""
+        if agent_program:
+            agent_program_section = (
+                f"AGENT PROGRAM (your research strategy):\n{agent_program}"
+            )
+
+        daily_budget = self._daily_budget()
+        remaining = max(0, daily_budget - self._spent_today_usd)
+
+        prompt = _AUTOLOOP_PROMPT.format(
+            tag=tag,
+            branch=branch,
+            iterations_run=iterations_run,
+            max_iterations=max_iterations,
+            elapsed_h=elapsed_h,
+            max_hours=max_hours,
+            best_metric=best_metric,
+            direction=direction,
+            agent_program_section=agent_program_section,
+            experiment_status=experiment_status_str,
+            max_rounds=self._config.max_rounds_per_wakeup,
+            budget_remaining=remaining,
+            utc_now=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        )
+
+        # Broadcast wakeup event
+        await self._broadcast_event(
+            EventType.MIND_WAKEUP,
+            {
+                "cycle": self._cycle_count + 1,
+                "mode": "autoloop",
+                "tag": tag,
+                "iteration": f"{iterations_run + 1}/{max_iterations}",
+                "elapsed": f"{elapsed_h:.1f}h/{max_hours}h",
+                "best_metric": best_metric,
+                "budget_remaining": f"${remaining:.4f}",
+            },
+        )
+
+        # Isolate conversation history
+        saved_history = list(self._agent._conversation_history)
+        self._agent._conversation_history.clear()
+
+        prev_approval = self._agent._executor._approval_callback
+
+        async def _auto_approve(
+            tool_name: str, description: str, params: dict[str, Any]
+        ) -> bool:
+            if self._gateway:
+                from core.protocol import approval_request_message
+
+                msg_obj = approval_request_message(
+                    session_id="",
+                    tool_name=tool_name,
+                    description=f"[AutoLoop] {description}",
+                    params=params,
+                )
+                future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
+                self._gateway._pending_approvals[msg_obj.id] = future
+                await self._gateway.broadcast(msg_obj, session_id=None)
+                try:
+                    return await asyncio.wait_for(future, timeout=120)
+                except TimeoutError:
+                    return False
+                finally:
+                    self._gateway._pending_approvals.pop(msg_obj.id, None)
+            return True
+
+        self._agent._executor.set_approval_callback(_auto_approve)
+
+        _tool_uses: list[dict[str, str]] = []
+        _loop = asyncio.get_event_loop()
+
+        def _on_tool(name: str, params: dict[str, Any], error: str | None) -> None:
+            status = "error" if error else "ok"
+            _tool_uses.append({"tool": name, "status": status})
+            _loop.create_task(
+                self._broadcast_event(
+                    EventType.MIND_TOOL_USE,
+                    {
+                        "tool": name,
+                        "params": "",
+                        "status": status,
+                        "error": error or "",
+                    },
+                )
+            )
+
+        prev_tool_cb = self._agent._executor._on_tool_executed
+        self._agent._executor._on_tool_executed = _on_tool
+
+        cycle_start = time.monotonic()
+        try:
+            response = await self._agent.run(
+                prompt,
+                max_steps_override=self._config.max_rounds_per_wakeup,
+            )
+
+            cost = self._agent._router.cost_tracker.task_total
+            self._spent_today_usd += cost
+
+            content = (response.content or "")[:500]
+            action_summary = content.split("\n")[0][:120] if content else "(no output)"
+            self._last_action = (
+                f"[AutoLoop:{tag}:{iterations_run + 1}] {action_summary}"
+            )
+
+            ts = datetime.now(UTC).strftime("%H:%M")
+            self._recent_actions.append({"ts": ts, "summary": self._last_action})
+            if len(self._recent_actions) > 50:
+                self._recent_actions = self._recent_actions[-50:]
+            _append_action_log(self._project_root, self._last_action)
+
+            elapsed = time.monotonic() - cycle_start
+            await self._broadcast_event(
+                EventType.MIND_ACTION,
+                {
+                    "summary": self._last_action,
+                    "mode": "autoloop",
+                    "tag": tag,
+                    "iteration": iterations_run + 1,
+                    "cost": f"${cost:.4f}",
+                    "elapsed": f"{elapsed:.1f}s",
+                    "tools_used": [t["tool"] for t in _tool_uses],
+                    "tool_count": len(_tool_uses),
+                },
+            )
+
+            # Update lock: increment iteration counter, refresh best_metric from journal
+            lock["iterations_run"] = iterations_run + 1
+            try:
+                journal_path = self._project_root / "experiments.tsv"
+                if journal_path.exists():
+                    lines = (
+                        journal_path.read_text(encoding="utf-8").strip().splitlines()
+                    )
+                    best: float | None = None
+                    for line in lines[1:]:
+                        parts = line.split("\t")
+                        if len(parts) >= 3 and parts[2] == "keep":
+                            try:
+                                val = float(parts[1])
+                                if best is None:
+                                    best = val
+                                elif direction == "lower" and val < best:
+                                    best = val
+                                elif direction == "higher" and val > best:
+                                    best = val
+                            except ValueError:
+                                pass
+                    if best is not None:
+                        lock["best_metric"] = best
+            except Exception:
+                pass
+
+            self._write_autoloop_lock(lock)
+
+            # Short wakeup for fast experiment iteration
+            self._next_wakeup_sec = 30.0
+
+            await self._broadcast_event(
+                EventType.MIND_SLEEP,
+                {
+                    "next_wakeup_seconds": 30,
+                    "mode": "autoloop",
+                    "tag": tag,
+                    "iterations_run": lock["iterations_run"],
+                    "max_iterations": max_iterations,
+                    "best_metric": lock.get("best_metric"),
+                    "cycle_cost": f"${cost:.4f}",
+                    "elapsed_seconds": round(elapsed, 1),
+                },
+            )
+
+        finally:
+            self._agent._conversation_history = saved_history
+            self._agent._executor._approval_callback = prev_approval
+            self._agent._executor._on_tool_executed = prev_tool_cb
 
     # ------------------------------------------------------------------
     # Periodic maintenance

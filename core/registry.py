@@ -112,7 +112,8 @@ class ToolRegistry:
 
         self.register(ExecuteCodeTool(config.project_root))
 
-        # Experimentation tools (autonomous experiment loop)
+        # Experimentation tools (autonomous experiment loop + AutoLoop focus lock)
+        from tools.experimentation.autoloop_tool import AutoloopControlTool
         from tools.experimentation.run_tool import ExperimentRunTool
         from tools.experimentation.setup_tool import ExperimentSetupTool
         from tools.experimentation.status_tool import ExperimentStatusTool
@@ -120,6 +121,7 @@ class ToolRegistry:
         self.register(ExperimentSetupTool(config.project_root))
         self.register(ExperimentRunTool(config.project_root))
         self.register(ExperimentStatusTool(config.project_root))
+        self.register(AutoloopControlTool(config.project_root))
 
         # Browser tools (46 tools from BrowserPlugin via Node.js bridge)
         for tool in create_browser_tools():

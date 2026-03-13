@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
 
 from tools.base import PermissionLevel
+from tools.experimentation.autoloop_tool import AutoloopControlTool
 from tools.experimentation.run_tool import ExperimentRunTool
 from tools.experimentation.setup_tool import ExperimentSetupTool
 from tools.experimentation.status_tool import ExperimentStatusTool
@@ -396,3 +398,396 @@ class TestExperimentStatus:
         assert result.success is True
         assert result.data["best_metric"] == 75.0
         assert result.data["direction"] == "higher"
+
+
+# ─── AutoloopControlTool ───
+
+
+class TestAutoloopControl:
+    @pytest.fixture
+    def tool(self, tmp_path: Path) -> AutoloopControlTool:
+        return AutoloopControlTool(tmp_path)
+
+    def test_interface(self, tool: AutoloopControlTool) -> None:
+        assert tool.name == "autoloop_control"
+        assert tool.group == "selfdev"
+        assert tool.permission_level == PermissionLevel.MODERATE
+        schema = tool.input_schema
+        assert "action" in schema["properties"]
+        assert set(schema["properties"]["action"]["enum"]) == {
+            "start",
+            "stop",
+            "pause",
+            "status",
+        }
+
+    @pytest.mark.asyncio
+    async def test_status_no_lock(self, tool: AutoloopControlTool) -> None:
+        result = await tool.execute({"action": "status"})
+        assert result.success is True
+        assert result.data["active"] is False
+        assert result.data["status"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_start_creates_lock(
+        self, tool: AutoloopControlTool, tmp_path: Path
+    ) -> None:
+        result = await tool.execute(
+            {
+                "action": "start",
+                "tag": "apr1-perf",
+                "branch": "experiment/apr1-perf",
+                "max_iterations": 50,
+                "max_hours": 4.0,
+            }
+        )
+        assert result.success is True
+        assert result.data["active"] is True
+        assert result.data["tag"] == "apr1-perf"
+        assert result.data["max_iterations"] == 50
+        assert result.data["max_hours"] == 4.0
+
+        lock_path = tmp_path / "data" / "autoloop.json"
+        assert lock_path.exists()
+        lock = json.loads(lock_path.read_text())
+        assert lock["active"] is True
+        assert lock["status"] == "running"
+        assert lock["tag"] == "apr1-perf"
+        assert lock["branch"] == "experiment/apr1-perf"
+        assert "started_at" in lock
+        assert lock["iterations_run"] == 0
+
+    @pytest.mark.asyncio
+    async def test_start_requires_tag_and_branch(
+        self, tool: AutoloopControlTool
+    ) -> None:
+        result = await tool.execute({"action": "start"})
+        assert result.success is False
+        assert "tag" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_status_active_lock(
+        self, tool: AutoloopControlTool, tmp_path: Path
+    ) -> None:
+        # Create lock manually
+        lock_path = tmp_path / "data" / "autoloop.json"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock = {
+            "active": True,
+            "status": "running",
+            "tag": "test",
+            "branch": "experiment/test",
+            "started_at": time.time() - 3600,  # 1 hour ago
+            "max_iterations": 100,
+            "max_hours": 8.0,
+            "target_metric": None,
+            "iterations_run": 5,
+            "best_metric": 42.0,
+        }
+        lock_path.write_text(json.dumps(lock))
+
+        result = await tool.execute({"action": "status"})
+        assert result.success is True
+        assert result.data["active"] is True
+        assert result.data["iterations_run"] == 5
+        assert result.data["best_metric"] == 42.0
+        assert result.data["elapsed_hours"] >= 1.0
+
+    @pytest.mark.asyncio
+    async def test_stop_deactivates_lock(
+        self, tool: AutoloopControlTool, tmp_path: Path
+    ) -> None:
+        # Start first
+        await tool.execute(
+            {"action": "start", "tag": "test", "branch": "experiment/test"}
+        )
+        # Then stop
+        result = await tool.execute({"action": "stop"})
+        assert result.success is True
+        assert "stopped" in result.data["message"].lower()
+
+        lock_path = tmp_path / "data" / "autoloop.json"
+        lock = json.loads(lock_path.read_text())
+        assert lock["active"] is False
+        assert lock["status"] == "stopped"
+
+    @pytest.mark.asyncio
+    async def test_stop_no_lock(self, tool: AutoloopControlTool) -> None:
+        result = await tool.execute({"action": "stop"})
+        assert result.success is True
+        assert "No active" in result.data["message"]
+
+    @pytest.mark.asyncio
+    async def test_pause_lock(self, tool: AutoloopControlTool, tmp_path: Path) -> None:
+        await tool.execute(
+            {"action": "start", "tag": "test", "branch": "experiment/test"}
+        )
+        result = await tool.execute({"action": "pause"})
+        assert result.success is True
+
+        lock_path = tmp_path / "data" / "autoloop.json"
+        lock = json.loads(lock_path.read_text())
+        assert lock["status"] == "paused"
+
+    @pytest.mark.asyncio
+    async def test_pause_no_lock(self, tool: AutoloopControlTool) -> None:
+        result = await tool.execute({"action": "pause"})
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_unknown_action(self, tool: AutoloopControlTool) -> None:
+        result = await tool.execute({"action": "invalid"})
+        assert result.success is False
+        assert "Unknown action" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_start_with_target_metric(
+        self, tool: AutoloopControlTool, tmp_path: Path
+    ) -> None:
+        result = await tool.execute(
+            {
+                "action": "start",
+                "tag": "target-test",
+                "branch": "experiment/target-test",
+                "target_metric": 0.5,
+            }
+        )
+        assert result.success is True
+        lock_path = tmp_path / "data" / "autoloop.json"
+        lock = json.loads(lock_path.read_text())
+        assert lock["target_metric"] == 0.5
+
+
+# ─── ExperimentSetup with autoloop / budget_seconds ───
+
+
+class TestExperimentSetupAutoloop:
+    @pytest.fixture
+    def tool(self, tmp_path: Path) -> ExperimentSetupTool:
+        import subprocess
+
+        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        (tmp_path / "target.py").write_text("x = 1\n")
+        subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True
+        )
+        return ExperimentSetupTool(tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_autoloop_true_creates_lock(
+        self, tool: ExperimentSetupTool, tmp_path: Path
+    ) -> None:
+        result = await tool.execute(
+            {
+                "tag": "autotest",
+                "metric_command": "echo done",
+                "metric_extract": "echo 10.0",
+                "metric_direction": "lower",
+                "target_files": ["target.py"],
+                "autoloop": True,
+                "max_iterations": 20,
+                "max_hours": 2.0,
+            }
+        )
+        assert result.success is True
+        assert result.data["autoloop"] is True
+        assert "AutoLoop" in result.data["message"]
+
+        lock_path = tmp_path / "data" / "autoloop.json"
+        assert lock_path.exists()
+        lock = json.loads(lock_path.read_text())
+        assert lock["active"] is True
+        assert lock["tag"] == "autotest"
+        assert lock["max_iterations"] == 20
+        assert lock["max_hours"] == 2.0
+        assert lock["best_metric"] == 10.0
+
+    @pytest.mark.asyncio
+    async def test_autoloop_false_no_lock(
+        self, tool: ExperimentSetupTool, tmp_path: Path
+    ) -> None:
+        result = await tool.execute(
+            {
+                "tag": "noauto",
+                "metric_command": "echo done",
+                "metric_extract": "echo 10.0",
+                "metric_direction": "lower",
+                "target_files": ["target.py"],
+                "autoloop": False,
+            }
+        )
+        assert result.success is True
+        lock_path = tmp_path / "data" / "autoloop.json"
+        assert not lock_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_budget_seconds_written_to_config(
+        self, tool: ExperimentSetupTool, tmp_path: Path
+    ) -> None:
+        result = await tool.execute(
+            {
+                "tag": "budget-test",
+                "metric_command": "echo done",
+                "metric_extract": "echo 5.0",
+                "metric_direction": "higher",
+                "target_files": ["target.py"],
+                "budget_seconds": 30,
+            }
+        )
+        assert result.success is True
+        assert result.data["budget_seconds"] == 30
+
+        config = json.loads((tmp_path / ".experiment.json").read_text())
+        assert config["budget_seconds"] == 30
+
+    @pytest.mark.asyncio
+    async def test_no_budget_not_written(
+        self, tool: ExperimentSetupTool, tmp_path: Path
+    ) -> None:
+        result = await tool.execute(
+            {
+                "tag": "no-budget",
+                "metric_command": "echo done",
+                "metric_extract": "echo 5.0",
+                "metric_direction": "higher",
+                "target_files": ["target.py"],
+            }
+        )
+        assert result.success is True
+        config = json.loads((tmp_path / ".experiment.json").read_text())
+        assert "budget_seconds" not in config
+
+
+# ─── ExperimentRunTool with budget_seconds ───
+
+
+class TestExperimentRunBudget:
+    @pytest.fixture
+    def setup_with_budget(self, tmp_path: Path) -> tuple[ExperimentRunTool, Path]:
+        import subprocess
+
+        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        (tmp_path / "target.py").write_text("x = 1\n")
+        subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True
+        )
+
+        # Config with budget_seconds
+        config = {
+            "tag": "budget1",
+            "branch": "experiment/budget1",
+            "metric_command": "echo ok",
+            "metric_extract": "echo 35.0",
+            "metric_direction": "lower",
+            "target_files": ["target.py"],
+            "timeout": 30,
+            "baseline": 42.5,
+            "budget_seconds": 60,
+        }
+        (tmp_path / ".experiment.json").write_text(json.dumps(config))
+        journal = (
+            "commit\tmetric\tstatus\tdescription\nabc1234\t42.500000\tkeep\tbaseline\n"
+        )
+        (tmp_path / "experiments.tsv").write_text(journal)
+
+        subprocess.run(
+            ["git", "add", ".experiment.json", "experiments.tsv"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "experiment setup"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        return ExperimentRunTool(tmp_path), tmp_path
+
+    @pytest.mark.asyncio
+    async def test_budget_in_config_is_used(
+        self, setup_with_budget: tuple[ExperimentRunTool, Path]
+    ) -> None:
+        """budget_seconds flows from .experiment.json into run — improvement is kept."""
+        tool, tmp_path = setup_with_budget
+        (tmp_path / "target.py").write_text("x = 2  # faster\n")
+
+        result = await tool.execute({"description": "speed up x"})
+        assert result.success is True
+        # The extract returns 35.0 which is better (lower) than 42.5 baseline
+        assert result.data["outcome"] == "keep"
+        assert result.data["metric"] == 35.0
+
+    @pytest.mark.asyncio
+    async def test_budget_seconds_missing_still_runs(self, tmp_path: Path) -> None:
+        """Without budget_seconds the tool still runs normally (no regression)."""
+        import subprocess
+
+        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "t@t.com"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "T"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        (tmp_path / "target.py").write_text("x = 1\n")
+        subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True
+        )
+
+        config = {
+            "tag": "nobud",
+            "branch": "experiment/nobud",
+            "metric_command": "echo ok",
+            "metric_extract": "echo 30.0",
+            "metric_direction": "lower",
+            "target_files": ["target.py"],
+            "timeout": 30,
+            "baseline": 42.5,
+            # no budget_seconds key
+        }
+        (tmp_path / ".experiment.json").write_text(json.dumps(config))
+        journal = (
+            "commit\tmetric\tstatus\tdescription\nabc\t42.500000\tkeep\tbaseline\n"
+        )
+        (tmp_path / "experiments.tsv").write_text(journal)
+        subprocess.run(
+            ["git", "add", ".experiment.json", "experiments.tsv"],
+            cwd=tmp_path,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "setup"], cwd=tmp_path, capture_output=True
+        )
+
+        tool = ExperimentRunTool(tmp_path)
+        (tmp_path / "target.py").write_text("x = 99\n")
+        result = await tool.execute({"description": "no budget run"})
+        assert result.success is True
+        assert result.data["outcome"] == "keep"
+        assert result.data["metric"] == 30.0
