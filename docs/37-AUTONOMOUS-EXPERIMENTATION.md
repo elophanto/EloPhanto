@@ -160,4 +160,5 @@ The two systems are complementary: self-development builds new capabilities, aut
 
 - [karpathy/autoresearch](https://github.com/karpathy/autoresearch) — Original inspiration. MIT license. Autonomous ML research via experiment loop.
 - [karpathy/nanochat](https://github.com/karpathy/nanochat) — Parent training codebase that autoresearch simplifies.
+- [docs/47-AUTOLOOP.md](47-AUTOLOOP.md) — AutoLoop: focus lock, AGENT_PROGRAM.md, and fixed iteration budgets (the next evolution of this system).
 - Skill file: `skills/autonomous-experimentation/SKILL.md`

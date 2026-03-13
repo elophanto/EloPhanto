@@ -69,6 +69,7 @@ class ExperimentRunTool(BaseTool):
         metric_extract = config["metric_extract"]
         direction = config["metric_direction"]
         timeout = config.get("timeout", 600)
+        budget_seconds: int | None = config.get("budget_seconds")
 
         # Get current best metric from journal
         journal_path = self._project_root / "experiments.tsv"
@@ -98,7 +99,7 @@ class ExperimentRunTool(BaseTool):
         # Run the experiment
         logger.info(f"[experiment] Running: {description}")
         metric_value, run_error = await self._run_and_extract(
-            metric_command, metric_extract, timeout
+            metric_command, metric_extract, timeout, budget_seconds=budget_seconds
         )
 
         if run_error or metric_value is None:
@@ -204,9 +205,22 @@ class ExperimentRunTool(BaseTool):
             f.write(line)
 
     async def _run_and_extract(
-        self, command: str, extract: str, timeout: int
+        self,
+        command: str,
+        extract: str,
+        timeout: int,
+        *,
+        budget_seconds: int | None = None,
     ) -> tuple[float | None, str | None]:
-        """Run the experiment command and extract the metric value."""
+        """Run the experiment command and extract the metric value.
+
+        If *budget_seconds* is set the run is hard-killed at exactly that
+        wall-clock time (SIGTERM → 2s grace → SIGKILL), ensuring every
+        iteration is directly comparable. The metric is still extracted from
+        run.log after the kill — autoresearch-style scripts print their
+        summary before the time limit.
+        """
+        effective_timeout = budget_seconds if budget_seconds else timeout
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
@@ -215,13 +229,27 @@ class ExperimentRunTool(BaseTool):
                 stderr=asyncio.subprocess.PIPE,
             )
             try:
-                await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                await asyncio.wait_for(proc.communicate(), timeout=effective_timeout)
             except TimeoutError:
-                proc.kill()
+                try:
+                    proc.terminate()
+                    await asyncio.sleep(2)
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
                 await proc.communicate()
-                return None, f"Run timed out after {timeout}s"
+                if not budget_seconds:
+                    return None, f"Run timed out after {effective_timeout}s"
+                # Budget exhausted — expected, fall through to metric extraction
+                logger.info(
+                    "[experiment] Budget of %ds exhausted — extracting metric from run.log",
+                    budget_seconds,
+                )
 
-            if proc.returncode != 0:
+            # Non-zero exit is only a hard failure without a budget.
+            # With budget: the SIGKILL produces returncode=-9 but run.log
+            # may still contain a valid metric.
+            if proc.returncode not in (0, None) and not budget_seconds:
                 run_log = self._project_root / "run.log"
                 tail = ""
                 if run_log.exists():

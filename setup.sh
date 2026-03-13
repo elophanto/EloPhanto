@@ -124,6 +124,47 @@ else
     echo "  ✓ HEARTBEAT.md found"
 fi
 
+# Create AGENT_PROGRAM.md if it doesn't exist
+if [ ! -f "AGENT_PROGRAM.md" ]; then
+    cat > AGENT_PROGRAM.md << 'AGENT_PROGRAM_EOF'
+# Agent Program
+#
+# Your research constitution. Read at the start of every AutoLoop session.
+# Edit this file to improve your autonomous research strategy over time.
+# The agent reads it; the owner writes it. Both improve it together.
+#
+# See docs/47-AUTOLOOP.md for full design.
+
+## Research Philosophy
+
+- One change per iteration. Never modify two things at once.
+- Prefer deletions over additions. A simplification that holds the metric is a win.
+- When stuck (5+ discards): re-read the journal, try near-miss combinations,
+  try the opposite of what failed, or make a more radical change.
+
+## Metric Interpretation
+
+- "Better" means strictly improved, not equal.
+- Small improvement + clean code beats large improvement + complex code.
+- Equal metric, simpler code? Keep it — that is a simplification win.
+
+## Domain Rules
+
+(Add project-specific constraints here)
+
+## What Has Worked
+
+(Annotate after sessions)
+
+## What Has Not Worked
+
+(Annotate after sessions)
+AGENT_PROGRAM_EOF
+    echo "  ✓ AGENT_PROGRAM.md created (edit to customize research strategy)"
+else
+    echo "  ✓ AGENT_PROGRAM.md found"
+fi
+
 echo ""
 if [ ! -f "config.yaml" ]; then
     echo "  → No config.yaml found. Running the setup wizard..."
