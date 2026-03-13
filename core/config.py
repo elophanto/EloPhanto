@@ -63,6 +63,9 @@ class LLMConfig:
     routing: dict[str, RoutingConfig] = field(default_factory=dict)
     budget: BudgetConfig = field(default_factory=BudgetConfig)
     tool_profiles: dict[str, list[str]] = field(default_factory=dict)
+    # OpenRouter model slug used when messages contain image_url blocks.
+    # Empty = strip images and use normal routing (Z.ai already does this).
+    vision_model: str = ""
 
 
 @dataclass
@@ -803,6 +806,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         routing=routing,
         budget=budget,
         tool_profiles=tool_profiles,
+        vision_model=llm_raw.get("vision_model", ""),
     )
 
     # Parse shell section
