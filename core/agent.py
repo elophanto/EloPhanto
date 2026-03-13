@@ -357,6 +357,7 @@ class Agent:
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._heartbeat_engine: Any = None  # HeartbeatEngine, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
+        self._learner: Any = None  # LessonExtractor, set during initialize
 
         # Notification callbacks (set by Telegram adapter or other interfaces)
         self._on_task_complete: Callable[..., Any] | None = None
@@ -451,6 +452,12 @@ class Agent:
                     await self._db.create_vec_table(dims)
                 except Exception as e:
                     logger.warning(f"Failed to create vec table: {e}")
+                # Memory vec table for semantic task memory search
+                try:
+                    await self._db.create_memory_vec_table(dims)
+                    self._memory_manager.set_embedder(self._embedder, model, dims)
+                except Exception as e:
+                    logger.debug(f"Memory vec table setup failed (non-fatal): {e}")
                 # Also create document vec table if documents subsystem is active
                 if self._document_store:
                     try:
@@ -463,6 +470,25 @@ class Agent:
 
         # Inject dependencies into knowledge tools
         self._inject_knowledge_deps()
+
+        # Initialize lesson extractor (fire-and-forget learning after each task)
+        if getattr(self._config, "learner", None) and self._config.learner.enabled:
+            try:
+                from core.learner import LessonExtractor
+
+                knowledge_dir = Path(self._config.knowledge.knowledge_dir)
+                if not knowledge_dir.is_absolute():
+                    knowledge_dir = self._config.project_root / knowledge_dir
+                self._learner = LessonExtractor(
+                    router=self._router,
+                    knowledge_dir=knowledge_dir,
+                    indexer=self._indexer,
+                    enabled=True,
+                )
+                self._inject_learner_deps()
+                logger.info("Lesson extractor ready")
+            except Exception as e:
+                logger.warning(f"Lesson extractor setup failed: {e}")
 
         # Load plugins
         _status("Loading plugins")
@@ -1051,6 +1077,12 @@ class Agent:
         index_tool = self._registry.get("knowledge_index")
         if index_tool:
             index_tool._indexer = self._indexer
+
+    def _inject_learner_deps(self) -> None:
+        """Inject LessonExtractor into knowledge_write so compress=True works."""
+        write_tool = self._registry.get("knowledge_write")
+        if write_tool and self._learner:
+            write_tool._learner = self._learner
 
     def _inject_self_dev_deps(self) -> None:
         """Inject dependencies into self-development tools."""
@@ -2514,17 +2546,24 @@ class Agent:
         outcome: str,
         tools_used: list[str],
     ) -> None:
-        """Store task completion in long-term memory."""
+        """Store task completion in long-term memory and extract lessons."""
+        unique_tools = list(set(tools_used))
         try:
             await self._memory_manager.store_task_memory(
                 session_id=self._working_memory.session_id,
                 goal=goal,
                 summary=summary,
                 outcome=outcome,
-                tools_used=list(set(tools_used)),
+                tools_used=unique_tools,
             )
         except Exception as e:
             logger.debug(f"Failed to store task memory: {e}")
+
+        # Extract reusable lessons — fire-and-forget, non-blocking
+        if self._learner:
+            asyncio.create_task(
+                self._learner.extract_and_store(goal, summary, outcome, unique_tools)
+            )
 
     # ------------------------------------------------------------------
     # Automatic directive detection

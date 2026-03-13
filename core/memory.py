@@ -2,17 +2,25 @@
 
 WorkingMemory holds in-session context (relevant knowledge chunks).
 MemoryManager handles persistent task memory in the database.
+
+Semantic memory search: when an EmbeddingClient is injected via set_embedder(),
+store_task_memory() embeds goal+summary into memory_vec for cosine-similarity
+retrieval. search_memory() tries semantic first, falls back to LIKE keyword
+matching when embeddings are unavailable.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from core.database import Database
+
+logger = logging.getLogger(__name__)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -78,6 +86,15 @@ class MemoryManager:
 
     def __init__(self, db: Database) -> None:
         self._db = db
+        self._embedder: Any = None
+        self._embedding_model: str = "nomic-embed-text"
+        self._embedding_dimensions: int = 768
+
+    def set_embedder(self, embedder: Any, model: str, dimensions: int) -> None:
+        """Inject embedding client for semantic memory search."""
+        self._embedder = embedder
+        self._embedding_model = model
+        self._embedding_dimensions = dimensions
 
     async def store_task_memory(
         self,
@@ -91,7 +108,7 @@ class MemoryManager:
         from core.pii_guard import redact_pii
 
         now = datetime.now(UTC).isoformat()
-        return await self._db.execute_insert(
+        row_id = await self._db.execute_insert(
             "INSERT INTO memory (session_id, task_goal, task_summary, outcome, "
             "tools_used, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (
@@ -104,8 +121,40 @@ class MemoryManager:
             ),
         )
 
+        # Embed goal+summary for semantic retrieval (fire-and-forget safe)
+        if self._embedder and row_id:
+            try:
+                text = f"{goal} {summary}"[:1000]
+                result = await self._embedder.embed(text, self._embedding_model)
+                await self._db.insert_memory_vec(row_id, result.vector)
+            except Exception as e:
+                logger.debug("Memory embedding failed (non-fatal): %s", e)
+
+        return row_id
+
     async def search_memory(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Search task memory by keyword matching on goal and summary."""
+        """Search task memory — semantic when embedder available, keyword fallback."""
+        if self._embedder:
+            try:
+                return await self._search_memory_semantic(query, limit)
+            except Exception as e:
+                logger.debug(
+                    "Semantic memory search failed, falling back to keyword: %s", e
+                )
+        return await self._search_memory_keyword(query, limit)
+
+    async def _search_memory_semantic(
+        self, query: str, limit: int
+    ) -> list[dict[str, Any]]:
+        """Vector similarity search over memory embeddings."""
+        result = await self._embedder.embed(query, self._embedding_model)
+        rows = await self._db.search_memory_vec(result.vector, limit)
+        return rows
+
+    async def _search_memory_keyword(
+        self, query: str, limit: int
+    ) -> list[dict[str, Any]]:
+        """Keyword LIKE search — fallback when embeddings unavailable."""
         words = query.lower().split()
         if not words:
             return []
@@ -118,22 +167,20 @@ class MemoryManager:
 
         where = " OR ".join(conditions)
         rows = await self._db.execute(
-            f"SELECT * FROM memory WHERE {where} " f"ORDER BY created_at DESC LIMIT ?",
+            f"SELECT * FROM memory WHERE {where} ORDER BY created_at DESC LIMIT ?",
             (*params, limit),
         )
 
-        results: list[dict[str, Any]] = []
-        for row in rows:
-            results.append(
-                {
-                    "goal": row["task_goal"],
-                    "summary": row["task_summary"],
-                    "outcome": row["outcome"],
-                    "tools_used": json.loads(row["tools_used"]),
-                    "created_at": row["created_at"],
-                }
-            )
-        return results
+        return [
+            {
+                "goal": row["task_goal"],
+                "summary": row["task_summary"],
+                "outcome": row["outcome"],
+                "tools_used": json.loads(row["tools_used"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     async def get_recent_tasks(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get the most recent task memories."""
