@@ -333,6 +333,15 @@ class IdentityConfig:
 
 
 @dataclass
+class LearnerConfig:
+    """Lesson extraction and knowledge compression configuration."""
+
+    enabled: bool = True
+    # knowledge_write compress=True uses LLM — set False to skip compression entirely
+    compress_enabled: bool = True
+
+
+@dataclass
 class SmtpServerConfig:
     """SMTP outgoing mail server configuration."""
 
@@ -641,6 +650,7 @@ class Config:
     documents: DocumentConfig = field(default_factory=DocumentConfig)
     goals: GoalsConfig = field(default_factory=GoalsConfig)
     identity: IdentityConfig = field(default_factory=IdentityConfig)
+    learner: LearnerConfig = field(default_factory=LearnerConfig)
     payments: PaymentsConfig = field(default_factory=PaymentsConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
@@ -1005,6 +1015,13 @@ def load_config(config_path: Path | str | None = None) -> Config:
         nature_file=identity_raw.get("nature_file", "knowledge/self/nature.md"),
     )
 
+    # Parse learner section
+    learner_raw = raw.get("learner", {})
+    learner_config = LearnerConfig(
+        enabled=learner_raw.get("enabled", True),
+        compress_enabled=learner_raw.get("compress_enabled", True),
+    )
+
     # Parse payments section
     pay_raw = raw.get("payments", {})
     pay_wallet_raw = pay_raw.get("wallet", {})
@@ -1310,6 +1327,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         documents=documents_config,
         goals=goals_config,
         identity=identity_config,
+        learner=learner_config,
         payments=payments_config,
         email=email_config,
         recovery=recovery_config,

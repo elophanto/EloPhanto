@@ -25,6 +25,7 @@ class KnowledgeWriteTool(BaseTool):
     def __init__(self) -> None:
         self._knowledge_dir: Path | None = None  # Injected by agent
         self._indexer: Any = None  # Injected by agent
+        self._learner: Any = None  # Injected by agent (LessonExtractor, optional)
 
     @property
     def name(self) -> str:
@@ -67,6 +68,13 @@ class KnowledgeWriteTool(BaseTool):
                     "description": "Scope of the knowledge",
                     "enum": ["system", "user", "learned", "plugin"],
                 },
+                "compress": {
+                    "type": "boolean",
+                    "description": (
+                        "Compress verbose content before storing (e.g. scraped web pages). "
+                        "Removes filler prose, keeps all facts. Reduces token usage on retrieval."
+                    ),
+                },
             },
             "required": ["path", "content"],
         }
@@ -84,6 +92,14 @@ class KnowledgeWriteTool(BaseTool):
         title = params.get("title", "")
         tags = params.get("tags", "")
         scope = params.get("scope", "learned")
+        compress = params.get("compress", False)
+
+        # Compress verbose content before writing (e.g., scraped pages)
+        if compress and self._learner:
+            try:
+                content = await self._learner.compress_content(content)
+            except Exception:
+                pass  # Non-fatal — write original content
 
         file_path = self._knowledge_dir / rel_path
 

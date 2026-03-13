@@ -8,6 +8,7 @@ stdlib sqlite3 calls.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
 import threading
@@ -562,6 +563,103 @@ class Database:
                 self._conn.commit()
 
         await asyncio.to_thread(_create)
+
+    async def create_memory_vec_table(self, dimensions: int) -> None:
+        """Create memory_vec virtual table for semantic memory search.
+
+        Mirrors create_vec_table() but for the memory table. Uses rowid matching
+        so memory_vec.rowid == memory.id for O(1) joins.
+        """
+        if not self._vec_available:
+            return
+
+        def _create() -> None:
+            assert self._conn is not None
+            with self._write_lock:
+                try:
+                    row = self._conn.execute(
+                        "SELECT COUNT(*) as cnt FROM memory_vec_rowids"
+                    ).fetchone()
+                    if row and row[0] > 0:
+                        sample = self._conn.execute(
+                            "SELECT length(embedding) / 4 as dims FROM memory_vec LIMIT 1"
+                        ).fetchone()
+                        if sample and sample[0] == dimensions:
+                            return  # Exists with correct dimensions
+                    elif row and row[0] == 0:
+                        return  # Exists but empty — fine
+                except Exception:
+                    pass  # Table doesn't exist yet
+
+                self._conn.execute("DROP TABLE IF EXISTS memory_vec")
+                self._conn.execute(
+                    f"CREATE VIRTUAL TABLE memory_vec USING vec0("
+                    f"memory_id INTEGER PRIMARY KEY, "
+                    f"embedding float[{dimensions}])"
+                )
+                self._conn.commit()
+
+        await asyncio.to_thread(_create)
+
+    async def insert_memory_vec(self, memory_id: int, vector: list[float]) -> None:
+        """Insert or replace a memory embedding into memory_vec."""
+        if not self._vec_available:
+            return
+
+        import struct
+
+        def _insert() -> None:
+            assert self._conn is not None
+            with self._write_lock:
+                blob = struct.pack(f"{len(vector)}f", *vector)
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO memory_vec(memory_id, embedding) VALUES (?, ?)",
+                    (memory_id, blob),
+                )
+                self._conn.commit()
+
+        try:
+            await asyncio.to_thread(_insert)
+        except Exception as e:
+            logger.debug("insert_memory_vec failed: %s", e)
+
+    async def search_memory_vec(
+        self, vector: list[float], limit: int = 5
+    ) -> list[dict[str, Any]]:
+        """Semantic similarity search over task memory. Returns memory rows."""
+        if not self._vec_available:
+            return []
+
+        import struct
+
+        def _search() -> list[dict[str, Any]]:
+            assert self._conn is not None
+            blob = struct.pack(f"{len(vector)}f", *vector)
+            rows = self._conn.execute(
+                "SELECT m.task_goal, m.task_summary, m.outcome, m.tools_used, "
+                "m.created_at, v.distance "
+                "FROM memory_vec v "
+                "JOIN memory m ON m.id = v.memory_id "
+                "WHERE v.embedding MATCH ? AND k = ? "
+                "ORDER BY v.distance",
+                (blob, limit),
+            ).fetchall()
+            return [
+                {
+                    "goal": r["task_goal"],
+                    "summary": r["task_summary"],
+                    "outcome": r["outcome"],
+                    "tools_used": json.loads(r["tools_used"]),
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+
+        try:
+            return await asyncio.to_thread(_search)
+        except Exception as e:
+            logger.debug("search_memory_vec failed: %s", e)
+            return []
 
     async def execute(
         self, sql: str, params: tuple[Any, ...] | list[Any] = ()
