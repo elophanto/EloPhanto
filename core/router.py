@@ -519,6 +519,10 @@ class LLMRouter:
             if or_cfg:
                 kwargs["api_key"] = or_cfg.api_key
                 kwargs["api_base"] = or_cfg.base_url
+            kwargs["extra_headers"] = {
+                "HTTP-Referer": "https://elophanto.com",
+                "X-Title": "EloPhanto",
+            }
         elif provider == "openai":
             kwargs["model"] = model
             oai_cfg = self._config.llm.providers.get("openai")
