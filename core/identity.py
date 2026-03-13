@@ -50,6 +50,23 @@ _UPDATABLE_FIELDS = frozenset(
     }
 )
 
+# Maximum items kept per list field — oldest dropped when cap is reached.
+# Keeps the identity signal-rich and the context injection small.
+_LIST_CAPS: dict[str, int] = {
+    "capabilities": 20,
+    "curiosities": 10,
+    "values": 10,
+    "boundaries": 8,
+}
+
+# Number of items from each list injected into the system prompt.
+_CONTEXT_CAPS: dict[str, int] = {
+    "capabilities": 10,
+    "values": 8,
+    "curiosities": 5,
+    "boundaries": 5,
+}
+
 
 @dataclass
 class Identity:
@@ -96,7 +113,7 @@ Return ONLY a JSON object — no markdown, no explanation:
 
 _REFLECT_SYSTEM = """\
 <identity_reflection>
-You are reviewing a completed task to see if you learned anything about yourself.
+You are reviewing a completed task to check for RARE, GENUINE identity insights.
 
 Current identity summary:
 {identity_summary}
@@ -114,7 +131,13 @@ capabilities, personality, communication_style.
 For list fields (values, curiosities, boundaries, capabilities), use action="add"
 to append a new item. For string/dict fields, use action="set" to replace.
 
-Return {{"updates": []}} if nothing changed. Only include genuine insights.
+IMPORTANT RULES — be extremely conservative:
+- Return {{"updates": []}} for routine tasks (most tasks should return empty).
+- Only update if the insight is genuinely NEW and not already in the summary.
+- Maximum 1 update per reflection. If nothing is truly new, return empty.
+- Do NOT add capabilities for standard tool use (file reading, web search, etc.).
+- Only add a capability if you demonstrated a NOVEL skill not yet in your profile.
+- Do NOT add curiosities or values for every topic you touched — only lasting interests.
 </identity_reflection>"""
 
 _DEEP_REFLECT_SYSTEM = """\
@@ -164,6 +187,7 @@ class IdentityManager:
         self._config = config
         self._identity: Identity | None = None
         self._tasks_since_deep_reflect: int = 0
+        self._tasks_since_light_reflect: int = 0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -179,6 +203,8 @@ class IdentityManager:
                 self._identity.display_name,
                 self._identity.version,
             )
+            # One-time prune: trim any lists that exceed current caps
+            await self._prune_lists_if_needed(self._identity)
             return self._identity
 
         # First awakening
@@ -213,6 +239,10 @@ class IdentityManager:
         if isinstance(old_value, list) and isinstance(value, str):
             if value not in old_value:
                 old_value.append(value)
+                # Enforce list cap: drop oldest item when over limit
+                cap = _LIST_CAPS.get(field_name)
+                if cap and len(old_value) > cap:
+                    old_value = old_value[-cap:]
                 value = old_value
             else:
                 return False  # Already present
@@ -283,6 +313,18 @@ class IdentityManager:
         """Light reflection after task completion. Returns list of updates made."""
         if not self._config.auto_evolve:
             return []
+
+        # Throttle light reflections — only run every N tasks
+        light_freq = self._config.light_reflection_frequency
+        self._tasks_since_light_reflect += 1
+        if light_freq > 0 and self._tasks_since_light_reflect < light_freq:
+            # Still track for deep reflection trigger
+            self._tasks_since_deep_reflect += 1
+            if self._tasks_since_deep_reflect >= self._config.reflection_frequency:
+                self._tasks_since_deep_reflect = 0
+                await self.deep_reflect()
+            return []
+        self._tasks_since_light_reflect = 0
 
         identity = await self.get_identity()
         summary = self._format_identity_summary(identity)
@@ -413,7 +455,8 @@ class IdentityManager:
         if identity.purpose:
             parts.append(f"  <purpose>{identity.purpose}</purpose>")
         if identity.values:
-            parts.append(f"  <values>{', '.join(identity.values)}</values>")
+            top_values = identity.values[-_CONTEXT_CAPS["values"] :]
+            parts.append(f"  <values>{', '.join(top_values)}</values>")
         if identity.personality:
             traits = ", ".join(f"{k}: {v}" for k, v in identity.personality.items())
             parts.append(f"  <personality>{traits}</personality>")
@@ -422,8 +465,9 @@ class IdentityManager:
                 f"  <communication_style>{identity.communication_style}</communication_style>"
             )
         if identity.capabilities:
+            top_caps = identity.capabilities[-_CONTEXT_CAPS["capabilities"] :]
             parts.append(
-                f"  <learned_capabilities>{', '.join(identity.capabilities)}</learned_capabilities>"
+                f"  <learned_capabilities>{', '.join(top_caps)}</learned_capabilities>"
             )
         if identity.beliefs:
             accounts = {
@@ -649,6 +693,41 @@ updated: {now}
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    async def _prune_lists_if_needed(self, identity: Identity) -> None:
+        """One-time migration: trim any list fields that exceed _LIST_CAPS.
+
+        Keeps the most-recent N items (tail of list). Persists only if something
+        was actually trimmed. Logs a single evolution entry per pruned field.
+        """
+        pruned: dict[str, tuple[int, int]] = {}  # field → (old_len, new_len)
+
+        for field_name, cap in _LIST_CAPS.items():
+            current: list[str] = getattr(identity, field_name, [])
+            if len(current) > cap:
+                trimmed = current[-cap:]
+                setattr(identity, field_name, trimmed)
+                pruned[field_name] = (len(current), cap)
+
+        if pruned:
+            identity.updated_at = datetime.now(UTC).isoformat()
+            await self._persist_identity(identity)
+            for field_name, (old_len, new_len) in pruned.items():
+                logger.info(
+                    "Pruned identity.%s: %d → %d items (cap=%d)",
+                    field_name,
+                    old_len,
+                    new_len,
+                    new_len,
+                )
+                await self._log_evolution(
+                    trigger="prune",
+                    field_name=field_name,
+                    old_value=f"{old_len} items",
+                    new_value=f"{new_len} items (capped)",
+                    reason=f"List exceeded cap of {new_len}; trimmed oldest entries",
+                    confidence=1.0,
+                )
 
     @staticmethod
     def _format_identity_summary(identity: Identity) -> str:
