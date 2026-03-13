@@ -202,11 +202,20 @@ class LLMRouter:
                     isinstance(e, (httpx.TimeoutException, asyncio.TimeoutError))
                     or "timed out" in str(e).lower()
                 )
+                is_rate_limited = "429" in str(e)
 
                 if is_timeout:
                     logger.warning(
                         f"[TIMING] {provider}/{model} timed out after {elapsed:.0f}s "
                         f"— skipping to next provider"
+                    )
+                    self._mark_unhealthy(provider)
+                    raise
+
+                if is_rate_limited:
+                    logger.warning(
+                        f"[TIMING] {provider}/{model} rate-limited (429) "
+                        f"— skipping to next provider (will retry after {self.HEALTH_RECOVERY_SECONDS}s)"
                     )
                     self._mark_unhealthy(provider)
                     raise
