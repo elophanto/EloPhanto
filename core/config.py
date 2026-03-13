@@ -324,7 +324,10 @@ class IdentityConfig:
 
     enabled: bool = True
     auto_evolve: bool = True
-    reflection_frequency: int = 10
+    reflection_frequency: int = 10  # tasks between deep reflections
+    light_reflection_frequency: int = (
+        5  # tasks between light reflections (0 = every task)
+    )
     first_awakening: bool = True
     nature_file: str = "knowledge/self/nature.md"
 
@@ -997,6 +1000,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         enabled=identity_raw.get("enabled", True),
         auto_evolve=identity_raw.get("auto_evolve", True),
         reflection_frequency=identity_raw.get("reflection_frequency", 10),
+        light_reflection_frequency=identity_raw.get("light_reflection_frequency", 5),
         first_awakening=identity_raw.get("first_awakening", True),
         nature_file=identity_raw.get("nature_file", "knowledge/self/nature.md"),
     )

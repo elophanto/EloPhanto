@@ -122,19 +122,38 @@ class IdentityManager:
 
 ### Reflection Process
 
-After task completion, `reflect_on_task()` runs as a **fire-and-forget background task** — the user receives the response immediately. It makes a lightweight LLM call:
+After task completion, `reflect_on_task()` runs as a **fire-and-forget background task** — the user receives the response immediately.
+
+**Throttling**: light reflection fires only every `light_reflection_frequency` tasks (default 5). Deep reflection fires every `reflection_frequency` tasks (default 10). This prevents identity churn from routine work.
+
+It makes a lightweight LLM call with a **conservative prompt** — max 1 update per reflection, empty for routine tasks, never adding standard tool-use as capabilities:
 
 ```
-System: You are reviewing a completed task to see if you learned anything
-about yourself. Current identity: {identity_summary}
+System: You are reviewing a completed task to check for RARE, GENUINE identity insights.
+...IMPORTANT: Return {"updates": []} for routine tasks (most tasks should return empty).
+Max 1 update per reflection. Do NOT add capabilities for standard tool use.
 
-User: Task: "{goal}" — Outcome: {outcome} — Tools used: {tools}
+User: Task: "{goal}" — Outcome: {outcome} — Tools: {tools}
 Did you learn anything about your capabilities, preferences, or style?
-Return JSON: {"updates": [{"field": "...", "value": "...", "reason": "..."}]}
-or {"updates": []} if nothing changed.
+Return JSON: {"updates": [{"field": "...", "action": "add|set", "value": "...", "reason": "..."}]}
 ```
 
 Updates are applied with `update_field()` and logged to `identity_evolution`.
+
+### List Caps and Context Caps
+
+To prevent unbounded growth, each list field has a hard cap enforced at write time and a separate context cap controlling how many items are injected into the system prompt:
+
+| Field | List cap (max stored) | Context cap (injected into prompt) |
+|-------|----------------------|-------------------------------------|
+| `capabilities` | 20 | 10 |
+| `values` | 10 | 8 |
+| `curiosities` | 10 | 5 |
+| `boundaries` | 8 | 5 |
+
+When a list exceeds its cap, the **oldest** items are dropped (tail kept). This means recent learnings take priority over stale ones.
+
+On every `load_or_create()`, `_prune_lists_if_needed()` runs a **one-time migration** — any list that exceeds its current cap is trimmed and persisted. Each pruned field is logged to `identity_evolution` with `trigger="prune"`.
 
 ### Deep Reflection
 
@@ -313,8 +332,9 @@ Updated by `IdentityManager.update_nature()` after deep reflections. Sections ma
 identity:
   enabled: true
   auto_evolve: true
-  reflection_frequency: 10    # tasks between deep reflections
-  first_awakening: true       # allow LLM to discover initial identity
+  reflection_frequency: 10          # tasks between deep reflections
+  light_reflection_frequency: 5     # tasks between light reflections (0 = every task)
+  first_awakening: true             # allow LLM to discover initial identity
   nature_file: knowledge/self/nature.md
 ```
 
