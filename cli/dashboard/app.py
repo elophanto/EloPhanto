@@ -39,7 +39,6 @@ _DIM = "#78746e"  # muted text      (oklch 0.5 0.01 60 — warm mid-grey)
 _ACCENT = "#6d28d9"  # violet accent   (darker for light bg)
 _BRIGHT = "#1c1a16"  # near-black text (oklch 0.12 0.01 60 — warm)
 _MIND = "#7c3aed"  # brand purple    (EloPhanto ◆ logo colour)
-_THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 # Layout background tokens — LIGHT, warm paper tones (oklch hue 80 = yellow-warm)
 _BG = "#f9f8f4"  # screen background — warm paper white  (oklch 0.98 0.003 80)
@@ -430,16 +429,7 @@ class EloPhantoDashboard(App):
         background: #f9f8f4;
         padding: 0 1;
     }
-    #thinking {
-        height: 1;
-        padding: 0 1;
-        background: #f9f8f4;
-        display: none;
-    }
-    #thinking.active {
-        display: block;
-    }
-    #input-bar {
+#input-bar {
         height: 3;
         background: #e8e4dc;
         border-top: solid #d4cfc5;
@@ -505,7 +495,6 @@ class EloPhantoDashboard(App):
                 yield RichLog(
                     id="events", highlight=True, markup=True, wrap=False, max_lines=5
                 )
-                yield Static("", id="thinking", markup=True)
         with Vertical(id="input-bar"):
             yield Input(placeholder="❯ type a message, /help, or exit", id="input")
 
@@ -968,9 +957,7 @@ class EloPhantoDashboard(App):
         self._pending[msg.id] = future
 
         self._awaiting_response = True
-        inp = self.query_one("#input", Input)
-        inp.placeholder = "❯ thinking..."
-        self._animate_thinking()
+        self.query_one("#input", Input).placeholder = "❯ thinking..."
 
         await self._send_ws(msg)
 
@@ -982,35 +969,12 @@ class EloPhantoDashboard(App):
         self, msg_id: str, future: asyncio.Future[GatewayMessage]
     ) -> None:
         try:
-            response = await asyncio.wait_for(future, timeout=300)
+            response = await future
             self.post_message(_GwMsg(response))
-        except TimeoutError:
-            chat = self.query_one("#chat", RichLog)
-            chat.write(f"[{_WARN}]Request timed out.[/]")
-            self._awaiting_response = False
-            self.query_one("#input", Input).placeholder = (
-                "❯ type a message, /help, or exit"
-            )
         except asyncio.CancelledError:
             pass
         finally:
             self._pending.pop(msg_id, None)
-
-    @work(exclusive=True, group="thinking-anim")
-    async def _animate_thinking(self) -> None:
-        """Animate the thinking indicator while awaiting a response."""
-        widget = self.query_one("#thinking", Static)
-        widget.add_class("active")
-        i = 0
-        try:
-            while self._awaiting_response:
-                frame = _THINKING_FRAMES[i % len(_THINKING_FRAMES)]
-                widget.update(f"[{_MIND}]{frame}[/] [{_DIM}]thinking...[/]")
-                i += 1
-                await asyncio.sleep(0.1)
-        finally:
-            widget.remove_class("active")
-            widget.update("")
 
     # ── Key routing ───────────────────────────────────────────────────────
 
