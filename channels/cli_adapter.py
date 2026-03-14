@@ -57,7 +57,13 @@ class CLIAdapter(ChannelAdapter):
         self._chat_task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        """Connect to gateway and enter REPL loop."""
+        """Connect to gateway and enter REPL loop (or full-screen dashboard)."""
+        from cli.dashboard.app import run_dashboard, should_use_dashboard
+
+        if should_use_dashboard():
+            await run_dashboard(self._gateway_url)
+            return
+
         await self.connect_gateway()
         self._listener_task = asyncio.create_task(self.gateway_listener())
 
