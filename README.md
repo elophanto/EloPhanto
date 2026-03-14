@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-49%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-50%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto21719"><img src="https://img.shields.io/badge/X-%40EloPhanto21719-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
@@ -493,7 +493,7 @@ EloPhanto/
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 135+ built-in tools
-├── skills/              # 147+ bundled SKILL.md files
+├── skills/              # 148+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
@@ -542,7 +542,7 @@ elophanto chat               # CLI only (direct mode)
 
 ## Skills System
 
-147+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), and more. Plus a public skill registry:
+148+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), and more. Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -657,6 +657,8 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Terminal dashboard** — full-screen Textual TUI that launches automatically in any capable terminal. Five live panels (Agent, Mind, Swarm, Scheduler, Gateway) alongside the chat REPL. Animated thinking spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) while the agent processes. Color palette exactly matches the web app's dark mode — deep cool charcoal (`#0d0e14`) with warm off-white text and electric purple accents, not plain black. Pass `--no-dashboard` to use the classic linear terminal. See [docs/50-TERMINAL-DASHBOARD.md](docs/50-TERMINAL-DASHBOARD.md)
+- **AgentCash skill** — pay-per-call access to premium APIs via x402 micropayments. One-time wallet setup: `npx agentcash@latest onboard [invite-code]`. Deposits as USDC on Base or Solana. Skill triggers on "set up agentcash", "x402", "invite code". After setup, discover and call any paid endpoint from conversation
 - **Learning Engine** — three mechanisms that make every task improve future ones. (1) After each completed task, a fire-and-forget LLM call extracts 0–2 generalizable lessons and writes them to `knowledge/learned/lessons/` — auto-indexed, retrieved by future tasks. Recurring topics accumulate observations in the same file rather than creating duplicates. (2) Task memory now uses semantic search: goal+summary is embedded on store, retrieved by cosine similarity — "check email account" finds "log into ProtonMail inbox" without a keyword match. Falls back to LIKE search when no embedder is available. (3) `knowledge_write` gains `compress: bool` — verbose content (scraped pages, long summaries) compressed to ~40% before storage, all facts kept. See [docs/48-LEARNING-ENGINE.md](docs/48-LEARNING-ENGINE.md)
 - **Proactive Engine** — heartbeat standing orders + webhook endpoints + chat management. Write tasks in `HEARTBEAT.md` (or manage via chat: "add a heartbeat order to check my email") and the agent executes them every 30 minutes. Zero LLM cost when idle. External systems trigger actions via `POST /hooks/wake` and `POST /hooks/task`. See [docs/46-PROACTIVE-ENGINE.md](docs/46-PROACTIVE-ENGINE.md)
 - **Context documents** — structured self-awareness docs ([inspired by Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184)) that give the agent deep knowledge of its own capabilities, target audience, visual identity, and domain model. 4 curated references in `knowledge/system/`: capabilities inventory (140+ tools, 6 channels, 4 providers, 147 skills), 8 ideal customer profiles with autonomy-first framing, brand styleguide (colors, typography, tone), and domain model reference (5 stacks, 25 tables). Auto-indexed into knowledge base, surfaced by semantic search. See [docs/45-CONTEXT-DOCUMENTS.md](docs/45-CONTEXT-DOCUMENTS.md)
