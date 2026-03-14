@@ -23,7 +23,6 @@ import os
 import platform
 import shutil
 import sqlite3
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -95,7 +94,20 @@ def get_chrome_profiles() -> list[dict[str, str]]:
     return profiles
 
 
-_PROFILE_COPY_DIR = Path(tempfile.gettempdir()) / "elophanto-chrome-profile"
+_PROFILE_COPY_DIR = Path.home() / ".elophanto" / "browser-profile"
+
+# Migrate old temp-dir copy to persistent location (one-time, best-effort)
+_OLD_PROFILE_COPY_DIR = Path("/tmp") / "elophanto-chrome-profile"
+if _OLD_PROFILE_COPY_DIR.exists() and not _PROFILE_COPY_DIR.exists():
+    try:
+        shutil.copytree(str(_OLD_PROFILE_COPY_DIR), str(_PROFILE_COPY_DIR))
+        logger.debug(
+            "Migrated browser profile from %s to %s",
+            _OLD_PROFILE_COPY_DIR,
+            _PROFILE_COPY_DIR,
+        )
+    except Exception:
+        pass
 
 # Default CDP port for auto-fallback when Chrome is already running
 _DEFAULT_CDP_PORT = 9222
