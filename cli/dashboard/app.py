@@ -1089,7 +1089,7 @@ class EloPhantoDashboard(App):
         if scheduled:
             import datetime
 
-            now = datetime.datetime.now(datetime.timezone.utc)
+            now = datetime.datetime.now(datetime.UTC)
             parsed = []
             for t in scheduled[:6]:
                 name = t.get("name", "?")
@@ -1105,7 +1105,7 @@ class EloPhantoDashboard(App):
                         else:
                             next_dt = next_run
                         if next_dt.tzinfo is None:
-                            next_dt = next_dt.replace(tzinfo=datetime.timezone.utc)
+                            next_dt = next_dt.replace(tzinfo=datetime.UTC)
                         delta = int((next_dt - now).total_seconds())
                         eta_str = _fmt_secs(max(0, delta))
                     except Exception:
