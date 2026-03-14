@@ -148,7 +148,7 @@ class _SidePanel(Static):
     _SidePanel {
         height: auto;
         padding: 0 1 1 1;
-        color: grey74;
+        color: #bdbdbd;
     }
     """
 
@@ -340,7 +340,7 @@ class _Header(Static):
         height: 2;
         padding: 0 1;
         background: #141414;
-        color: grey74;
+        color: #bdbdbd;
     }
     """
 
@@ -429,7 +429,7 @@ class EloPhantoDashboard(App):
     #input-bar Input {
         background: #111111;
         border: none;
-        color: bright_white;
+        color: ansi_bright_white;
         padding: 0 0;
     }
     #input-bar Input:focus {
@@ -438,7 +438,7 @@ class EloPhantoDashboard(App):
     _SidePanel {
         height: auto;
         padding: 0 1 1 1;
-        color: grey74;
+        color: #bdbdbd;
     }
     """
 
