@@ -46,7 +46,15 @@ _C_BORDER = "grey50"
 )
 @click.option("--debug", is_flag=True, default=False, help="Enable debug logging")
 @click.option("--no-cli", is_flag=True, default=False, help="Don't start CLI adapter")
-def gateway_cmd(config_path: str | None, debug: bool, no_cli: bool) -> None:
+@click.option(
+    "--no-dashboard",
+    is_flag=True,
+    default=False,
+    help="Use linear terminal UI instead of full-screen dashboard",
+)
+def gateway_cmd(
+    config_path: str | None, debug: bool, no_cli: bool, no_dashboard: bool
+) -> None:
     """Start the gateway with agent and all enabled channel adapters."""
     import signal
     import time as _time
@@ -67,6 +75,10 @@ def gateway_cmd(config_path: str | None, debug: bool, no_cli: bool) -> None:
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, _force_exit)
+    if no_dashboard:
+        import os
+
+        os.environ["NO_DASHBOARD"] = "1"
     asyncio.run(_run_gateway(config_path, no_cli=no_cli))
 
 
