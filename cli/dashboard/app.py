@@ -1015,20 +1015,24 @@ class EloPhantoDashboard(App):
     # ── Key routing ───────────────────────────────────────────────────────
 
     def on_key(self, event: events.Key) -> None:
-        """Route all printable keys (including space) to the input widget.
-
-        Textual's VerticalScroll consumes space for page-scroll by default.
-        This handler intercepts every printable character before the scroll
-        container sees it, focuses the Input, and injects it there instead.
-        """
+        """Route printable keys (except space) to the input widget."""
+        if event.key == "space":
+            return  # handled by key_space below
         inp = self.query_one("#input", Input)
         if inp.has_focus:
-            # Input already has focus — let normal handling proceed.
             return
         if event.is_printable and event.character:
             inp.focus()
             inp.insert_text_at_cursor(event.character)
             event.stop()
+
+    def key_space(self) -> None:
+        """Insert a space character — needed because Kitty keyboard protocol sends
+        space with character=None, making event.is_printable=False so Input ignores it.
+        """
+        inp = self.query_one("#input", Input)
+        inp.focus()
+        inp.insert_text_at_cursor(" ")
 
     # ── Bindings ──────────────────────────────────────────────────────────
 
