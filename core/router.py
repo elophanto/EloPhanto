@@ -168,6 +168,7 @@ class LLMRouter:
         tools: list[dict[str, Any]] | None,
         temperature: float,
         max_tokens: int | None,
+        reasoning_effort: str = "",
     ) -> LLMResponse:
         """Call a provider with retries on transient failures."""
         for attempt in range(self.MAX_RETRIES):
@@ -183,7 +184,13 @@ class LLMRouter:
                     )
                 else:
                     result = await self._call_litellm(
-                        messages, model, provider, tools, temperature, max_tokens
+                        messages,
+                        model,
+                        provider,
+                        tools,
+                        temperature,
+                        max_tokens,
+                        reasoning_effort=reasoning_effort,
                     )
                 result.latency_ms = int((time.monotonic() - _attempt_start) * 1000)
                 logger.info(
@@ -348,9 +355,19 @@ class LLMRouter:
                 f"[TIMING] routing to {provider}/{model} for task_type={task_type}"
             )
 
+            # Pick up reasoning_effort from per-task routing config
+            _routing = self._config.llm.routing.get(task_type)
+            _reasoning_effort = _routing.reasoning_effort if _routing else ""
+
             try:
                 result = await self._call_with_retries(
-                    provider, model, messages, tools, temperature, max_tokens
+                    provider,
+                    model,
+                    messages,
+                    tools,
+                    temperature,
+                    max_tokens,
+                    reasoning_effort=_reasoning_effort,
                 )
                 logger.info(
                     "[TIMING] %s/%s responded in %.2fs",
@@ -570,6 +587,7 @@ class LLMRouter:
         tools: list[dict[str, Any]] | None,
         temperature: float,
         max_tokens: int | None,
+        reasoning_effort: str = "",
     ) -> LLMResponse:
         """Call via litellm (OpenAI, OpenRouter, or Ollama)."""
         kwargs: dict[str, Any] = {
@@ -587,6 +605,8 @@ class LLMRouter:
                 "HTTP-Referer": "https://elophanto.com",
                 "X-Title": "EloPhanto",
             }
+            if reasoning_effort:
+                kwargs["extra_body"] = {"reasoning": {"effort": reasoning_effort}}
         elif provider == "openai":
             kwargs["model"] = model
             oai_cfg = self._config.llm.providers.get("openai")
@@ -597,6 +617,9 @@ class LLMRouter:
             # GPT-5 models only support temperature=1
             if model.startswith("gpt-5"):
                 kwargs.pop("temperature", None)
+            # OpenAI reasoning models use reasoning_effort param directly
+            if reasoning_effort:
+                kwargs["reasoning_effort"] = reasoning_effort
         elif provider == "ollama":
             kwargs["model"] = (
                 f"ollama/{model}" if not model.startswith("ollama/") else model
