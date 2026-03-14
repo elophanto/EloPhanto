@@ -423,9 +423,15 @@ class EloPhantoDashboard(App):
         padding: 0 1;
         background: #f9f8f4;
     }
-    #events {
-        height: 5;
+    #feed-header {
+        height: 1;
+        padding: 0 1;
+        background: #f9f8f4;
         border-top: solid #d4cfc5;
+        color: #78746e;
+    }
+    #events {
+        height: 12;
         background: #f9f8f4;
         padding: 0 1;
     }
@@ -492,8 +498,9 @@ class EloPhantoDashboard(App):
                 yield _GatewayPanel(self._state)
             with Vertical(id="main-area"):
                 yield RichLog(id="chat", highlight=True, markup=True, wrap=True)
+                yield Static("", id="feed-header", markup=True)
                 yield RichLog(
-                    id="events", highlight=True, markup=True, wrap=False, max_lines=5
+                    id="events", highlight=True, markup=True, wrap=False, max_lines=200
                 )
         with Vertical(id="input-bar"):
             yield Input(placeholder="❯ type a message, /help, or exit", id="input")
@@ -503,6 +510,9 @@ class EloPhantoDashboard(App):
     def on_mount(self) -> None:
         self._connect_gateway(self._gw_url)
         self._start_tick()
+        self.query_one("#feed-header", Static).update(
+            f"[{_DIM}]─── LIVE FEED {'─' * 60}[/]"
+        )
         # Focus input immediately
         self.query_one("#input", Input).focus()
 
@@ -529,7 +539,7 @@ class EloPhantoDashboard(App):
                     except Exception:
                         pass
         except Exception as exc:
-            self._add_event(f"[red]Gateway disconnected:[/] {exc}")
+            self._add_event(f"[red]Gateway disconnected:[/] {exc}", tag="GW")
             self.post_message(_GwDisconnected())
 
     @work(exclusive=False)
@@ -543,14 +553,16 @@ class EloPhantoDashboard(App):
 
     def on__gw_connected(self, message: _GwConnected) -> None:
         self._connected = True
-        self._add_event(f"[{_OK}]Connected to gateway[/] · {message.client_id[:8]}")
+        self._add_event(
+            f"[{_OK}]Connected to gateway[/] · {message.client_id[:8]}", tag="GW"
+        )
         self._repaint_all()
         # Ask for initial status to populate provider health + scheduler
         self.run_worker(self._request_status(), exclusive=False)
 
     def on__gw_disconnected(self, message: _GwDisconnected) -> None:
         self._connected = False
-        self._add_event("[red]Gateway disconnected[/]")
+        self._add_event("[red]Gateway disconnected[/]", tag="GW")
 
     def on__gw_msg(self, message: _GwMsg) -> None:
         self._dispatch(message.gw_msg)
@@ -658,13 +670,16 @@ class EloPhantoDashboard(App):
                 self.query_one("#input", Input).placeholder = (
                     f"❯ running {tool_name}..."
                 )
+                self._add_event(f"[{_ACCENT}]{tool_name}[/]", tag="AGT")
                 self._repaint_panel("panel-agent")
 
         elif event == "task_complete":
             self._state.current_tool = ""
             self._state.current_goal = ""
             goal = msg.data.get("goal", "")
-            self._add_event(f"[{_OK}]✓[/] task complete: [{_DIM}]{goal[:50]}[/]")
+            self._add_event(
+                f"[{_OK}]✓[/] task complete: [{_DIM}]{goal[:50]}[/]", tag="AGT"
+            )
             self.query_one("#input", Input).placeholder = (
                 "❯ type a message, /help, or exit"
             )
@@ -673,7 +688,9 @@ class EloPhantoDashboard(App):
         elif event == "goal_started":
             goal = msg.data.get("goal", "")
             self._state.current_goal = goal[:40]
-            self._add_event(f"[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:50]}[/]")
+            self._add_event(
+                f"[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:50]}[/]", tag="AGT"
+            )
             chat = self.query_one("#chat", RichLog)
             chat.write(f"\n[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:60]}[/]")
             self._repaint_panel("panel-agent")
@@ -685,7 +702,7 @@ class EloPhantoDashboard(App):
                 self._state.checkpoints_done, int(order or 0)
             )
             self._add_event(
-                f"[black on {_OK}] ✓ CP {order} [/] [{_DIM}]{title[:40]}[/]"
+                f"[black on {_OK}] ✓ CP {order} [/] [{_DIM}]{title[:40]}[/]", tag="AGT"
             )
             self._repaint_panel("panel-agent")
 
@@ -695,7 +712,7 @@ class EloPhantoDashboard(App):
             self._state.checkpoints_done = 0
             chat = self.query_one("#chat", RichLog)
             chat.write(f"[black on {_OK}] ✔ COMPLETED [/] [{_DIM}]{goal[:60]}[/]\n")
-            self._add_event(f"[{_OK}]✔[/] goal completed")
+            self._add_event(f"[{_OK}]✔[/] goal completed", tag="AGT")
             self._repaint_panel("panel-agent")
 
         elif event == "goal_failed":
@@ -703,7 +720,7 @@ class EloPhantoDashboard(App):
             self._state.current_goal = ""
             chat = self.query_one("#chat", RichLog)
             chat.write(f"[white on red] ✖ FAILED [/] [{_DIM}]{error[:80]}[/]\n")
-            self._add_event("[red]✖[/] goal failed")
+            self._add_event("[red]✖[/] goal failed", tag="AGT")
             self._repaint_panel("panel-agent")
 
         elif event == "user_message":
@@ -721,7 +738,7 @@ class EloPhantoDashboard(App):
                 task_name = msg.data.get("task_name", "")
                 status = msg.data.get("status", "")
                 icon = "✅" if status == "completed" else "⚠️"
-                self._add_event(f"{icon} scheduled: [{_DIM}]{task_name}[/]")
+                self._add_event(f"{icon} scheduled: [{_DIM}]{task_name}[/]", tag="SCH")
                 # Update scheduler panel
                 self._update_scheduled_task(
                     task_name, "done" if status == "completed" else "failed"
@@ -741,11 +758,11 @@ class EloPhantoDashboard(App):
 
         elif event in ("heartbeat_check", "heartbeat_action", "heartbeat_idle"):
             label = event.replace("heartbeat_", "hb:")
-            self._add_event(f"[{_DIM}]{label}[/]")
+            self._add_event(f"[{_DIM}]{label}[/]", tag="HB")
 
         elif event in ("webhook_received", "webhook_task_started"):
             endpoint = msg.data.get("endpoint", "")
-            self._add_event(f"[{_ACCENT}]webhook:[/] [{_DIM}]{endpoint}[/]")
+            self._add_event(f"[{_ACCENT}]webhook:[/] [{_DIM}]{endpoint}[/]", tag="WH")
 
     def _handle_mind_event(self, event: str, data: dict) -> None:
         s = self._state
@@ -774,7 +791,7 @@ class EloPhantoDashboard(App):
             except (ValueError, TypeError):
                 pass
 
-            self._add_event(f"[{_MIND}]mind[/] cycle #{s.mind_cycle} wakeup")
+            self._add_event(f"[{_MIND}]mind[/] cycle #{s.mind_cycle} wakeup", tag="MND")
 
         elif event == "mind_tool_use":
             tool = data.get("tool", "")
@@ -782,7 +799,7 @@ class EloPhantoDashboard(App):
                 if not s.current_tool:
                     s.current_tool_start = _time.monotonic()
                 s.current_tool = tool
-            self._add_event(f"[{_DIM}]tool:[/] [{_ACCENT}]{tool[:30]}[/]")
+            self._add_event(f"[{_DIM}]tool:[/] [{_ACCENT}]{tool[:30]}[/]", tag="MND")
 
         elif event == "mind_action":
             summary = data.get("summary", "")
@@ -806,19 +823,21 @@ class EloPhantoDashboard(App):
                 pass
             s.current_tool = ""
             wakeup_str = _fmt_secs(s.mind_next_wakeup_secs)
-            self._add_event(f"[{_DIM}]mind sleeping · next in {wakeup_str}[/]")
+            self._add_event(
+                f"[{_DIM}]mind sleeping · next in {wakeup_str}[/]", tag="MND"
+            )
 
         elif event == "mind_paused":
             s.mind_state = "paused"
-            self._add_event(f"[{_DIM}]mind paused[/]")
+            self._add_event(f"[{_DIM}]mind paused[/]", tag="MND")
 
         elif event == "mind_resumed":
             s.mind_state = "running"
-            self._add_event(f"[{_MIND}]mind resumed[/]")
+            self._add_event(f"[{_MIND}]mind resumed[/]", tag="MND")
 
         elif event == "mind_error":
             error = data.get("error", "")
-            self._add_event(f"[red]mind error:[/] [{_DIM}]{error[:50]}[/]")
+            self._add_event(f"[red]mind error:[/] [{_DIM}]{error[:50]}[/]", tag="MND")
 
         self._repaint_panel("panel-mind")
         self._repaint_header()
@@ -833,16 +852,17 @@ class EloPhantoDashboard(App):
             s.swarm_tasks.append(
                 {"name": task, "agent": agent_type, "pct": 0, "status": "running"}
             )
-            self._add_event(f"[{_OK}]swarm:[/] spawned [{_DIM}]{task}[/]")
+            self._add_event(f"[{_OK}]swarm:[/] spawned [{_DIM}]{task}[/]", tag="SW")
 
         elif event == "agent_completed":
             self._set_swarm_status(task, "done", 100)
-            self._add_event(f"[{_OK}]swarm:[/] completed [{_DIM}]{task}[/]")
+            self._add_event(f"[{_OK}]swarm:[/] completed [{_DIM}]{task}[/]", tag="SW")
 
         elif event in ("agent_failed", "agent_stopped"):
             self._set_swarm_status(task, "failed", 0)
             self._add_event(
-                f"[red]swarm:[/] {event.replace('agent_', '')} [{_DIM}]{task}[/]"
+                f"[red]swarm:[/] {event.replace('agent_', '')} [{_DIM}]{task}[/]",
+                tag="SW",
             )
 
         self._repaint_panel("panel-swarm")
@@ -1030,7 +1050,7 @@ class EloPhantoDashboard(App):
             try:
                 await self._ws.send(msg.to_json())
             except Exception as exc:
-                self._add_event(f"[red]Send error:[/] {exc}")
+                self._add_event(f"[red]Send error:[/] {exc}", tag="GW")
 
     async def _request_status(self) -> None:
         """Send dashboard command to populate initial provider/scheduler state."""
@@ -1116,12 +1136,13 @@ class EloPhantoDashboard(App):
 
         self._repaint_all()
 
-    def _add_event(self, line: str) -> None:
+    def _add_event(self, line: str, tag: str = "   ") -> None:
         ts = _time.strftime("%H:%M:%S")
-        self._state.events.appendleft(f"[{_DIM}]{ts}[/]  {line}")
+        entry = f"[{_DIM}]{ts}[/]  [{_ACCENT}]{tag:<3}[/]  {line}"
+        self._state.events.appendleft(entry)
         try:
             feed = self.query_one("#events", RichLog)
-            feed.write(f"[{_DIM}]{ts}[/]  {line}")
+            feed.write(entry)
         except Exception:
             pass
 
