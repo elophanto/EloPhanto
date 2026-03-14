@@ -572,6 +572,14 @@ class EloPhantoDashboard(App):
         self._repaint_panel("panel-agent")
         self._repaint_panel("panel-mind")
         self._repaint_header()
+        # Refresh scheduler/providers every 30s (6 ticks × 5s)
+        self._tick_count = getattr(self, "_tick_count", 0) + 1
+        if (
+            self._tick_count % 6 == 0
+            and self._connected
+            and not self._awaiting_response
+        ):
+            self.run_worker(self._request_status(), exclusive=False)
 
     def _dispatch(self, msg: GatewayMessage) -> None:
         if msg.type == MessageType.RESPONSE:
