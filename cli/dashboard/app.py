@@ -29,13 +29,22 @@ from core.protocol import (
     command_message,
 )
 
-# ── Palette (elophanto brand — warm on dark, monochrome) ─────────────────
-_OK = "bright_green"
-_WARN = "bright_yellow"
-_DIM = "grey50"
-_ACCENT = "grey74"
-_BRIGHT = "bright_white"
-_MIND = "grey82"
+# ── Palette — matches web/src/globals.css dark mode ──────────────────────
+# oklch(0.095 0.005 260) → deep cool charcoal with blue-purple tint (not plain black)
+# oklch(0.88  0.008  80) → warm off-white foreground
+_OK = "#22c55e"  # success green
+_WARN = "#f59e0b"  # warning amber
+_DIM = "#71728a"  # muted text  (oklch 0.5  0.01  260)
+_ACCENT = "#a78bfa"  # violet-400 accent hover
+_BRIGHT = "#dbd7cc"  # warm off-white (oklch 0.88 0.008 80)
+_MIND = "#8b5cf6"  # electric purple
+_THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+# Layout background tokens (hex approximations of the oklch variables)
+_BG = "#0d0e14"  # screen background  (oklch 0.095 0.005 260)
+_SURFACE = "#111218"  # sidebar / cards    (oklch 0.12  0.006 260)
+_RAISED = "#161820"  # header / input bar (oklch 0.16  0.006 260)
+_BORDER = "#1e2030"  # dividers           (white 8% over _BG)
 
 
 # ── Internal Textual message ─────────────────────────────────────────────
@@ -148,7 +157,7 @@ class _SidePanel(Static):
     _SidePanel {
         height: auto;
         padding: 0 1 1 1;
-        color: #bdbdbd;
+        color: #71728a;
     }
     """
 
@@ -159,7 +168,7 @@ class _SidePanel(Static):
 
     def _hdr(self) -> str:
         pad = max(0, 28 - len(self._title))
-        return f"[grey35]──[/] [{_DIM}]{self._title}[/] [grey35]{'─' * pad}[/]"
+        return f"[#404040]──[/] [{_DIM}]{self._title}[/] [#404040]{'─' * pad}[/]"
 
     def body(self) -> str:  # noqa: D102
         return ""
@@ -339,8 +348,8 @@ class _Header(Static):
     _Header {
         height: 2;
         padding: 0 1;
-        background: #141414;
-        color: #bdbdbd;
+        background: #161820;
+        color: #71728a;
     }
     """
 
@@ -358,7 +367,7 @@ class _Header(Static):
         )
 
         row1 = (
-            f"[{_BRIGHT}]◆ EloPhanto[/]  "
+            f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]  "
             f"[{_DIM}]{elapsed}[/]  "
             f"[{_DIM}]budget:[/] {budget_bar} [{_DIM}]{budget_str}[/]  "
             f"[{_DIM}]{cycle_str}[/]  "
@@ -392,7 +401,7 @@ class EloPhantoDashboard(App):
     CSS = """
     Screen {
         layout: vertical;
-        background: #0d0d0d;
+        background: #0d0e14;
     }
     #body {
         layout: horizontal;
@@ -401,8 +410,8 @@ class EloPhantoDashboard(App):
     #sidebar {
         width: 36;
         min-width: 36;
-        border-right: solid #2a2a2a;
-        background: #111111;
+        border-right: solid #1e2030;
+        background: #111218;
         overflow-y: auto;
     }
     #main-area {
@@ -412,24 +421,33 @@ class EloPhantoDashboard(App):
     #chat {
         height: 1fr;
         padding: 0 1;
-        background: #0d0d0d;
+        background: #0d0e14;
     }
     #events {
         height: 5;
-        border-top: solid #2a2a2a;
-        background: #0a0a0a;
+        border-top: solid #1e2030;
+        background: #0d0e14;
         padding: 0 1;
+    }
+    #thinking {
+        height: 1;
+        padding: 0 1;
+        background: #0d0e14;
+        display: none;
+    }
+    #thinking.active {
+        display: block;
     }
     #input-bar {
         height: 3;
-        background: #111111;
-        border-top: solid #2a2a2a;
+        background: #161820;
+        border-top: solid #1e2030;
         padding: 0 1;
     }
     #input-bar Input {
-        background: #111111;
+        background: #161820;
         border: none;
-        color: ansi_bright_white;
+        color: #dbd7cc;
         padding: 0 0;
     }
     #input-bar Input:focus {
@@ -438,7 +456,7 @@ class EloPhantoDashboard(App):
     _SidePanel {
         height: auto;
         padding: 0 1 1 1;
-        color: #bdbdbd;
+        color: #71728a;
     }
     """
 
@@ -479,6 +497,7 @@ class EloPhantoDashboard(App):
                 yield RichLog(
                     id="events", highlight=True, markup=True, wrap=False, max_lines=5
                 )
+                yield Static("", id="thinking", markup=True)
         with Vertical(id="input-bar"):
             yield Input(placeholder="❯ type a message, /help, or exit", id="input")
 
@@ -577,7 +596,7 @@ class EloPhantoDashboard(App):
         if content:
             chat = self.query_one("#chat", RichLog)
             chat.write("")
-            chat.write(f"[grey35]─[/] [bold {_MIND}]EloPhanto[/]")
+            chat.write(f"[#404040]─[/] [bold {_MIND}]EloPhanto[/]")
             chat.write(content)
             chat.write("")
 
@@ -909,7 +928,7 @@ class EloPhantoDashboard(App):
 
         # Regular chat message
         chat = self.query_one("#chat", RichLog)
-        chat.write(f"[grey35]─[/] [bold {_BRIGHT}]You[/]")
+        chat.write(f"[#404040]─[/] [bold {_BRIGHT}]You[/]")
         chat.write(text)
         chat.write("")
 
@@ -928,6 +947,7 @@ class EloPhantoDashboard(App):
         self._awaiting_response = True
         inp = self.query_one("#input", Input)
         inp.placeholder = "❯ thinking..."
+        self._animate_thinking()
 
         await self._send_ws(msg)
 
@@ -952,6 +972,22 @@ class EloPhantoDashboard(App):
             pass
         finally:
             self._pending.pop(msg_id, None)
+
+    @work(exclusive=True, group="thinking-anim")
+    async def _animate_thinking(self) -> None:
+        """Animate the thinking indicator while awaiting a response."""
+        widget = self.query_one("#thinking", Static)
+        widget.add_class("active")
+        i = 0
+        try:
+            while self._awaiting_response:
+                frame = _THINKING_FRAMES[i % len(_THINKING_FRAMES)]
+                widget.update(f"[{_MIND}]{frame}[/] [{_DIM}]thinking...[/]")
+                i += 1
+                await asyncio.sleep(0.1)
+        finally:
+            widget.remove_class("active")
+            widget.update("")
 
     # ── Bindings ──────────────────────────────────────────────────────────
 

@@ -1,6 +1,8 @@
-# EloPhanto — Terminal Dashboard (Design)
+# EloPhanto — Terminal Dashboard
 
-Inspired by [Hyperspace AGI](https://github.com/hyperspaceai/agi)'s dense multi-panel TUI, this document designs a full-screen terminal dashboard for EloPhanto that surfaces all autonomous activity in real time alongside the chat REPL.
+Inspired by [Hyperspace AGI](https://github.com/hyperspaceai/agi)'s dense multi-panel TUI, this is the full-screen terminal dashboard for EloPhanto. It surfaces all autonomous activity in real time alongside the chat REPL.
+
+**Status: implemented** — `cli/dashboard/app.py` (Textual). Launches automatically when the terminal supports it; falls back to linear mode otherwise. Pass `--no-dashboard` to force linear mode.
 
 ---
 
@@ -258,6 +260,35 @@ def should_use_dashboard() -> bool:
 3. **Full Textual app** — full layout as designed above. Opt-in behind `--dashboard` flag initially.
 
 ---
+
+## Color Palette
+
+The dashboard uses exact hex approximations of the web app's `web/src/globals.css` dark-mode oklch tokens:
+
+| Token | Hex | oklch source | Role |
+|-------|-----|-------------|------|
+| `_BG` | `#0d0e14` | `oklch(0.095 0.005 260)` | Screen background — deep cool charcoal |
+| `_SURFACE` | `#111218` | `oklch(0.12 0.006 260)` | Sidebar / cards |
+| `_RAISED` | `#161820` | `oklch(0.16 0.006 260)` | Header / input bar |
+| `_BORDER` | `#1e2030` | `oklch(1 0 0 / 8%)` | Dividers |
+| `_BRIGHT` | `#dbd7cc` | `oklch(0.88 0.008 80)` | Text primary — warm off-white |
+| `_DIM` | `#71728a` | `oklch(0.5 0.01 260)` | Text muted — cool grey |
+| `_MIND` | `#8b5cf6` | brand accent | Electric purple (thinking spinner, header ◆, agent name) |
+| `_ACCENT` | `#a78bfa` | brand accent hover | Violet-400 (scheduler names, channel badges) |
+| `_OK` | `#22c55e` | brand success | Green (connected, done, healthy) |
+| `_WARN` | `#f59e0b` | brand warning | Amber (degraded, approval needed) |
+
+The background is intentionally **not** pure black — the `260°` hue gives it the cinematic cool-blue depth of the web app's "ex machina" dark mode.
+
+## Thinking Indicator
+
+When the agent is processing a message, a one-line animated spinner appears between the event feed and the input bar:
+
+```
+⠹ thinking...
+```
+
+Implementation: `_animate_thinking()` is a `@work(exclusive=True, group="thinking-anim")` Textual worker that cycles through the braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` at 100ms intervals. The `#thinking` widget is hidden (`display: none`) by default and shown via an `.active` CSS class while `_awaiting_response = True`. It auto-hides when the response arrives, times out, or the user presses Ctrl+X.
 
 ## Dependencies
 
