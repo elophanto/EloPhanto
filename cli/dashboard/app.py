@@ -13,7 +13,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -1011,6 +1011,24 @@ class EloPhantoDashboard(App):
         finally:
             widget.remove_class("active")
             widget.update("")
+
+    # ── Key routing ───────────────────────────────────────────────────────
+
+    def on_key(self, event: events.Key) -> None:
+        """Route all printable keys (including space) to the input widget.
+
+        Textual's VerticalScroll consumes space for page-scroll by default.
+        This handler intercepts every printable character before the scroll
+        container sees it, focuses the Input, and injects it there instead.
+        """
+        inp = self.query_one("#input", Input)
+        if inp.has_focus:
+            # Input already has focus — let normal handling proceed.
+            return
+        if event.is_printable and event.character:
+            inp.focus()
+            inp.insert_text_at_cursor(event.character)
+            event.stop()
 
     # ── Bindings ──────────────────────────────────────────────────────────
 
