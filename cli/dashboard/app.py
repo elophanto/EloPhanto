@@ -29,22 +29,23 @@ from core.protocol import (
     command_message,
 )
 
-# ── Palette — matches web/src/globals.css dark mode ──────────────────────
-# oklch(0.095 0.005 260) → deep cool charcoal with blue-purple tint (not plain black)
-# oklch(0.88  0.008  80) → warm off-white foreground
-_OK = "#22c55e"  # success green
-_WARN = "#f59e0b"  # warning amber
-_DIM = "#71728a"  # muted text  (oklch 0.5  0.01  260)
-_ACCENT = "#a78bfa"  # violet-400 accent hover
-_BRIGHT = "#dbd7cc"  # warm off-white (oklch 0.88 0.008 80)
-_MIND = "#8b5cf6"  # electric purple
+# ── Palette — matches web/src/globals.css LIGHT mode ─────────────────────
+# Light: warm paper white, near-monochrome — same champagne feel as elophanto.com
+# oklch(0.98 0.003 80) → warm paper white background
+# oklch(0.12 0.01  60) → near-black warm foreground
+_OK = "#16a34a"  # success green   (darker for light bg)
+_WARN = "#d97706"  # warning amber   (darker for light bg)
+_DIM = "#78746e"  # muted text      (oklch 0.5 0.01 60 — warm mid-grey)
+_ACCENT = "#6d28d9"  # violet accent   (darker for light bg)
+_BRIGHT = "#1c1a16"  # near-black text (oklch 0.12 0.01 60 — warm)
+_MIND = "#7c3aed"  # brand purple    (EloPhanto ◆ logo colour)
 _THINKING_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-# Layout background tokens (hex approximations of the oklch variables)
-_BG = "#0d0e14"  # screen background  (oklch 0.095 0.005 260)
-_SURFACE = "#111218"  # sidebar / cards    (oklch 0.12  0.006 260)
-_RAISED = "#161820"  # header / input bar (oklch 0.16  0.006 260)
-_BORDER = "#1e2030"  # dividers           (white 8% over _BG)
+# Layout background tokens — LIGHT, warm paper tones (oklch hue 80 = yellow-warm)
+_BG = "#f9f8f4"  # screen background — warm paper white  (oklch 0.98 0.003 80)
+_SURFACE = "#f2f0ea"  # sidebar / cards    — slightly tinted  (oklch 0.97 0.004 80)
+_RAISED = "#e8e4dc"  # header / input bar — elevated          (oklch 0.94 0.005 80)
+_BORDER = "#d4cfc5"  # dividers           — warm separator    (oklch 0.88 0.005 80)
 
 
 # ── Internal Textual message ─────────────────────────────────────────────
@@ -157,7 +158,7 @@ class _SidePanel(Static):
     _SidePanel {
         height: auto;
         padding: 0 1 1 1;
-        color: #71728a;
+        color: #78746e;
     }
     """
 
@@ -168,7 +169,7 @@ class _SidePanel(Static):
 
     def _hdr(self) -> str:
         pad = max(0, 28 - len(self._title))
-        return f"[#404040]──[/] [{_DIM}]{self._title}[/] [#404040]{'─' * pad}[/]"
+        return f"[#b8b2a8]──[/] [{_DIM}]{self._title}[/] [#b8b2a8]{'─' * pad}[/]"
 
     def body(self) -> str:  # noqa: D102
         return ""
@@ -348,8 +349,8 @@ class _Header(Static):
     _Header {
         height: 2;
         padding: 0 1;
-        background: #161820;
-        color: #71728a;
+        background: #e8e4dc;
+        color: #78746e;
     }
     """
 
@@ -401,7 +402,7 @@ class EloPhantoDashboard(App):
     CSS = """
     Screen {
         layout: vertical;
-        background: #0d0e14;
+        background: #f9f8f4;
     }
     #body {
         layout: horizontal;
@@ -410,8 +411,8 @@ class EloPhantoDashboard(App):
     #sidebar {
         width: 36;
         min-width: 36;
-        border-right: solid #1e2030;
-        background: #111218;
+        border-right: solid #d4cfc5;
+        background: #f2f0ea;
         overflow-y: auto;
     }
     #main-area {
@@ -421,18 +422,18 @@ class EloPhantoDashboard(App):
     #chat {
         height: 1fr;
         padding: 0 1;
-        background: #0d0e14;
+        background: #f9f8f4;
     }
     #events {
         height: 5;
-        border-top: solid #1e2030;
-        background: #0d0e14;
+        border-top: solid #d4cfc5;
+        background: #f9f8f4;
         padding: 0 1;
     }
     #thinking {
         height: 1;
         padding: 0 1;
-        background: #0d0e14;
+        background: #f9f8f4;
         display: none;
     }
     #thinking.active {
@@ -440,23 +441,30 @@ class EloPhantoDashboard(App):
     }
     #input-bar {
         height: 3;
-        background: #161820;
-        border-top: solid #1e2030;
+        background: #e8e4dc;
+        border-top: solid #d4cfc5;
         padding: 0 1;
     }
     #input-bar Input {
-        background: #161820;
+        background: #e8e4dc;
         border: none;
-        color: #dbd7cc;
+        color: #1c1a16;
         padding: 0 0;
     }
     #input-bar Input:focus {
         border: none;
     }
+    #input-bar Input > .input--cursor {
+        background: #7c3aed;
+        color: #f9f8f4;
+    }
+    #input-bar Input > .input--placeholder {
+        color: #b8b2a8;
+    }
     _SidePanel {
         height: auto;
         padding: 0 1 1 1;
-        color: #71728a;
+        color: #78746e;
     }
     """
 
@@ -593,10 +601,30 @@ class EloPhantoDashboard(App):
         if msg.session_id:
             self._session_id = msg.session_id
         content = msg.data.get("content", "")
+
+        # Check if this is a dashboard command response — has a "dashboard" key
+        # directly in data, or content is JSON with a "dashboard" key.
+        dashboard_data = msg.data.get("dashboard")
+        if dashboard_data is None and content:
+            import json
+
+            try:
+                parsed = json.loads(content)
+                dashboard_data = parsed.get("dashboard")
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+        if dashboard_data is not None:
+            # Silently consume dashboard responses — don't print to chat
+            self._parse_status_data(dashboard_data)
+            self._awaiting_response = False
+            self._repaint_all()
+            return
+
         if content:
             chat = self.query_one("#chat", RichLog)
             chat.write("")
-            chat.write(f"[#404040]─[/] [bold {_MIND}]EloPhanto[/]")
+            chat.write(f"[#b8b2a8]─[/] [bold {_MIND}]EloPhanto[/]")
             chat.write(content)
             chat.write("")
 
@@ -612,11 +640,6 @@ class EloPhantoDashboard(App):
             self._state.session_cost += cost
             self._state.budget_used += cost
         self._state.session_turns += 1
-
-        # Parse status data if this is a /status response
-        status_data = msg.data.get("status_data")
-        if status_data:
-            self._parse_status_data(status_data)
 
         self._repaint_all()
 
@@ -928,7 +951,7 @@ class EloPhantoDashboard(App):
 
         # Regular chat message
         chat = self.query_one("#chat", RichLog)
-        chat.write(f"[#404040]─[/] [bold {_BRIGHT}]You[/]")
+        chat.write(f"[#b8b2a8]─[/] [bold {_BRIGHT}]You[/]")
         chat.write(text)
         chat.write("")
 
@@ -1024,10 +1047,10 @@ class EloPhantoDashboard(App):
                 self._add_event(f"[red]Send error:[/] {exc}")
 
     async def _request_status(self) -> None:
-        """Send /status command to populate initial state."""
+        """Send dashboard command to populate initial provider/scheduler state."""
         await asyncio.sleep(0.5)  # let connection settle
         await self._send_ws(
-            command_message("status", channel="cli", user_id=self._user_id)
+            command_message("dashboard", channel="cli", user_id=self._user_id)
         )
 
     def _parse_status_data(self, data: dict) -> None:
@@ -1050,15 +1073,47 @@ class EloPhantoDashboard(App):
 
         scheduled = data.get("scheduled_tasks", [])
         if scheduled:
-            s.scheduled_tasks = [
-                {
-                    "name": t.get("name", "?"),
-                    "eta_str": t.get("eta", ""),
-                    "ts_str": t.get("last_run", ""),
-                    "status": t.get("status", "pending"),
-                }
-                for t in scheduled[:6]
-            ]
+            import datetime
+
+            now = datetime.datetime.now(datetime.timezone.utc)
+            parsed = []
+            for t in scheduled[:6]:
+                name = t.get("name", "?")
+                last_status = t.get("last_status", "pending") or "pending"
+                # Compute ETA from next_run_at (ISO string or None)
+                eta_str = ""
+                ts_str = ""
+                next_run = t.get("next_run_at")
+                if next_run:
+                    try:
+                        if isinstance(next_run, str):
+                            next_dt = datetime.datetime.fromisoformat(next_run)
+                        else:
+                            next_dt = next_run
+                        if next_dt.tzinfo is None:
+                            next_dt = next_dt.replace(tzinfo=datetime.timezone.utc)
+                        delta = int((next_dt - now).total_seconds())
+                        eta_str = _fmt_secs(max(0, delta))
+                    except Exception:
+                        eta_str = str(next_run)[:12]
+                last_run = t.get("last_run_at")
+                if last_run and not eta_str:
+                    try:
+                        if isinstance(last_run, str):
+                            ts_str = last_run[11:16]  # HH:MM from ISO
+                        else:
+                            ts_str = str(last_run)[:5]
+                    except Exception:
+                        ts_str = ""
+                parsed.append(
+                    {
+                        "name": name,
+                        "eta_str": eta_str,
+                        "ts_str": ts_str,
+                        "status": last_status,
+                    }
+                )
+            s.scheduled_tasks = parsed
 
         budget = data.get("budget", {})
         if budget:

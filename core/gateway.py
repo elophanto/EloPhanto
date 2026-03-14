@@ -617,55 +617,10 @@ class Gateway:
                 authority=authority,
             )
 
-            # Persist session
-            await self._sessions.save(session)
-
-            # Persist chat messages + conversation tracking
-            import uuid as _uuid
-            from datetime import UTC
-            from datetime import datetime as _dt
-
-            _now = _dt.now(UTC).isoformat()
-            _conv_id = client.conversation_id
-
-            # Create conversation on first message if none active
-            if not _conv_id:
-                _conv_id = str(_uuid.uuid4())
-                client.conversation_id = _conv_id
-                _title = content[:50].replace("\n", " ").strip() or "New conversation"
-                await self._agent._db.execute_insert(
-                    "INSERT INTO conversations (conversation_id, title, created_at, updated_at)"
-                    " VALUES (?, ?, ?, ?)",
-                    (_conv_id, _title, _now, _now),
-                )
-            else:
-                # Update conversation timestamp
-                await self._agent._db.execute_insert(
-                    "UPDATE conversations SET updated_at = ? WHERE conversation_id = ?",
-                    (_now, _conv_id),
-                )
-
-            await self._agent._db.execute_insert(
-                "INSERT INTO chat_messages (session_id, msg_id, role, content, created_at, conversation_id)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (session.session_id, msg.id, "user", content, _now, _conv_id),
-            )
-            await self._agent._db.execute_insert(
-                "INSERT INTO chat_messages (session_id, msg_id, role, content, created_at, conversation_id)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    session.session_id,
-                    str(_uuid.uuid4()),
-                    "assistant",
-                    agent_response.content,
-                    _now,
-                    _conv_id,
-                ),
-            )
-
-            # Send response — broadcast to all session subscribers in unified
-            # mode so other channels see the answer. The requesting client
-            # resolves via reply_to match; others call on_response().
+            # ── Send response FIRST before any DB work ───────────────────────
+            # DB inserts after agent completion can block if a background task
+            # (lesson extraction, directive detection, etc.) holds a write lock.
+            # The user must never wait for housekeeping.
             resp = response_message(
                 session.session_id,
                 agent_response.content,
@@ -676,6 +631,65 @@ class Gateway:
                 await self.broadcast(resp, session_id=session.session_id)
             else:
                 await client.websocket.send(resp.to_json())
+
+            # ── Persist session + chat messages (background, non-blocking) ───
+            async def _persist() -> None:
+                import uuid as _uuid
+                from datetime import UTC
+                from datetime import datetime as _dt
+
+                try:
+                    await self._sessions.save(session)
+                except Exception:
+                    pass
+
+                try:
+                    _now = _dt.now(UTC).isoformat()
+                    _conv_id = client.conversation_id
+
+                    if not _conv_id:
+                        _conv_id = str(_uuid.uuid4())
+                        client.conversation_id = _conv_id
+                        _title = (
+                            content[:50].replace("\n", " ").strip()
+                            or "New conversation"
+                        )
+                        await self._agent._db.execute_insert(
+                            "INSERT INTO conversations"
+                            " (conversation_id, title, created_at, updated_at)"
+                            " VALUES (?, ?, ?, ?)",
+                            (_conv_id, _title, _now, _now),
+                        )
+                    else:
+                        await self._agent._db.execute_insert(
+                            "UPDATE conversations SET updated_at = ?"
+                            " WHERE conversation_id = ?",
+                            (_now, _conv_id),
+                        )
+
+                    await self._agent._db.execute_insert(
+                        "INSERT INTO chat_messages"
+                        " (session_id, msg_id, role, content, created_at, conversation_id)"
+                        " VALUES (?, ?, ?, ?, ?, ?)",
+                        (session.session_id, msg.id, "user", content, _now, _conv_id),
+                    )
+                    await self._agent._db.execute_insert(
+                        "INSERT INTO chat_messages"
+                        " (session_id, msg_id, role, content, created_at, conversation_id)"
+                        " VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            session.session_id,
+                            str(_uuid.uuid4()),
+                            "assistant",
+                            agent_response.content,
+                            _now,
+                            _conv_id,
+                        ),
+                    )
+                except Exception:
+                    pass
+
+            asyncio.create_task(_persist())
 
             # Broadcast task complete event
             await self.broadcast(
@@ -1120,6 +1134,64 @@ class Gateway:
                 "skills_count": skills_count,
                 "knowledge_chunks": knowledge_chunks,
             }
+
+            # Provider health — use router._provider_health + config priority
+            router = getattr(self._agent, "_router", None)
+            providers_health: dict[str, Any] = {}
+            if router:
+                try:
+                    router_cfg = getattr(router, "_config", None)
+                    priority: list[str] = (
+                        router_cfg.llm.provider_priority if router_cfg else []
+                    )
+                    health_map: dict[str, bool] = getattr(
+                        router, "_provider_health", {}
+                    )
+                    llm_cfg = router_cfg.llm if router_cfg else None
+                    for pname in priority:
+                        # providers is a dict, not attributes
+                        prov_cfg = llm_cfg.providers.get(pname) if llm_cfg else None
+                        enabled = (
+                            getattr(prov_cfg, "enabled", True) if prov_cfg else True
+                        )
+                        if not enabled:
+                            # Disabled providers always show as off — skip health check
+                            providers_health[pname] = {
+                                "healthy": False,
+                                "enabled": False,
+                                "latency_ms": 0,
+                            }
+                            continue
+                        # Enabled but not yet in health map → assume ok
+                        healthy = health_map.get(pname, True)
+                        providers_health[pname] = {
+                            "healthy": healthy,
+                            "enabled": True,
+                            "latency_ms": 0,
+                        }
+                except Exception:
+                    pass
+            dashboard["providers"] = providers_health
+
+            # Full scheduled tasks list (for sidebar)
+            if scheduler:
+                try:
+                    sched_entries = await scheduler.list_schedules()
+                    dashboard["scheduled_tasks"] = [
+                        {
+                            "name": s.name,
+                            "enabled": s.enabled,
+                            "next_run_at": s.next_run_at,
+                            "last_run_at": s.last_run_at,
+                            "last_status": s.last_status,
+                        }
+                        for s in sched_entries
+                        if s.enabled
+                    ]
+                except Exception:
+                    dashboard["scheduled_tasks"] = []
+            else:
+                dashboard["scheduled_tasks"] = []
 
             payload = _json.dumps({"dashboard": dashboard})
             await client.websocket.send(
