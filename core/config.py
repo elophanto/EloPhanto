@@ -39,6 +39,9 @@ class RoutingConfig:
     models: dict[str, str] = field(default_factory=dict)  # provider -> model
     tool_profile: str = ""  # override profile for this task type
     local_only: bool = False
+    # Reasoning effort for OpenRouter / OpenAI models that support thinking tokens.
+    # Values: "xhigh", "high", "medium", "low", "minimal", "none", or "" (omit field).
+    reasoning_effort: str = ""
     # Legacy fields — still parsed for backward compat with old configs
     preferred_model: str = ""
     fallback_provider: str = ""
@@ -713,6 +716,7 @@ def _parse_routing(data: dict[str, Any]) -> RoutingConfig:
         models=models,
         tool_profile=data.get("tool_profile", ""),
         local_only=data.get("local_only", False),
+        reasoning_effort=data.get("reasoning_effort", ""),
         # Legacy fields kept for backward compat
         preferred_model=data.get("preferred_model", ""),
         fallback_provider=data.get("fallback_provider", ""),
