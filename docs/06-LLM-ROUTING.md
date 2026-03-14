@@ -284,6 +284,7 @@ llm:
   routing:
     planning:
       preferred_provider: openrouter
+      reasoning_effort: high       # OpenRouter: extra_body={"reasoning":{"effort":"high"}}; OpenAI: reasoning_effort kwarg
       models:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-5"
@@ -292,6 +293,7 @@ llm:
         ollama: "nomic-embed-text:latest"
     coding:
       preferred_provider: openrouter
+      reasoning_effort: medium
       models:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
@@ -300,6 +302,7 @@ llm:
         ollama: "nomic-embed-text:latest"
     analysis:
       preferred_provider: openrouter
+      reasoning_effort: low
       models:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
@@ -308,6 +311,7 @@ llm:
         ollama: "nomic-embed-text:latest"
     simple:
       preferred_provider: openrouter
+      reasoning_effort: minimal    # or "none" to disable extended thinking entirely
       models:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
@@ -330,6 +334,24 @@ llm:
 ```
 
 Leave empty (`""`) to disable — images will be stripped before sending to text-only providers.
+
+### Reasoning Effort
+
+Each task type supports an optional `reasoning_effort` field that controls how much "thinking budget" the model uses:
+
+| Value | Behaviour |
+|-------|-----------|
+| `high` | Maximum extended thinking (best quality, slowest, most expensive) |
+| `medium` | Balanced reasoning budget |
+| `low` | Light reasoning pass |
+| `minimal` | Minimal thinking, fastest response |
+| `""` (empty) | No effort hint sent — provider defaults apply |
+
+**OpenRouter**: sent as `extra_body={"reasoning": {"effort": "<value>"}}` — activates extended thinking on capable models (e.g. hunter-alpha, claude-opus).
+
+**OpenAI**: sent as the `reasoning_effort` kwarg — applies to o-series reasoning models (o3, o1).
+
+For providers that don't support reasoning effort (Z.ai, Kimi, Ollama) the field is silently ignored.
 
 ## Cost Tracking
 
