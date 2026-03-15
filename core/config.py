@@ -726,26 +726,39 @@ def _parse_routing(data: dict[str, Any]) -> RoutingConfig:
 
 
 def _apply_env_overrides(config: Config) -> None:
-    """Apply environment variable overrides for API keys."""
-    env_key = os.environ.get("OPENROUTER_API_KEY")
-    if env_key and "openrouter" in config.llm.providers:
-        config.llm.providers["openrouter"].api_key = env_key
-        config.llm.providers["openrouter"].enabled = True
+    """Apply environment variable overrides for API keys.
 
-    env_key = os.environ.get("ZAI_API_KEY")
-    if env_key and "zai" in config.llm.providers:
-        config.llm.providers["zai"].api_key = env_key
-        config.llm.providers["zai"].enabled = True
-
-    env_key = os.environ.get("KIMI_API_KEY")
-    if env_key and "kimi" in config.llm.providers:
-        config.llm.providers["kimi"].api_key = env_key
-        config.llm.providers["kimi"].enabled = True
-
-    env_key = os.environ.get("OPENAI_API_KEY")
-    if env_key and "openai" in config.llm.providers:
-        config.llm.providers["openai"].api_key = env_key
-        config.llm.providers["openai"].enabled = True
+    Creates provider entries if they don't exist yet (important for cloud
+    deployments where no config.yaml is present on the volume).
+    """
+    _PROVIDER_DEFAULTS: dict[str, dict] = {
+        "openrouter": {"base_url": "https://openrouter.ai/api/v1"},
+        "openai": {"base_url": ""},
+        "zai": {"base_url": "https://api.z.ai/api/paas/v4"},
+        "kimi": {"base_url": "https://api.kilo.ai/api/gateway"},
+    }
+    _ENV_MAP = {
+        "OPENROUTER_API_KEY": "openrouter",
+        "OPENAI_API_KEY": "openai",
+        "ZAI_API_KEY": "zai",
+        "KIMI_API_KEY": "kimi",
+    }
+    for env_var, provider_name in _ENV_MAP.items():
+        env_key = os.environ.get(env_var)
+        if not env_key:
+            continue
+        if provider_name not in config.llm.providers:
+            defaults = _PROVIDER_DEFAULTS.get(provider_name, {})
+            config.llm.providers[provider_name] = ProviderConfig(
+                api_key=env_key,
+                enabled=True,
+                base_url=defaults.get("base_url", ""),
+            )
+            if provider_name not in config.llm.provider_priority:
+                config.llm.provider_priority.insert(0, provider_name)
+        else:
+            config.llm.providers[provider_name].api_key = env_key
+            config.llm.providers[provider_name].enabled = True
 
 
 def load_config(config_path: Path | str | None = None) -> Config:
