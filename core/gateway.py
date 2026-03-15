@@ -1637,12 +1637,6 @@ class Gateway:
             vault_keys: list[str] = vault.list_keys() if vault else []
 
             providers_info: list[dict[str, Any]] = []
-            _PROVIDER_ENV_MAP = {
-                "openrouter": "OPENROUTER_API_KEY",
-                "openai": "OPENAI_API_KEY",
-                "zai": "ZAI_API_KEY",
-                "kimi": "KIMI_API_KEY",
-            }
             _PROVIDER_VAULT_MAP = {
                 "openrouter": "openrouter_api_key",
                 "openai": "openai_api_key",
@@ -1650,6 +1644,21 @@ class Gateway:
                 "kimi": "kimi_api_key",
             }
             _KNOWN_PROVIDERS = ["openrouter", "openai", "zai", "kimi", "ollama"]
+
+            # Collect models per provider from routing config
+            provider_models: dict[str, list[str]] = {}
+            if config:
+                for task_cfg in config.llm.routing.values():
+                    for prov, model in (task_cfg.models or {}).items():
+                        if model and model not in provider_models.get(prov, []):
+                            provider_models.setdefault(prov, []).append(model)
+                # Include default_model at the front of each provider's list
+                for pname, pcfg in config.llm.providers.items():
+                    if pcfg.default_model:
+                        lst = provider_models.setdefault(pname, [])
+                        if pcfg.default_model not in lst:
+                            lst.insert(0, pcfg.default_model)
+
             seen: set[str] = set()
             if config:
                 for name, pcfg in config.llm.providers.items():
@@ -1662,6 +1671,7 @@ class Gateway:
                             "base_url": pcfg.base_url,
                             "has_key": bool(pcfg.api_key) or vault_key in vault_keys,
                             "default_model": pcfg.default_model,
+                            "available_models": provider_models.get(name, []),
                         }
                     )
             for name in _KNOWN_PROVIDERS:
@@ -1674,6 +1684,7 @@ class Gateway:
                             "base_url": "",
                             "has_key": vault_key in vault_keys,
                             "default_model": "",
+                            "available_models": provider_models.get(name, []),
                         }
                     )
 
