@@ -87,4 +87,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:18789/health || exit 1
 
 # Entrypoint: start gateway bound to all interfaces
-CMD ["uv", "run", "python", "-m", "cli.main", "gateway"]
+CMD ["uv", "run", "python", "-m", "cli.main", "gateway", "--no-cli", "--no-dashboard"]
