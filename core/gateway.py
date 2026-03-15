@@ -1628,6 +1628,219 @@ class Gateway:
                     ).to_json()
                 )
 
+        elif command == "settings_get":
+            # Return current settings state for the Settings UI
+            import json as _json
+
+            config = getattr(self._agent, "_config", None)
+            vault = getattr(self._agent, "_vault", None)
+            vault_keys: list[str] = vault.list_keys() if vault else []
+
+            providers_info: list[dict[str, Any]] = []
+            _PROVIDER_ENV_MAP = {
+                "openrouter": "OPENROUTER_API_KEY",
+                "openai": "OPENAI_API_KEY",
+                "zai": "ZAI_API_KEY",
+                "kimi": "KIMI_API_KEY",
+            }
+            _PROVIDER_VAULT_MAP = {
+                "openrouter": "openrouter_api_key",
+                "openai": "openai_api_key",
+                "zai": "zai_api_key",
+                "kimi": "kimi_api_key",
+            }
+            _KNOWN_PROVIDERS = ["openrouter", "openai", "zai", "kimi", "ollama"]
+            seen: set[str] = set()
+            if config:
+                for name, pcfg in config.llm.providers.items():
+                    seen.add(name)
+                    vault_key = _PROVIDER_VAULT_MAP.get(name, f"{name}_api_key")
+                    providers_info.append(
+                        {
+                            "name": name,
+                            "enabled": pcfg.enabled,
+                            "base_url": pcfg.base_url,
+                            "has_key": bool(pcfg.api_key) or vault_key in vault_keys,
+                        }
+                    )
+            for name in _KNOWN_PROVIDERS:
+                if name not in seen:
+                    vault_key = _PROVIDER_VAULT_MAP.get(name, f"{name}_api_key")
+                    providers_info.append(
+                        {
+                            "name": name,
+                            "enabled": False,
+                            "base_url": "",
+                            "has_key": vault_key in vault_keys,
+                        }
+                    )
+
+            payload = _json.dumps(
+                {
+                    "settings": {
+                        "agent_name": config.agent_name if config else "EloPhanto",
+                        "permission_mode": (
+                            config.permission_mode if config else "ask_always"
+                        ),
+                        "providers": providers_info,
+                        "vault_unlocked": vault is not None,
+                        "vault_keys": vault_keys,
+                        "config_path": str(getattr(config, "config_path", "") or ""),
+                    }
+                }
+            )
+            await client.websocket.send(
+                response_message(session_id, payload, done=True).to_json()
+            )
+
+        elif command == "vault_set":
+            # Store a secret in the vault (creates vault in cloud mode if needed)
+            import json as _json
+            import os as _os
+
+            args = msg.data.get("args") or {}
+            key = str(args.get("key", "")).strip()
+            value = str(args.get("value", "")).strip()
+            if not key:
+                await client.websocket.send(
+                    error_message("vault_set: key is required", session_id).to_json()
+                )
+                return
+
+            vault = getattr(self._agent, "_vault", None)
+            if vault is None:
+                # In cloud mode, auto-create vault with the env password
+                cloud_mode = _os.environ.get("ELOPHANTO_CLOUD") == "1"
+                vault_password = _os.environ.get("ELOPHANTO_VAULT_PASSWORD", "")
+                config = getattr(self._agent, "_config", None)
+                base_dir = str(config.project_root) if config else "."
+                if cloud_mode and vault_password:
+                    from core.vault import Vault as _Vault, VaultError as _VaultError
+
+                    try:
+                        if _Vault.exists(base_dir):
+                            vault = _Vault.unlock(base_dir, vault_password)
+                        else:
+                            vault = _Vault.create(base_dir, vault_password)
+                        self._agent._vault = vault
+                    except Exception as ve:
+                        await client.websocket.send(
+                            error_message(f"Vault error: {ve}", session_id).to_json()
+                        )
+                        return
+                else:
+                    await client.websocket.send(
+                        error_message(
+                            "Vault is not unlocked. Set ELOPHANTO_VAULT_PASSWORD secret.",
+                            session_id,
+                        ).to_json()
+                    )
+                    return
+
+            vault.set(key, value)
+            # Also inject into live config if it's an API key
+            _VAULT_TO_PROVIDER = {
+                "openrouter_api_key": "openrouter",
+                "openai_api_key": "openai",
+                "zai_api_key": "zai",
+                "kimi_api_key": "kimi",
+            }
+            config = getattr(self._agent, "_config", None)
+            if config and key in _VAULT_TO_PROVIDER:
+                provider_name = _VAULT_TO_PROVIDER[key]
+                from core.config import ProviderConfig as _ProviderConfig
+
+                if provider_name not in config.llm.providers:
+                    config.llm.providers[provider_name] = _ProviderConfig(
+                        api_key=value, enabled=True
+                    )
+                    if provider_name not in config.llm.provider_priority:
+                        config.llm.provider_priority.insert(0, provider_name)
+                else:
+                    config.llm.providers[provider_name].api_key = value
+                    config.llm.providers[provider_name].enabled = True
+                # Re-inject into router
+                router = getattr(self._agent, "_router", None)
+                if router and hasattr(router, "_config"):
+                    router._config = config
+
+            await client.websocket.send(
+                response_message(
+                    session_id,
+                    _json.dumps({"vault_set": {"ok": True, "key": key}}),
+                    done=True,
+                ).to_json()
+            )
+
+        elif command == "config_update":
+            # Update config fields (agent name, permission mode, provider toggles)
+            # and persist to config.yaml
+            import json as _json
+            import os as _os
+
+            args = msg.data.get("args") or {}
+            config = getattr(self._agent, "_config", None)
+            if not config:
+                await client.websocket.send(
+                    error_message("No config loaded", session_id).to_json()
+                )
+                return
+
+            changed: list[str] = []
+
+            if "agent_name" in args:
+                config.agent_name = str(args["agent_name"])
+                changed.append("agent_name")
+
+            if "permission_mode" in args:
+                mode = str(args["permission_mode"])
+                if mode in ("ask_always", "smart_auto", "full_auto"):
+                    config.permission_mode = mode
+                    changed.append("permission_mode")
+
+            if "provider_enabled" in args:
+                for provider_name, enabled in args["provider_enabled"].items():
+                    if provider_name in config.llm.providers:
+                        config.llm.providers[provider_name].enabled = bool(enabled)
+                        changed.append(f"provider_{provider_name}_enabled")
+
+            # Persist to config.yaml
+            config_path = _os.environ.get("ELOPHANTO_CONFIG") or "config.yaml"
+            try:
+                import yaml as _yaml  # type: ignore[import]
+                from pathlib import Path as _Path
+                from dataclasses import asdict as _asdict
+
+                cfg_file = _Path(config_path)
+                if cfg_file.exists():
+                    existing = _yaml.safe_load(cfg_file.read_text()) or {}
+                else:
+                    existing = {}
+
+                # Patch only the changed fields
+                if "agent_name" in changed:
+                    existing.setdefault("agent", {})["name"] = config.agent.name
+                if "permission_mode" in changed:
+                    existing.setdefault("agent", {})["permission_mode"] = config.permission_mode  # type: ignore[attr-defined]
+                if any("provider_" in c for c in changed):
+                    llm = existing.setdefault("llm", {})
+                    providers = llm.setdefault("providers", {})
+                    for pname, pcfg in config.llm.providers.items():
+                        providers.setdefault(pname, {})["enabled"] = pcfg.enabled
+
+                cfg_file.parent.mkdir(parents=True, exist_ok=True)
+                cfg_file.write_text(_yaml.dump(existing, allow_unicode=True))
+            except Exception as e:
+                logger.warning("config_update: failed to persist: %s", e)
+
+            await client.websocket.send(
+                response_message(
+                    session_id,
+                    _json.dumps({"config_update": {"ok": True, "changed": changed}}),
+                    done=True,
+                ).to_json()
+            )
+
         else:
             # Try recovery handler — pure Python, no LLM
             if self._recovery:
