@@ -15,6 +15,7 @@ interface ProviderInfo {
   base_url: string;
   has_key: boolean;
   default_model: string;
+  available_models: string[];
 }
 
 interface SettingsData {
@@ -409,26 +410,30 @@ function ProviderCard({
         />
       </div>
       {/* Model row */}
-      <div className="flex gap-2 items-center">
-        <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground whitespace-nowrap">
-          Model
-        </label>
-        <input
-          type="text"
-          placeholder="e.g. openai/gpt-4o"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-foreground/20"
-        />
-        <SaveButton
-          dirty={model !== (provider.default_model ?? "")}
-          saving={modelSaving}
-          saved={modelSaved}
-          error={saveStatus[modelKey] === "error"}
-          onSave={() => { if (model !== (provider.default_model ?? "")) onSaveModel(model); }}
-          label="Save"
-        />
-      </div>
+      {provider.available_models.length > 0 && (
+        <div className="flex gap-2 items-center">
+          <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground whitespace-nowrap">
+            Model
+          </label>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-foreground/20"
+          >
+            {provider.available_models.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <SaveButton
+            dirty={model !== (provider.default_model ?? "")}
+            saving={modelSaving}
+            saved={modelSaved}
+            error={saveStatus[modelKey] === "error"}
+            onSave={() => { if (model !== (provider.default_model ?? "")) onSaveModel(model); }}
+            label="Save"
+          />
+        </div>
+      )}
     </div>
   );
 }
