@@ -1809,7 +1809,6 @@ class Gateway:
             try:
                 import yaml as _yaml  # type: ignore[import]
                 from pathlib import Path as _Path
-                from dataclasses import asdict as _asdict
 
                 cfg_file = _Path(config_path)
                 if cfg_file.exists():
