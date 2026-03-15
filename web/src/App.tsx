@@ -192,6 +192,10 @@ function GatewayWiring() {
               // Server confirmed deletion — already handled optimistically in sidebar
               return;
             }
+            if (parsed.settings != null || parsed.vault_set != null || parsed.config_update != null) {
+              // Handled by SettingsPage — don't leak into chat
+              return;
+            }
           } catch {
             // Not JSON — fall through to chat handling
           }
