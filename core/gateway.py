@@ -1772,6 +1772,16 @@ class Gateway:
                 else:
                     config.llm.providers[provider_name].api_key = value
                     config.llm.providers[provider_name].enabled = True
+                # Auto-set default_model if not already set
+                _PROVIDER_DEFAULT_MODELS = {
+                    "openrouter": "openrouter/hunter-alpha",
+                    "openai": "gpt-5.4",
+                    "zai": "glm-4.7",
+                    "kimi": "kimi-k2.5",
+                }
+                pcfg = config.llm.providers[provider_name]
+                if not pcfg.default_model and provider_name in _PROVIDER_DEFAULT_MODELS:
+                    pcfg.default_model = _PROVIDER_DEFAULT_MODELS[provider_name]
                 # Re-inject into router
                 router = getattr(self._agent, "_router", None)
                 if router and hasattr(router, "_config"):
@@ -1827,10 +1837,26 @@ class Gateway:
                     if pname not in config.llm.provider_priority:
                         config.llm.provider_priority.append(pname)
 
+            _AUTO_DEFAULT_MODELS = {
+                "openrouter": "openrouter/hunter-alpha",
+                "openai": "gpt-5.4",
+                "zai": "glm-4.7",
+                "kimi": "kimi-k2.5",
+            }
+
             if "provider_enabled" in args:
                 for provider_name, enabled in args["provider_enabled"].items():
                     _ensure_provider(provider_name)
                     config.llm.providers[provider_name].enabled = bool(enabled)
+                    # Auto-set default_model if enabling and none is set
+                    if (
+                        bool(enabled)
+                        and not config.llm.providers[provider_name].default_model
+                    ):
+                        if provider_name in _AUTO_DEFAULT_MODELS:
+                            config.llm.providers[provider_name].default_model = (
+                                _AUTO_DEFAULT_MODELS[provider_name]
+                            )
                     changed.append(f"provider_{provider_name}_enabled")
 
             if "provider_model" in args:
