@@ -14,6 +14,7 @@ interface ProviderInfo {
   enabled: boolean;
   base_url: string;
   has_key: boolean;
+  default_model: string;
 }
 
 interface SettingsData {
@@ -94,8 +95,9 @@ function useSettingsGateway() {
           fetch();
         }
         if (parsed?.config_update?.ok) {
-          setSaveStatus((prev) => ({ ...prev, config: "ok" }));
-          setTimeout(() => setSaveStatus((prev) => { const n = { ...prev }; delete n.config; return n; }), 2000);
+          const key = (parsed.config_update.status_key as string) ?? "config";
+          setSaveStatus((prev) => ({ ...prev, [key]: "ok" }));
+          setTimeout(() => setSaveStatus((prev) => { const n = { ...prev }; delete n[key]; return n; }), 2000);
           fetch();
         }
       } catch {
@@ -125,9 +127,9 @@ function useSettingsGateway() {
     gateway.sendCommand("vault_set", { key, value });
   }, []);
 
-  const saveConfig = useCallback((args: Record<string, unknown>) => {
-    setSaveStatus((prev) => ({ ...prev, config: "saving" }));
-    gateway.sendCommand("config_update", args);
+  const saveConfig = useCallback((args: Record<string, unknown>, statusKey = "config") => {
+    setSaveStatus((prev) => ({ ...prev, [statusKey]: "saving" }));
+    gateway.sendCommand("config_update", { ...args, _status_key: statusKey });
   }, []);
 
   return { settings, loading, saveStatus, saveVaultKey, saveConfig, refresh: fetch };
@@ -181,6 +183,9 @@ export function SettingsPage() {
               onSaveKey={saveVaultKey}
               onToggleProvider={(name, enabled) =>
                 saveConfig({ provider_enabled: { [name]: enabled } })
+              }
+              onSaveModel={(name, model) =>
+                saveConfig({ provider_model: { [name]: model } }, `model_${name}`)
               }
             />
             <VaultSection settings={settings} />
@@ -287,11 +292,13 @@ function ProvidersSection({
   saveStatus,
   onSaveKey,
   onToggleProvider,
+  onSaveModel,
 }: {
   settings: SettingsData;
   saveStatus: Record<string, "saving" | "ok" | "error">;
   onSaveKey: (key: string, value: string) => void;
   onToggleProvider: (name: string, enabled: boolean) => void;
+  onSaveModel: (name: string, model: string) => void;
 }) {
   return (
     <section>
@@ -306,6 +313,7 @@ function ProvidersSection({
               saveStatus={saveStatus}
               onSaveKey={onSaveKey}
               onToggle={(enabled) => onToggleProvider(provider.name, enabled)}
+              onSaveModel={(model) => onSaveModel(provider.name, model)}
             />
           ))}
         {/* Ollama — no API key needed */}
@@ -333,18 +341,28 @@ function ProviderCard({
   saveStatus,
   onSaveKey,
   onToggle,
+  onSaveModel,
 }: {
   provider: ProviderInfo;
   saveStatus: Record<string, "saving" | "ok" | "error">;
   onSaveKey: (key: string, value: string) => void;
   onToggle: (enabled: boolean) => void;
+  onSaveModel: (model: string) => void;
 }) {
   const vaultKey = PROVIDER_VAULT_KEY[provider.name] ?? `${provider.name}_api_key`;
   const [apiKey, setApiKey] = useState("");
   const [show, setShow] = useState(false);
-  const saving = saveStatus[vaultKey] === "saving";
-  const saved = saveStatus[vaultKey] === "ok";
+  const [model, setModel] = useState(provider.default_model ?? "");
+  const keySaving = saveStatus[vaultKey] === "saving";
+  const keySaved = saveStatus[vaultKey] === "ok";
+  const modelKey = `model_${provider.name}`;
+  const modelSaving = saveStatus[modelKey] === "saving";
+  const modelSaved = saveStatus[modelKey] === "ok";
   const label = PROVIDER_LABELS[provider.name] ?? provider.name;
+
+  useEffect(() => {
+    setModel(provider.default_model ?? "");
+  }, [provider.default_model]);
 
   return (
     <div className="rounded-lg border border-border/40 px-4 py-3 space-y-3">
@@ -363,6 +381,7 @@ function ProviderCard({
         </div>
         <Toggle checked={provider.enabled} onChange={onToggle} />
       </div>
+      {/* API key row */}
       <div className="flex gap-2">
         <div className="relative flex-1">
           <input
@@ -382,10 +401,31 @@ function ProviderCard({
         </div>
         <SaveButton
           dirty={apiKey.length > 0}
-          saving={saving}
-          saved={saved}
+          saving={keySaving}
+          saved={keySaved}
           error={saveStatus[vaultKey] === "error"}
           onSave={() => { if (apiKey) { onSaveKey(vaultKey, apiKey); setApiKey(""); } }}
+          label="Save"
+        />
+      </div>
+      {/* Model row */}
+      <div className="flex gap-2 items-center">
+        <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground whitespace-nowrap">
+          Model
+        </label>
+        <input
+          type="text"
+          placeholder="e.g. openai/gpt-4o"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-foreground/20"
+        />
+        <SaveButton
+          dirty={model !== (provider.default_model ?? "")}
+          saving={modelSaving}
+          saved={modelSaved}
+          error={saveStatus[modelKey] === "error"}
+          onSave={() => { if (model !== (provider.default_model ?? "")) onSaveModel(model); }}
           label="Save"
         />
       </div>

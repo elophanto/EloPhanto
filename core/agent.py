@@ -351,8 +351,14 @@ class Agent:
         self._memory_manager = MemoryManager(self._db)
         self._working_memory = WorkingMemory()
 
-        # Skills system
-        skills_dir = config.project_root / "skills"
+        # Skills system — in cloud mode app code is at /app, user data at /data
+        import os as _os
+
+        _app_skills = Path("/app/skills")
+        if _os.environ.get("ELOPHANTO_CLOUD") == "1" and _app_skills.exists():
+            skills_dir = _app_skills
+        else:
+            skills_dir = config.project_root / "skills"
         self._skill_manager = SkillManager(skills_dir)
 
         # Phase 2-4: Plugin loader, browser, scheduler
