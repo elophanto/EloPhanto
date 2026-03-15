@@ -24,8 +24,18 @@ class GatewayConnection {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private outboundQueue: string[] = [];
 
-  constructor(url: string = "ws://127.0.0.1:18789") {
-    this.url = url;
+  constructor(url?: string) {
+    if (url) {
+      this.url = url;
+    } else {
+      // When served from the gateway itself (cloud), connect back to the same host.
+      // When running locally (dev server on a different port), fall back to localhost gateway.
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const host = window.location.port === "18789"
+        ? window.location.host           // served directly by gateway
+        : "127.0.0.1:18789";             // local dev (Vite on :5173 etc.)
+      this.url = `${proto}//${host}`;
+    }
   }
 
   connect(): void {

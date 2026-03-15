@@ -116,7 +116,10 @@ class Gateway:
         return self._server is not None
 
     def _process_http_request(self, connection: Any, request: Any) -> Any:
-        """Handle plain HTTP requests (health, webhooks) before WebSocket upgrade."""
+        """Handle plain HTTP requests (health, webhooks, web UI) before WebSocket upgrade."""
+        import mimetypes
+        from pathlib import Path
+
         from websockets.datastructures import Headers
         from websockets.http11 import Response
 
@@ -137,6 +140,33 @@ class Gateway:
         # --- Webhook endpoints ---
         if request.path.startswith("/hooks/"):
             return self._handle_webhook(request)
+
+        # --- Static web UI (React SPA) ---
+        # Only serve if the web/dist directory exists (cloud/packaged deployments).
+        # WebSocket upgrade requests carry an "Upgrade" header — let those through.
+        if request.headers.get("Upgrade", "").lower() != "websocket":
+            web_dist = Path(__file__).parent.parent / "web" / "dist"
+            if web_dist.exists():
+                req_path = request.path.split("?")[0].lstrip("/")
+                file_path = web_dist / req_path if req_path else web_dist / "index.html"
+                # Unknown paths → index.html (SPA client-side routing)
+                if not file_path.is_file():
+                    file_path = web_dist / "index.html"
+                content_type = (
+                    mimetypes.guess_type(str(file_path))[0]
+                    or "application/octet-stream"
+                )
+                cache = (
+                    "public, max-age=31536000, immutable"
+                    if "/assets/" in request.path
+                    else "no-cache"
+                )
+                return Response(
+                    200,
+                    "OK",
+                    Headers({"Content-Type": content_type, "Cache-Control": cache}),
+                    file_path.read_bytes(),
+                )
 
         return None  # Continue with WebSocket upgrade
 

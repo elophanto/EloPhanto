@@ -51,7 +51,7 @@ misc/
 bridge/browser/node_modules/
 bridge/browser/dist/
 web/node_modules/
-web/src/
+web/dist/
 
 # Large irrelevant files
 *.bak
