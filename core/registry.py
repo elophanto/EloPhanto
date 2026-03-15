@@ -201,6 +201,21 @@ class ToolRegistry:
         self.register(CryptoSwapTool())
         self.register(PaymentHistoryTool())
 
+        from tools.payments.request_tool import PaymentRequestTool
+
+        self.register(PaymentRequestTool())
+
+        # Prospecting tools
+        from tools.prospecting.evaluate_tool import ProspectEvaluateTool
+        from tools.prospecting.outreach_tool import ProspectOutreachTool
+        from tools.prospecting.search_tool import ProspectSearchTool
+        from tools.prospecting.status_tool import ProspectStatusTool
+
+        self.register(ProspectSearchTool())
+        self.register(ProspectEvaluateTool())
+        self.register(ProspectOutreachTool())
+        self.register(ProspectStatusTool())
+
         # Email monitor tool
         from tools.email.monitor_tool import EmailMonitorTool
 

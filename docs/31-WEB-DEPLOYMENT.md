@@ -188,9 +188,23 @@ vault_set key=supabase_access_token value=YOUR_SUPABASE_ACCESS_TOKEN
 
 **Where to get tokens**:
 
-- **Vercel**: Settings > Tokens > Create (scope: full account)
-- **Railway**: Account Settings > Tokens > Create
-- **Supabase**: Settings > Access Tokens > Generate
+- **Vercel**: [vercel.com/account/tokens](https://vercel.com/account/tokens) → Create Token (scope: full account)
+- **Railway**: [railway.com/account/tokens](https://railway.com/account/tokens) → Create Token
+- **Supabase**: [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens) → Generate New Token
+
+### Supabase Token Clarification
+
+Supabase has two layers of authentication — don't confuse them:
+
+| Token | What It Is | Who Uses It | Where to Get It |
+|-------|-----------|-------------|-----------------|
+| **Access Token** | Personal account token for the **Management API** | The `create_database` tool — to create projects, list orgs, fetch API keys | Dashboard → Account → Access Tokens |
+| **`anon` key** | Per-project JWT with low privileges (respects RLS) | Your deployed app's client-side code | Auto-retrieved by `create_database` after project creation |
+| **`service_role` key** | Per-project JWT with full access (bypasses RLS) | Your deployed app's server-side code | Auto-retrieved by `create_database` after project creation |
+
+**You only store the Access Token in the vault.** The per-project keys (`anon`, `service_role`, `DATABASE_URL`) are automatically fetched when a project is created and returned in the tool result. Pass them as `env_vars` to `deploy_website`.
+
+The optional `supabase_org_id` in config specifies which organization to create projects under. If left empty, the tool auto-detects your first organization via the Management API.
 
 ### CLI Prerequisites
 

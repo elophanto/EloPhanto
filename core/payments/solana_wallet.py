@@ -511,3 +511,124 @@ class SolanaWalletProvider:
             ata_program,
         )
         return str(ata)
+
+    # ------------------------------------------------------------------
+    # Incoming transaction scanning
+    # ------------------------------------------------------------------
+
+    def get_incoming_transactions(
+        self,
+        since_timestamp: float | None = None,
+        token_filter: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Fetch recent incoming transactions to this wallet.
+
+        Uses getSignaturesForAddress + getTransaction to find transfers
+        where this wallet received tokens/SOL.
+        """
+        address = self.get_address()
+        sigs_result = self._rpc_call(
+            "getSignaturesForAddress",
+            [address, {"limit": limit}],
+        )
+        if not sigs_result:
+            return []
+
+        incoming: list[dict[str, Any]] = []
+        for sig_info in sigs_result:
+            if sig_info.get("err"):
+                continue
+
+            # Filter by timestamp
+            block_time = sig_info.get("blockTime")
+            if since_timestamp and block_time and block_time < since_timestamp:
+                continue
+
+            sig = sig_info["signature"]
+            try:
+                tx = self._rpc_call(
+                    "getTransaction",
+                    [
+                        sig,
+                        {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0},
+                    ],
+                )
+            except Exception:
+                continue
+
+            if not tx or not tx.get("meta"):
+                continue
+
+            meta = tx["meta"]
+
+            # Check SPL token transfers (postTokenBalances vs preTokenBalances)
+            pre_tokens = {
+                (b.get("accountIndex"), b.get("mint", "")): float(
+                    b.get("uiTokenAmount", {}).get("uiAmount") or 0
+                )
+                for b in (meta.get("preTokenBalances") or [])
+            }
+            for post_bal in meta.get("postTokenBalances") or []:
+                owner = post_bal.get("owner", "")
+                if owner != address:
+                    continue
+                mint = post_bal.get("mint", "")
+                idx = post_bal.get("accountIndex")
+                post_amount = float(
+                    post_bal.get("uiTokenAmount", {}).get("uiAmount") or 0
+                )
+                pre_amount = pre_tokens.get((idx, mint), 0)
+                delta = post_amount - pre_amount
+                if delta > 0:
+                    # Resolve token symbol
+                    token_sym = "SOL"
+                    for sym, m in [("USDC", self._usdc_mint)]:
+                        if mint == m:
+                            token_sym = sym
+                            break
+
+                    if token_filter and token_sym.upper() != token_filter.upper():
+                        continue
+
+                    incoming.append(
+                        {
+                            "tx_hash": sig,
+                            "from_address": "",  # SPL transfers don't easily expose sender
+                            "amount": delta,
+                            "token": token_sym,
+                            "timestamp": block_time,
+                        }
+                    )
+
+            # Check native SOL transfers
+            if not token_filter or token_filter.upper() == "SOL":
+                account_keys = (
+                    tx.get("transaction", {}).get("message", {}).get("accountKeys", [])
+                )
+                pre_balances = meta.get("preBalances", [])
+                post_balances = meta.get("postBalances", [])
+                for i, key_info in enumerate(account_keys):
+                    pubkey = (
+                        key_info
+                        if isinstance(key_info, str)
+                        else key_info.get("pubkey", "")
+                    )
+                    if (
+                        pubkey == address
+                        and i < len(pre_balances)
+                        and i < len(post_balances)
+                    ):
+                        delta_lamports = post_balances[i] - pre_balances[i]
+                        if delta_lamports > 0:
+                            incoming.append(
+                                {
+                                    "tx_hash": sig,
+                                    "from_address": "",
+                                    "amount": delta_lamports / 1_000_000_000,
+                                    "token": "SOL",
+                                    "timestamp": block_time,
+                                }
+                            )
+
+        return incoming

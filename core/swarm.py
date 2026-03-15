@@ -71,6 +71,7 @@ class SwarmManager:
         self._agents: dict[str, SwarmAgent] = {}
         self._monitor_task: asyncio.Task[None] | None = None
         self._knowledge_search_tool: Any = None  # Injected by agent.py
+        self._skill_manager: Any = None  # Injected by agent.py
         self._last_spawn_times: dict[str, float] = {}  # profile → monotonic time
         self._output_reports: dict[str, Any] = {}  # agent_id → SwarmOutputReport
 
@@ -505,6 +506,11 @@ class SwarmManager:
         if extra_context:
             sections.append(f"\nAdditional context:\n{extra_context}")
 
+        # Inject matching skills so swarmed agents get design/deployment guidance
+        skill_context = await self._pull_skill_context(task)
+        if skill_context:
+            sections.append(skill_context)
+
         # Only inject EloPhanto knowledge for self-dev tasks
         if not is_external and self._config.prompt_enrichment:
             knowledge = await self._pull_knowledge_context(task)
@@ -558,6 +564,30 @@ class SwarmManager:
         except Exception as e:
             logger.debug("Knowledge enrichment failed: %s", e)
         return ""
+
+    async def _pull_skill_context(self, task: str) -> str:
+        """Match skills against the task and return their instructions.
+
+        This ensures swarmed agents get design guidelines, deployment
+        workflows, and other skill-based knowledge that the main agent has.
+        """
+        if not self._skill_manager:
+            return ""
+        try:
+            matched = self._skill_manager.match_skills(task, max_results=3)
+            if not matched:
+                return ""
+            parts: list[str] = []
+            for skill in matched:
+                # Read the SKILL.md content (already loaded in skill.content)
+                if skill.content:
+                    parts.append(f"## Skill: {skill.name}\n\n{skill.content}")
+            if not parts:
+                return ""
+            return "\nRelevant skills and guidelines:\n\n" + "\n\n---\n\n".join(parts)
+        except Exception as e:
+            logger.debug("Skill enrichment failed: %s", e)
+            return ""
 
     # ── tmux Session Management ─────────────────────────────────────
 

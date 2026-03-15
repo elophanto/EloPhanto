@@ -449,6 +449,55 @@ class PaymentsManager:
             pass
         return None
 
+    # ------------------------------------------------------------------
+    # Payment Requests (receiving money)
+    # ------------------------------------------------------------------
+
+    def _get_request_tracker(self) -> Any:
+        if not hasattr(self, "_request_tracker") or self._request_tracker is None:
+            from core.payments.request_tracker import PaymentRequestTracker
+
+            self._request_tracker = PaymentRequestTracker(self._db, self._auditor)
+        return self._request_tracker
+
+    async def create_payment_request(
+        self,
+        amount: float,
+        token: str = "USDC",
+        memo: str | None = None,
+        ttl_minutes: int = 1440,
+        task_context: str | None = None,
+    ) -> dict:
+        """Create a payment request for the agent's wallet."""
+        if not self._wallet_address:
+            await self.initialize()
+        return await self._get_request_tracker().create_request(
+            wallet_address=self._wallet_address,
+            chain=self._chain,
+            token=token,
+            amount=amount,
+            memo=memo,
+            ttl_minutes=ttl_minutes,
+            task_context=task_context,
+        )
+
+    async def check_payment_request(self, request_id: str) -> dict:
+        """Check if a payment request has been fulfilled on-chain."""
+        provider = await self._get_wallet_provider()
+        return await self._get_request_tracker().check_request(
+            request_id, provider, self._chain
+        )
+
+    async def list_payment_requests(
+        self, status: str | None = None, limit: int = 20
+    ) -> list[dict]:
+        """List payment requests."""
+        return await self._get_request_tracker().list_requests(status, limit)
+
+    async def cancel_payment_request(self, request_id: str) -> bool:
+        """Cancel a pending payment request."""
+        return await self._get_request_tracker().cancel_request(request_id)
+
     async def _get_wallet_provider(self) -> Any:
         """Lazy-initialize wallet provider based on config.crypto.provider."""
         if self._wallet_provider is not None:

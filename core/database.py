@@ -371,6 +371,82 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_session_messages_session
         ON session_messages(session_id, created_at)
     """,
+    # ── Payment Requests ──────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS payment_requests (
+        request_id TEXT PRIMARY KEY,
+        wallet_address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        token TEXT NOT NULL,
+        amount REAL NOT NULL,
+        memo TEXT,
+        reference TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        matching_tx_hash TEXT,
+        matching_amount REAL,
+        matching_sender TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        paid_at TEXT,
+        session_id TEXT,
+        channel TEXT,
+        task_context TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_payment_requests_status
+        ON payment_requests(status, expires_at)
+    """,
+    # ── Prospecting ───────────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS prospects (
+        prospect_id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        url TEXT NOT NULL DEFAULT '',
+        contact_email TEXT DEFAULT '',
+        contact_name TEXT DEFAULT '',
+        budget_min REAL DEFAULT 0,
+        budget_max REAL DEFAULT 0,
+        currency TEXT DEFAULT 'USD',
+        required_skills TEXT NOT NULL DEFAULT '[]',
+        match_score REAL DEFAULT 0,
+        match_reasoning TEXT DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'new',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        tags TEXT NOT NULL DEFAULT '[]',
+        discovered_at TEXT NOT NULL,
+        evaluated_at TEXT,
+        outreach_sent_at TEXT,
+        last_activity_at TEXT,
+        metadata_json TEXT DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_prospects_source ON prospects(source, platform)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS outreach_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        prospect_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        message_id TEXT DEFAULT '',
+        thread_id TEXT DEFAULT '',
+        content_preview TEXT DEFAULT '',
+        direction TEXT NOT NULL DEFAULT 'outbound',
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_outreach_log_prospect
+        ON outreach_log(prospect_id, created_at)
+    """,
 ]
 
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError
