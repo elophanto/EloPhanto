@@ -718,7 +718,9 @@ export class AwareBrowserAgent {
     else if (this.config.userDataDir) {
       const profileDir = this.config.profileDirectory || 'Default';
       console.log(`[Browser] Launching Chrome with profile '${profileDir}' from: ${this.config.userDataDir}`);
-      const args: string[] = [];
+      const args: string[] = [
+        `--window-size=${viewport.width},${viewport.height}`,
+      ];
       if (profileDir !== 'Default') {
         args.push(`--profile-directory=${profileDir}`);
       }
