@@ -1468,7 +1468,7 @@ class Agent:
         _ctx_start = _time.monotonic()
 
         try:
-            await self._auto_retrieve(goal)
+            await asyncio.wait_for(self._auto_retrieve(goal), timeout=5.0)
         except Exception:
             pass
 
@@ -2455,8 +2455,16 @@ class Agent:
                 return await self._search_by_file_pattern(paths)
             return []
 
+        async def _safe(coro, default):
+            try:
+                return await asyncio.wait_for(coro, timeout=3.0)
+            except Exception:
+                return default
+
         chunks, (keyword_mems, recent_mems), file_chunks = await asyncio.gather(
-            _search_knowledge(), _search_memory(), _search_file_patterns()
+            _safe(_search_knowledge(), []),
+            _safe(_search_memory(), ([], [])),
+            _safe(_search_file_patterns(), []),
         )
 
         # Merge file-pattern results with semantic results (dedup by source+heading)

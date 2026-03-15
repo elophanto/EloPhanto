@@ -1786,6 +1786,17 @@ class Gateway:
                 router = getattr(self._agent, "_router", None)
                 if router and hasattr(router, "_config"):
                     router._config = config
+                # Re-create embedder so knowledge search uses the new key immediately
+                try:
+                    from core.embeddings import create_embedder as _create_embedder
+
+                    registry = getattr(self._agent, "_registry", None)
+                    if registry:
+                        ks = registry.get("knowledge_search")
+                        if ks and hasattr(ks, "_embedder"):
+                            ks._embedder = _create_embedder(config)
+                except Exception:
+                    pass
 
             await client.websocket.send(
                 response_message(
