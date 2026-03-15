@@ -60,8 +60,24 @@ function useSettingsGateway() {
     fetch();
   }, [status, fetch]);
 
+  // Mark all "saving" keys as "error" after 8s timeout
   useEffect(() => {
-    const unsub = gateway.on(MessageType.RESPONSE, (msg) => {
+    const saving = Object.entries(saveStatus).filter(([, v]) => v === "saving");
+    if (saving.length === 0) return;
+    const timer = setTimeout(() => {
+      setSaveStatus((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(next)) {
+          if (v === "saving") next[k] = "error";
+        }
+        return next;
+      });
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [saveStatus]);
+
+  useEffect(() => {
+    const unsubResponse = gateway.on(MessageType.RESPONSE, (msg) => {
       try {
         const content = msg.data?.content as string | undefined;
         if (!content) return;
@@ -86,7 +102,22 @@ function useSettingsGateway() {
         // ignore non-settings messages
       }
     });
-    return unsub;
+
+    const unsubError = gateway.on(MessageType.ERROR, (msg) => {
+      const detail = (msg.data?.detail as string) ?? "";
+      if (detail.toLowerCase().includes("vault")) {
+        // Mark all saving keys as error
+        setSaveStatus((prev) => {
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(next)) {
+            if (v === "saving") next[k] = "error";
+          }
+          return next;
+        });
+      }
+    });
+
+    return () => { unsubResponse(); unsubError(); };
   }, [fetch]);
 
   const saveVaultKey = useCallback((key: string, value: string) => {
@@ -353,6 +384,7 @@ function ProviderCard({
           dirty={apiKey.length > 0}
           saving={saving}
           saved={saved}
+          error={saveStatus[vaultKey] === "error"}
           onSave={() => { if (apiKey) { onSaveKey(vaultKey, apiKey); setApiKey(""); } }}
           label="Save"
         />
@@ -420,23 +452,27 @@ function SaveButton({
   dirty,
   saving,
   saved,
+  error,
   onSave,
   label = "Save",
 }: {
   dirty: boolean;
   saving: boolean;
   saved: boolean;
+  error?: boolean;
   onSave: () => void;
   label?: string;
 }) {
   return (
     <button
       onClick={onSave}
-      disabled={!dirty && !saved || saving}
+      disabled={(!dirty && !saved && !error) || saving}
       className={cn(
         "flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider transition-colors",
         saved
           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+          : error
+          ? "border-red-500/30 bg-red-500/10 text-red-400"
           : dirty
           ? "border-foreground/30 bg-foreground/10 text-foreground hover:bg-foreground/15"
           : "border-border text-muted-foreground/40 cursor-not-allowed"
@@ -446,8 +482,10 @@ function SaveButton({
         <Loader2 className="size-3 animate-spin" />
       ) : saved ? (
         <Check className="size-3" />
+      ) : error ? (
+        <AlertCircle className="size-3" />
       ) : null}
-      {saved ? "Saved" : label}
+      {saved ? "Saved" : error ? "Failed" : label}
     </button>
   );
 }

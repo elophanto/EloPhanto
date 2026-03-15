@@ -1799,10 +1799,24 @@ class Gateway:
                     changed.append("permission_mode")
 
             if "provider_enabled" in args:
+                from core.config import ProviderConfig as _ProviderConfig2
+
+                _PROVIDER_BASE_URLS = {
+                    "openrouter": "https://openrouter.ai/api/v1",
+                    "zai": "https://api.z.ai/api/paas/v4",
+                    "kimi": "https://api.kilo.ai/api/gateway",
+                }
                 for provider_name, enabled in args["provider_enabled"].items():
-                    if provider_name in config.llm.providers:
+                    if provider_name not in config.llm.providers:
+                        config.llm.providers[provider_name] = _ProviderConfig2(
+                            enabled=bool(enabled),
+                            base_url=_PROVIDER_BASE_URLS.get(provider_name, ""),
+                        )
+                        if provider_name not in config.llm.provider_priority:
+                            config.llm.provider_priority.append(provider_name)
+                    else:
                         config.llm.providers[provider_name].enabled = bool(enabled)
-                        changed.append(f"provider_{provider_name}_enabled")
+                    changed.append(f"provider_{provider_name}_enabled")
 
             # Persist to config.yaml
             import yaml as _yaml  # type: ignore[import]
