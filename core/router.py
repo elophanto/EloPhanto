@@ -577,7 +577,13 @@ class LLMRouter:
             oai_cfg = self._config.llm.providers.get("openai")
             return oai_cfg.default_model if oai_cfg and oai_cfg.default_model else None
 
-        return None
+        # 4. Hardcoded fallbacks — used when a provider key is set via Settings UI
+        #    but no routing config exists (fresh cloud deploy with no config.yaml)
+        _FALLBACK_MODELS: dict[str, str] = {
+            "openrouter": "openrouter/anthropic/claude-3-5-haiku",
+            "openai": "gpt-4o-mini",
+        }
+        return _FALLBACK_MODELS.get(provider)
 
     async def _call_litellm(
         self,
