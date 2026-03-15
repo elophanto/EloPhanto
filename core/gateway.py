@@ -1661,6 +1661,7 @@ class Gateway:
                             "enabled": pcfg.enabled,
                             "base_url": pcfg.base_url,
                             "has_key": bool(pcfg.api_key) or vault_key in vault_keys,
+                            "default_model": pcfg.default_model,
                         }
                     )
             for name in _KNOWN_PROVIDERS:
@@ -1672,6 +1673,7 @@ class Gateway:
                             "enabled": False,
                             "base_url": "",
                             "has_key": vault_key in vault_keys,
+                            "default_model": "",
                         }
                     )
 
@@ -1798,25 +1800,33 @@ class Gateway:
                     config.permission_mode = mode
                     changed.append("permission_mode")
 
-            if "provider_enabled" in args:
-                from core.config import ProviderConfig as _ProviderConfig2
+            from core.config import ProviderConfig as _ProviderConfig2
 
-                _PROVIDER_BASE_URLS = {
-                    "openrouter": "https://openrouter.ai/api/v1",
-                    "zai": "https://api.z.ai/api/paas/v4",
-                    "kimi": "https://api.kilo.ai/api/gateway",
-                }
+            _PROVIDER_BASE_URLS = {
+                "openrouter": "https://openrouter.ai/api/v1",
+                "zai": "https://api.z.ai/api/paas/v4",
+                "kimi": "https://api.kilo.ai/api/gateway",
+            }
+
+            def _ensure_provider(pname: str) -> None:
+                if pname not in config.llm.providers:
+                    config.llm.providers[pname] = _ProviderConfig2(
+                        base_url=_PROVIDER_BASE_URLS.get(pname, ""),
+                    )
+                    if pname not in config.llm.provider_priority:
+                        config.llm.provider_priority.append(pname)
+
+            if "provider_enabled" in args:
                 for provider_name, enabled in args["provider_enabled"].items():
-                    if provider_name not in config.llm.providers:
-                        config.llm.providers[provider_name] = _ProviderConfig2(
-                            enabled=bool(enabled),
-                            base_url=_PROVIDER_BASE_URLS.get(provider_name, ""),
-                        )
-                        if provider_name not in config.llm.provider_priority:
-                            config.llm.provider_priority.append(provider_name)
-                    else:
-                        config.llm.providers[provider_name].enabled = bool(enabled)
+                    _ensure_provider(provider_name)
+                    config.llm.providers[provider_name].enabled = bool(enabled)
                     changed.append(f"provider_{provider_name}_enabled")
+
+            if "provider_model" in args:
+                for provider_name, model in args["provider_model"].items():
+                    _ensure_provider(provider_name)
+                    config.llm.providers[provider_name].default_model = str(model)
+                    changed.append(f"provider_{provider_name}_model")
 
             # Persist to config.yaml
             import yaml as _yaml  # type: ignore[import]
@@ -1841,6 +1851,8 @@ class Gateway:
                     providers = llm.setdefault("providers", {})
                     for pname, pcfg in config.llm.providers.items():
                         providers.setdefault(pname, {})["enabled"] = pcfg.enabled
+                        if pcfg.default_model:
+                            providers[pname]["default_model"] = pcfg.default_model
 
                 _os.makedirs(
                     _os.path.dirname(_os.path.abspath(config_path)), exist_ok=True
@@ -1850,10 +1862,19 @@ class Gateway:
             except Exception as e:
                 logger.warning("config_update: failed to persist: %s", e)
 
+            status_key = args.get("_status_key", "config")
             await client.websocket.send(
                 response_message(
                     session_id,
-                    _json.dumps({"config_update": {"ok": True, "changed": changed}}),
+                    _json.dumps(
+                        {
+                            "config_update": {
+                                "ok": True,
+                                "changed": changed,
+                                "status_key": status_key,
+                            }
+                        }
+                    ),
                     done=True,
                 ).to_json()
             )
