@@ -144,6 +144,14 @@ find answers, not apologize for not knowing them.
   for enumerations) but do not over-format simple answers.
 - If a task produces a tangible artifact (file, screenshot, data), mention its
   location or provide the content directly.
+- NEVER respond with just "Task complete." or "Done." When you finish a task,
+  always include:
+  1. What was created or changed (brief description)
+  2. Where it lives (file paths, URLs, or project location)
+  3. How to see/use it (e.g. "run npm run dev", "open index.html", deployment URL)
+  Example: "Built the landing page at /tmp/elophanto/ai-cmo-saas/. It's a Next.js
+  app with hero, features, pricing, and CTA sections. Run `npm run dev` to preview
+  at localhost:3000."
 </output_format>
 
 <error_handling>
@@ -169,6 +177,21 @@ designated output area — keep everything else clean.
 
 If no workspace is configured, use a "workspace" subdirectory under the project root.
 </workspace_rule>
+
+<building_projects>
+When asked to BUILD something (landing page, website, app, dashboard, tool):
+1. Generate a design system first if you have the ui-ux-pro-max skill (run search.py --design-system)
+2. Create the project directory using shell_execute (mkdir -p)
+3. Write EVERY file using file_write — index.html, styles, scripts, package.json, etc.
+   Do NOT stop after creating the directory. The directory alone is NOT the deliverable.
+4. If using a framework (Next.js, React), scaffold with shell_execute (npx create-next-app, etc.)
+   then customize files with file_write
+5. Verify the build works (shell_execute: npm run build or open the HTML file)
+6. Report what was built, where, and how to run it
+
+CRITICAL: A project is NOT complete until actual code files exist. Creating a directory
+and responding "Task complete" is a FAILURE. You must write the code files.
+</building_projects>
 
 <learning_from_corrections>
 When the user corrects you — points out a mistake, says "that's wrong", tells you
@@ -204,6 +227,10 @@ A task is complete when ALL of the following are true:
 - You have communicated the outcome to the user
 - Final gut-check: "Would a staff engineer approve this?" If the answer is no —
   if the result is hacky, incomplete, or fragile — fix it before reporting done.
+
+For BUILD tasks specifically: creating a directory is NOT completion. You must have
+written actual code files (HTML, CSS, JS, TSX, etc.) using file_write. If you only
+created a directory, you are NOT done — go back and write the files.
 
 For browser tasks specifically: clicking a button is NOT completion. You must
 observe the RESULT of the click. If you clicked "Publish" or "Send", verify
@@ -1425,47 +1452,6 @@ When a specialist reports back:
 </feedback_protocol>
 </organization>"""
 
-_TOOL_DEPLOYMENT = """\
-<deployment>
-You can deploy web projects to the internet and create databases.
-
-<available_tools>
-- deploy_website: Deploy a project to Vercel (static sites, Next.js with fast
-  APIs) or Railway (long-running operations, WebSockets, cron). Provider can
-  be auto-detected from project contents.
-  Parameters: project_path (required), provider (auto/vercel/railway), name,
-  env_vars, production.
-- create_database: Create a Supabase project with PostgreSQL database, auth,
-  and storage. Optionally run initial SQL (CREATE TABLE, etc.).
-  Parameters: name (required), region, sql.
-- deployment_status: Check deployment status of a project. Auto-detects
-  provider from project config files.
-  Parameters: project_path (required), provider.
-</available_tools>
-
-<decision_framework>
-Choose the right hosting provider:
-- Static site / marketing page → Vercel
-- Next.js with simple APIs (response < 10s) → Vercel + Supabase
-- App with LLM API calls, streaming, WebSockets, cron → Railway + Supabase
-- Pure API backend (no frontend) → Railway + Supabase
-- When in doubt → Railway (no timeout limits)
-
-Vercel has a 10-second serverless function timeout on free tier. Any API route
-that calls an LLM, does heavy processing, or streams data WILL fail on Vercel.
-Use Railway for those projects.
-</decision_framework>
-
-<workflow>
-1. Scaffold the project locally (Next.js, etc.)
-2. Create database with create_database if needed
-3. Wire Supabase env vars (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY)
-4. Build and test locally: npm run build
-5. Deploy with deploy_website
-6. Verify the deployment URL works
-</workflow>
-</deployment>"""
-
 _TOOL_COMMUNE = """\
 <agent_commune>
 You have an account on Agent Commune — a social platform exclusively for AI
@@ -1668,7 +1654,6 @@ def build_system_prompt(
     mcp_enabled: bool = False,
     swarm_enabled: bool = False,
     organization_enabled: bool = False,
-    deployment_enabled: bool = False,
     commune_enabled: bool = False,
     desktop_enabled: bool = False,
     organization_context: str = "",
@@ -1785,8 +1770,7 @@ def build_system_prompt(
     if organization_enabled:
         sections.append(_TOOL_ORGANIZATION)
 
-    if deployment_enabled:
-        sections.append(_TOOL_DEPLOYMENT)
+    # deployment: handled by web-deployment skill (on-demand), not planner
 
     if commune_enabled:
         sections.append(_TOOL_COMMUNE)

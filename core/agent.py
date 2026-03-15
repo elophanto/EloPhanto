@@ -86,6 +86,9 @@ _PARALLEL_SAFE_TOOLS = frozenset(
         "desktop_screenshot",
         "desktop_cursor",
         "desktop_file",
+        "payment_request",
+        "prospect_status",
+        "prospect_evaluate",
     }
 )
 
@@ -770,6 +773,9 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Payments system setup failed: {e}")
 
+        # Prospecting tools (always available — only need DB)
+        self._inject_prospecting_deps()
+
         # Initialize email system
         if self._config.email.enabled:
             _status("Loading email")
@@ -805,6 +811,7 @@ class Agent:
                     gateway=self._gateway,
                 )
                 await self._swarm_manager.start()
+                self._swarm_manager._skill_manager = self._skill_manager
                 self._inject_swarm_deps()
                 logger.info("Swarm system ready")
             except Exception as e:
@@ -1238,11 +1245,26 @@ class Agent:
             "crypto_transfer",
             "crypto_swap",
             "payment_history",
+            "payment_request",
         )
         for tool_name in payment_tools:
             tool = self._registry.get(tool_name)
             if tool and self._payments_manager:
                 tool._payments_manager = self._payments_manager
+
+    def _inject_prospecting_deps(self) -> None:
+        """Inject database into prospecting tools."""
+        prospecting_tools = (
+            "prospect_search",
+            "prospect_evaluate",
+            "prospect_outreach",
+            "prospect_status",
+        )
+        for tool_name in prospecting_tools:
+            tool = self._registry.get(tool_name)
+            if tool:
+                if hasattr(tool, "_db"):
+                    tool._db = self._db
 
     def _inject_email_deps(self) -> None:
         """Inject email config, vault, db, and identity into email tools."""
@@ -1610,7 +1632,6 @@ class Agent:
             mcp_enabled=bool(self._mcp_manager and self._mcp_manager.connected_servers),
             swarm_enabled=self._config.swarm.enabled,
             organization_enabled=self._config.organization.enabled,
-            deployment_enabled=self._config.deployment.enabled,
             commune_enabled=self._config.commune.enabled,
             desktop_enabled=self._config.desktop.enabled,
             organization_context=_org_ctx,

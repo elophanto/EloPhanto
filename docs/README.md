@@ -66,6 +66,12 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 44 | [Solana Ecosystem](44-SOLANA-ECOSYSTEM.md) | Native Solana wallet, Jupiter DEX swaps, 27 Solana skills, MCP servers, agent economy roadmap |
 | 45 | [Context Documents](45-CONTEXT-DOCUMENTS.md) | Structured self-awareness docs: capabilities, ICPs, styleguide, domain model |
 | 46 | [Proactive Engine](46-PROACTIVE-ENGINE.md) | Heartbeat file-based standing orders, webhook wake/task endpoints, external trigger integration |
+| 47 | [AutoLoop](47-AUTOLOOP.md) | Focus lock, AGENT_PROGRAM.md, fixed iteration budgets for autonomous experiments |
+| 48 | [Learning Engine](48-LEARNING-ENGINE.md) | Lesson extraction, semantic memory search, KB compression |
+| 49 | [Terminal](49-TERMINAL.md) | Input protection, mind cycle timestamps, prompt_toolkit integration |
+| 50 | [Terminal Dashboard](50-TERMINAL-DASHBOARD.md) | Full-screen Textual TUI with split panels, event feed, provider health |
+| 51 | [Payment Requests](51-PAYMENT-REQUESTS.md) | Receive payments via on-chain payment requests with auto-matching |
+| 52 | [Prospecting](52-PROSPECTING.md) | Lead search, evaluation, outreach tracking for revenue generation |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 

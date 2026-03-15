@@ -49,7 +49,9 @@ class LocalWalletProvider:
     calls via urllib for on-chain operations. No external API keys needed.
     """
 
-    def __init__(self, vault: Any, chain: str = "base", rpc_url: str | None = None) -> None:
+    def __init__(
+        self, vault: Any, chain: str = "base", rpc_url: str | None = None
+    ) -> None:
         self._vault = vault
         self._chain = chain
         self._account: Any = None
@@ -105,7 +107,9 @@ class LocalWalletProvider:
         """Get ERC-20 token balance for this wallet."""
         # balanceOf(address) selector = 0x70a08231
         data = "0x70a08231" + self._encode_address(self._account.address)
-        result = self._rpc_call("eth_call", [{"to": token_address, "data": data}, "latest"])
+        result = self._rpc_call(
+            "eth_call", [{"to": token_address, "data": data}, "latest"]
+        )
         raw = int(result, 16) if result and result != "0x" else 0
         # Detect decimals from known tokens
         decimals = self._get_token_decimals_by_address(token_address)
@@ -119,7 +123,9 @@ class LocalWalletProvider:
         to = to_checksum_address(to)
         wei_amount = int(float(amount) * 10**18)
         nonce = int(
-            self._rpc_call("eth_getTransactionCount", [self._account.address, "pending"]),
+            self._rpc_call(
+                "eth_getTransactionCount", [self._account.address, "pending"]
+            ),
             16,
         )
         gas_price = int(self._rpc_call("eth_gasPrice", []), 16)
@@ -150,10 +156,14 @@ class LocalWalletProvider:
         token_amount = int(float(amount) * 10**decimals)
 
         # Encode transfer(address, uint256) calldata
-        calldata = "0xa9059cbb" + self._encode_address(to) + self._encode_uint256(token_amount)
+        calldata = (
+            "0xa9059cbb" + self._encode_address(to) + self._encode_uint256(token_amount)
+        )
 
         nonce = int(
-            self._rpc_call("eth_getTransactionCount", [self._account.address, "pending"]),
+            self._rpc_call(
+                "eth_getTransactionCount", [self._account.address, "pending"]
+            ),
             16,
         )
         gas_price = int(self._rpc_call("eth_gasPrice", []), 16)
@@ -246,3 +256,83 @@ class LocalWalletProvider:
         if addr_lower == self._usdc_address.lower():
             return 6
         return 18
+
+    # ------------------------------------------------------------------
+    # Incoming transaction scanning
+    # ------------------------------------------------------------------
+
+    # ERC-20 Transfer(address,address,uint256) event signature
+    _TRANSFER_TOPIC = (
+        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+    )
+
+    def get_incoming_transactions(
+        self,
+        since_timestamp: float | None = None,
+        token_filter: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Fetch recent incoming ERC-20 transfers to this wallet.
+
+        Uses eth_getLogs with Transfer event topic filtering.
+        For native ETH, compares current balance (best-effort).
+        """
+        incoming: list[dict[str, Any]] = []
+        my_address = self.get_address()
+        padded_to = "0x" + self._encode_address(my_address)
+
+        # Get current block
+        try:
+            current_block_hex = self._rpc_call("eth_blockNumber", [])
+            current_block = int(current_block_hex, 16)
+        except Exception:
+            return []
+
+        from_block = hex(max(0, current_block - 1000))
+
+        # ERC-20 Transfer events where `to` = our address
+        token_contracts = []
+        if self._usdc_address:
+            token_contracts.append(("USDC", self._usdc_address, 6))
+
+        for token_sym, contract, decimals in token_contracts:
+            if token_filter and token_sym.upper() != token_filter.upper():
+                continue
+            try:
+                logs = self._rpc_call(
+                    "eth_getLogs",
+                    [
+                        {
+                            "fromBlock": from_block,
+                            "toBlock": "latest",
+                            "address": contract,
+                            "topics": [self._TRANSFER_TOPIC, None, padded_to],
+                        }
+                    ],
+                )
+            except Exception:
+                continue
+
+            for log_entry in logs or []:
+                topics = log_entry.get("topics", [])
+                data = log_entry.get("data", "0x0")
+                if len(topics) < 3:
+                    continue
+                from_addr = "0x" + topics[1][-40:]
+                amount_raw = int(data, 16)
+                amount = amount_raw / (10**decimals)
+
+                incoming.append(
+                    {
+                        "tx_hash": log_entry.get("transactionHash", ""),
+                        "from_address": from_addr,
+                        "amount": amount,
+                        "token": token_sym,
+                        "timestamp": None,
+                    }
+                )
+
+                if len(incoming) >= limit:
+                    break
+
+        return incoming

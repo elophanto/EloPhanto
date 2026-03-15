@@ -1,7 +1,6 @@
 ---
-title: "shadcn/ui Skills for Next.js 16"
+name: shadcn
 description: "Installation, components, blocks, forms, theming, and MCP guidance for shadcn/ui in modern Next.js projects using pnpm"
-keywords: ["shadcn", "ui", "Next.js", "pnpm", "blocks", "sonner", "forms", "dark-mode", "mcp"]
 ---
 
 # shadcn/ui Skills
@@ -257,10 +256,108 @@ import { toast } from "sonner"
 
 ---
 
+## Component Architecture
+
+shadcn/ui is **not a library** — components are copied into your project. You own them.
+
+### File Structure
+```
+src/
+├── components/
+│   ├── ui/              # shadcn components (don't modify directly)
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   └── dialog.tsx
+│   ├── blocks/          # higher-level page sections
+│   └── [custom]/        # your composed components
+│       └── loading-button.tsx
+├── lib/
+│   └── utils.ts         # cn() utility
+└── app/
+    └── page.tsx
+```
+
+### The `cn()` Utility
+
+All shadcn components use this for class merging:
+```typescript
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+```
+
+### Component Variants with cva
+
+Use `class-variance-authority` for variant logic:
+```typescript
+import { cva } from "class-variance-authority"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center rounded-md",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground",
+        outline: "border border-input",
+        destructive: "bg-destructive text-destructive-foreground",
+      },
+      size: {
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+      },
+    },
+    defaultVariants: { variant: "default", size: "default" },
+  }
+)
+```
+
+### Extending Components
+
+Create wrappers in `components/` (not `components/ui/`):
+```typescript
+// components/loading-button.tsx
+import { Button, type ButtonProps } from "@/components/ui/button"
+import { Loader2 } from "lucide-react"
+
+export function LoadingButton({
+  loading, children, ...props
+}: ButtonProps & { loading?: boolean }) {
+  return (
+    <Button disabled={loading} {...props}>
+      {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+      {children}
+    </Button>
+  )
+}
+```
+
+## Visual Styles
+
+shadcn/ui supports multiple visual styles:
+- **default** — clean, minimal
+- **new-york** — classic, refined
+- **Vega, Nova, Maia, Lyra, Mira** — newer visual themes
+
+Set during init or in `components.json`.
+
+## Block Categories
+
+Blocks from [ui.shadcn.com/blocks](https://ui.shadcn.com/blocks) by category:
+- **calendar** — Calendar interfaces
+- **dashboard** — Dashboard layouts and analytics
+- **login** — Authentication flows (sign-in, sign-up, forgot password)
+- **sidebar** — Navigation sidebars with collapsible sections
+- **products** — E-commerce cards, grids, detail pages
+
 ## Best Practices
 
 1. **Stay modular:** Add only the components/blocks you need; trim unused files to keep bundles small.
 2. **Respect tokens:** Do not hardcode colors; use the CSS variables set up by init.
 3. **Accessibility:** Keep aria labels, roles, and keyboard interactions from the upstream examples.
 4. **Typography:** Use CSS variables + `next/font` to load fonts; wire them into `--font-sans` in `globals.css`.
-5. **LLM usage:** Follow [llms.txt](https://ui.shadcn.com/llms.txt) when generating code; prefer pnpm commands and Sonner over legacy toast.
+5. **Extend, don't modify:** Create wrapper components in `components/` — leave `components/ui/` pristine for easy updates.
+6. **LLM usage:** Follow [llms.txt](https://ui.shadcn.com/llms.txt) when generating code; prefer pnpm commands and Sonner over legacy toast.
