@@ -223,10 +223,20 @@ def create_embedder(config: Any) -> OllamaEmbedder | OpenRouterEmbedder:
     """
     provider = config.knowledge.embedding_provider
 
+    import os as _os
+
+    cloud_mode = _os.environ.get("ELOPHANTO_CLOUD") == "1"
+
     if provider == "openrouter":
         embedder = _create_openrouter_embedder(config)
         if embedder:
             return embedder
+        if cloud_mode:
+            logger.warning(
+                "OpenRouter embedding requested but no API key configured in cloud mode — "
+                "semantic search disabled, falling back to keyword search"
+            )
+            return _create_ollama_embedder(config)  # will fail fast, caught by timeout
         logger.warning(
             "OpenRouter embedding requested but no API key configured, "
             "falling back to Ollama"
@@ -234,6 +244,10 @@ def create_embedder(config: Any) -> OllamaEmbedder | OpenRouterEmbedder:
         return _create_ollama_embedder(config)
 
     if provider == "ollama":
+        if cloud_mode:
+            logger.warning(
+                "Ollama embedder not available in cloud mode — semantic search disabled"
+            )
         return _create_ollama_embedder(config)
 
     # "auto" (default): prefer OpenRouter if configured, else Ollama
@@ -241,5 +255,10 @@ def create_embedder(config: Any) -> OllamaEmbedder | OpenRouterEmbedder:
     if embedder:
         logger.info("Using OpenRouter for embeddings (fast cloud)")
         return embedder
-    logger.info("Using Ollama for embeddings (local)")
+    if cloud_mode:
+        logger.info(
+            "No embedding provider configured in cloud mode — semantic search disabled"
+        )
+    else:
+        logger.info("Using Ollama for embeddings (local)")
     return _create_ollama_embedder(config)
