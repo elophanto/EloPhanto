@@ -430,7 +430,7 @@ function ProviderCard({
         ) : (
           <input
             type="text"
-            placeholder="e.g. openrouter/anthropic/claude-3-5-haiku"
+            placeholder="Enter model name…"
             value={model}
             onChange={(e) => setModel(e.target.value)}
             className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-foreground/20"
