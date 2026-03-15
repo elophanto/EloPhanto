@@ -1805,11 +1805,11 @@ class Gateway:
                         changed.append(f"provider_{provider_name}_enabled")
 
             # Persist to config.yaml
+            import yaml as _yaml  # type: ignore[import]
+            from pathlib import Path as _Path
+
             config_path = _os.environ.get("ELOPHANTO_CONFIG") or "config.yaml"
             try:
-                import yaml as _yaml  # type: ignore[import]
-                from pathlib import Path as _Path
-
                 cfg_file = _Path(config_path)
                 if cfg_file.exists():
                     existing = _yaml.safe_load(cfg_file.read_text()) or {}
@@ -1818,9 +1818,11 @@ class Gateway:
 
                 # Patch only the changed fields
                 if "agent_name" in changed:
-                    existing.setdefault("agent", {})["name"] = config.agent.name
+                    existing.setdefault("agent", {})["name"] = config.agent_name
                 if "permission_mode" in changed:
-                    existing.setdefault("agent", {})["permission_mode"] = config.permission_mode  # type: ignore[attr-defined]
+                    existing.setdefault("agent", {})[
+                        "permission_mode"
+                    ] = config.permission_mode
                 if any("provider_" in c for c in changed):
                     llm = existing.setdefault("llm", {})
                     providers = llm.setdefault("providers", {})
