@@ -1,45 +1,27 @@
-# EloPhanto Cloud — Fly.io configuration
-# This is the TEMPLATE config. The provisioning service creates per-user
-# machines from the Docker image; this file is used for `fly deploy` to
-# push new image versions.
+# fly.toml app configuration file generated for elophanto on 2026-03-15T07:02:16Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "elophanto-cloud"
-primary_region = "ams"
+app = 'elophanto'
+primary_region = 'ams'
 
 [build]
-  dockerfile = "Dockerfile"
 
-[env]
-  PYTHONUNBUFFERED = "1"
-  ELOPHANTO_CLOUD = "1"
-  ELOPHANTO_CONFIG = "/data/config.yaml"
+[[mounts]]
+  source = 'data'
+  destination = '/data'
 
 [http_service]
-  internal_port = 18789
+  internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-
-  [http_service.concurrency]
-    type = "connections"
-    hard_limit = 25
-    soft_limit = 20
-
-# Persistent volume for user data (vault, knowledge, database)
-[mounts]
-  source = "elophanto_data"
-  destination = "/data"
+  processes = ['app']
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "1gb"
-
-[checks]
-  [checks.health]
-    type = "http"
-    port = 18789
-    path = "/health"
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "15s"
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024
