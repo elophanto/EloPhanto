@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxdamage1 \
     libxrandr2 \
     libgbm1 \
-    libasound2 \
+    libasound2t64 \
     libpango-1.0-0 \
     libcairo2 \
     # Fonts for browser rendering
@@ -50,8 +50,12 @@ COPY bridge/browser/tsconfig.json bridge/browser/tsup.config.ts bridge/browser/
 COPY bridge/browser/src/ bridge/browser/src/
 RUN cd bridge/browser && npx tsup
 
-# ---------- Web dashboard (pre-built) ----------
-COPY web/dist/ web/dist/
+# ---------- Web dashboard (built from source) ----------
+COPY web/package.json web/package-lock.json web/components.json web/postcss.config.mjs web/
+COPY web/index.html web/tsconfig*.json web/vite.config.ts web/
+COPY web/public/ web/public/
+COPY web/src/ web/src/
+RUN cd web && npm ci && npm run build
 
 # ---------- Application code ----------
 COPY core/ core/
@@ -83,4 +87,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:18789/health || exit 1
 
 # Entrypoint: start gateway bound to all interfaces
-CMD ["uv", "run", "python", "-m", "cli.main", "gateway", "--host", "0.0.0.0"]
+CMD ["uv", "run", "python", "-m", "cli.main", "gateway"]

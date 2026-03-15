@@ -296,7 +296,7 @@ The web dashboard is the **same React app** for both desktop and cloud. It conne
 | WebSocket | Native WebSocket (gateway protocol) |
 | Build | Vite (fast, good Tauri integration) |
 | Desktop | Tauri webview serves the same build |
-| Cloud | Deployed to Vercel (static) or served from Fly proxy |
+| Cloud | Served directly by the gateway (static files in `web/dist/`) |
 
 ### Gateway Protocol Integration
 
@@ -304,9 +304,8 @@ The dashboard uses the existing gateway protocol — no new API needed:
 
 ```typescript
 // Connect to agent gateway
-const ws = new WebSocket('ws://localhost:18789');  // Desktop
-// or
-const ws = new WebSocket('wss://app.elophanto.com/agent/ws');  // Cloud (proxied)
+const ws = new WebSocket('ws://localhost:18789');  // Desktop (local dev)
+// or — in production, gateway URL is derived from window.location.host automatically
 
 // Send chat message
 ws.send(JSON.stringify({
@@ -475,32 +474,15 @@ This is the Phase 8 "Web UI" that's been planned since the original roadmap.
 
 ### Docker Image
 
-```dockerfile
-FROM python:3.12-slim
+See `Dockerfile` in the repo root for the current production image. Key points:
 
-# System deps — full Chrome (not old headless Chromium).
-# Uses --headless=new for full browser engine with profile support.
-RUN apt-get update && apt-get install -y \
-    nodejs npm \
-    chromium chromium-sandbox \
-    fonts-liberation fonts-noto-color-emoji \
-    && rm -rf /var/lib/apt/lists/*
-
-# EloPhanto
-COPY . /app
-WORKDIR /app
-RUN pip install uv && uv sync --no-dev
-RUN cd bridge/browser && npm ci
-
-# Persistent data mount point
-VOLUME /data
-ENV ELOPHANTO_DATA_DIR=/data
-
-# Gateway port
-EXPOSE 18789
-
-CMD ["python", "-m", "cli.main", "gateway", "--host", "0.0.0.0"]
-```
+- `python:3.12-slim` (Debian Bookworm) + Node.js 22 via nodesource
+- `libasound2t64` (Bookworm renamed `libasound2`)
+- Browser bridge pre-built via `npm ci && npx tsup`
+- `web/dist/` pre-built React app copied in — served by gateway HTTP handler
+- `ELOPHANTO_CLOUD=1` env var (set by `fly.toml`) causes gateway to bind `0.0.0.0` automatically
+- `ELOPHANTO_VAULT_PASSWORD` env var (set via `fly secrets`) unlocks the vault on startup without an interactive prompt
+- CMD: `uv run python -m cli.main gateway` (no `--host` flag needed)
 
 ### Fly.io Machine Provisioning
 
@@ -509,9 +491,9 @@ On signup, a management service provisions the user's machine:
 1. Create persistent volume (1GB, user's nearest region)
 2. Create Fly Machine with EloPhanto Docker image
 3. Mount volume at `/data` (knowledge, vault, skills, database)
-4. Configure gateway to listen on internal port
-5. Set up Fly proxy routing (HTTPS → machine gateway)
-6. Machine auto-restarts on failure, auto-hibernates on inactivity
+4. Set `ELOPHANTO_CLOUD=1` + `ELOPHANTO_VAULT_PASSWORD` env vars — gateway binds `0.0.0.0:18789` automatically
+5. Set up Fly proxy routing (HTTPS/WSS → port 18789) — `fly.toml` `http_service` handles this
+6. Machine auto-restarts on failure, auto-hibernates on inactivity (`auto_stop_machines = "stop"` in `fly.toml`)
 
 ---
 

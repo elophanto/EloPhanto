@@ -107,7 +107,15 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
 
     _loop.call_exception_handler = _safe_ceh  # type: ignore[method-assign,assignment]
 
+    import os
+
+    cloud_mode = os.environ.get("ELOPHANTO_CLOUD") == "1"
+
     cfg = load_config(config_path)
+
+    # In cloud mode, always bind to all interfaces so Fly.io proxy can reach us
+    if cloud_mode:
+        cfg.gateway.host = "0.0.0.0"
 
     if not cfg.gateway.enabled:
         console.print(
@@ -121,12 +129,18 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
     agent = Agent(cfg)
 
     # Unlock vault
-    from rich.prompt import Prompt
-
     if Vault.exists("."):
-        password = Prompt.ask(
-            f"  [{_C_DIM}]Vault password (Enter to skip)[/]", password=True, default=""
-        )
+        if cloud_mode:
+            # In cloud mode read password from env secret — no interactive prompt
+            password = os.environ.get("ELOPHANTO_VAULT_PASSWORD", "")
+        else:
+            from rich.prompt import Prompt
+
+            password = Prompt.ask(
+                f"  [{_C_DIM}]Vault password (Enter to skip)[/]",
+                password=True,
+                default="",
+            )
         if password:
             try:
                 agent._vault = Vault.unlock(".", password)
