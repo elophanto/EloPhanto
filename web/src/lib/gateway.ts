@@ -28,12 +28,13 @@ class GatewayConnection {
     if (url) {
       this.url = url;
     } else {
-      // When served from the gateway itself (cloud), connect back to the same host.
-      // When running locally (dev server on a different port), fall back to localhost gateway.
+      // Cloud (HTTPS on real domain) → wss://same-host, Fly proxy forwards to 18789
+      // Local gateway direct (port 18789) → ws://same-host
+      // Local dev (Vite on :5173 etc.) → ws://127.0.0.1:18789
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = window.location.port === "18789"
-        ? window.location.host           // served directly by gateway
-        : "127.0.0.1:18789";             // local dev (Vite on :5173 etc.)
+      const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const isDevServer = isLocalhost && window.location.port !== "18789";
+      const host = isDevServer ? "127.0.0.1:18789" : window.location.host;
       this.url = `${proto}//${host}`;
     }
   }
