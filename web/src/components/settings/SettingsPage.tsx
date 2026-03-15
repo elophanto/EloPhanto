@@ -44,6 +44,13 @@ const PROVIDER_VAULT_KEY: Record<string, string> = {
 
 const PERMISSION_MODES = ["ask_always", "smart_auto", "full_auto"] as const;
 
+const PROVIDER_DEFAULT_MODELS: Record<string, string[]> = {
+  openrouter: ["openrouter/hunter-alpha"],
+  openai: ["gpt-5.4"],
+  zai: ["glm-4.7", "glm-5"],
+  kimi: ["kimi-k2.5", "kimi-k2-thinking-turbo"],
+};
+
 // ---- Hook to listen for gateway responses ----
 
 function useSettingsGateway() {
@@ -353,7 +360,10 @@ function ProviderCard({
   const vaultKey = PROVIDER_VAULT_KEY[provider.name] ?? `${provider.name}_api_key`;
   const [apiKey, setApiKey] = useState("");
   const [show, setShow] = useState(false);
-  const [model, setModel] = useState(provider.default_model ?? "");
+  const models = provider.available_models.length > 0
+    ? provider.available_models
+    : (PROVIDER_DEFAULT_MODELS[provider.name] ?? []);
+  const [model, setModel] = useState(provider.default_model || models[0] || "");
   const keySaving = saveStatus[vaultKey] === "saving";
   const keySaved = saveStatus[vaultKey] === "ok";
   const modelKey = `model_${provider.name}`;
@@ -414,16 +424,16 @@ function ProviderCard({
         <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground whitespace-nowrap">
           Model
         </label>
-        {provider.available_models.length > 0 ? (
+        {models.length > 0 ? (
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
             className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-foreground/20"
           >
-            {model && !provider.available_models.includes(model) && (
+            {model && !models.includes(model) && (
               <option value={model}>{model}</option>
             )}
-            {provider.available_models.map((m) => (
+            {models.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
