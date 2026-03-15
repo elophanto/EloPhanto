@@ -44,11 +44,11 @@ RUN uv sync --no-dev --frozen 2>/dev/null || uv sync --no-dev
 
 # ---------- Browser bridge ----------
 COPY bridge/browser/package.json bridge/browser/package-lock.json bridge/browser/
-RUN cd bridge/browser && npm ci --omit=dev
+RUN cd bridge/browser && npm ci
 
 COPY bridge/browser/tsconfig.json bridge/browser/tsup.config.ts bridge/browser/
 COPY bridge/browser/src/ bridge/browser/src/
-RUN cd bridge/browser && npx tsup
+RUN cd bridge/browser && npm run build && npm prune --omit=dev
 
 # ---------- Web dashboard (built from source) ----------
 COPY web/package.json web/package-lock.json web/components.json web/postcss.config.mjs web/
