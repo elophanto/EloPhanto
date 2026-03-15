@@ -760,6 +760,13 @@ def _apply_env_overrides(config: Config) -> None:
             config.llm.providers[provider_name].api_key = env_key
             config.llm.providers[provider_name].enabled = True
 
+    # In cloud mode: override browser to headless playwright Chromium (no system Chrome)
+    if os.environ.get("ELOPHANTO_CLOUD") == "1":
+        config.browser.mode = "fresh"
+        config.browser.headless = True
+        config.browser.use_system_chrome = False
+        config.browser.user_data_dir = "/tmp/elophanto-browser-profile"
+
 
 def load_config(config_path: Path | str | None = None) -> Config:
     """Load and validate configuration from YAML file.
