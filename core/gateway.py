@@ -1715,7 +1715,7 @@ class Gateway:
                 config = getattr(self._agent, "_config", None)
                 base_dir = str(config.project_root) if config else "."
                 if cloud_mode and vault_password:
-                    from core.vault import Vault as _Vault, VaultError as _VaultError
+                    from core.vault import Vault as _Vault
 
                     try:
                         if _Vault.exists(base_dir):
@@ -1806,14 +1806,13 @@ class Gateway:
 
             # Persist to config.yaml
             import yaml as _yaml  # type: ignore[import]
-            from pathlib import Path as _Path
 
             config_path = _os.environ.get("ELOPHANTO_CONFIG") or "config.yaml"
             try:
-                cfg_file = _Path(config_path)
-                if cfg_file.exists():
-                    existing = _yaml.safe_load(cfg_file.read_text()) or {}
-                else:
+                try:
+                    with open(config_path) as _f:
+                        existing = _yaml.safe_load(_f) or {}
+                except FileNotFoundError:
                     existing = {}
 
                 # Patch only the changed fields
@@ -1829,8 +1828,11 @@ class Gateway:
                     for pname, pcfg in config.llm.providers.items():
                         providers.setdefault(pname, {})["enabled"] = pcfg.enabled
 
-                cfg_file.parent.mkdir(parents=True, exist_ok=True)
-                cfg_file.write_text(_yaml.dump(existing, allow_unicode=True))
+                _os.makedirs(
+                    _os.path.dirname(_os.path.abspath(config_path)), exist_ok=True
+                )
+                with open(config_path, "w") as _f:
+                    _f.write(_yaml.dump(existing, allow_unicode=True))
             except Exception as e:
                 logger.warning("config_update: failed to persist: %s", e)
 
