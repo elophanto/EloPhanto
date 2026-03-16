@@ -205,6 +205,12 @@ class ToolRegistry:
 
         self.register(PaymentRequestTool())
 
+        # Web search tools (Search.sh)
+        from tools.data.web_search import WebExtractTool, WebSearchTool
+
+        self.register(WebSearchTool())
+        self.register(WebExtractTool())
+
         # Prospecting tools
         from tools.prospecting.evaluate_tool import ProspectEvaluateTool
         from tools.prospecting.outreach_tool import ProspectOutreachTool
