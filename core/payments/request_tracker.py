@@ -217,7 +217,7 @@ class PaymentRequestTracker:
             "channel",
             "task_context",
         ]
-        return dict(zip(cols, row))
+        return dict(zip(cols, row, strict=False))
 
     async def list_requests(
         self,
@@ -255,7 +255,7 @@ class PaymentRequestTracker:
             "channel",
             "task_context",
         ]
-        return [dict(zip(cols, row)) for row in rows]
+        return [dict(zip(cols, row, strict=False)) for row in rows]
 
     # ------------------------------------------------------------------
     # Cancel / Expire

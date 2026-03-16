@@ -156,7 +156,7 @@ class ProspectStatusTool(BaseTool):
             "last_activity_at",
             "metadata_json",
         ]
-        prospect = dict(zip(cols, rows[0]))
+        prospect = dict(zip(cols, rows[0], strict=False))
         # Parse JSON fields
         for field in ("required_skills", "tags"):
             try:
