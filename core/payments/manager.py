@@ -38,6 +38,7 @@ class PaymentsManager:
         self._wallet_address: str = ""
         self._chain: str = config.crypto.default_chain
         self._agent_kit_instance: Any = None
+        self._request_tracker: Any = None
 
     @property
     def wallet_address(self) -> str:
