@@ -89,6 +89,8 @@ _PARALLEL_SAFE_TOOLS = frozenset(
         "payment_request",
         "prospect_status",
         "prospect_evaluate",
+        "web_search",
+        "web_extract",
     }
 )
 
@@ -1153,8 +1155,8 @@ class Agent:
                 tool._desktop_controller = self._desktop_controller
 
     def _inject_vault_deps(self) -> None:
-        """Inject vault into vault tools."""
-        for tool_name in ("vault_lookup", "vault_set"):
+        """Inject vault into vault and web search tools."""
+        for tool_name in ("vault_lookup", "vault_set", "web_search", "web_extract"):
             tool = self._registry.get(tool_name)
             if tool and self._vault:
                 tool._vault = self._vault

@@ -72,9 +72,16 @@ def vault_init() -> None:
 
 
 @vault_cmd.command("set")
-@click.argument("domain")
-def vault_set(domain: str) -> None:
-    """Store credentials for DOMAIN (e.g. google.com, github.com)."""
+@click.argument("key")
+@click.argument("value", required=False, default=None)
+def vault_set(key: str, value: str | None) -> None:
+    """Store a credential.
+
+    \b
+    Two modes:
+      elophanto vault set KEY VALUE        — store a simple key-value pair (API keys, tokens)
+      elophanto vault set DOMAIN           — interactively set domain credentials (email/password)
+    """
     vdir = _vault_dir()
     password = _ask_master_password()
 
@@ -84,8 +91,19 @@ def vault_set(domain: str) -> None:
         console.print(f"[red]{e}[/red]")
         return
 
-    # Get existing values as defaults
+    # Simple key-value mode: elophanto vault set KEY VALUE
+    if value is not None:
+        vault.set(key, value)
+        # Mask the value in output for security
+        masked = value[:4] + "..." + value[-4:] if len(value) > 12 else "***"
+        console.print(f"[green]Stored[/green] [blue]{key}[/blue] = [dim]{masked}[/dim]")
+        return
+
+    # Interactive domain credential mode: elophanto vault set DOMAIN
+    domain = key
     existing = vault.get(domain) or {}
+    if not isinstance(existing, dict):
+        existing = {}
     default_email = existing.get("email", "")
     default_username = existing.get("username", "")
 
