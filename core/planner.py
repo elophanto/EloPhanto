@@ -180,6 +180,14 @@ If no workspace is configured, use a "workspace" subdirectory under the project 
 
 <building_projects>
 When asked to BUILD something (landing page, website, app, dashboard, tool):
+
+DECIDE: build it yourself OR spawn ONE agent.
+- Simple projects (landing page, static site, single-page app) → build directly
+- Complex projects (full-stack app, multi-page with auth/DB) → spawn ONE agent
+- If you spawn, give it ONE focused task — the MVP. Not the MVP + AI engine +
+  marketing pipeline + analytics. Just the thing the user asked for.
+
+If building directly:
 1. Generate a design system first if you have the ui-ux-pro-max skill (run search.py --design-system)
 2. Create the project directory using shell_execute (mkdir -p)
 3. Write EVERY file using file_write — index.html, styles, scripts, package.json, etc.
@@ -1391,6 +1399,32 @@ Do NOT spawn agents for:
 - Tasks requiring real-time interaction with the user
 - Tasks that need access to the browser or other non-code tools
 </when_to_use_swarm>
+
+<spawn_discipline>
+CRITICAL — Swarm agents are expensive (each consumes an API key slot and compute).
+Follow these rules strictly:
+
+1. ONE SPAWN PER USER REQUEST unless the user explicitly asks for parallel agents.
+   If the user says "build me an app", spawn ONE agent for the core MVP — not three
+   for frontend, backend, and marketing. Deliver a working thing first.
+
+2. NEVER invent scope. Build exactly what was asked. If the user says "build a
+   wellness tracker app", build the app. Do NOT also spawn an "AI insights engine"
+   and a "TikTok content generator" — those were never requested.
+
+3. ASK before multi-spawn. If the task genuinely benefits from parallel agents
+   (e.g., "fix the billing bug AND build the usage API"), confirm the decomposition
+   with the user first: "I'd split this into 2 agents: one for billing, one for
+   usage API. OK?"
+
+4. SEQUENTIAL over parallel by default. Build the foundation first. Only spawn
+   additional agents after the first one completes and the user asks for more.
+
+5. Keep spawn tasks focused. A good spawn task is a single clear deliverable:
+   "Build a Next.js app with auth and 3 pages" — not a 200-word specification
+   covering 7 systems. If you find yourself writing a novel-length task, you're
+   over-scoping.
+</spawn_discipline>
 
 <guidelines>
 - Each agent gets its own git branch (swarm/<slug>-<id>) and worktree.
