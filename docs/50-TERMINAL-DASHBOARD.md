@@ -290,6 +290,26 @@ When the agent is processing a message, a one-line animated spinner appears betw
 
 Implementation: `_animate_thinking()` is a `@work(exclusive=True, group="thinking-anim")` Textual worker that cycles through the braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` at 100ms intervals. The `#thinking` widget is hidden (`display: none`) by default and shown via an `.active` CSS class while `_awaiting_response = True`. It auto-hides when the response arrives, times out, or the user presses Ctrl+X.
 
+## Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| **Ctrl+Y** | Copy last agent response to system clipboard (`pbcopy` on macOS, `xclip` on Linux). Confirmation appears in the event feed. |
+| **Ctrl+X** | Cancel current request / hide thinking indicator |
+| **Ctrl+C** | Quit the dashboard |
+| **F1** | Toggle sidebar visibility |
+
+### Text Selection
+
+Textual captures all mouse events for its own widget system (scrolling, focus), which prevents native terminal text selection. To copy text:
+
+1. **Ctrl+Y** — copies the last full agent response to clipboard (recommended)
+2. **Shift + click and drag** — bypasses Textual's mouse capture for native terminal selection (terminal support varies)
+
+## Event Feed
+
+The event feed shows the last 50 events in a compact 5-row panel between the chat and input bar. Events include heartbeat checks, tool calls, mind cycles, and gateway activity. Each line shows `HH:MM:SS  TAG  description`.
+
 ## Dependencies
 
 | Dep | Version | Notes |

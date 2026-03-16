@@ -431,7 +431,7 @@ class EloPhantoDashboard(App):
         color: #78746e;
     }
     #events {
-        height: 12;
+        height: 5;
         background: #f9f8f4;
         padding: 0 1;
     }
@@ -467,6 +467,7 @@ class EloPhantoDashboard(App):
     BINDINGS = [
         Binding("ctrl+c", "quit_app", "Quit", show=False),
         Binding("ctrl+x", "cancel_request", "Cancel", show=False),
+        Binding("ctrl+y", "copy_last", "Copy", show=False),
         Binding("f1", "toggle_sidebar", "Sidebar", show=False),
     ]
 
@@ -483,6 +484,7 @@ class EloPhantoDashboard(App):
         self._awaiting_response = False
         self._current_msg_id = ""
         self._approval_pending: GatewayMessage | None = None
+        self._last_response: str = ""
         self._sidebar_visible = True
 
     # ── Compose ──────────────────────────────────────────────────────────
@@ -497,13 +499,18 @@ class EloPhantoDashboard(App):
                 yield _SchedulerPanel(self._state)
                 yield _GatewayPanel(self._state)
             with Vertical(id="main-area"):
-                yield RichLog(id="chat", highlight=True, markup=True, wrap=True)
+                chat_log = RichLog(id="chat", highlight=True, markup=True, wrap=True)
+                chat_log.can_focus = False  # let terminal handle mouse/selection
+                yield chat_log
                 yield Static("", id="feed-header", markup=True)
                 yield RichLog(
-                    id="events", highlight=True, markup=True, wrap=False, max_lines=200
+                    id="events", highlight=True, markup=True, wrap=False, max_lines=50
                 )
         with Vertical(id="input-bar"):
-            yield Input(placeholder="❯ type a message, /help, or exit", id="input")
+            yield Input(
+                placeholder="❯ type a message, /help, or exit  ·  Shift+drag to select text",
+                id="input",
+            )
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -631,6 +638,7 @@ class EloPhantoDashboard(App):
             return
 
         if content:
+            self._last_response = content
             chat = self.query_one("#chat", RichLog)
             chat.write("")
             chat.write(f"[#b8b2a8]─[/] [bold {_MIND}]EloPhanto[/]")
@@ -639,7 +647,9 @@ class EloPhantoDashboard(App):
 
         # Clear thinking indicator
         self._awaiting_response = False
-        self.query_one("#input", Input).placeholder = "❯ type a message, /help, or exit"
+        self.query_one("#input", Input).placeholder = (
+            "❯ type a message, /help, or exit  ·  Ctrl+Y to copy last response"
+        )
 
         # Update session stats from response metadata
         usage = msg.data.get("usage", {})
@@ -1050,6 +1060,38 @@ class EloPhantoDashboard(App):
         sidebar = self.query_one("#sidebar")
         self._sidebar_visible = not self._sidebar_visible
         sidebar.display = self._sidebar_visible
+
+    def action_copy_last(self) -> None:
+        """Copy last agent response to system clipboard."""
+        import subprocess
+
+        if not self._last_response:
+            self._add_event("Nothing to copy", tag="CPY")
+            return
+        try:
+            subprocess.run(
+                ["pbcopy"],
+                input=self._last_response.encode(),
+                check=True,
+                timeout=2,
+            )
+            # Show truncated preview in event feed
+            preview = self._last_response[:60].replace("\n", " ")
+            self._add_event(f"Copied to clipboard: {preview}...", tag="CPY")
+        except FileNotFoundError:
+            # Linux fallback
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=self._last_response.encode(),
+                    check=True,
+                    timeout=2,
+                )
+                self._add_event("Copied to clipboard", tag="CPY")
+            except Exception:
+                self._add_event("[red]No clipboard tool found[/]", tag="CPY")
+        except Exception as exc:
+            self._add_event(f"[red]Copy failed:[/] {exc}", tag="CPY")
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
