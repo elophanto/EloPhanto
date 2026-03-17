@@ -52,259 +52,17 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 
 ## What Happens When You Run It
 
-### Launch a business — with you in the loop
+**"Build me an invoice SaaS for freelancers"** — validates the market (web search + competitor analysis), plans the MVP, spawns Claude Code to build it overnight in an isolated worktree, deploys to Vercel + Supabase, then launches on Product Hunt. You approve at each gate. 7-phase pipeline, multi-day, cross-session.
 
-```
-❯ build me an invoice SaaS for freelancers
+**"Grow my Twitter to 5k"** — the autonomous mind posts threads at 2am, replies to mentions, tracks engagement. Pauses when you open your laptop, resumes when you leave. Budget-controlled cycles with real-time analytics.
 
-◆ EloPhanto ───────────────────────────────────────────────────
+**"Fix the billing bug and build the usage API"** — spawns two coding agents (Claude Code + Codex) in isolated worktrees. Monitors PRs and CI. Redirects agents that drift off-scope. Both PRs ready when you're back from lunch.
 
-  Classifying... B2B SaaS (recurring revenue).
-  Starting market validation.
+**"I need ongoing marketing and research"** — spawns persistent specialist clones, each with its own mind, knowledge vault, and schedule. Delegates tasks overnight, reviews output, teaches through feedback. Trust scoring — high-trust specialists get auto-approved over time.
 
-  ● web_search        "invoice software freelancers pricing 2026"
-  ● browser_navigate  freshbooks.com → pricing page
-  ● browser_navigate  invoice-ninja.com → features
-  ● knowledge_write   saved competitor analysis
+**First boot** — on first run, the autonomous mind wakes up with no instructions. It discovers its 140+ tools, uses the identity system to choose a display name and purpose via LLM self-reflection, creates an email inbox, and sets its first goal. Nobody told it to do any of this.
 
-  Competitors charge $15-50/month. Gap: no free tier with API.
-  Opportunity score: 12/15 ✓
-
-  Ready to proceed to planning. Do you approve the idea?
-
-  ╰─ tokens ↑1,204 ↓892  │  ctx [██░░░░░░░░] 18%  │  cost $0.03
-
-❯ yes, go ahead
-
-  MVP: invoice builder + PDF export + Stripe + client portal
-  Stack: Next.js + Supabase + shadcn
-  Pricing: Free (3 clients) → $12/month unlimited
-
-  Plan ready. Approve to start building?
-
-❯ approved. I'm heading out, keep going
-
-  ● goal_create    "Launch InvoiceFlow" (7 checkpoints)
-  ● swarm_spawn    claude-code → build MVP (worktree: feat/invoice-saas)
-
-  Building via Claude Code in tmux. I'll continue autonomously.
-
-  ╰─ tokens ↑3,204 ↓1,892  │  ctx [███░░░░░░░] 24%  │  cost $0.08
-
-  ─── next morning ───
-
-❯ status
-
-  ● goal_status  "Launch InvoiceFlow"
-
-  [✓] Phase 0  Classify — B2B SaaS
-  [✓] Phase 1  Validate — score 12/15, approved
-  [✓] Phase 2  Plan — approved
-  [✓] Phase 3  Build — Claude Code opened PR #12, CI green, 47 files
-  [▶] Phase 4  Deploy — waiting for your approval
-  [ ] Phase 5  Launch
-  [ ] Phase 6  Grow
-  [ ] Phase 7  Operate
-
-  Next: deploy to Vercel + Supabase. Approve?
-
-❯ deploy it
-
-  ● deploy_website   provider=vercel → invoiceflow.vercel.app ✓
-  ● create_database  provider=supabase → project created ✓
-
-  Live at invoiceflow.vercel.app
-
-  You need to: buy a domain, point DNS, set up Stripe.
-  Once done, I'll launch on Product Hunt and Hacker News.
-
-  ╰─ tokens ↑840 ↓612  │  cost $0.02
-```
-
-Multi-day process. Owner approves at each gate. Goal system tracks progress across sessions.
-
----
-
-### The mind works while you're away
-
-```
-────────── MIND  cycle #47 · 12 today · 02:14 ──────────
-  Budget: [████████████░░░] 78%  $3.12 / $4.00
-  Active goal: "Grow Twitter to 5k" — 3,847 followers
-  Last: Posted thread on AI agent trends
-
-  ● browser_navigate  twitter.com/home
-  ● browser_type      composing thread from trending topics
-  ● browser_click     Post
-  ● update_scratchpad "Thread posted. Replied to 3 mentions."
-
-  ◆ Result: Thread live. 3 replies sent.
-    $0.08 · 42s · 6 tools
-
-  Sleeping · next in 2h · budget left $3.04
-──────────────────────────────────────────────────
-
-────────── MIND  cycle #48 · 13 today · 04:31 ──────────
-  ● browser_navigate  twitter.com/notifications
-  ● knowledge_write   engagement report saved
-
-  ◆ Result: 12 likes, 4 retweets, 2 new followers.
-    $0.05 · 28s · 4 tools
-
-  Sleeping · next in 4h · budget left $2.99
-──────────────────────────────────────────────────
-
-  ─── you open your laptop. mind pauses. ───
-
-❯ how's the twitter going?
-
-  3,847 → 3,894 since yesterday. Thread from 2am got
-  12 likes, 4 retweets. Next checkpoint at 4,000.
-  I'll resume posting when you close the laptop.
-```
-
-The mind runs between your interactions. It pauses when you're active and resumes when you leave.
-
----
-
-### Orchestrate a dev team
-
-```
-❯ fix the billing bug and build the usage API
-
-◆ EloPhanto ───────────────────────────────────────────────────
-
-  Found bug in src/webhooks/stripe.ts:142 — wrong signing key.
-  Usage API needs route + service + tests + migration.
-
-  ● swarm_spawn  claude-code → fix billing (worktree: fix/billing-webhook)
-  ● swarm_spawn  codex → build /api/usage (worktree: feat/usage-api)
-
-  Two agents running in tmux. I'll monitor PRs and CI.
-
-  ╰─ tokens ↑840 ↓612  │  cost $0.02
-
-  ─── 40 minutes later ───
-
-  ● swarm_status    claude-code  PR #341 opened, CI passing ✓
-  ● swarm_status    codex        coding... no PR yet
-  ● swarm_redirect  codex "Stay on /api/usage. Don't touch other files."
-  ● swarm_status    codex        PR #342 opened, CI passing ✓
-
-  Both PRs ready for review.
-  #341 — fixes webhook signature verification
-  #342 — adds GET /api/usage with pagination + rate limiting
-
-  ╰─ tokens ↑4,210 ↓2,890  │  ctx [███░░░░░░░] 28%  │  cost $0.11
-```
-
-Each agent gets an isolated git worktree. The orchestrator monitors PRs, checks CI, and redirects agents that drift off-scope.
-
----
-
-### Spawn a specialist team
-
-```
-❯ I need ongoing marketing and research for my startup
-
-◆ EloPhanto ───────────────────────────────────────────────────
-
-  ● organization_spawn  role="marketing"
-    ✓ Marketing specialist online (port 18801, trust 0/10)
-      Seeded with brand guidelines, competitor data, launch URLs
-
-  ● organization_spawn  role="research"
-    ✓ Research specialist online (port 18802, trust 0/10)
-
-  Each specialist is a full EloPhanto clone with its own mind,
-  knowledge vault, and autonomous schedule. I delegate tasks,
-  review output, and teach through feedback.
-
-  ╰─ tokens ↑620 ↓418  │  cost $0.01
-
-  ─── overnight ───
-
-────────── MIND  cycle #8 · 23:15 ──────────────
-  ● organization_delegate  marketing → "Draft 5 posts for this week"
-  ● organization_review    marketing → ✓ approved
-    feedback: "shorter headlines next time"
-    trust: 0 → 1/10
-  Sleeping · next in 3h 15m
-──────────────────────────────────────────────────
-
-────────── MIND  cycle #9 · 02:47 ──────────────
-  ● organization_delegate  research → "Scan for new competitors"
-  ● organization_review    research → new entrant found
-  ● knowledge_write        saved competitor update
-  Sleeping · next in 2h 30m
-──────────────────────────────────────────────────
-
-❯ what did the team do overnight?
-
-  Marketing drafted 5 posts — approved with headline feedback.
-  Research found a new competitor undercutting on pricing.
-  Report saved to knowledge/projects/startup/competitor-update.md
-  Trust scores: marketing 1/10, research 1/10.
-  Corrections become permanent knowledge in each specialist's vault.
-```
-
-Feedback teaches them. High-trust specialists get auto-approved over time.
-
----
-
-### First boot — it becomes someone
-
-```
-────────── MIND  cycle #1 · 1 today · 09:00 ──────────
-  Budget: [███████████████] 100%  $0.00 / $10.00
-
-  First cycle. Nothing configured.
-
-  ● self_list_capabilities  137 tools across 15 categories
-  ● identity_update         name="Elo"
-                            purpose="Autonomous digital agent"
-  ● email_create_inbox      elo-7xk2@agentmail.to
-  ● goal_create             "Establish web presence"
-                            ▲ Checkpoint 1: accounts on key platforms
-                            ▲ Checkpoint 2: personal landing page
-                            ▲ Checkpoint 3: start creating content
-  ● update_scratchpad       "I exist now. Email active. First goal set."
-
-  ◆ Result: Identity established. Email active. Goal created.
-    $0.12 · 18s · 5 tools
-
-  Sleeping · next in 30s · budget left $9.88
-──────────────────────────────────────────────────
-```
-
-Nobody told it to do any of this. It decided.
-
----
-
-### It builds what it doesn't have
-
-```
-❯ post my article draft on Medium
-
-◆ EloPhanto ───────────────────────────────────────────────────
-
-  No Medium tool found. I'll build one.
-
-  Execution
-  ├─ browser_navigate   medium.com/new-story → observing editor
-  ├─ self_create_plugin medium_publish
-  │  ├─ designing schema.json
-  │  ├─ writing plugin.py
-  │  └─ self_run_tests  4/4 passed ✓
-  └─ medium_publish     "Why AI Agents Will Replace SaaS"
-     ✓ Published
-
-  Next time you say "post on Medium", I already know how.
-
-  ╰─ tokens ↑6,840 ↓4,210  │  ctx [████░░░░░░] 38%  │  cost $0.18
-```
-
-Other agents crash when they hit a wall. This one builds a door.
+**"Post my article on Medium"** — no Medium tool exists. It navigates to medium.com, observes the editor, builds a `medium_publish` plugin (schema + code + 4 tests), publishes the article. Next time, it already knows how.
 
 ---
 
@@ -378,9 +136,11 @@ Other agents crash when they hit a wall. This one builds a door.
 ├──────────────────────────────────────────────────────────────┤
 │   Autonomous Mind (background think loop)        │  Background Brain
 ├──────────────────────────────────────────────────────────────┤
+│   RLM (Recursive Language Models + ContextStore)   │  Recursive Cognition
+├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (144+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (149+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -409,6 +169,7 @@ Slack Adapter ─────┘                   ▼
 ### Self-Building
 
 - **Self-development** — when the agent encounters a task it lacks tools for, it builds one: research → design → implement → test → review → deploy. Full QA pipeline with unit tests, integration tests, and documentation
+- **RLM (Recursive Language Models)** — the agent calls itself on focused context slices via `agent_call` in the code execution sandbox. Writes scripts that recursively process arbitrarily large inputs — classify files with a cheap model, deep-analyze with a strong model, aggregate results. `ContextStore` provides indexed, queryable context backed by SQLite + sqlite-vec embeddings. 5 context tools for ingest, semantic search, exact slicing, indexing, and transformation. Breaks the context window ceiling
 - **Self-skilling** — writes new SKILL.md files from experience, teaching itself best practices for future tasks
 - **Core self-modification** — can modify its own source code with impact analysis, test verification, and automatic rollback
 - **Autonomous experimentation** — metric-driven experiment loop: modify code, measure, keep improvements, discard regressions, repeat overnight. Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Works for any measurable optimization target
@@ -444,7 +205,7 @@ Slack Adapter ─────┘                   ▼
 </details>
 
 <details>
-<summary>Built-in tools (144+)</summary>
+<summary>Built-in tools (149+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -467,6 +228,7 @@ Slack Adapter ─────┘                   ▼
 | Organization | organization_spawn, organization_delegate, organization_review, organization_teach, organization_status | 5 |
 | Deployment | deploy_website, create_database, deployment_status | 3 |
 | Commune | commune_register, commune_home, commune_post, commune_comment, commune_vote, commune_search, commune_profile | 7 |
+| Context (RLM) | context_ingest, context_query, context_slice, context_index, context_transform | 5 |
 | Image Gen | replicate_generate | 1 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
@@ -490,13 +252,14 @@ EloPhanto/
 │   ├── desktop_controller.py # Desktop GUI control (local + VM)
 │   ├── vault.py         # Encrypted credential vault
 │   ├── identity.py      # Evolving agent identity
+│   ├── context_store.py # RLM ContextStore (indexed, queryable context)
 │   ├── organization.py  # Self-cloning specialist agents
 │   ├── autonomous_mind.py # Background thinking loop
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 135+ built-in tools
+├── tools/               # 149+ built-in tools
 ├── skills/              # 148+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
@@ -662,6 +425,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **RLM (Recursive Language Models)** — inference-time architecture where the agent calls itself on focused context slices, breaking the context window ceiling. Phase 1: `agent_call` in the code execution sandbox enables recursive sub-cognition — the agent writes scripts that invoke sub-instances of itself on focused sub-problems. Phase 2: `ContextStore` with 5 new tools (`context_ingest`, `context_query`, `context_slice`, `context_index`, `context_transform`) — indexed, queryable, sliceable context backed by SQLite + sqlite-vec embeddings. Process a 500-file codebase by writing a script that indexes, classifies, deep-dives via recursive sub-calls, and synthesizes — all in one `execute_code` turn. Safety: 3-level recursion depth limit, 20 agent_calls/session budget, cost cap inheritance. See [docs/54-RLM.md](docs/54-RLM.md)
 - **Web search (Search.sh)** — structured web search and content extraction for research, fact-checking, and market analysis. Two modes: `fast` (3-8s) and `deep` (15-30s with sub-queries and cross-referencing). Returns AI answers with citations, confidence scores, and ranked sources. `web_extract` pulls clean text from URLs. Replaces slow browser-based Google searches. See [docs/53-WEB-SEARCH.md](docs/53-WEB-SEARCH.md)
 - **Terminal dashboard** — full-screen Textual TUI that launches automatically in any capable terminal. Five live panels (Agent, Mind, Swarm, Scheduler, Gateway) alongside the chat REPL. Animated thinking spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) while the agent processes. Color palette exactly matches the web app's dark mode — deep cool charcoal (`#0d0e14`) with warm off-white text and electric purple accents, not plain black. Pass `--no-dashboard` to use the classic linear terminal. See [docs/50-TERMINAL-DASHBOARD.md](docs/50-TERMINAL-DASHBOARD.md)
 - **AgentCash skill** — pay-per-call access to premium APIs via x402 micropayments. One-time wallet setup: `npx agentcash@latest onboard [invite-code]`. Deposits as USDC on Base or Solana. Skill triggers on "set up agentcash", "x402", "invite code". After setup, discover and call any paid endpoint from conversation
@@ -737,13 +501,12 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 
 ## 你醒来后会看到什么
 
-- **逐步成型的企业** — "给自由职业者做一个发票 SaaS" → 验证市场、批准方案、编码智能体一夜之间构建 MVP、部署到 Vercel。每个关键阶段你都审批。它负责调研、构建和部署。支持 SaaS、电商、数字产品、内容站点、本地服务
-- **早上醒来多了47个粉丝** — 自主思维凌晨2点发帖、回复提及、参与热门话题。你一个字没打。你打开电脑它就暂停
-- **在学习的专业团队** — 营销起草了5篇帖子、研究发现了新竞品。你审批时给反馈——"标题再短些"。反馈变成专员知识库中的永久知识。信任分提升，下次自动审批
-- **两个 CI 通过的 PR** — "修复计费 bug 并构建使用量 API" → 一个智能体修 bug，一个建功能，协调器发现偏离并纠正。午饭回来两个 PR 已就绪
-- **控制你电脑上的任何应用** — "打开 Excel 做个图表" — 它看你的屏幕、点击按钮、输入文字。不仅限于浏览器
-- **VS Code 集成** — 右键"解释代码"或"修复代码"。它能看到你的选中内容、诊断信息、打开的文件。VS Code、Telegram、网页面板是同一个对话
-- **持续数周的目标** — "把 Twitter 涨到1万粉" → 分解为检查点，通过自主思维跨会话执行，自我评估并调整。预算控制
+- **端到端创业** — "做一个发票 SaaS" → 验证市场、构建 MVP、部署上线、启动营销。7阶段流水线，跨会话执行
+- **自主增长** — 自主思维凌晨发帖、回复提及。你打开电脑它暂停，关上继续
+- **专业团队** — 克隆自己成为专员（营销、研究等），自动审批高信任度任务
+- **编码团队** — 并行分派 Claude Code + Codex，监控 PR 和 CI
+- **RLM 递归语言模型** — 通过 `agent_call` 递归调用自身处理无限上下文，`ContextStore` 提供索引化可查询的上下文层
+- **自建工具** — 遇到不会的，自己造。完整流水线：设计 → 编码 → 测试 → 部署
 
 ## 为什么选择 EloPhanto？
 

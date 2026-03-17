@@ -211,6 +211,21 @@ class ToolRegistry:
         self.register(WebSearchTool())
         self.register(WebExtractTool())
 
+        # Context tools (RLM Phase 2 — context-as-variable)
+        from tools.context.context_tools import (
+            ContextIndexTool,
+            ContextIngestTool,
+            ContextQueryTool,
+            ContextSliceTool,
+            ContextTransformTool,
+        )
+
+        self.register(ContextIngestTool())
+        self.register(ContextQueryTool())
+        self.register(ContextSliceTool())
+        self.register(ContextIndexTool())
+        self.register(ContextTransformTool())
+
         # Prospecting tools
         from tools.prospecting.evaluate_tool import ProspectEvaluateTool
         from tools.prospecting.outreach_tool import ProspectOutreachTool

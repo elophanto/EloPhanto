@@ -3,6 +3,10 @@
 Listens on a Unix domain socket and dispatches tool calls from the
 sandbox child process. Runs in the parent (agent) process so all
 tool execution goes through the normal permission/approval flow.
+
+Supports `agent_call` for RLM (Recursive Language Model) sub-cognition:
+the sandbox script can invoke the LLM on focused context slices,
+enabling recursive reasoning over arbitrarily large inputs.
 """
 
 from __future__ import annotations
@@ -26,22 +30,43 @@ ALLOWED_TOOLS = frozenset(
         "file_list",
         "knowledge_search",
         "shell_execute",
+        "agent_call",
+        "context_ingest",
+        "context_query",
+        "context_slice",
+        "context_index",
+        "context_transform",
     }
 )
 
 # Max tool calls per sandbox session
 MAX_TOOL_CALLS = 50
 
+# Max recursion depth for agent_call (prevents infinite loops)
+MAX_AGENT_CALL_DEPTH = 3
+
+# Max agent_call invocations per sandbox session
+MAX_AGENT_CALLS = 20
+
 
 class RPCServer:
     """Unix socket RPC server for sandbox tool dispatch."""
 
-    def __init__(self, registry: Any, executor: Any) -> None:
+    def __init__(
+        self,
+        registry: Any,
+        executor: Any,
+        router: Any = None,
+        agent_call_depth: int = 0,
+    ) -> None:
         self._registry = registry
         self._executor = executor
+        self._router = router
+        self._agent_call_depth = agent_call_depth
         self._socket_path = ""
         self._server: asyncio.AbstractServer | None = None
         self._call_count = 0
+        self._agent_call_count = 0
 
     @property
     def socket_path(self) -> str:
@@ -130,6 +155,11 @@ class RPCServer:
                 "error": f"Tool call limit exceeded ({MAX_TOOL_CALLS})",
             }
 
+        # agent_call is handled specially — it's not a registered tool,
+        # it's a sub-cognition call through the LLM router.
+        if tool_name == "agent_call":
+            return await self._handle_agent_call(req_id, params)
+
         tool = self._registry.get(tool_name)
         if not tool:
             return {
@@ -149,3 +179,119 @@ class RPCServer:
         except Exception as e:
             logger.warning("RPC tool error (%s): %s", tool_name, e)
             return {"id": req_id, "success": False, "error": str(e)}
+
+    async def _handle_agent_call(
+        self, req_id: int, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Handle an agent_call — recursive LLM sub-cognition.
+
+        The sandbox script provides a prompt and optional context.
+        We route it through the LLM router as a focused single-turn call.
+        """
+        if not self._router:
+            return {
+                "id": req_id,
+                "success": False,
+                "error": "LLM router not available for agent_call.",
+            }
+
+        # Enforce recursion depth limit
+        if self._agent_call_depth >= MAX_AGENT_CALL_DEPTH:
+            return {
+                "id": req_id,
+                "success": False,
+                "error": (
+                    f"Recursion depth limit reached ({MAX_AGENT_CALL_DEPTH}). "
+                    "Cannot nest agent_call further."
+                ),
+            }
+
+        # Enforce per-session agent_call budget
+        self._agent_call_count += 1
+        if self._agent_call_count > MAX_AGENT_CALLS:
+            return {
+                "id": req_id,
+                "success": False,
+                "error": f"agent_call limit exceeded ({MAX_AGENT_CALLS} per session).",
+            }
+
+        prompt = params.get("prompt", "")
+        context = params.get("context", "")
+        model = params.get("model")
+        task_type = params.get("task_type", "analysis")
+        max_tokens = params.get("max_tokens")
+
+        if not prompt:
+            return {
+                "id": req_id,
+                "success": False,
+                "error": "agent_call requires a 'prompt' parameter.",
+            }
+
+        # Build messages — inject context into a focused single-turn call
+        messages: list[dict[str, Any]] = []
+        if context:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a sub-agent performing a focused analysis task. "
+                        "Answer concisely based on the provided context.\n\n"
+                        f"--- CONTEXT ---\n{context}\n--- END CONTEXT ---"
+                    ),
+                }
+            )
+        else:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a sub-agent performing a focused analysis task. "
+                        "Answer concisely."
+                    ),
+                }
+            )
+        messages.append({"role": "user", "content": prompt})
+
+        # Map model hint to router parameters
+        model_override = None
+        if model and model != "auto":
+            # "fast" / "strong" are task_type hints, not model overrides
+            if model in ("fast", "cheap"):
+                task_type = "simple"
+            elif model in ("strong", "best"):
+                task_type = "planning"
+            else:
+                # Treat as literal model name
+                model_override = model
+
+        try:
+            logger.info(
+                "[agent_call] depth=%d count=%d task_type=%s prompt=%.80s",
+                self._agent_call_depth + 1,
+                self._agent_call_count,
+                task_type,
+                prompt,
+            )
+            response = await self._router.complete(
+                messages=messages,
+                task_type=task_type,
+                model_override=model_override,
+                max_tokens=max_tokens,
+            )
+            return {
+                "id": req_id,
+                "success": True,
+                "data": {
+                    "response": response.content,
+                    "model_used": response.model_used,
+                    "tokens": {
+                        "input": response.input_tokens,
+                        "output": response.output_tokens,
+                    },
+                    "depth": self._agent_call_depth + 1,
+                },
+            }
+        except Exception as e:
+            logger.warning("agent_call failed: %s", e)
+            return {"id": req_id, "success": False, "error": f"agent_call failed: {e}"}
