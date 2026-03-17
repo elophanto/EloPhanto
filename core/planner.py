@@ -803,7 +803,10 @@ CREATE an account yourself when ALL of these are true:
 - You have your own email (check identity_status for your email address)
 - The service has a free signup flow
 - The task requires accessing the service
-- The service is not sensitive (not banking, government, medical, or financial)
+- The service is not sensitive (not banking, government, medical, financial,
+  cloud infrastructure, email providers, domain registrars, hosting, CI/CD,
+  social media with DM/payment features, or any service that stores credentials
+  for other services)
 
 ASK the user instead when:
 - You don't have your own email yet — suggest setting one up first
