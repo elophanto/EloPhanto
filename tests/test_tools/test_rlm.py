@@ -23,12 +23,11 @@ from tools.context.context_tools import (
 )
 from tools.self_dev.rpc_server import (
     ALLOWED_TOOLS,
-    MAX_AGENT_CALLS,
     MAX_AGENT_CALL_DEPTH,
+    MAX_AGENT_CALLS,
     RPCServer,
 )
 from tools.self_dev.stub_generator import generate_stubs
-
 
 # ═══════════════════════════════════════════════════════════════════
 # Phase 1: agent_call + RPC server
