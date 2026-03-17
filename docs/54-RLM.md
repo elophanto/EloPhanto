@@ -1,6 +1,6 @@
 # 54 — Recursive Language Model (RLM) Architecture
 
-> **Status: Planned** — Inference-time recursive self-invocation for unbounded context processing.
+> **Status: Implemented** — Inference-time recursive self-invocation for unbounded context processing. Phase 1 (agent_call) and Phase 2 (ContextStore + 5 context tools) are both live.
 
 ## What Is RLM?
 

@@ -34,6 +34,7 @@ class ExecuteCodeTool(BaseTool):
         self._project_root = project_root
         self._registry: Any = None
         self._executor: Any = None
+        self._router: Any = None
 
     @property
     def name(self) -> str:
@@ -43,11 +44,14 @@ class ExecuteCodeTool(BaseTool):
     def description(self) -> str:
         return (
             "Execute a Python script in a sandboxed environment with access to "
-            "a curated set of tools via RPC (web_search, web_extract, file_read, "
-            "file_write, file_list, knowledge_search, shell_execute). Use for "
-            "complex multi-step tasks that would require many sequential tool "
-            "calls. The script runs in an isolated process with no access to "
-            "credentials or secrets."
+            "tools via RPC: web_search, web_extract, file_read, file_write, "
+            "file_list, knowledge_search, shell_execute, agent_call, "
+            "context_ingest, context_query, context_slice, context_index, "
+            "context_transform. Use for complex multi-step tasks. "
+            "agent_call enables RLM (Recursive Language Model) sub-cognition. "
+            "context_* tools manage indexed, queryable context stores for "
+            "reasoning over arbitrarily large inputs. The script runs in an "
+            "isolated process with no access to credentials or secrets."
         )
 
     @property
@@ -59,9 +63,11 @@ class ExecuteCodeTool(BaseTool):
                     "type": "string",
                     "description": (
                         "Python script to execute. Import 'elophanto_tools' "
-                        "for tool access. Available functions: web_search, "
-                        "web_extract, file_read, file_write, file_list, "
-                        "knowledge_search, shell_execute."
+                        "for tool access. Available: web_search, web_extract, "
+                        "file_read, file_write, file_list, knowledge_search, "
+                        "shell_execute, agent_call, context_ingest, "
+                        "context_query, context_slice, context_index, "
+                        "context_transform."
                     ),
                 },
                 "description": {
@@ -97,7 +103,7 @@ class ExecuteCodeTool(BaseTool):
         from tools.self_dev.rpc_server import RPCServer
         from tools.self_dev.stub_generator import generate_stubs
 
-        rpc = RPCServer(self._registry, self._executor)
+        rpc = RPCServer(self._registry, self._executor, router=self._router)
 
         try:
             socket_path = await rpc.start()

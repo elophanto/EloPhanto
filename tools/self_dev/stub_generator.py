@@ -45,6 +45,63 @@ _TOOL_STUBS: dict[str, tuple[str, str, str]] = {
         "Run a shell command. Returns {'stdout': '...', 'returncode': 0}",
         '{"command": command, "timeout": timeout}',
     ),
+    "agent_call": (
+        'prompt: str, context: str = "", model: str = "auto", '
+        'task_type: str = "analysis", max_tokens: int | None = None',
+        (
+            "Invoke a sub-instance of the agent on a focused prompt (RLM). "
+            "Returns {'response': '...', 'model_used': '...', 'tokens': {...}, 'depth': N}. "
+            "Use model='fast' for classification/simple tasks, model='strong' for deep analysis, "
+            "or model='auto' (default) to let the router pick."
+        ),
+        '{"prompt": prompt, "context": context, "model": model, '
+        '"task_type": task_type, "max_tokens": max_tokens}',
+    ),
+    "context_ingest": (
+        "context_id: str = '', name: str = 'unnamed', "
+        "files: list = None, text: str = '', source_label: str = 'inline_text'",
+        (
+            "Ingest files or text into a context store. "
+            "Returns {'context_id': '...', 'chunks_created': N}. "
+            "If context_id is empty, a new store is created."
+        ),
+        '{"context_id": context_id, "name": name, '
+        '"files": files or [], "text": text, "source_label": source_label}',
+    ),
+    "context_query": (
+        "context_id: str, query: str, max_chunks: int = 5",
+        (
+            "Semantic search over a context store. "
+            "Returns {'results': [{'content': '...', 'source': '...', 'score': N}]}."
+        ),
+        '{"context_id": context_id, "query": query, "max_chunks": max_chunks}',
+    ),
+    "context_slice": (
+        "context_id: str, source: str, start_line: int = None, end_line: int = None",
+        (
+            "Get exact content from a context store by source path and optional line range. "
+            "Returns {'content': '...'}."
+        ),
+        '{"context_id": context_id, "source": source, '
+        '"start_line": start_line, "end_line": end_line}',
+    ),
+    "context_index": (
+        "context_id: str = ''",
+        (
+            "Get table of contents for a context store, or list all stores if "
+            "context_id is empty. Returns {'index': '...'} or {'contexts': [...]}."
+        ),
+        '{"context_id": context_id}',
+    ),
+    "context_transform": (
+        "context_id: str, operation: str, keyword: str = '', source: str = ''",
+        (
+            "Apply transformations: 'filter' (by keyword/source), 'group' (by source), "
+            "'stats', 'sources'. Returns {'result': '...'}."
+        ),
+        '{"context_id": context_id, "operation": operation, '
+        '"keyword": keyword, "source": source}',
+    ),
 }
 
 

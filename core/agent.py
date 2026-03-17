@@ -91,6 +91,10 @@ _PARALLEL_SAFE_TOOLS = frozenset(
         "prospect_evaluate",
         "web_search",
         "web_extract",
+        "context_query",
+        "context_slice",
+        "context_index",
+        "context_transform",
     }
 )
 
@@ -376,6 +380,7 @@ class Agent:
         self._storage_manager: Any = None  # StorageManager, set during initialize
         self._document_processor: Any = None  # DocumentProcessor
         self._document_store: Any = None  # DocumentStore
+        self._context_store: Any = None  # ContextStore (RLM Phase 2)
         self._goal_manager: Any = None  # GoalManager, set during initialize
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
@@ -505,6 +510,12 @@ class Agent:
 
         # Inject dependencies into knowledge tools
         self._inject_knowledge_deps()
+
+        # Initialize ContextStore (RLM Phase 2 — context-as-variable)
+        from core.context_store import ContextStore
+
+        self._context_store = ContextStore(db=self._db, embedder=self._embedder)
+        self._inject_context_deps()
 
         # Initialize lesson extractor (fire-and-forget learning after each task)
         if getattr(self._config, "learner", None) and self._config.learner.enabled:
@@ -1140,6 +1151,14 @@ class Agent:
         if modifier_tool:
             modifier_tool._router = self._router
 
+        # Code execution sandbox — needs registry, executor, and router
+        # (router enables agent_call for RLM sub-cognition)
+        exec_tool = self._registry.get("execute_code")
+        if exec_tool:
+            exec_tool._registry = self._registry
+            exec_tool._executor = self._executor
+            exec_tool._router = self._router
+
     def _inject_browser_deps(self) -> None:
         """Inject browser manager into all browser tools."""
         for tool in self._registry.all_tools():
@@ -1153,6 +1172,20 @@ class Agent:
                 tool, "_desktop_controller"
             ):
                 tool._desktop_controller = self._desktop_controller
+
+    def _inject_context_deps(self) -> None:
+        """Inject ContextStore into context tools."""
+        context_tools = (
+            "context_ingest",
+            "context_query",
+            "context_slice",
+            "context_index",
+            "context_transform",
+        )
+        for tool_name in context_tools:
+            tool = self._registry.get(tool_name)
+            if tool and self._context_store:
+                tool._context_store = self._context_store
 
     def _inject_vault_deps(self) -> None:
         """Inject vault into vault and web search tools."""
