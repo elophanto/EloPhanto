@@ -13,7 +13,7 @@ import pytest
 
 from core.context_store import ContextStore, _estimate_tokens
 from core.database import Database
-from tools.base import PermissionLevel, ToolResult
+from tools.base import PermissionLevel
 from tools.context.context_tools import (
     ContextIndexTool,
     ContextIngestTool,
