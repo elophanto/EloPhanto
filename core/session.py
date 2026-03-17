@@ -18,6 +18,7 @@ from core.database import Database
 logger = logging.getLogger(__name__)
 
 _MAX_CONVERSATION_HISTORY = 20
+_MAX_CACHE_SIZE = 200  # LRU eviction threshold for in-memory session cache
 
 
 @dataclass
@@ -51,9 +52,10 @@ class Session:
 class SessionManager:
     """Manages sessions with SQLite persistence."""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, max_cache_size: int = _MAX_CACHE_SIZE) -> None:
         self._db = db
         self._cache: dict[str, Session] = {}
+        self._max_cache_size = max_cache_size
 
     async def create(self, channel: str, user_id: str) -> Session:
         """Create a new session for a channel+user pair."""
@@ -64,6 +66,7 @@ class SessionManager:
         )
         await self._persist(session)
         self._cache[session.session_id] = session
+        self._evict_lru()
         logger.info(
             "Created session %s for %s/%s",
             session.session_id[:8],
@@ -86,6 +89,7 @@ class SessionManager:
 
         session = self._row_to_session(rows[0])
         self._cache[session_id] = session
+        self._evict_lru()
         return session
 
     async def get_or_create(self, channel: str, user_id: str) -> Session:
@@ -105,6 +109,7 @@ class SessionManager:
             session = self._row_to_session(rows[0])
             session.touch()
             self._cache[session.session_id] = session
+            self._evict_lru()
             return session
 
         return await self.create(channel, user_id)
@@ -174,6 +179,17 @@ class SessionManager:
                 datetime.now(UTC).isoformat(),
             ),
         )
+
+    def _evict_lru(self) -> None:
+        """Evict least-recently-active sessions when cache exceeds max size."""
+        if len(self._cache) <= self._max_cache_size:
+            return
+        # Sort by last_active, evict oldest entries
+        by_age = sorted(self._cache.values(), key=lambda s: s.last_active)
+        evict_count = len(self._cache) - self._max_cache_size
+        for s in by_age[:evict_count]:
+            self._cache.pop(s.session_id, None)
+        logger.debug("LRU evicted %d sessions from cache", evict_count)
 
     async def _persist(self, session: Session) -> None:
         """Upsert session to database."""

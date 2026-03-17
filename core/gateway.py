@@ -811,6 +811,9 @@ class Gateway:
         else:
             logger.warning("No pending approval for id %s", request_id[:8])
 
+    # Commands that modify secrets or agent config — require OWNER authority.
+    _OWNER_ONLY_COMMANDS: frozenset[str] = frozenset({"vault_set", "config_update"})
+
     async def _handle_command(
         self, client: ClientConnection, msg: GatewayMessage
     ) -> None:
@@ -818,6 +821,30 @@ class Gateway:
         command = msg.data.get("command", "")
         session_id = msg.session_id or client.session_id
         user_id = msg.user_id or client.user_id
+
+        # --- RBAC: block sensitive commands for non-owner users ---
+        if command in self._OWNER_ONLY_COMMANDS:
+            from core.authority import AuthorityLevel, resolve_authority
+
+            channel = msg.channel or client.channel or "unknown"
+            authority = resolve_authority(
+                channel, user_id or "", self._authority_config
+            )
+            if authority != AuthorityLevel.OWNER:
+                logger.warning(
+                    "RBAC denied %s for %s:%s (authority=%s)",
+                    command,
+                    channel,
+                    (user_id or "")[:8],
+                    authority.value,
+                )
+                await client.websocket.send(
+                    error_message(
+                        f"Permission denied: '{command}' requires owner authority",
+                        session_id,
+                    ).to_json()
+                )
+                return
 
         if command == "status":
             active = await self._sessions.list_active(limit=5)

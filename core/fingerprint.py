@@ -16,6 +16,7 @@ See docs/27-SECURITY-HARDENING.md (Gap 3: Self-Identity Model).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 from pathlib import Path
@@ -27,17 +28,21 @@ _VAULT_KEY = "_agent_fingerprint"
 
 
 def generate_fingerprint(config_hash: str, vault_salt_hash: str) -> str:
-    """Generate a deterministic SHA-256 fingerprint.
+    """Generate a deterministic HMAC-SHA-256 fingerprint.
+
+    Uses HMAC instead of plain hash to prevent length-extension attacks
+    and provide a proper keyed authentication of the identity material.
 
     Args:
         config_hash: Hash of stable config fields.
         vault_salt_hash: Hash of the vault salt file.
 
     Returns:
-        Hex-encoded SHA-256 fingerprint (64 chars).
+        Hex-encoded HMAC-SHA-256 fingerprint (64 chars).
     """
-    material = f"elophanto:fingerprint:{config_hash}:{vault_salt_hash}"
-    return hashlib.sha256(material.encode()).hexdigest()
+    key = b"elophanto:fingerprint:v2"
+    message = f"{config_hash}:{vault_salt_hash}".encode()
+    return hmac.new(key, message, hashlib.sha256).hexdigest()
 
 
 def compute_config_hash(config: Any) -> str:
