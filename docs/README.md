@@ -74,6 +74,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 52 | [Prospecting](52-PROSPECTING.md) | Lead search, evaluation, outreach tracking for revenue generation |
 | 53 | [Web Search](53-WEB-SEARCH.md) | Structured web search and content extraction via Search.sh API |
 | 54 | [RLM Architecture](54-RLM.md) | Recursive Language Models — inference-time recursive self-invocation for unbounded context |
+| 55 | [Session Hardening](55-SESSION-HARDENING.md) | Context compression, memory injection scanning, user modeling, skill capture nudge |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 

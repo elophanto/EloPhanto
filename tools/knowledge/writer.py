@@ -94,6 +94,27 @@ class KnowledgeWriteTool(BaseTool):
         scope = params.get("scope", "learned")
         compress = params.get("compress", False)
 
+        # Scan for prompt injection before persisting
+        from core.injection_guard import scan_for_injection
+
+        scan_text = f"{title} {content}"
+        is_suspicious, patterns = scan_for_injection(scan_text)
+        if is_suspicious:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Blocked knowledge_write with injection patterns (%s): %s",
+                ", ".join(patterns),
+                rel_path,
+            )
+            return ToolResult(
+                success=False,
+                error=(
+                    f"Content blocked: suspicious patterns detected ({', '.join(patterns)}). "
+                    "Rewrite the content without instruction-like language."
+                ),
+            )
+
         # Compress verbose content before writing (e.g., scraped pages)
         if compress and self._learner:
             try:

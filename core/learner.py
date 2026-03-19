@@ -182,6 +182,28 @@ class LessonExtractor:
         if not text or not title:
             return
 
+        # Scan for prompt injection before persisting
+        from core.injection_guard import scan_for_injection
+        from core.pii_guard import redact_pii
+
+        combined = f"{title} {when} {text}"
+        is_suspicious, patterns = scan_for_injection(combined)
+        if is_suspicious:
+            logger.warning(
+                "Blocked lesson with injection patterns (%s): %s",
+                ", ".join(patterns),
+                title,
+            )
+            return
+
+        # Redact PII from lesson content
+        title = redact_pii(title)
+        text = redact_pii(text)
+        when = redact_pii(when)
+
+        if not text or not title:
+            return
+
         now = datetime.now(UTC)
         date_str = now.strftime("%Y-%m-%d")
         slug = _slugify(title)

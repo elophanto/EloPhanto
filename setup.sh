@@ -30,6 +30,10 @@ if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 12 ]); t
     exit 1
 fi
 echo "  ✓ Python $PY_VERSION"
+if [ "$PY_MINOR" -ge 14 ]; then
+    echo "    Note: Python 3.14 is very new — some packages may not have prebuilt wheels yet."
+    echo "    If install hangs or fails, try Python 3.13: brew install python@3.13"
+fi
 
 # Check/install uv
 if ! command -v uv &>/dev/null; then
@@ -63,18 +67,58 @@ fi
 
 # ── Install dependencies ──
 
+# Spinner helper — runs a command with a progress indicator so the user
+# knows something is happening.  Hides stdout but shows stderr on failure.
+_spin() {
+    local msg="$1"; shift
+    local pid errfile
+    errfile=$(mktemp)
+    printf "  → %s " "$msg"
+    "$@" >"$errfile" 2>&1 &
+    pid=$!
+    local chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    while kill -0 "$pid" 2>/dev/null; do
+        for (( i=0; i<${#chars}; i++ )); do
+            printf "\r  → %s %s" "$msg" "${chars:$i:1}"
+            sleep 0.1
+            kill -0 "$pid" 2>/dev/null || break
+        done
+    done
+    wait "$pid"
+    local rc=$?
+    printf "\r"
+    if [ $rc -eq 0 ]; then
+        printf "  ✓ %s\n" "$msg"
+    else
+        printf "  ✗ %s (failed)\n" "$msg"
+        echo ""
+        echo "  Error output:"
+        tail -20 "$errfile" | sed 's/^/    /'
+        echo ""
+    fi
+    rm -f "$errfile"
+    return $rc
+}
+
 echo ""
-echo "  → Installing dependencies..."
-uv sync 2>/dev/null
-uv pip install -e '.[payments]' 2>/dev/null
-uv pip install -e '.[mcp]' 2>/dev/null
-echo "  ✓ Core dependencies installed (includes crypto wallet + MCP support)"
+_spin "Syncing project dependencies" uv sync || {
+    echo "  ⚠ 'uv sync' failed. Trying fallback: uv pip install -e '.' ..."
+    _spin "Installing core (fallback)" uv pip install -e '.' || {
+        echo ""
+        echo "  ✗ Dependency installation failed."
+        echo "    If you're on Python 3.14+, try Python 3.13 instead:"
+        echo "      brew install python@3.13"
+        echo "      uv python pin 3.13 && uv sync"
+        echo ""
+        exit 1
+    }
+}
+_spin "Installing crypto wallet support" uv pip install -e '.[payments]' || true
+_spin "Installing MCP support" uv pip install -e '.[mcp]' || true
 
 # Install desktop GUI deps if configured
 if grep -q "desktop:" config.yaml 2>/dev/null && grep -A1 "desktop:" config.yaml 2>/dev/null | grep -q "enabled: true"; then
-    echo "  → Installing desktop GUI agent dependencies..."
-    uv pip install -e '.[desktop]' 2>/dev/null && \
-        echo "  ✓ Desktop agent deps installed (pyautogui + aiohttp)" || \
+    _spin "Installing desktop GUI agent dependencies" uv pip install -e '.[desktop]' || \
         echo "  ⚠ Desktop deps install failed (optional — run: uv pip install -e '.[desktop]')"
 fi
 
@@ -85,18 +129,14 @@ fi
 
 # Install Coinbase AgentKit if configured
 if grep -q "provider: agentkit" config.yaml 2>/dev/null; then
-    echo "  → Installing Coinbase AgentKit (CDP provider detected)..."
-    uv pip install -e '.[payments-cdp]' 2>/dev/null && \
-        echo "  ✓ Coinbase AgentKit installed" || \
+    _spin "Installing Coinbase AgentKit" uv pip install -e '.[payments-cdp]' || \
         echo "  ⚠ AgentKit install failed (optional — switch to provider: local in config.yaml)"
 fi
 
 # Build browser bridge if Node.js is available
 if command -v node &>/dev/null && [ -f "bridge/browser/package.json" ]; then
     if [ ! -d "bridge/browser/dist" ]; then
-        echo "  → Building browser bridge..."
-        (cd bridge/browser && npm install --silent 2>/dev/null && npm run build --silent 2>/dev/null) || true
-        echo "  ✓ Browser bridge built"
+        _spin "Building browser bridge" bash -c 'cd bridge/browser && npm install --silent && npm run build --silent' || true
     else
         echo "  ✓ Browser bridge (already built)"
     fi
