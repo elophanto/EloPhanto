@@ -1,6 +1,6 @@
 # 55 — Session Hardening
 
-> **Status: In Progress** — Context compression, memory injection scanning, user modeling, and skill capture nudge activation.
+> **Status: Complete** — Context compression, memory injection scanning, user modeling, and skill capture nudge activation.
 
 ## Overview
 
@@ -143,7 +143,7 @@ Wire up the existing nudge system:
 | 1 | Context Compression | Medium | New `core/context_compressor.py`, edit `core/agent.py` |
 | 2 | Memory Injection Scanning | Low | Edit `core/learner.py`, `tools/knowledge/writer.py`, `core/agent.py` |
 | 3 | Skill Capture Nudge | Low | Edit `core/agent.py` (parameter wiring only) |
-| 4 | User Modeling | High | New `core/user_model.py`, `tools/user/profile_tool.py`, edit `core/database.py`, `core/agent.py` |
+| 4 | User Modeling | High | New `core/user_model.py`, `tools/user/profile_tool.py`, edit `core/database.py`, `core/agent.py`, `core/planner.py`, `core/registry.py` |
 
 ## Integration with Existing Systems
 
