@@ -396,6 +396,9 @@ class Agent:
         self._parent_adapter: Any = None  # ParentChannelAdapter, set during initialize
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._heartbeat_engine: Any = None  # HeartbeatEngine, set during initialize
+        self._user_profile_manager: Any = (
+            None  # UserProfileManager, set during initialize
+        )
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
         self._learner: Any = None  # LessonExtractor, set during initialize
 
@@ -770,6 +773,19 @@ class Agent:
                 logger.info("Identity system ready")
             except Exception as e:
                 logger.warning(f"Identity system setup failed: {e}")
+
+        # Initialize user modeling
+        if self._config.identity.enabled:
+            try:
+                from core.user_model import UserProfileManager
+
+                self._user_profile_manager = UserProfileManager(
+                    db=self._db, router=self._router
+                )
+                self._inject_user_profile_deps()
+                logger.info("User profile system ready")
+            except Exception as e:
+                logger.warning(f"User profile setup failed: {e}")
 
         # Initialize payments system
         if self._config.payments.enabled:
@@ -1269,6 +1285,12 @@ class Agent:
             if tool and self._identity_manager:
                 tool._identity_manager = self._identity_manager
 
+    def _inject_user_profile_deps(self) -> None:
+        """Inject user profile manager into user profile tools."""
+        tool = self._registry.get("user_profile_view")
+        if tool and self._user_profile_manager:
+            tool._user_profile_manager = self._user_profile_manager
+
     def _inject_payment_deps(self) -> None:
         """Inject payments manager into payment tools."""
         payment_tools = (
@@ -1553,6 +1575,16 @@ class Agent:
         except Exception:
             pass
 
+        # User profile context — what the agent knows about this user
+        user_context = ""
+        try:
+            if self._user_profile_manager and session is not None:
+                user_context = await self._user_profile_manager.build_user_context(
+                    session.channel, session.user_id
+                )
+        except Exception:
+            pass
+
         logger.info("[TIMING] pre-loop context: %.2fs", _time.monotonic() - _ctx_start)
 
         # Build system prompt with XML-structured sections, skills, and knowledge
@@ -1678,6 +1710,7 @@ class Agent:
             runtime_state=_runtime_state,
             current_goal=goal,
             workspace=self._config.workspace,
+            user_context=user_context,
         )
 
         # Forward task context to browser bridge for goal-aware vision analysis
@@ -1941,6 +1974,17 @@ class Agent:
                             goal=goal,
                             outcome=final_content[:200],
                             tools_used=list(set(tool_calls_made)),
+                        )
+                    )
+
+                # User profile observation (non-blocking, fire-and-forget)
+                if self._user_profile_manager and session is not None:
+                    asyncio.create_task(
+                        self._user_profile_manager.observe_task(
+                            channel=session.channel,
+                            user_id=session.user_id,
+                            user_message=goal[:500],
+                            agent_response=final_content[:500],
                         )
                     )
 

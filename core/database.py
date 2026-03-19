@@ -447,6 +447,22 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_outreach_log_prospect
         ON outreach_log(prospect_id, created_at)
     """,
+    # ── User Profiles ─────────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS user_profiles (
+        user_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL DEFAULT '',
+        expertise_json TEXT NOT NULL DEFAULT '[]',
+        preferences_json TEXT NOT NULL DEFAULT '{}',
+        observations_json TEXT NOT NULL DEFAULT '[]',
+        interaction_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, channel)
+    )
+    """,
 ]
 
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError

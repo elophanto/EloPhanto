@@ -1707,6 +1707,7 @@ def build_system_prompt(
     nudge_messages: list[dict] | None = None,
     is_mind_mode: bool = False,
     is_goal_active: bool = False,
+    user_context: str = "",
 ) -> str:
     """Assemble the full system prompt from XML-structured sections.
 
@@ -1762,6 +1763,13 @@ def build_system_prompt(
 
     sections = [
         identity_section,
+    ]
+
+    # User context — what the agent knows about the current user
+    if user_context:
+        sections.append(user_context)
+
+    sections += [
         runtime,
         _BEHAVIOR,
         permission_section,

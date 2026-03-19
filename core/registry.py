@@ -167,6 +167,11 @@ class ToolRegistry:
         self.register(IdentityUpdateTool())
         self.register(IdentityReflectTool())
 
+        # User profile tool
+        from tools.user.profile_tool import UserProfileViewTool
+
+        self.register(UserProfileViewTool())
+
         # Email tools
         from tools.email.create_inbox_tool import EmailCreateInboxTool
         from tools.email.list_tool import EmailListTool
