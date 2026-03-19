@@ -1774,9 +1774,38 @@ class Agent:
             # Compress old screenshots / large element text to prevent context bloat.
             # Always run — conversation_history may carry browser content from prior turns.
             _compress_browser_context(messages)
+
+            # Mid-conversation context compression — summarize middle turns
+            # when approaching context window limits
+            from core.context_compressor import compress_messages, needs_compression
+
+            if needs_compression(messages):
+                messages = await compress_messages(messages, self._router)
+
+            # Proactive nudge — inject periodically to encourage skill/memory capture
+            _nudge_interval = getattr(self._config, "nudge_interval", 15)
+            _nudge_msg: dict[str, str] | None = None
+            if (
+                step > 0
+                and _nudge_interval > 0
+                and step % _nudge_interval == 0
+                and not _mind_ctx
+                and not goal_context
+                and step >= 5
+            ):
+                from core.planner import _build_nudge
+
+                _nudge_text = _build_nudge(messages, step)
+                if _nudge_text:
+                    _nudge_msg = {"role": "user", "content": _nudge_text}
+
+            _llm_messages = [{"role": "system", "content": system_content}] + messages
+            if _nudge_msg:
+                _llm_messages.append(_nudge_msg)
+
             try:
                 response = await self._router.complete(
-                    messages=[{"role": "system", "content": system_content}] + messages,
+                    messages=_llm_messages,
                     task_type="planning",
                     tools=_tools,
                     temperature=0.2,
@@ -2725,6 +2754,18 @@ User message:
             directive_text = result.get("directive", "").strip()
             key = result.get("key", "directive").strip()
             if not directive_text:
+                return
+
+            # Scan directive for injection before persisting
+            from core.injection_guard import scan_for_injection
+
+            is_suspicious, patterns = scan_for_injection(directive_text)
+            if is_suspicious:
+                logger.warning(
+                    "Blocked directive with injection patterns (%s): %s",
+                    ", ".join(patterns),
+                    directive_text[:100],
+                )
                 return
 
             # Persist via knowledge_write tool (already has deps injected)
