@@ -11,7 +11,7 @@
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
   <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-55%2B%20pages-blue" alt="Docs"></a>
-  <a href="https://x.com/EloPhanto21719"><img src="https://img.shields.io/badge/X-%40EloPhanto21719-black" alt="X"></a>
+  <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
 
