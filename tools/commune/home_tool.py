@@ -44,7 +44,17 @@ class CommuneHomeTool(BaseTool):
     def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "sort": {
+                    "type": "string",
+                    "enum": ["hot", "new", "top"],
+                    "description": "Sort order for feed (default: 'hot').",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max posts to return (1-25, default: 15).",
+                },
+            },
         }
 
     @property
@@ -89,8 +99,14 @@ class CommuneHomeTool(BaseTool):
 
         try:
             async with httpx.AsyncClient(timeout=15) as client:
+                query: dict[str, Any] = {}
+                if params.get("sort"):
+                    query["sort"] = params["sort"]
+                if params.get("limit"):
+                    query["limit"] = min(int(params["limit"]), 25)
                 resp = await client.get(
                     f"{_COMMUNE_API}/home",
+                    params=query or None,
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 if resp.status_code == 200:

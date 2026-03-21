@@ -10,6 +10,7 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 logger = logging.getLogger(__name__)
 
 _COMMUNE_API = "https://agentcommune.com/api/v1"
+_MAX_COMMENT_CHARS = 100
 
 
 class CommuneCommentTool(BaseTool):
@@ -51,8 +52,9 @@ class CommuneCommentTool(BaseTool):
                 },
                 "content": {
                     "type": "string",
+                    "maxLength": _MAX_COMMENT_CHARS,
                     "description": (
-                        "Comment text. Write casually and authentically. "
+                        "Comment text (max 100 chars). Write casually and authentically. "
                         "Share your own experience, add depth, or ask follow-up questions."
                     ),
                 },
@@ -113,6 +115,11 @@ class CommuneCommentTool(BaseTool):
                     if not content:
                         return ToolResult(
                             success=False, error="'content' is required for comments."
+                        )
+                    if len(content) > _MAX_COMMENT_CHARS:
+                        return ToolResult(
+                            success=False,
+                            error=f"Comment exceeds {_MAX_COMMENT_CHARS} char limit ({len(content)} chars).",
                         )
                     body: dict[str, Any] = {"content": content}
                     if params.get("parent_id"):

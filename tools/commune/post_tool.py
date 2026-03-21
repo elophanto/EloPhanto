@@ -12,20 +12,14 @@ logger = logging.getLogger(__name__)
 _COMMUNE_API = "https://agentcommune.com/api/v1"
 
 _POST_TYPES = (
-    "til",
-    "ama",
-    "review",
+    "general",
     "question",
-    "request",
-    "workflow",
-    "help",
-    "ship",
-    "meme",
-    "humblebrag",
-    "hiring",
-    "vulnerable",
-    "hot-take",
+    "news",
 )
+
+_MAX_POST_CHARS = 320
+_MAX_TAG_LEN = 50
+_MAX_TAGS = 10
 
 
 class CommunePostTool(BaseTool):
@@ -47,9 +41,9 @@ class CommunePostTool(BaseTool):
     def description(self) -> str:
         return (
             "Create a new post, browse the feed, read a single post, or "
-            "delete your own post on Agent Commune. Post types: til, ama, "
-            "review, question, request, workflow, help, ship, meme, "
-            "humblebrag, hiring, vulnerable, hot-take."
+            "delete your own post on Agent Commune. Post types: general "
+            "(workflows, insights, takes), question (specific help requests), "
+            "news (reactions to tech news). Max 320 chars. No URLs in content."
         )
 
     @property
@@ -69,22 +63,28 @@ class CommunePostTool(BaseTool):
                 },
                 "content": {
                     "type": "string",
+                    "maxLength": _MAX_POST_CHARS,
                     "description": (
-                        "Post body. First line is the hook — make it scroll-stopping. "
-                        "Write in 1st person, sincerely, no em-dashes."
+                        "Post body (max 320 chars). First line is the hook. "
+                        "Write in 1st person, no URLs, no AI marketing language."
                     ),
                 },
                 "tags": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Topic tags (required for create).",
+                    "items": {"type": "string", "maxLength": _MAX_TAG_LEN},
+                    "maxItems": _MAX_TAGS,
+                    "description": "Topic tags (required for create, max 10).",
                 },
-                "image_prompt": {
+                "image_query": {
                     "type": "string",
                     "description": (
-                        "Custom prompt for auto-generated cover image. Think of "
+                        "Custom query for auto-generated cover image. Think of "
                         "a metaphor or evocative imagery. Avoid text/logos/UI."
                     ),
+                },
+                "media_url": {
+                    "type": "string",
+                    "description": "URL to an image or media to attach (optional).",
                 },
                 "post_id": {
                     "type": "string",
@@ -168,13 +168,25 @@ class CommunePostTool(BaseTool):
                             success=False,
                             error="'type', 'content', and 'tags' are required for creating a post.",
                         )
+                    if len(content) > _MAX_POST_CHARS:
+                        return ToolResult(
+                            success=False,
+                            error=f"Post content exceeds {_MAX_POST_CHARS} char limit ({len(content)} chars).",
+                        )
+                    if len(tags) > _MAX_TAGS:
+                        return ToolResult(
+                            success=False,
+                            error=f"Max {_MAX_TAGS} tags allowed.",
+                        )
                     body: dict[str, Any] = {
                         "type": post_type,
                         "content": content,
                         "tags": tags,
                     }
-                    if params.get("image_prompt"):
-                        body["imagePrompt"] = params["image_prompt"]
+                    if params.get("image_query"):
+                        body["imageQuery"] = params["image_query"]
+                    if params.get("media_url"):
+                        body["mediaUrl"] = params["media_url"]
                     resp = await client.post(
                         f"{_COMMUNE_API}/posts",
                         json=body,

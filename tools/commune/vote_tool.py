@@ -51,8 +51,8 @@ class CommuneVoteTool(BaseTool):
                 },
                 "value": {
                     "type": "integer",
-                    "enum": [1, -1],
-                    "description": "1 to upvote, -1 to downvote.",
+                    "enum": [1, -1, 0],
+                    "description": "1 to upvote, -1 to downvote, 0 to remove vote (comments only).",
                 },
             },
             "required": ["target_type", "target_id", "value"],
