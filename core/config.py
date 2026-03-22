@@ -441,11 +441,18 @@ class PaymentApprovalConfig:
 
 @dataclass
 class PaymentCryptoConfig:
-    """Crypto payment settings — local wallet (default) or Coinbase AgentKit."""
+    """Crypto payment settings — local wallet (default) or Coinbase AgentKit.
+
+    NOTE: Coinbase AgentKit (provider: agentkit) is NOT RECOMMENDED due to
+    KYA (Know Your Agent) verification requirements. Use provider: local.
+    See: https://x.com/theragetech/status/2034975703033090129
+    """
 
     enabled: bool = False
     default_chain: str = "base"  # "base", "ethereum", "solana", "solana-devnet"
-    provider: str = "local"  # "local" (self-custody) or "agentkit" (Coinbase CDP)
+    provider: str = (
+        "local"  # "local" (self-custody) or "agentkit" (NOT RECOMMENDED — KYA required)
+    )
     rpc_url: str = ""  # override RPC endpoint; empty = chain default
     cdp_api_key_name_ref: str = "cdp_api_key_name"
     cdp_api_key_private_ref: str = "cdp_api_key_private"

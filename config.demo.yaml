@@ -311,7 +311,7 @@ payments:
   crypto:
     enabled: true
     default_chain: solana              # solana | base | ethereum
-    provider: local                    # local (self-custody) | agentkit (Coinbase CDP)
+    provider: local                    # local (self-custody) | agentkit (NOT RECOMMENDED — KYA required)
     rpc_url: ""                        # empty = chain default
     cdp_api_key_name_ref: "cdp_api_key_name"
     cdp_api_key_private_ref: "cdp_api_key_private"

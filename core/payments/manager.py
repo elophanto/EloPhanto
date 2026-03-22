@@ -4,6 +4,8 @@ Manages wallet lifecycle (create, persist, reconnect), token transfers,
 swaps, spending limits, and audit logging. Supports two wallet providers:
 - "local" (default) — self-custody via eth-account (EVM) or solders (Solana), zero config
 - "agentkit" — Coinbase CDP managed custody, gasless, DEX swaps
+  NOT RECOMMENDED: Coinbase CDP requires KYA (Know Your Agent) verification.
+  See: https://x.com/theragetech/status/2034975703033090129
 
 Solana swaps use Jupiter Ultra API. EVM swaps use AgentKit actions.
 """
@@ -554,7 +556,13 @@ class PaymentsManager:
             ) from err
 
     def _init_cdp_provider(self) -> Any:
-        """Initialize Coinbase AgentKit wallet provider."""
+        """Initialize Coinbase AgentKit wallet provider.
+
+        NOT RECOMMENDED: Coinbase CDP requires KYA (Know Your Agent)
+        verification which adds friction and compliance overhead.
+        Use provider: local instead for self-custody wallets.
+        See: https://x.com/theragetech/status/2034975703033090129
+        """
         api_key_name = self._vault.get(self._config.crypto.cdp_api_key_name_ref)
         api_key_private = self._vault.get(self._config.crypto.cdp_api_key_private_ref)
 

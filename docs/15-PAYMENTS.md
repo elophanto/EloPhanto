@@ -1,6 +1,8 @@
 # EloPhanto — Agent Payments
 
 > **Status: Phase 1 Done** — Core crypto wallet with dual provider support: local self-custody wallet (default, zero config, Solana DEX swaps via Jupiter) + Coinbase AgentKit (optional, managed custody, gasless, EVM swaps). 7 tools, spending limits, audit trail. Phase 2 (fiat/Stripe) and Phase 3 (invoicing) planned.
+>
+> **NOTE:** Coinbase AgentKit is **not recommended** due to KYA (Know Your Agent) verification requirements. Use `provider: local` instead. See: https://x.com/theragetech/status/2034975703033090129
 
 ## Overview
 
