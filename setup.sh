@@ -128,7 +128,10 @@ if grep -q "default_chain: solana" config.yaml 2>/dev/null; then
 fi
 
 # Install Coinbase AgentKit if configured
+# NOT RECOMMENDED: Coinbase CDP requires KYA (Know Your Agent) verification.
+# See: https://x.com/theragetech/status/2034975703033090129
 if grep -q "provider: agentkit" config.yaml 2>/dev/null; then
+    echo "  ⚠ Coinbase AgentKit is not recommended (KYA required). Consider provider: local"
     _spin "Installing Coinbase AgentKit" uv pip install -e '.[payments-cdp]' || \
         echo "  ⚠ AgentKit install failed (optional — switch to provider: local in config.yaml)"
 fi
