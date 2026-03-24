@@ -307,3 +307,18 @@ class ToolRegistry:
         self.register(CommuneVoteTool())
         self.register(CommuneSearchTool())
         self.register(CommuneProfileTool())
+
+        # Content monetization tools (publishing + affiliate marketing)
+        from tools.affiliate.campaign_tool import AffiliateCampaignTool
+        from tools.affiliate.pitch_tool import AffiliatePitchTool
+        from tools.affiliate.scrape_tool import AffiliateScrapeTool
+        from tools.publishing.tiktok_tool import TikTokUploadTool
+        from tools.publishing.twitter_tool import TwitterPostTool
+        from tools.publishing.youtube_tool import YouTubeUploadTool
+
+        self.register(YouTubeUploadTool())
+        self.register(TwitterPostTool())
+        self.register(TikTokUploadTool())
+        self.register(AffiliateScrapeTool())
+        self.register(AffiliatePitchTool())
+        self.register(AffiliateCampaignTool())

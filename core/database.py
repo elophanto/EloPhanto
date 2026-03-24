@@ -463,6 +463,45 @@ _SCHEMA = [
         PRIMARY KEY (user_id, channel)
     )
     """,
+    # ── Content Monetization ─────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS publishing_log (
+        publish_id TEXT PRIMARY KEY,
+        platform TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        local_path TEXT,
+        platform_url TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        metadata_json TEXT DEFAULT '{}',
+        campaign_id TEXT,
+        created_at TEXT NOT NULL,
+        published_at TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_publishing_log_platform
+        ON publishing_log(platform, status)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS affiliate_campaigns (
+        campaign_id TEXT PRIMARY KEY,
+        product_url TEXT NOT NULL,
+        product_title TEXT NOT NULL DEFAULT '',
+        product_data_json TEXT DEFAULT '{}',
+        affiliate_link TEXT NOT NULL,
+        platforms_json TEXT DEFAULT '[]',
+        pitches_json TEXT DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'active',
+        posts_count INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_affiliate_campaigns_status
+        ON affiliate_campaigns(status)
+    """,
 ]
 
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError

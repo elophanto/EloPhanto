@@ -874,6 +874,9 @@ class Agent:
             self._inject_commune_deps()
             logger.info("Agent Commune ready")
 
+        # Initialize content monetization tools (publishing + affiliate)
+        self._inject_monetization_deps()
+
         # Initialize parent channel adapter (child agents connecting to master)
         if self._config.parent_channel.enabled:
             try:
@@ -1401,6 +1404,28 @@ class Agent:
                     tool._vault = self._vault
                 if hasattr(tool, "_project_root"):
                     tool._project_root = self._config.project_root
+
+    def _inject_monetization_deps(self) -> None:
+        """Inject browser manager, database, and router into monetization tools."""
+        publishing_tools = ("youtube_upload", "twitter_post", "tiktok_upload")
+        for tool_name in publishing_tools:
+            tool = self._registry.get(tool_name)
+            if tool:
+                tool._browser_manager = self._browser_manager
+                tool._db = self._db
+
+        # Affiliate tools
+        scrape_tool = self._registry.get("affiliate_scrape")
+        if scrape_tool:
+            scrape_tool._browser_manager = self._browser_manager
+
+        pitch_tool = self._registry.get("affiliate_pitch")
+        if pitch_tool:
+            pitch_tool._router = self._router
+
+        campaign_tool = self._registry.get("affiliate_campaign")
+        if campaign_tool:
+            campaign_tool._db = self._db
 
     def _inject_totp_deps(self) -> None:
         """Inject vault and identity manager into TOTP tools."""

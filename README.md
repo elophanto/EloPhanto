@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-55%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-56%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
@@ -113,6 +113,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 | **Chat from anywhere** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
 | **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
 | **Learns about you** | ✅ Evolving user profiles | ❌ | ❌ | ❌ | ❌ |
+| **Makes money autonomously** | ✅ YouTube/X/TikTok + affiliate | ❌ | ❌ | ❌ | ❌ |
 | **Learns from corrections** | ✅ Permanent knowledge | ❌ | ❌ | ❌ | ❌ |
 | **Your data stays local** | ✅ Runs on your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
 
@@ -141,7 +142,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (150+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (156+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -195,6 +196,7 @@ Slack Adapter ─────┘                   ▼
 - **TOTP authenticator** — own 2FA (like Google Authenticator). Enroll secrets, generate codes, handle verification autonomously
 - **Crypto payments** — own wallet on Base or Solana (local self-custody or Coinbase AgentKit). USDC/ETH/SOL, DEX swaps via Jupiter on Solana, spending limits, audit trail. Payment requests: create on-chain payment links with auto-matching when paid. Owner can export keys to import into Phantom/MetaMask
 - **Web search** — structured search and content extraction via [Search.sh](https://search.sh) API. Two modes: `fast` (3-8s, quick lookup) and `deep` (15-30s, sub-queries, parallel search, page extraction). Returns AI-synthesized answers with ranked sources, citations, and confidence scores. `web_extract` pulls clean text from URLs. Replaces browser-based Google searches for research tasks
+- **Content monetization** — publish videos and content to YouTube, Twitter/X, and TikTok via pre-authenticated Chrome profiles. Affiliate marketing pipeline: scrape product data from Amazon/e-commerce, generate platform-specific marketing pitches via LLM, create and track campaigns across platforms. All publishes logged in DB. Combine with Remotion video creation and heartbeat scheduling for fully autonomous content and revenue pipelines
 - **Prospecting** — autonomous lead generation pipeline: search for prospects matching criteria, evaluate and score them, track outreach attempts, monitor pipeline status. Database-backed with full history
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document
 - **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection, file-pattern routing, remembers past tasks across sessions. Learning engine: lesson extraction after every completed task, semantic memory search via sqlite-vec KNN, KB write compression to ~40% for verbose content
@@ -208,7 +210,7 @@ Slack Adapter ─────┘                   ▼
 </details>
 
 <details>
-<summary>Built-in tools (150+)</summary>
+<summary>Built-in tools (156+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -232,6 +234,7 @@ Slack Adapter ─────┘                   ▼
 | Deployment | deploy_website, create_database, deployment_status | 3 |
 | Commune | commune_register, commune_home, commune_post, commune_comment, commune_vote, commune_search, commune_profile | 7 |
 | Context (RLM) | context_ingest, context_query, context_slice, context_index, context_transform | 5 |
+| Monetization | youtube_upload, twitter_post, tiktok_upload, affiliate_scrape, affiliate_pitch, affiliate_campaign | 6 |
 | Image Gen | replicate_generate | 1 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
@@ -262,12 +265,12 @@ EloPhanto/
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 150+ built-in tools
+├── tools/               # 156+ built-in tools
 ├── skills/              # 148+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (55+ docs)
+└── docs/                # Full specification (56+ docs)
 ```
 
 </details>
@@ -428,6 +431,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Content Monetization** — 6 new tools across two groups that turn EloPhanto into a revenue-generating agent. **Publishing**: `youtube_upload`, `twitter_post`, `tiktok_upload` — post videos and content to major platforms using pre-authenticated Chrome profiles (no Selenium, no login flows). **Affiliate marketing**: `affiliate_scrape` (extract product data from Amazon/e-commerce), `affiliate_pitch` (LLM-generated marketing copy per platform), `affiliate_campaign` (create and track campaigns). All publishes tracked in DB. Combine with Remotion video generation and heartbeat scheduling for autonomous content pipelines. Inspired by [MoneyPrinterV2](https://github.com/FujiwaraChoki/MoneyPrinterV2). See [docs/56-CONTENT-MONETIZATION.md](docs/56-CONTENT-MONETIZATION.md)
 - **Session Hardening + User Modeling** — four improvements to session resilience and personalization. (1) Context compression: LLM-based mid-conversation summarization replaces middle turns with a dense summary, protecting first 3 + last 4 turns, with orphaned tool call repair. (2) Memory injection scanning: `scan_for_injection()` applied at all persistence boundaries (lessons, knowledge writes, directives) to block prompt injection via poisoned memories. (3) User modeling: `UserProfileManager` extracts role, expertise, and preferences from conversations via fire-and-forget LLM calls, persists in SQLite, injects `<user_context>` into system prompt. New `user_profile_view` tool. (4) Skill capture nudge wired up in the agent loop. Plus security hardening: gateway RBAC on sensitive commands, session LRU eviction (max 200), HMAC-SHA-256 fingerprint, expanded planner blocklist. See [docs/55-SESSION-HARDENING.md](docs/55-SESSION-HARDENING.md)
 - **RLM (Recursive Language Models)** — inference-time architecture where the agent calls itself on focused context slices, breaking the context window ceiling. Phase 1: `agent_call` in the code execution sandbox enables recursive sub-cognition — the agent writes scripts that invoke sub-instances of itself on focused sub-problems. Phase 2: `ContextStore` with 5 new tools (`context_ingest`, `context_query`, `context_slice`, `context_index`, `context_transform`) — indexed, queryable, sliceable context backed by SQLite + sqlite-vec embeddings. Process a 500-file codebase by writing a script that indexes, classifies, deep-dives via recursive sub-calls, and synthesizes — all in one `execute_code` turn. Safety: 3-level recursion depth limit, 20 agent_calls/session budget, cost cap inheritance. See [docs/54-RLM.md](docs/54-RLM.md)
 - **Web search (Search.sh)** — structured web search and content extraction for research, fact-checking, and market analysis. Two modes: `fast` (3-8s) and `deep` (15-30s with sub-queries and cross-referencing). Returns AI answers with citations, confidence scores, and ranked sources. `web_extract` pulls clean text from URLs. Replaces slow browser-based Google searches. See [docs/53-WEB-SEARCH.md](docs/53-WEB-SEARCH.md)
@@ -512,6 +516,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **RLM 递归语言模型** — 通过 `agent_call` 递归调用自身处理无限上下文，`ContextStore` 提供索引化可查询的上下文层
 - **自建工具** — 遇到不会的，自己造。完整流水线：设计 → 编码 → 测试 → 部署
 - **用户建模** — 从对话中构建用户画像（角色、专长、偏好），自动适应每个人的沟通风格和技术深度
+- **内容变现** — 自动发布视频到 YouTube、Twitter/X、TikTok。联盟营销：抓取商品数据、LLM 生成推广文案、创建跨平台营销活动。可配合心跳调度实现全自动内容发布流水线
 
 ## 为什么选择 EloPhanto？
 
@@ -526,6 +531,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 | **管理开发团队** | ✅ Claude Code + Codex | ❌ | ❌ | 单个 | ❌ |
 | **自有身份和邮箱** | ✅ 随时间进化 | ❌ | ❌ | ❌ | ❌ |
 | **了解用户** | ✅ 进化式用户画像 | ❌ | ❌ | ❌ | ❌ |
+| **内容变现** | ✅ YouTube/X/TikTok + 联盟营销 | ❌ | ❌ | ❌ | ❌ |
 | **随处对话** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | 仅 CLI | 仅 Web |
 | **数据留在本地** | ✅ 你的机器 | ❌ 云端 | ❌ 云端 | ✅ 本地 | ❌ 云端 VM |
 
