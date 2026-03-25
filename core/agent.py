@@ -1281,6 +1281,16 @@ class Agent:
             ):
                 tool._goal_runner = self._goal_runner
 
+        # Dream tool needs router, registry, identity, and goal manager
+        dream_tool = self._registry.get("goal_dream")
+        if dream_tool:
+            dream_tool._router = self._router
+            dream_tool._registry = self._registry
+            if self._goal_manager:
+                dream_tool._goal_manager = self._goal_manager
+            if self._identity_manager:
+                dream_tool._identity_manager = self._identity_manager
+
     def _inject_identity_deps(self) -> None:
         """Inject identity manager into identity tools."""
         for tool_name in ("identity_status", "identity_update", "identity_reflect"):

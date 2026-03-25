@@ -162,7 +162,9 @@ class GoalManager:
 
     async def get_goal(self, goal_id: str) -> Goal | None:
         """Fetch a goal by ID."""
-        rows = await self._db.execute("SELECT * FROM goals WHERE goal_id = ?", (goal_id,))
+        rows = await self._db.execute(
+            "SELECT * FROM goals WHERE goal_id = ?", (goal_id,)
+        )
         if not rows:
             return None
         return self._row_to_goal(rows[0])
@@ -178,7 +180,9 @@ class GoalManager:
             return None
         return self._row_to_goal(rows[0])
 
-    async def list_goals(self, status: str | None = None, limit: int = 20) -> list[Goal]:
+    async def list_goals(
+        self, status: str | None = None, limit: int = 20
+    ) -> list[Goal]:
         """List goals, optionally filtered by status."""
         if status:
             rows = await self._db.execute(
@@ -196,6 +200,30 @@ class GoalManager:
         """Cancel a goal."""
         return await self._update_status(goal_id, "cancelled")
 
+    async def delete_goal(self, goal_id: str) -> bool:
+        """Permanently delete a goal and its checkpoints."""
+        try:
+            await self._db.execute_insert(
+                "DELETE FROM goal_checkpoints WHERE goal_id = ?", (goal_id,)
+            )
+            await self._db.execute_insert(
+                "DELETE FROM goals WHERE goal_id = ?", (goal_id,)
+            )
+            return True
+        except Exception:
+            return False
+
+    async def delete_all_goals(self) -> int:
+        """Permanently delete ALL goals and checkpoints. Returns count deleted."""
+        try:
+            rows = await self._db.execute("SELECT goal_id FROM goals")
+            count = len(rows)
+            await self._db.execute_insert("DELETE FROM goal_checkpoints")
+            await self._db.execute_insert("DELETE FROM goals")
+            return count
+        except Exception:
+            return 0
+
     async def pause_goal(self, goal_id: str) -> bool:
         """Pause an active goal."""
         return await self._update_status(goal_id, "paused", from_statuses=("active",))
@@ -211,16 +239,23 @@ class GoalManager:
         response = await self._router.complete(
             messages=[
                 {"role": "system", "content": _DECOMPOSE_SYSTEM},
-                {"role": "user", "content": f"Decompose this goal into checkpoints: {goal.goal}"},
+                {
+                    "role": "user",
+                    "content": f"Decompose this goal into checkpoints: {goal.goal}",
+                },
             ],
             task_type="simple",
             temperature=0.3,
         )
         goal.llm_calls_used += 1
 
-        checkpoints = self._parse_checkpoint_json(response.content or "[]", goal.goal_id)
+        checkpoints = self._parse_checkpoint_json(
+            response.content or "[]", goal.goal_id
+        )
         if not checkpoints:
-            logger.warning("Decomposition returned no checkpoints for goal %s", goal.goal_id)
+            logger.warning(
+                "Decomposition returned no checkpoints for goal %s", goal.goal_id
+            )
             return []
 
         # Cap at max
@@ -278,7 +313,9 @@ class GoalManager:
         )
         goal.llm_calls_used += 1
 
-        new_checkpoints = self._parse_checkpoint_json(response.content or "[]", goal.goal_id)
+        new_checkpoints = self._parse_checkpoint_json(
+            response.content or "[]", goal.goal_id
+        )
         if not new_checkpoints:
             return []
 
@@ -316,7 +353,9 @@ class GoalManager:
 
     # --- Checkpoint tracking ---
 
-    async def get_checkpoints(self, goal_id: str, status: str | None = None) -> list[Checkpoint]:
+    async def get_checkpoints(
+        self, goal_id: str, status: str | None = None
+    ) -> list[Checkpoint]:
         """Get all checkpoints for a goal, optionally filtered by status."""
         if status:
             rows = await self._db.execute(
@@ -351,7 +390,9 @@ class GoalManager:
             (now, goal_id, order),
         )
 
-    async def mark_checkpoint_complete(self, goal_id: str, order: int, summary: str) -> None:
+    async def mark_checkpoint_complete(
+        self, goal_id: str, order: int, summary: str
+    ) -> None:
         """Mark a checkpoint as completed and advance the goal."""
         now = datetime.now(UTC).isoformat()
         await self._db.execute(
@@ -375,7 +416,9 @@ class GoalManager:
         goal.updated_at = now
         await self._persist_goal(goal)
 
-    async def mark_checkpoint_failed(self, goal_id: str, order: int, error: str) -> None:
+    async def mark_checkpoint_failed(
+        self, goal_id: str, order: int, error: str
+    ) -> None:
         """Mark a checkpoint as failed."""
         now = datetime.now(UTC).isoformat()
 
@@ -408,7 +451,9 @@ class GoalManager:
 
     # --- Context management ---
 
-    async def summarize_context(self, goal: Goal, recent_messages: list[dict[str, Any]]) -> str:
+    async def summarize_context(
+        self, goal: Goal, recent_messages: list[dict[str, Any]]
+    ) -> str:
         """Compress recent conversation into a rolling context summary."""
         # Extract text content from messages
         text_parts: list[str] = []
@@ -460,7 +505,9 @@ class GoalManager:
         checkpoints = await self.get_checkpoints(goal_id)
         completed = [c for c in checkpoints if c.status == "completed"]
         remaining = [c for c in checkpoints if c.status in ("pending", "active")]
-        current = next((c for c in checkpoints if c.status in ("active", "pending")), None)
+        current = next(
+            (c for c in checkpoints if c.status in ("active", "pending")), None
+        )
 
         parts: list[str] = [
             "<active_goal>",
@@ -470,13 +517,19 @@ class GoalManager:
         ]
 
         if current:
-            parts.append(f'  <current_checkpoint order="{current.order}" title="{current.title}">')
+            parts.append(
+                f'  <current_checkpoint order="{current.order}" title="{current.title}">'
+            )
             parts.append(f"    <description>{current.description}</description>")
-            parts.append(f"    <success_criteria>{current.success_criteria}</success_criteria>")
+            parts.append(
+                f"    <success_criteria>{current.success_criteria}</success_criteria>"
+            )
             parts.append("  </current_checkpoint>")
 
         if goal.context_summary:
-            parts.append(f"  <context_summary>\n{goal.context_summary}\n  </context_summary>")
+            parts.append(
+                f"  <context_summary>\n{goal.context_summary}\n  </context_summary>"
+            )
 
         if completed:
             parts.append("  <completed_checkpoints>")
@@ -536,13 +589,18 @@ class GoalManager:
             )
         except (json.JSONDecodeError, AttributeError):
             return EvaluationResult(
-                on_track=True, revision_needed=False, reason="Could not parse evaluation"
+                on_track=True,
+                revision_needed=False,
+                reason="Could not parse evaluation",
             )
 
     def check_budget(self, goal: Goal) -> tuple[bool, str]:
         """Check if the goal is within its LLM call budget."""
         if goal.llm_calls_used >= self._config.max_llm_calls_per_goal:
-            return False, f"LLM call limit reached ({self._config.max_llm_calls_per_goal})"
+            return (
+                False,
+                f"LLM call limit reached ({self._config.max_llm_calls_per_goal})",
+            )
         return True, ""
 
     # --- Persistence helpers ---
