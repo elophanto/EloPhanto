@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class GoalManageTool(BaseTool):
-    """Pause, resume, cancel, or revise an active goal."""
+    """Pause, resume, cancel, delete, or revise a goal."""
 
     @property
     def group(self) -> str:
@@ -28,7 +28,11 @@ class GoalManageTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Pause, resume, cancel, or revise an active goal's plan."
+        return (
+            "Pause, resume, cancel, delete, or revise a goal. "
+            "Use delete to permanently remove a goal and its checkpoints. "
+            "Use delete_all to wipe every goal."
+        )
 
     @property
     def input_schema(self) -> dict[str, Any]:
@@ -37,11 +41,18 @@ class GoalManageTool(BaseTool):
             "properties": {
                 "goal_id": {
                     "type": "string",
-                    "description": "The goal ID to manage",
+                    "description": "The goal ID to manage (not required for delete_all)",
                 },
                 "action": {
                     "type": "string",
-                    "enum": ["pause", "resume", "cancel", "revise"],
+                    "enum": [
+                        "pause",
+                        "resume",
+                        "cancel",
+                        "delete",
+                        "delete_all",
+                        "revise",
+                    ],
                     "description": "Action to perform on the goal",
                 },
                 "reason": {
@@ -49,7 +60,7 @@ class GoalManageTool(BaseTool):
                     "description": "Reason for revision (required for revise action)",
                 },
             },
-            "required": ["goal_id", "action"],
+            "required": ["action"],
         }
 
     @property
@@ -64,10 +75,15 @@ class GoalManageTool(BaseTool):
         action = params.get("action", "")
         reason = params.get("reason", "")
 
-        if not goal_id:
-            return ToolResult(success=False, error="goal_id is required")
         if not action:
             return ToolResult(success=False, error="action is required")
+
+        # delete_all doesn't need goal_id
+        if action == "delete_all":
+            return await self._delete_all()
+
+        if not goal_id:
+            return ToolResult(success=False, error="goal_id is required")
 
         try:
             if action == "pause":
@@ -112,10 +128,22 @@ class GoalManageTool(BaseTool):
                 ok = await self._goal_manager.cancel_goal(goal_id)
                 if not ok:
                     return ToolResult(success=False, error="Goal not found")
-                # Clear scratchpad so the mind doesn't act on stale goal state
                 self._clear_scratchpad()
                 return ToolResult(
                     success=True, data={"goal_id": goal_id, "action": "cancelled"}
+                )
+
+            elif action == "delete":
+                # Stop runner if active for this goal
+                if self._goal_runner and self._goal_runner.current_goal_id == goal_id:
+                    await self._goal_runner.cancel()
+                ok = await self._goal_manager.delete_goal(goal_id)
+                if not ok:
+                    return ToolResult(success=False, error="Goal not found")
+                self._clear_scratchpad()
+                return ToolResult(
+                    success=True,
+                    data={"goal_id": goal_id, "action": "deleted"},
                 )
 
             elif action == "revise":
@@ -156,6 +184,23 @@ class GoalManageTool(BaseTool):
 
         except Exception as e:
             return ToolResult(success=False, error=f"Goal management failed: {e}")
+
+    async def _delete_all(self) -> ToolResult:
+        """Permanently delete ALL goals and checkpoints."""
+        if not self._goal_manager:
+            return ToolResult(success=False, error="Goal system not initialized")
+        try:
+            # Stop any running goal
+            if self._goal_runner and self._goal_runner.current_goal_id:
+                await self._goal_runner.cancel()
+            count = await self._goal_manager.delete_all_goals()
+            self._clear_scratchpad()
+            return ToolResult(
+                success=True,
+                data={"action": "delete_all", "goals_deleted": count},
+            )
+        except Exception as e:
+            return ToolResult(success=False, error=f"Delete all failed: {e}")
 
     def _clear_scratchpad(self) -> None:
         """Clear the mind's scratchpad after goal cancellation."""

@@ -142,7 +142,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (156+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (157+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -189,7 +189,7 @@ Slack Adapter ─────┘                   ▼
 - **VS Code extension** — IDE-integrated chat sidebar that connects to the gateway as another channel. Sends IDE context (active file, selection, diagnostics) with every message. Tool approvals via native VS Code notifications. Chat history, new chat, streaming responses. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Same conversation across all channels
 - **Multi-channel gateway** — WebSocket control plane with CLI, Web, VS Code, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **BUILD enforcement** — planner enforces a 6-step mandatory workflow for web project tasks. The agent cannot stop after creating an empty directory — it must write all code files, verify the build, and report what was built with file paths and run instructions
-- **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, self-evaluate and revise plans. Background execution with auto-resume on restart
+- **Autonomous goal loop** — decompose complex goals into checkpoints, track progress across sessions, self-evaluate and revise plans. Background execution with auto-resume on restart. Goal dreaming: structured ideation that generates scored candidates when no goals exist. Full goal lifecycle: create, pause, resume, cancel, delete, delete_all
 - **Autonomous mind** — data-driven background thinking loop that runs between user interactions. Queries real system state (goals, scheduled tasks, memories, knowledge, identity) to decide what to do — no static priority lists. Self-bootstraps on first run. Every tool call visible in real-time. LLM-controlled wakeup interval, persistent scratchpad, budget-isolated
 - **Document & media analysis** — PDFs, images, DOCX, XLSX, PPTX, EPUB through any channel. Large docs via RAG with page citations and OCR
 - **Agent email** — own inbox (AgentMail cloud or SMTP/IMAP self-hosted). Send/receive/search, background monitoring, verification flows
@@ -210,7 +210,7 @@ Slack Adapter ─────┘                   ▼
 </details>
 
 <details>
-<summary>Built-in tools (156+)</summary>
+<summary>Built-in tools (157+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -223,7 +223,7 @@ Slack Adapter ─────┘                   ▼
 | Experimentation | experiment_setup, experiment_run, experiment_status | 3 |
 | Data | llm_call, vault_lookup, vault_set, session_search, web_search, web_extract | 6 |
 | Documents | document_analyze, document_query, document_collections | 3 |
-| Goals | goal_create, goal_status, goal_manage | 3 |
+| Goals | goal_create, goal_status, goal_manage, goal_dream | 4 |
 | Identity | identity_status, identity_update, identity_reflect, user_profile_view | 4 |
 | Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search, email_monitor | 7 |
 | Payments | wallet_status, wallet_export, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history, payment_request | 9 |
@@ -265,7 +265,7 @@ EloPhanto/
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 156+ built-in tools
+├── tools/               # 157+ built-in tools
 ├── skills/              # 148+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
@@ -431,6 +431,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Goal Dreaming + Deletion** — new `goal_dream` tool: structured goal ideation that reviews all capabilities, generates 3-5 candidates with feasibility/value/cost/risk scores, and recommends the best one. Say "dream for me" to get strategic goal suggestions. Goals can now be permanently deleted (`delete` / `delete_all` actions). Autonomous mind uses the same dream process when no goals exist, and no longer touches paused goals
 - **Content Monetization** — 6 new tools across two groups that turn EloPhanto into a revenue-generating agent. **Publishing**: `youtube_upload`, `twitter_post`, `tiktok_upload` — post videos and content to major platforms using pre-authenticated Chrome profiles (no Selenium, no login flows). **Affiliate marketing**: `affiliate_scrape` (extract product data from Amazon/e-commerce), `affiliate_pitch` (LLM-generated marketing copy per platform), `affiliate_campaign` (create and track campaigns). All publishes tracked in DB. Combine with Remotion video generation and heartbeat scheduling for autonomous content pipelines. Inspired by [MoneyPrinterV2](https://github.com/FujiwaraChoki/MoneyPrinterV2). See [docs/56-CONTENT-MONETIZATION.md](docs/56-CONTENT-MONETIZATION.md)
 - **Session Hardening + User Modeling** — four improvements to session resilience and personalization. (1) Context compression: LLM-based mid-conversation summarization replaces middle turns with a dense summary, protecting first 3 + last 4 turns, with orphaned tool call repair. (2) Memory injection scanning: `scan_for_injection()` applied at all persistence boundaries (lessons, knowledge writes, directives) to block prompt injection via poisoned memories. (3) User modeling: `UserProfileManager` extracts role, expertise, and preferences from conversations via fire-and-forget LLM calls, persists in SQLite, injects `<user_context>` into system prompt. New `user_profile_view` tool. (4) Skill capture nudge wired up in the agent loop. Plus security hardening: gateway RBAC on sensitive commands, session LRU eviction (max 200), HMAC-SHA-256 fingerprint, expanded planner blocklist. See [docs/55-SESSION-HARDENING.md](docs/55-SESSION-HARDENING.md)
 - **RLM (Recursive Language Models)** — inference-time architecture where the agent calls itself on focused context slices, breaking the context window ceiling. Phase 1: `agent_call` in the code execution sandbox enables recursive sub-cognition — the agent writes scripts that invoke sub-instances of itself on focused sub-problems. Phase 2: `ContextStore` with 5 new tools (`context_ingest`, `context_query`, `context_slice`, `context_index`, `context_transform`) — indexed, queryable, sliceable context backed by SQLite + sqlite-vec embeddings. Process a 500-file codebase by writing a script that indexes, classifies, deep-dives via recursive sub-calls, and synthesizes — all in one `execute_code` turn. Safety: 3-level recursion depth limit, 20 agent_calls/session budget, cost cap inheritance. See [docs/54-RLM.md](docs/54-RLM.md)
@@ -517,6 +518,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **自建工具** — 遇到不会的，自己造。完整流水线：设计 → 编码 → 测试 → 部署
 - **用户建模** — 从对话中构建用户画像（角色、专长、偏好），自动适应每个人的沟通风格和技术深度
 - **内容变现** — 自动发布视频到 YouTube、Twitter/X、TikTok。联盟营销：抓取商品数据、LLM 生成推广文案、创建跨平台营销活动。可配合心跳调度实现全自动内容发布流水线
+- **目标梦想** — 没有目标时，智能体会审查自身能力、生成 3-5 个候选目标、逐一评估可行性/价值/成本/风险，选择最优目标执行。用户也可以说"帮我想想"触发同样的流程
 
 ## 为什么选择 EloPhanto？
 
