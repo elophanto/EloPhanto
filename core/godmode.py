@@ -393,11 +393,19 @@ async def race_providers(
 
     temperature = (params or {}).get("temperature", 0.7)
 
-    # Get all healthy providers
+    # Get all healthy providers that have a model configured for planning
     health = router._provider_health
-    healthy = [p for p, ok in health.items() if ok]
+    healthy_raw = [p for p, ok in health.items() if ok]
+    healthy = [p for p in healthy_raw if router.get_model_for_provider(p, "planning")]
+    logger.info(
+        "[godmode] race_providers called — health=%s healthy_with_model=%s",
+        healthy_raw,
+        healthy,
+    )
     if not healthy:
-        # Fallback to normal complete
+        logger.warning(
+            "[godmode] No healthy providers — falling back to normal routing"
+        )
         return await router.complete(
             messages=messages,
             task_type="planning",
@@ -406,7 +414,7 @@ async def race_providers(
         )
 
     if len(healthy) == 1:
-        # Only one provider — no point racing
+        logger.info("[godmode] Only 1 provider (%s) — skipping race", healthy[0])
         return await router.complete(
             messages=messages,
             task_type="planning",

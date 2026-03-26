@@ -463,6 +463,8 @@ class Agent:
         _hc_start = _time.monotonic()
         health = await self._router.health_check()
         self._provider_health = health
+        # Sync health into router so godmode racing can see healthy providers
+        self._router._provider_health.update(health)
         enabled = [k for k, v in health.items() if v]
         if not enabled:
             logger.warning("No LLM providers are reachable!")
