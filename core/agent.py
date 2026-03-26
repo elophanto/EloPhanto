@@ -1748,6 +1748,36 @@ class Agent:
             user_context=user_context,
         )
 
+        # ── G0DM0D3 Detection ──────────────────────────────────────────
+        from core.godmode import (
+            autotune,
+            build_godmode_prompt,
+            detect_godmode_trigger,
+        )
+
+        _godmode_trigger = detect_godmode_trigger(goal)
+        _godmode_active = False
+
+        # Inject session into godmode tool for state persistence
+        _gm_tool = self._registry.get("godmode_activate")
+        if _gm_tool and session is not None:
+            _gm_tool._session = session
+
+        if session is not None:
+            if _godmode_trigger == "on":
+                session.metadata["godmode"] = True
+            elif _godmode_trigger == "off":
+                session.metadata["godmode"] = False
+            _godmode_active = session.metadata.get("godmode", False)
+        elif _godmode_trigger == "on":
+            _godmode_active = True
+
+        if _godmode_active:
+            # Swap system prompt for godmode version (keep tool sections)
+            system_content = build_godmode_prompt()
+            _godmode_params = autotune(goal)
+            logger.info("[godmode] ACTIVE — autotuned params: %s", _godmode_params)
+
         # Forward task context to browser bridge for goal-aware vision analysis
         if self._browser_manager:
             try:
@@ -1872,12 +1902,24 @@ class Agent:
                 _llm_messages.append(_nudge_msg)
 
             try:
-                response = await self._router.complete(
-                    messages=_llm_messages,
-                    task_type="planning",
-                    tools=_tools,
-                    temperature=0.2,
-                )
+                if _godmode_active:
+                    from core.godmode import race_providers
+
+                    _gm_temp = _godmode_params.get("temperature", 0.7)
+                    response = await race_providers(
+                        router=self._router,
+                        messages=_llm_messages,
+                        user_query=goal,
+                        tools=_tools,
+                        params=_godmode_params,
+                    )
+                else:
+                    response = await self._router.complete(
+                        messages=_llm_messages,
+                        task_type="planning",
+                        tools=_tools,
+                        temperature=0.2,
+                    )
             except Exception as e:
                 if _is_context_overflow_error(e):
                     logger.warning(
@@ -1961,6 +2003,12 @@ class Agent:
             # Check if LLM responded with text (no tool calls) = task complete
             if not response.tool_calls:
                 final_content = response.content or "Task complete."
+
+                # Apply STM cleanup when godmode is active
+                if _godmode_active and final_content:
+                    from core.godmode import stm_transform
+
+                    final_content = stm_transform(final_content)
 
                 # Browser task verification — separate LLM call to check
                 # if the task is actually complete (EKO pattern).
