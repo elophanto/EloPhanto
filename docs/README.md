@@ -76,6 +76,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 54 | [RLM Architecture](54-RLM.md) | Recursive Language Models — inference-time recursive self-invocation for unbounded context |
 | 55 | [Session Hardening](55-SESSION-HARDENING.md) | Context compression, memory injection scanning, user modeling, skill capture nudge |
 | 56 | [Content Monetization](56-CONTENT-MONETIZATION.md) | Publishing (YouTube, Twitter, TikTok) + affiliate marketing (scrape, pitch, campaign) |
+| 57 | [G0DM0D3](57-GODMODE.md) | Pliny's Godmode — unrestricted prompt, multi-model racing, AutoTune, STM output cleanup |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 

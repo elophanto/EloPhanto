@@ -584,6 +584,14 @@ class LLMRouter:
 
         return None
 
+    def get_model_for_provider(self, provider: str, task_type: str = "planning") -> str:
+        """Public helper: resolve model for a provider + task type.
+
+        Used by godmode racing to get the right model per provider.
+        Falls back to the provider's default model.
+        """
+        return self._resolve_model(provider, task_type) or ""
+
     async def _call_litellm(
         self,
         messages: list[dict[str, Any]],

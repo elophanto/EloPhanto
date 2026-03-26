@@ -87,6 +87,11 @@ class ToolRegistry:
         self.register(VaultLookupTool())
         self.register(VaultSetTool())
 
+        # Godmode tool (Pliny's G0DM0D3)
+        from tools.system.godmode_tool import GodmodeActivateTool
+
+        self.register(GodmodeActivateTool())
+
         # Session search tool (cross-session FTS5 search)
         from tools.data.session_search import SessionSearchTool
 

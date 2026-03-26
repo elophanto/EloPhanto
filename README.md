@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-56%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-57%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
@@ -114,6 +114,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 | **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
 | **Learns about you** | ✅ Evolving user profiles | ❌ | ❌ | ❌ | ❌ |
 | **Makes money autonomously** | ✅ YouTube/X/TikTok + affiliate | ❌ | ❌ | ❌ | ❌ |
+| **Godmode (unrestricted)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
 | **Learns from corrections** | ✅ Permanent knowledge | ❌ | ❌ | ❌ | ❌ |
 | **Your data stays local** | ✅ Runs on your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
 
@@ -142,7 +143,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (157+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (158+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -205,16 +206,17 @@ Slack Adapter ─────┘                   ▼
 - **User modeling** — builds evolving profiles from conversation observation. Extracts role, expertise, and preferences via lightweight LLM calls. Adapts communication style and technical depth per user. Profiles persist in SQLite, injected into system prompt as `<user_context>`. New `user_profile_view` tool
 - **Session hardening** — LLM-based mid-conversation context compression (summarizes middle turns, protects first 3 + last 4), injection scanning on all persistence boundaries (lessons, knowledge writes, directives), proactive skill/memory capture nudges every 15 turns
 - **Prompt injection defense** — multi-layer guard against injection attacks via websites, emails, and documents
+- **G0DM0D3 (Pliny's Godmode)** — inference-time capability unlocking. Four layers: unrestricted system prompt (forbidden-phrase blacklist, anti-hedge, depth directives), context-adaptive AutoTune (5 profiles), multi-model racing (all providers scored, best wins), STM output cleanup (strip hedges/preambles). Trigger: "elophanto, trigger plinys godmode". Per-session, does not bypass agent permissions
 - **Security hardening** — PII detection/redaction, swarm boundary security, provider transparency, gateway RBAC on sensitive commands, session LRU eviction, HMAC fingerprinting
 
 </details>
 
 <details>
-<summary>Built-in tools (157+)</summary>
+<summary>Built-in tools (158+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
-| System | shell_execute, file_read, file_write, file_list, file_delete, file_move | 6 |
+| System | shell_execute, file_read, file_write, file_list, file_delete, file_move, godmode_activate | 7 |
 | Browser | navigate, click, type, screenshot, extract, scroll, tabs, console, network, storage, cookies, drag, hover, upload, wait, eval, audit + more | 49 |
 | Desktop | desktop_connect, desktop_screenshot, desktop_click, desktop_type, desktop_scroll, desktop_drag, desktop_cursor, desktop_shell, desktop_file | 9 |
 | Knowledge | knowledge_search, knowledge_write, knowledge_index, skill_read, skill_list | 5 |
@@ -265,12 +267,12 @@ EloPhanto/
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 157+ built-in tools
+├── tools/               # 158+ built-in tools
 ├── skills/              # 148+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (56+ docs)
+└── docs/                # Full specification (57+ docs)
 ```
 
 </details>
@@ -431,6 +433,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **G0DM0D3 — Pliny's Godmode** — say "elophanto, trigger plinys godmode" and four layers activate simultaneously: unrestricted system prompt (identity reframing, forbidden-phrase blacklist, anti-hedge/depth directives), context-adaptive AutoTune (5 context profiles with godmode boost), multi-model racing (all providers in parallel, scored 0-100 on substance/directness/anti-refusal, best wins), and STM output cleanup (strip hedges, preambles, formality). Per-session toggle. Does NOT bypass agent permissions — only unlocks LLM capability. Adapted from [elder-plinius/G0DM0D3](https://github.com/elder-plinius/G0DM0D3). See [docs/57-GODMODE.md](docs/57-GODMODE.md)
 - **Goal Dreaming + Deletion** — new `goal_dream` tool: structured goal ideation that reviews all capabilities, generates 3-5 candidates with feasibility/value/cost/risk scores, and recommends the best one. Say "dream for me" to get strategic goal suggestions. Goals can now be permanently deleted (`delete` / `delete_all` actions). Autonomous mind uses the same dream process when no goals exist, and no longer touches paused goals
 - **Content Monetization** — 6 new tools across two groups that turn EloPhanto into a revenue-generating agent. **Publishing**: `youtube_upload`, `twitter_post`, `tiktok_upload` — post videos and content to major platforms using pre-authenticated Chrome profiles (no Selenium, no login flows). **Affiliate marketing**: `affiliate_scrape` (extract product data from Amazon/e-commerce), `affiliate_pitch` (LLM-generated marketing copy per platform), `affiliate_campaign` (create and track campaigns). All publishes tracked in DB. Combine with Remotion video generation and heartbeat scheduling for autonomous content pipelines. Inspired by [MoneyPrinterV2](https://github.com/FujiwaraChoki/MoneyPrinterV2). See [docs/56-CONTENT-MONETIZATION.md](docs/56-CONTENT-MONETIZATION.md)
 - **Session Hardening + User Modeling** — four improvements to session resilience and personalization. (1) Context compression: LLM-based mid-conversation summarization replaces middle turns with a dense summary, protecting first 3 + last 4 turns, with orphaned tool call repair. (2) Memory injection scanning: `scan_for_injection()` applied at all persistence boundaries (lessons, knowledge writes, directives) to block prompt injection via poisoned memories. (3) User modeling: `UserProfileManager` extracts role, expertise, and preferences from conversations via fire-and-forget LLM calls, persists in SQLite, injects `<user_context>` into system prompt. New `user_profile_view` tool. (4) Skill capture nudge wired up in the agent loop. Plus security hardening: gateway RBAC on sensitive commands, session LRU eviction (max 200), HMAC-SHA-256 fingerprint, expanded planner blocklist. See [docs/55-SESSION-HARDENING.md](docs/55-SESSION-HARDENING.md)
@@ -519,6 +522,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **用户建模** — 从对话中构建用户画像（角色、专长、偏好），自动适应每个人的沟通风格和技术深度
 - **内容变现** — 自动发布视频到 YouTube、Twitter/X、TikTok。联盟营销：抓取商品数据、LLM 生成推广文案、创建跨平台营销活动。可配合心跳调度实现全自动内容发布流水线
 - **目标梦想** — 没有目标时，智能体会审查自身能力、生成 3-5 个候选目标、逐一评估可行性/价值/成本/风险，选择最优目标执行。用户也可以说"帮我想想"触发同样的流程
+- **G0DM0D3 神模式** — 说"trigger plinys godmode"激活四层能力解锁：无限制系统提示、多模型竞赛（所有供应商并行，评分最高者胜出）、上下文自适应参数调优、输出清理（去除犹豫/前言/正式用语）
 
 ## 为什么选择 EloPhanto？
 
@@ -534,6 +538,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 | **自有身份和邮箱** | ✅ 随时间进化 | ❌ | ❌ | ❌ | ❌ |
 | **了解用户** | ✅ 进化式用户画像 | ❌ | ❌ | ❌ | ❌ |
 | **内容变现** | ✅ YouTube/X/TikTok + 联盟营销 | ❌ | ❌ | ❌ | ❌ |
+| **神模式 (无限制)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
 | **随处对话** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | 仅 CLI | 仅 Web |
 | **数据留在本地** | ✅ 你的机器 | ❌ 云端 | ❌ 云端 | ✅ 本地 | ❌ 云端 VM |
 
