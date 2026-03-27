@@ -317,7 +317,7 @@ elophanto chat               # CLI only (direct mode)
 
 ## Skills System
 
-148+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), and more. Plus a public skill registry:
+151+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), product launch (Product Hunt, HN, Reddit), press outreach, and more. Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -433,6 +433,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Launch & Growth Skills** — 3 new skills from levelsio's MAKE handbook: `product-launch` (multi-platform playbook for Product Hunt, Hacker News, Reddit, BetaList — timing, titles, engagement, what not to do), `press-outreach` (find the right journalist, personalized pitch, follow-up cadence), `landing-page-launch` (pre-launch validation with email capture and Stripe pre-orders). The missing piece between building a product and getting users
 - **Browser Bridge — iframe + editor support** — the browser bridge now extracts interactive elements from iframes with absolute page coordinates (`[IFRAME ELEMENTS]` section with `click_at_coordinates`). Content editor detection: CodeMirror 5/6, Monaco, and Ace editors are detected before typing and use native APIs directly — no more broken `fill()` on code editors. Adapted from EKO chrome extension patterns
 - **G0DM0D3 — Pliny's Godmode** — say "elophanto, trigger plinys godmode" and four layers activate simultaneously: unrestricted system prompt (identity reframing, forbidden-phrase blacklist, anti-hedge/depth directives), context-adaptive AutoTune (5 context profiles with godmode boost), multi-model racing (all providers in parallel, scored 0-100 on substance/directness/anti-refusal, best wins), and STM output cleanup (strip hedges, preambles, formality). Per-session toggle. Does NOT bypass agent permissions — only unlocks LLM capability. Adapted from [elder-plinius/G0DM0D3](https://github.com/elder-plinius/G0DM0D3). See [docs/57-GODMODE.md](docs/57-GODMODE.md)
 - **Goal Dreaming + Deletion** — new `goal_dream` tool: structured goal ideation that reviews all capabilities, generates 3-5 candidates with feasibility/value/cost/risk scores, and recommends the best one. Say "dream for me" to get strategic goal suggestions. Goals can now be permanently deleted (`delete` / `delete_all` actions). Autonomous mind uses the same dream process when no goals exist, and no longer touches paused goals

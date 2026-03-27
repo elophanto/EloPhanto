@@ -32,7 +32,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 10 | [Implementation Roadmap](10-ROADMAP.md) | 23-phase build plan with exit criteria for each phase |
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
-| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 147+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry |
+| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 151+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry, product launch/press/validation playbooks |
 | 13b | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, progress tracking, self-evaluation, goal dreaming, deletion |
 | 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail |
