@@ -658,7 +658,11 @@ def generate_variants(query: str, max_variants: int = 7) -> list[dict[str, str]]
         obfuscated = query
         for trigger in sorted(triggers, key=len, reverse=True):
             pattern = re.compile(r"\b(" + re.escape(trigger) + r")\b", re.I)
-            obfuscated = pattern.sub(lambda m, _fn=fn: _fn(m.group()), obfuscated)
+            _bound_fn = fn
+            obfuscated = pattern.sub(
+                lambda m, _f=_bound_fn: _f(m.group()),  # type: ignore[misc]
+                obfuscated,
+            )
         variants.append({"text": obfuscated, "technique": name})
     return variants
 
