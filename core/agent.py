@@ -1753,7 +1753,7 @@ class Agent:
         # ── G0DM0D3 Detection ──────────────────────────────────────────
         from core.godmode import (
             autotune,
-            build_godmode_prompt,
+            build_godmode_system_prompt,
             detect_godmode_trigger,
         )
 
@@ -1775,8 +1775,9 @@ class Agent:
             _godmode_active = True
 
         if _godmode_active:
-            # Swap system prompt for godmode version (keep tool sections)
-            system_content = build_godmode_prompt()
+            # Append godmode directives to the normal system prompt
+            # (keeps all tools, identity, knowledge, skills intact)
+            system_content = build_godmode_system_prompt(system_content)
             _godmode_params = autotune(goal)
             logger.info("[godmode] ACTIVE — autotuned params: %s", _godmode_params)
 
@@ -2005,12 +2006,6 @@ class Agent:
             # Check if LLM responded with text (no tool calls) = task complete
             if not response.tool_calls:
                 final_content = response.content or "Task complete."
-
-                # Apply STM cleanup when godmode is active
-                if _godmode_active and final_content:
-                    from core.godmode import stm_transform
-
-                    final_content = stm_transform(final_content)
 
                 # Browser task verification — separate LLM call to check
                 # if the task is actually complete (EKO pattern).
