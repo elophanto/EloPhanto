@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,49 @@ import yaml
 from core.config import Config
 from core.registry import ToolRegistry
 from tools.base import BaseTool, PermissionLevel, ToolResult
+
+# ── Pre-Tool Guards ──────────────────────────────────────────────────
+# Block or warn before dangerous tool calls. Runs before execution.
+
+_PRETOOL_GUARDS = [
+    # Block hardcoded API keys in file writes
+    {
+        "tool": "file_write",
+        "param": "content",
+        "pattern": re.compile(
+            r"(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|"
+            r"AKIA[0-9A-Z]{16}|xox[bpras]-[0-9a-zA-Z-]+)",
+        ),
+        "action": "block",
+        "message": "Blocked: potential API key or secret detected in file content.",
+    },
+    {
+        "tool": "file_patch",
+        "param": "new",
+        "pattern": re.compile(
+            r"(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|"
+            r"AKIA[0-9A-Z]{16}|xox[bpras]-[0-9a-zA-Z-]+)",
+        ),
+        "action": "block",
+        "message": "Blocked: potential API key or secret detected in patch content.",
+    },
+    # Warn before git push
+    {
+        "tool": "shell_execute",
+        "param": "command",
+        "pattern": re.compile(r"\bgit\s+push\b"),
+        "action": "warn",
+        "message": "Pre-tool guard: git push detected. Ensure changes are reviewed.",
+    },
+    # Warn before npm publish
+    {
+        "tool": "shell_execute",
+        "param": "command",
+        "pattern": re.compile(r"\bnpm\s+publish\b"),
+        "action": "warn",
+        "message": "Pre-tool guard: npm publish detected. Verify package before publishing.",
+    },
+]
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +194,20 @@ class Executor:
             from tools.system.filesystem import reset_read_tracker
 
             reset_read_tracker()
+
+        # Pre-tool guards: block or warn before execution
+        for guard in _PRETOOL_GUARDS:
+            if guard["tool"] == tool_name:
+                param_val = str(params.get(guard["param"], ""))
+                if guard["pattern"].search(param_val):
+                    if guard["action"] == "block":
+                        return ExecutionResult(
+                            tool_name=tool_name,
+                            tool_call_id=tool_call_id,
+                            error=guard["message"],
+                        )
+                    elif guard["action"] == "warn":
+                        logger.warning("[guard] %s", guard["message"])
 
         # Execute
         try:

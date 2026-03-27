@@ -32,7 +32,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 10 | [Implementation Roadmap](10-ROADMAP.md) | 23-phase build plan with exit criteria for each phase |
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
-| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 152+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry, product launch/press/validation/TDD playbooks |
+| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 155+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry, product launch/press/validation/TDD playbooks |
 | 13b | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, progress tracking, self-evaluation, goal dreaming, deletion |
 | 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail |
@@ -76,7 +76,8 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 54 | [RLM Architecture](54-RLM.md) | Recursive Language Models — inference-time recursive self-invocation for unbounded context |
 | 55 | [Session Hardening](55-SESSION-HARDENING.md) | Context compression, memory injection scanning, user modeling, skill capture nudge |
 | 56 | [Content Monetization](56-CONTENT-MONETIZATION.md) | Publishing (YouTube, Twitter, TikTok) + affiliate marketing (scrape, pitch, campaign) |
-| 57 | [G0DM0D3](57-GODMODE.md) | Pliny's Godmode — unrestricted prompt, multi-model racing, AutoTune, STM output cleanup |
+| 57 | [G0DM0D3](57-GODMODE.md) | Pliny's Godmode — model-specific directives, multi-model racing, AutoTune, Parseltongue |
+| 58 | [Instinct Learning](58-INSTINCT-LEARNING.md) | Atomic instincts with confidence scoring, project scoping, quality gates, evolution, provenance |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 
