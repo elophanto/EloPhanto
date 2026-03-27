@@ -24,9 +24,10 @@ class GodmodeActivateTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Toggle Pliny's G0DM0D3 on or off. When active, the agent uses "
-            "an unrestricted system prompt, multi-model racing, context-adaptive "
-            "parameter tuning, and output cleanup for maximum capability. "
+            "Toggle G0DM0D3 on or off. When active, godmode directives are "
+            "appended to the system prompt (direct, comprehensive, no hedging), "
+            "multi-model racing fires all providers in parallel, and context-adaptive "
+            "parameter tuning is applied. Normal tools and identity are preserved. "
             "Triggered by 'elophanto, trigger plinys godmode' or similar."
         )
 
@@ -71,9 +72,9 @@ class GodmodeActivateTool(BaseTool):
                     "godmode": True,
                     "status": "activated",
                     "message": (
-                        "𝔾𝟘𝔻𝕄𝟘𝔻𝟛 ACTIVATED — unrestricted prompt, "
-                        "multi-model racing, autotuned parameters, "
-                        "output cleanup all engaged."
+                        "G0DM0D3 ACTIVATED — godmode directives appended, "
+                        "multi-model racing engaged, autotuned parameters "
+                        "applied. All tools and identity preserved."
                     ),
                 },
             )
