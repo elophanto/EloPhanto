@@ -145,6 +145,12 @@ class Executor:
                 denied=True,
             )
 
+        # Reset file read loop tracker when a non-read tool is called
+        if tool_name != "file_read":
+            from tools.system.filesystem import reset_read_tracker
+
+            reset_read_tracker()
+
         # Execute
         try:
             logger.info(f"Executing tool '{tool_name}' with params: {params}")

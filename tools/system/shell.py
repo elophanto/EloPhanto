@@ -21,6 +21,19 @@ logger = logging.getLogger(__name__)
 _BACKGROUND_CMD_RE = re.compile(r"&\s*$|&\s*\d*>\s*/|nohup\s+")
 
 
+# Patterns that augment the config blacklist with regex-based detection.
+# Config blacklist uses simple substring matching; these catch variants
+# that substring matching misses. WARNING-only (not blocked) because
+# these commands are sometimes legitimate (e.g. git push --force to a
+# personal branch). The config blacklist handles hard blocks.
+_DANGEROUS_PATTERNS = [
+    re.compile(r"\bgit\s+(reset\s+--hard|clean\s+-[fdx]|push\s+--force)", re.I),
+    re.compile(r"\bsudo\s+rm\b", re.I),
+    re.compile(r"\bchown\s+-R\s+.*\s+/\s*$", re.I),
+    re.compile(r"\bsed\s+-i\b.*\s+/", re.I),  # in-place sed on root paths
+]
+
+
 class ShellExecuteTool(BaseTool):
     """Runs shell commands on the user's system."""
 
@@ -100,6 +113,15 @@ class ShellExecuteTool(BaseTool):
         protected_msg = check_command_for_protected(command)
         if protected_msg:
             return ToolResult(success=False, error=protected_msg)
+
+        # Log dangerous patterns (doesn't block, but creates audit trail)
+        for pat in _DANGEROUS_PATTERNS:
+            if pat.search(command):
+                logger.warning(
+                    "[shell] DANGEROUS command detected: %s (pattern: %s)",
+                    command[:120],
+                    pat.pattern[:60],
+                )
 
         # Process registry: prune dead entries and check capacity
         if self._process_registry:

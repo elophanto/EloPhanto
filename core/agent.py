@@ -295,23 +295,81 @@ def _estimate_context_chars(messages: list[dict[str, Any]]) -> int:
     return total
 
 
+def _extract_path(tc: dict[str, Any]) -> str | None:
+    """Extract file path from a tool call's arguments, if present."""
+    try:
+        args = tc.get("function", {}).get("arguments", "{}")
+        params = json.loads(args) if isinstance(args, str) else args
+        return params.get("path", None)
+    except Exception:
+        return None
+
+
+def _paths_conflict(paths: list[str | None], new_path: str | None) -> bool:
+    """Check if a new path conflicts with any existing paths.
+
+    Two write operations on the same file or parent directory conflict.
+    """
+    if new_path is None:
+        return False
+    for p in paths:
+        if p is None:
+            continue
+        # Same file or one is parent of the other
+        if (
+            p == new_path
+            or new_path.startswith(p + "/")
+            or p.startswith(new_path + "/")
+        ):
+            return True
+    return False
+
+
+# Tools that write files — need path-aware conflict checking
+_PATH_WRITE_TOOLS = frozenset(
+    {
+        "file_write",
+        "file_patch",
+        "file_delete",
+        "file_move",
+    }
+)
+
+
 def _group_tool_calls(tool_calls: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """Group tool calls into parallelizable batches.
 
     Consecutive parallel-safe tools form one group.
     Any non-safe tool gets its own single-item group (sequential barrier).
+    Path-aware: write tools targeting the same path run sequentially.
     """
     groups: list[list[dict[str, Any]]] = []
     current_safe: list[dict[str, Any]] = []
+    current_paths: list[str | None] = []
 
     for tc in tool_calls:
         name = tc.get("function", {}).get("name", "")
         if name in _PARALLEL_SAFE_TOOLS:
             current_safe.append(tc)
+        elif name in _PATH_WRITE_TOOLS:
+            # Write tool — check for path conflicts with current batch
+            path = _extract_path(tc)
+            if current_safe and not _paths_conflict(current_paths, path):
+                # No conflict — can run in parallel with reads
+                current_safe.append(tc)
+                current_paths.append(path)
+            else:
+                # Conflict or no batch — sequential barrier
+                if current_safe:
+                    groups.append(current_safe)
+                    current_safe = []
+                    current_paths = []
+                groups.append([tc])
         else:
             if current_safe:
                 groups.append(current_safe)
                 current_safe = []
+                current_paths = []
             groups.append([tc])  # Sequential barrier
 
     if current_safe:
