@@ -743,12 +743,14 @@ def _apply_env_overrides(config: Config) -> None:
         "openai": {"base_url": ""},
         "zai": {"base_url": "https://api.z.ai/api/paas/v4"},
         "kimi": {"base_url": "https://api.kilo.ai/api/gateway"},
+        "huggingface": {"base_url": "https://router.huggingface.co/v1"},
     }
     _ENV_MAP = {
         "OPENROUTER_API_KEY": "openrouter",
         "OPENAI_API_KEY": "openai",
         "ZAI_API_KEY": "zai",
         "KIMI_API_KEY": "kimi",
+        "HF_TOKEN": "huggingface",
     }
     for env_var, provider_name in _ENV_MAP.items():
         env_key = os.environ.get(env_var)

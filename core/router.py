@@ -533,7 +533,15 @@ class LLMRouter:
 
     def _infer_provider(self, model: str) -> str:
         """Infer provider from model name."""
+        # HuggingFace models use org/model format (e.g. Qwen/Qwen3.5-397B-A17B)
+        # Check if huggingface is configured and the model looks like an HF repo
         if "/" in model and not model.startswith("ollama/"):
+            hf_cfg = self._config.llm.providers.get("huggingface")
+            if hf_cfg and hf_cfg.enabled:
+                # Check if model is in HF routing config
+                for rt in self._config.llm.routing.values():
+                    if rt.models.get("huggingface") == model:
+                        return "huggingface"
             return "openrouter"
         if model.startswith("glm-"):
             return "zai"
@@ -633,6 +641,14 @@ class LLMRouter:
             # OpenAI reasoning models use reasoning_effort param directly
             if reasoning_effort:
                 kwargs["reasoning_effort"] = reasoning_effort
+        elif provider == "huggingface":
+            kwargs["model"] = f"huggingface/{model}"
+            hf_cfg = self._config.llm.providers.get("huggingface")
+            if hf_cfg:
+                kwargs["api_key"] = hf_cfg.api_key
+                kwargs["api_base"] = (
+                    hf_cfg.base_url or "https://router.huggingface.co/v1"
+                )
         elif provider == "ollama":
             kwargs["model"] = (
                 f"ollama/{model}" if not model.startswith("ollama/") else model
@@ -881,6 +897,22 @@ class LLMRouter:
                 logger.warning(f"Kimi not reachable: {e}")
                 return ("kimi", False)
 
+        async def _check_huggingface() -> tuple[str, bool]:
+            hf_cfg = self._config.llm.providers.get("huggingface")
+            if not (hf_cfg and hf_cfg.enabled and hf_cfg.api_key):
+                return ("huggingface", False)
+            try:
+                base = hf_cfg.base_url or "https://router.huggingface.co/v1"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(
+                        f"{base}/models",
+                        headers={"Authorization": f"Bearer {hf_cfg.api_key}"},
+                    )
+                    return ("huggingface", resp.status_code == 200)
+            except Exception:
+                logger.warning("HuggingFace not reachable")
+                return ("huggingface", False)
+
         # Run all health checks in parallel
         tasks = []
         ollama_cfg = self._config.llm.providers.get("ollama")
@@ -898,6 +930,9 @@ class LLMRouter:
         kimi_cfg = self._config.llm.providers.get("kimi")
         if kimi_cfg and kimi_cfg.enabled and kimi_cfg.api_key:
             tasks.append(_check_kimi())
+        hf_cfg = self._config.llm.providers.get("huggingface")
+        if hf_cfg and hf_cfg.enabled and hf_cfg.api_key:
+            tasks.append(_check_huggingface())
 
         if tasks:
             check_results = await asyncio.gather(*tasks)

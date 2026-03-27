@@ -17,7 +17,7 @@
 
 An open-source AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
 
-Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, or OpenRouter.
+Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, OpenRouter, or HuggingFace.
 
 <p align="center">
   <img src="misc/screenshots/dashboard.png" alt="Web Dashboard" width="700">
@@ -45,6 +45,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
   - **Kimi / Moonshot AI** (cloud, K2.5 vision) — [get API key](https://app.kilo.ai) via Kilo Code Gateway — Kimi K2.5 is a native multimodal vision model with strong coding and agentic capabilities
   - **OpenRouter** (cloud, all models) — [get API key](https://openrouter.ai)
   - **Z.ai / GLM** (cloud, cost-effective) — [get API key](https://z.ai/manage-apikey/apikey-list) — the Z.ai coding subscription gives you unlimited GLM-4.7/GLM-5 calls at a flat monthly rate
+  - **HuggingFace** (cloud, open models) — [get token](https://huggingface.co/settings/tokens) — access Qwen, DeepSeek, GLM, Kimi, MiMo and more via HF Inference Providers
 
 </details>
 
@@ -111,7 +112,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 | **Has its own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
 | **Has its own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
 | **Chat from anywhere** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
-| **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai | ❌ | ❌ | ❌ | ❌ |
+| **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai, HuggingFace | ❌ | ❌ | ❌ | ❌ |
 | **Learns about you** | ✅ Evolving user profiles | ❌ | ❌ | ❌ | ❌ |
 | **Makes money autonomously** | ✅ YouTube/X/TikTok + affiliate | ❌ | ❌ | ❌ | ❌ |
 | **Godmode (unrestricted)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
