@@ -15,6 +15,7 @@ from cli.rollback_cmd import rollback_cmd
 from cli.schedule_cmd import schedule_cmd
 from cli.skills_cmd import skills_cmd
 from cli.telegram_cmd import telegram_cmd
+from cli.update_cmd import update_cmd
 from cli.vault_cmd import vault_cmd
 
 
@@ -33,6 +34,7 @@ cli.add_command(rollback_cmd, "rollback")
 cli.add_command(telegram_cmd, "telegram")
 cli.add_command(skills_cmd, "skills")
 cli.add_command(mcp_cmd, "mcp")
+cli.add_command(update_cmd, "update")
 
 
 if __name__ == "__main__":

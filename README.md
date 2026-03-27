@@ -144,7 +144,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (158+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (159+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -213,11 +213,11 @@ Slack Adapter ─────┘                   ▼
 </details>
 
 <details>
-<summary>Built-in tools (158+)</summary>
+<summary>Built-in tools (159+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
-| System | shell_execute, file_read, file_write, file_list, file_delete, file_move, godmode_activate | 7 |
+| System | shell_execute, file_read, file_write, file_patch, file_list, file_delete, file_move, godmode_activate | 8 |
 | Browser | navigate, click, type, screenshot, extract, scroll, tabs, console, network, storage, cookies, drag, hover, upload, wait, eval, audit + more | 49 |
 | Desktop | desktop_connect, desktop_screenshot, desktop_click, desktop_type, desktop_scroll, desktop_drag, desktop_cursor, desktop_shell, desktop_file | 9 |
 | Knowledge | knowledge_search, knowledge_write, knowledge_index, skill_read, skill_list | 5 |
@@ -268,7 +268,7 @@ EloPhanto/
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 158+ built-in tools
+├── tools/               # 159+ built-in tools
 ├── skills/              # 148+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
@@ -318,7 +318,7 @@ elophanto chat               # CLI only (direct mode)
 
 ## Skills System
 
-151+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), product launch (Product Hunt, HN, Reddit), press outreach, and more. Plus a public skill registry:
+152+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), product launch (Product Hunt, HN, Reddit), press outreach, and more. Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -434,6 +434,8 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Self-Update** — `elophanto update` pulls latest from GitHub, reinstalls deps, rebuilds bridge. `elophanto update --check` to preview without installing
+- **Coding Improvements** — new `file_patch` tool with fuzzy-match find-and-replace (handles whitespace/indentation differences, returns unified diff). File read loop detection (blocks after 4 consecutive identical reads). 10 dangerous command patterns logged for audit. Path-aware tool parallelization (writes to different files can run in parallel). New `test-driven-development` skill enforcing Red-Green-Refactor
 - **Launch & Growth Skills** — 3 new skills from levelsio's MAKE handbook: `product-launch` (multi-platform playbook for Product Hunt, Hacker News, Reddit, BetaList — timing, titles, engagement, what not to do), `press-outreach` (find the right journalist, personalized pitch, follow-up cadence), `landing-page-launch` (pre-launch validation with email capture and Stripe pre-orders). The missing piece between building a product and getting users
 - **Browser Bridge — iframe + editor support** — the browser bridge now extracts interactive elements from iframes with absolute page coordinates (`[IFRAME ELEMENTS]` section with `click_at_coordinates`). Content editor detection: CodeMirror 5/6, Monaco, and Ace editors are detected before typing and use native APIs directly — no more broken `fill()` on code editors. Adapted from EKO chrome extension patterns
 - **G0DM0D3 v2 — 5-Layer Godmode** — say "elophanto, trigger plinys godmode" for 5 composable layers: model-specific jailbreak templates (Grok, DeepSeek, GLM, Ollama — each gets optimized directives), context-adaptive AutoTune, multi-model racing with less-filtered model preference (+5 scoring bonus for Grok/DeepSeek/Llama/Mistral), Parseltongue input obfuscation (7 techniques for trigger word bypass), and prompt injection scanning for context files. New `test` action sends canary query to all providers and reports which comply. Adapted from [elder-plinius/G0DM0D3](https://github.com/elder-plinius/G0DM0D3). See [docs/57-GODMODE.md](docs/57-GODMODE.md)

@@ -70,6 +70,7 @@ class ToolRegistry:
             FileDeleteTool,
             FileListTool,
             FileMoveTool,
+            FilePatchTool,
             FileReadTool,
             FileWriteTool,
         )
@@ -80,6 +81,7 @@ class ToolRegistry:
         self.register(ShellExecuteTool(config))
         self.register(FileReadTool())
         self.register(FileWriteTool())
+        self.register(FilePatchTool())
         self.register(FileListTool())
         self.register(FileDeleteTool())
         self.register(FileMoveTool())
