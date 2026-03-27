@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-57%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-58%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
@@ -273,7 +273,7 @@ EloPhanto/
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (57+ docs)
+└── docs/                # Full specification (58+ docs)
 ```
 
 </details>
@@ -318,7 +318,7 @@ elophanto chat               # CLI only (direct mode)
 
 ## Skills System
 
-152+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), product launch (Product Hunt, HN, Reddit), press outreach, and more. Plus a public skill registry:
+155+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), product launch (Product Hunt, HN, Reddit), press outreach, and more. Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -434,6 +434,8 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Instinct-Based Learning** — upgrade to the learning engine: atomic instincts with confidence scoring (0.3→0.9), project-scoped storage, quality-gated extraction, pre-tool guards (blocks secrets in file writes, warns before git push), instinct→skill evolution (clusters high-confidence instincts into SKILL.md files), provenance tracking for all auto-generated content. See [docs/58-INSTINCT-LEARNING.md](docs/58-INSTINCT-LEARNING.md)
+- **Software Engineering Skills** — 3 production-grade skills from [obra/superpowers](https://github.com/obra/superpowers): `systematic-debugging` (4-phase root cause investigation with defense-in-depth, condition-based-waiting, find-polluter binary search), `writing-plans` (exact code, exact paths, bite-sized tasks, no placeholders ever), `verification-before-completion` (evidence before claims — run the command, read the output, THEN claim the result)
 - **Self-Update** — `elophanto update` pulls latest from GitHub, reinstalls deps, rebuilds bridge. `elophanto update --check` to preview without installing
 - **Coding Improvements** — new `file_patch` tool with fuzzy-match find-and-replace (handles whitespace/indentation differences, returns unified diff). File read loop detection (blocks after 4 consecutive identical reads). 10 dangerous command patterns logged for audit. Path-aware tool parallelization (writes to different files can run in parallel). New `test-driven-development` skill enforcing Red-Green-Refactor
 - **Launch & Growth Skills** — 3 new skills from levelsio's MAKE handbook: `product-launch` (multi-platform playbook for Product Hunt, Hacker News, Reddit, BetaList — timing, titles, engagement, what not to do), `press-outreach` (find the right journalist, personalized pitch, follow-up cadence), `landing-page-launch` (pre-launch validation with email capture and Stripe pre-orders). The missing piece between building a product and getting users

@@ -594,6 +594,18 @@ class Agent:
                     indexer=self._indexer,
                     enabled=True,
                 )
+                # Wire instinct store into learner
+                try:
+                    from core.instinct import InstinctStore, get_project_hash
+
+                    data_dir = self._config.project_root / "data"
+                    proj_hash = get_project_hash(self._config.project_root)
+                    self._learner._instinct_store = InstinctStore(
+                        data_dir=data_dir, project_hash=proj_hash
+                    )
+                    logger.info("Instinct store ready (project=%s)", proj_hash)
+                except Exception as e:
+                    logger.debug("Instinct store setup failed: %s", e)
                 self._inject_learner_deps()
                 logger.info("Lesson extractor ready")
             except Exception as e:

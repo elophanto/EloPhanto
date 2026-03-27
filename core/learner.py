@@ -85,8 +85,39 @@ def _estimate_tokens(text: str) -> int:
 # ---------------------------------------------------------------------------
 
 
+_INSTINCT_SYSTEM = """\
+<instinct_extraction>
+You extract atomic, reusable behavioral instincts from completed AI agent tasks.
+
+An instinct is ONE trigger → ONE action. Not a full lesson — just one behavior.
+
+Given a task goal, outcome, and tools used, extract 0-3 instincts that are:
+- Atomic: one trigger, one action (not a multi-step procedure)
+- Reusable: applicable to future similar situations
+- Specific: concrete enough to act on immediately
+
+Return ONLY JSON:
+{
+  "instincts": [
+    {
+      "trigger": "when [specific situation]",
+      "action": "always/never [specific behavior]",
+      "tags": ["tag1", "tag2"],
+      "scope": "project" or "global"
+    }
+  ]
+}
+
+Scope rules:
+- "project": pattern specific to this codebase/framework/convention
+- "global": universally applicable across any project
+
+Return {"instincts": []} if the task was routine with no novel patterns.
+</instinct_extraction>"""
+
+
 class LessonExtractor:
-    """Extracts generalizable lessons from task completions and stores them in KB."""
+    """Extracts lessons and instincts from task completions."""
 
     def __init__(
         self,
@@ -99,6 +130,7 @@ class LessonExtractor:
         self._knowledge_dir = knowledge_dir
         self._indexer = indexer
         self._enabled = enabled
+        self._instinct_store: Any = None  # Set by agent during init
 
     async def extract_and_store(
         self,
@@ -107,12 +139,13 @@ class LessonExtractor:
         outcome: str,
         tools_used: list[str],
     ) -> None:
-        """Extract lessons and write to KB. Safe to fire-and-forget."""
+        """Extract lessons + instincts and store. Safe to fire-and-forget."""
         if not self._enabled:
             return
         if outcome != "completed":
-            return  # Only learn from successful outcomes
+            return
 
+        # Extract lessons (existing behavior)
         try:
             response = await self._router.complete(
                 messages=[
@@ -133,10 +166,68 @@ class LessonExtractor:
             lessons = data.get("lessons", [])
         except Exception as e:
             logger.debug("Lesson extraction LLM call failed: %s", e)
-            return
+            lessons = []
+
+        # Extract instincts (new behavior)
+        if self._instinct_store:
+            await self._extract_instincts(goal, summary, tools_used)
+
+        # Continue with lesson storage (existing)
 
         for lesson in lessons[:2]:  # Cap at 2 per task
             await self._write_lesson(lesson, goal)
+
+    async def _extract_instincts(
+        self, goal: str, summary: str, tools_used: list[str]
+    ) -> None:
+        """Extract atomic instincts from a completed task."""
+        try:
+            response = await self._router.complete(
+                messages=[
+                    {"role": "system", "content": _INSTINCT_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Task: {goal}\n"
+                            f"Outcome: {summary[:600]}\n"
+                            f"Tools used: {', '.join(tools_used[:12])}"
+                        ),
+                    },
+                ],
+                task_type="simple",
+                temperature=0.2,
+            )
+            data = json.loads(response.content)
+            instincts = data.get("instincts", [])
+        except Exception as e:
+            logger.debug("Instinct extraction failed: %s", e)
+            return
+
+        for inst in instincts[:3]:
+            trigger = inst.get("trigger", "").strip()
+            action = inst.get("action", "").strip()
+            tags = inst.get("tags", [])
+            scope = inst.get("scope", "project")
+
+            if not trigger or not action:
+                continue
+
+            # Quality gate: scan for injection before persisting
+            from core.injection_guard import scan_for_injection
+
+            combined = f"{trigger} {action}"
+            is_suspicious, _patterns = scan_for_injection(combined)
+            if is_suspicious:
+                logger.warning("[instinct] Blocked suspicious: %s", trigger[:60])
+                continue
+
+            self._instinct_store.merge_or_create(
+                trigger=trigger,
+                action=action,
+                evidence=f"Task: {goal[:100]}",
+                tags=tags,
+                scope=scope,
+            )
 
     async def compress_content(self, content: str) -> str:
         """Compress verbose content before KB write. Returns compressed string.
