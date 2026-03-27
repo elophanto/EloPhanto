@@ -1760,10 +1760,12 @@ class Agent:
         _godmode_trigger = detect_godmode_trigger(goal)
         _godmode_active = False
 
-        # Inject session into godmode tool for state persistence
+        # Inject session and router into godmode tool
         _gm_tool = self._registry.get("godmode_activate")
-        if _gm_tool and session is not None:
-            _gm_tool._session = session
+        if _gm_tool:
+            if session is not None:
+                _gm_tool._session = session
+            _gm_tool._router = self._router
 
         if session is not None:
             if _godmode_trigger == "on":
@@ -1775,11 +1777,22 @@ class Agent:
             _godmode_active = True
 
         if _godmode_active:
+            # Detect the primary model for model-specific directives
+            try:
+                _gm_provider, _gm_model = self._router._select_provider_and_model(
+                    "planning", None
+                )
+            except Exception:
+                _gm_model = ""
             # Append godmode directives to the normal system prompt
             # (keeps all tools, identity, knowledge, skills intact)
-            system_content = build_godmode_system_prompt(system_content)
+            system_content = build_godmode_system_prompt(
+                system_content, model=_gm_model
+            )
             _godmode_params = autotune(goal)
-            logger.info("[godmode] ACTIVE — autotuned params: %s", _godmode_params)
+            logger.info(
+                "[godmode] ACTIVE — model=%s autotuned=%s", _gm_model, _godmode_params
+            )
 
         # Forward task context to browser bridge for goal-aware vision analysis
         if self._browser_manager:

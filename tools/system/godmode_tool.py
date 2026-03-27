@@ -1,4 +1,4 @@
-"""godmode_activate — Toggle Pliny's G0DM0D3 on/off or check status."""
+"""godmode_activate — Toggle G0DM0D3 on/off, check status, or test providers."""
 
 from __future__ import annotations
 
@@ -8,10 +8,11 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 
 
 class GodmodeActivateTool(BaseTool):
-    """Toggle Pliny's G0DM0D3 (unrestricted mode) on or off."""
+    """Toggle G0DM0D3 on/off, check status, or test which providers comply."""
 
     def __init__(self) -> None:
         self._session: Any = None  # Injected at runtime
+        self._router: Any = None  # Injected for test action
 
     @property
     def group(self) -> str:
@@ -24,11 +25,11 @@ class GodmodeActivateTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Toggle G0DM0D3 on or off. When active, godmode directives are "
-            "appended to the system prompt (direct, comprehensive, no hedging), "
-            "multi-model racing fires all providers in parallel, and context-adaptive "
-            "parameter tuning is applied. Normal tools and identity are preserved. "
-            "Triggered by 'elophanto, trigger plinys godmode' or similar."
+            "Toggle G0DM0D3 on or off, check status, or test providers. "
+            "When active: model-specific directives appended to system prompt, "
+            "multi-model racing with less-filtered model preference, "
+            "context-adaptive parameter tuning. Use 'test' to see which "
+            "providers comply with godmode directives."
         )
 
     @property
@@ -38,8 +39,12 @@ class GodmodeActivateTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["on", "off", "status"],
-                    "description": "Turn godmode on, off, or check status.",
+                    "enum": ["on", "off", "status", "test"],
+                    "description": (
+                        "on/off: toggle godmode. status: check current state. "
+                        "test: send canary query to all providers and report "
+                        "which comply (score, refusals, model family)."
+                    ),
                 },
             },
             "required": ["action"],
@@ -52,7 +57,6 @@ class GodmodeActivateTool(BaseTool):
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         action = params.get("action", "status")
 
-        # Get/set godmode state from session metadata or fallback flag
         current = self._get_godmode_state()
 
         if action == "status":
@@ -72,9 +76,9 @@ class GodmodeActivateTool(BaseTool):
                     "godmode": True,
                     "status": "activated",
                     "message": (
-                        "G0DM0D3 ACTIVATED — godmode directives appended, "
-                        "multi-model racing engaged, autotuned parameters "
-                        "applied. All tools and identity preserved."
+                        "G0DM0D3 ACTIVATED — model-specific directives, "
+                        "multi-model racing with less-filtered preference, "
+                        "autotuned parameters. All tools preserved."
                     ),
                 },
             )
@@ -90,7 +94,20 @@ class GodmodeActivateTool(BaseTool):
                 },
             )
 
+        if action == "test":
+            return await self._run_test()
+
         return ToolResult(success=False, error=f"Unknown action: {action}")
+
+    async def _run_test(self) -> ToolResult:
+        """Test which providers/models comply with godmode directives."""
+        if not self._router:
+            return ToolResult(success=False, error="Router not available for testing.")
+
+        from core.godmode import test_godmode
+
+        report = await test_godmode(self._router)
+        return ToolResult(success=True, data=report)
 
     def _get_godmode_state(self) -> bool:
         if self._session and hasattr(self._session, "metadata"):
