@@ -33,6 +33,12 @@ llm:
       base_url: "https://api.kilo.ai/api/gateway"
       default_model: "kimi-k2.5"         # → moonshotai/kimi-k2.5 on Kilo Gateway
 
+    huggingface:
+      api_key: "YOUR_HF_TOKEN"              # https://huggingface.co/settings/tokens
+      enabled: false
+      base_url: "https://router.huggingface.co/v1"
+      default_model: "Qwen/Qwen3.5-397B-A17B"  # or deepseek-ai/DeepSeek-V3.2, zai-org/GLM-5
+
     ollama:
       enabled: true
       base_url: "http://localhost:11434"
@@ -44,6 +50,7 @@ llm:
   provider_priority:
     - openrouter
     - zai
+    - huggingface
     - openai
     - kimi
 
@@ -58,6 +65,7 @@ llm:
         kimi: "kimi-k2.5"
         zai: "glm-5"
         openrouter: "openrouter/hunter-alpha"
+        huggingface: "Qwen/Qwen3.5-397B-A17B"
         ollama: "nomic-embed-text:latest"
 
     coding:
@@ -68,6 +76,7 @@ llm:
         kimi: "kimi-k2.5"
         zai: "glm-4.7"
         openrouter: "openrouter/hunter-alpha"
+        huggingface: "deepseek-ai/DeepSeek-V3.2"
         ollama: "nomic-embed-text:latest"
 
     analysis:
@@ -78,6 +87,7 @@ llm:
         kimi: "kimi-k2.5"
         zai: "glm-4.7"
         openrouter: "openrouter/hunter-alpha"
+        huggingface: "Qwen/Qwen3.5-397B-A17B"
         ollama: "nomic-embed-text:latest"
 
     simple:
@@ -87,6 +97,7 @@ llm:
         kimi: "kimi-k2-thinking-turbo"
         zai: "glm-4.7"
         openrouter: "openrouter/hunter-alpha"
+        huggingface: "deepseek-ai/DeepSeek-V3.2"
         ollama: "nomic-embed-text:latest"
 
   budget:
