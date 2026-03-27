@@ -4424,8 +4424,47 @@ export class AwareBrowserAgent {
             if (el && el.setAttribute) el.setAttribute('data-aware-idx', keys[i]);
           }
         })()`);
-        this.elementsCache = { value: result.element_str, ts: Date.now() };
-        return result.element_str;
+        // Extract iframe elements with absolute coordinates
+        let iframeSection = '';
+        try {
+          iframeSection = await page.evaluate(`(function() {
+            var iframes = document.querySelectorAll('iframe');
+            if (!iframes.length) return '';
+            var iframeElements = [];
+            for (var fi = 0; fi < iframes.length; fi++) {
+              var iframe = iframes[fi];
+              var iframeRect = iframe.getBoundingClientRect();
+              if (iframeRect.width < 10 || iframeRect.height < 10) continue;
+              var iframeDoc;
+              try { iframeDoc = iframe.contentDocument || iframe.contentWindow.document; }
+              catch(e) { continue; }
+              if (!iframeDoc || !iframeDoc.body) continue;
+              var selectors = 'a, button, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [contenteditable="true"], [onclick], [tabindex]';
+              var els = iframeDoc.querySelectorAll(selectors);
+              for (var ei = 0; ei < els.length; ei++) {
+                var el = els[ei];
+                var cs = window.getComputedStyle(el);
+                if (!cs || cs.display === 'none' || cs.visibility === 'hidden') continue;
+                var r = el.getBoundingClientRect();
+                if (r.width < 2 || r.height < 2) continue;
+                var absX = Math.round(r.left + r.width / 2 + iframeRect.left);
+                var absY = Math.round(r.top + r.height / 2 + iframeRect.top);
+                var tag = el.tagName.toLowerCase();
+                var text = (el.innerText || el.textContent || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '').trim().slice(0, 40);
+                if (!text && tag === 'input') text = el.getAttribute('type') || 'input';
+                iframeElements.push('<' + tag + '> "' + text.replace(/"/g, "'") + '" -> click_at_coordinates(' + absX + ', ' + absY + ')');
+              }
+            }
+            if (!iframeElements.length) return '';
+            return '\\n\\n[IFRAME ELEMENTS - These are inside embedded iframes. Use click_at_coordinates with the provided (x, y) values to interact with them:\\n' + iframeElements.join('\\n') + '\\n]';
+          })()`) as string || '';
+        } catch {
+          // Cross-origin iframes will fail — that's expected
+        }
+
+        const fullResult = result.element_str + iframeSection;
+        this.elementsCache = { value: fullResult, ts: Date.now() };
+        return fullResult;
       }
     } catch {
       // Fall back to CSS selector approach below
@@ -5517,6 +5556,43 @@ export class AwareBrowserAgent {
           }
 
           input.focus && input.focus();
+
+          // Detect code editors (CodeMirror, Monaco, Ace) and use native APIs
+          // CodeMirror 5
+          var cmEl = input.closest ? input.closest('.CodeMirror') : null;
+          if (cmEl && cmEl.CodeMirror) {
+            cmEl.CodeMirror.setValue(${escapedText});
+            cmEl.CodeMirror.refresh();
+            return;
+          }
+          // CodeMirror 6
+          var cm6El = input.closest ? input.closest('.cm-editor') : null;
+          if (cm6El && cm6El.cmView && cm6El.cmView.view) {
+            var view = cm6El.cmView.view;
+            view.dispatch({
+              changes: { from: 0, to: view.state.doc.length, insert: ${escapedText} }
+            });
+            return;
+          }
+          // Monaco Editor
+          var monacoEl = input.closest ? input.closest('.monaco-editor') : null;
+          if (monacoEl) {
+            var monacoModel = monacoEl.querySelector('.view-lines');
+            if (monacoModel && window.monaco) {
+              var editors = window.monaco.editor.getEditors();
+              if (editors && editors.length > 0) {
+                var editor = editors[0];
+                editor.setValue(${escapedText});
+                return;
+              }
+            }
+          }
+          // Ace Editor
+          var aceEl = input.closest ? input.closest('.ace_editor') : null;
+          if (aceEl && aceEl.env && aceEl.env.editor) {
+            aceEl.env.editor.setValue(${escapedText}, -1);
+            return;
+          }
 
           // Check if this is a contenteditable / rich text editor
           var isContentEditable = input.isContentEditable
