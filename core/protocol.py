@@ -117,12 +117,19 @@ def response_message(
     content: str,
     done: bool = True,
     reply_to: str = "",
+    provider: str = "",
+    model: str = "",
 ) -> GatewayMessage:
     """Create a response message from the gateway to a channel."""
+    data: dict[str, Any] = {"content": content, "done": done, "reply_to": reply_to}
+    if provider:
+        data["provider"] = provider
+    if model:
+        data["model"] = model
     return GatewayMessage(
         type=MessageType.RESPONSE,
         session_id=session_id,
-        data={"content": content, "done": done, "reply_to": reply_to},
+        data=data,
     )
 
 
