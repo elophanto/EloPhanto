@@ -383,10 +383,12 @@ def _build_stats_bar(stats: SessionStats, cfg: Any) -> Text:
 
     bar.append("  │  ", style=_C_DIM)
 
-    # Model
+    # Provider / Model
     if stats.last_model:
         model_short = stats.last_model.split("/")[-1][:20]
-        bar.append(f"{model_short}", style=_C_DIM)
+        if stats.last_provider:
+            bar.append(f"{stats.last_provider}/", style=_C_DIM)
+        bar.append(f"{model_short}", style=_C_PRIMARY)
 
     return bar
 
@@ -1025,14 +1027,19 @@ async def _chat_loop(config_path: str | None) -> None:
             stats.update_task_tokens(agent._router.cost_tracker)
             stats.context_messages = len(agent._conversation_history)
 
-            # Response panel with model/cost/time subtitle
+            # Response panel with provider/model/cost/time subtitle
             model_short = (
                 stats.last_model.split("/")[-1][:20] if stats.last_model else ""
+            )
+            provider_model = (
+                f"{stats.last_provider}/{model_short}"
+                if stats.last_provider and model_short
+                else model_short
             )
             subtitle_parts = [
                 p
                 for p in [
-                    model_short,
+                    provider_model,
                     f"${stats.session_cost:.4f}" if stats.session_cost else "",
                     f"{task_elapsed:.1f}s",
                 ]

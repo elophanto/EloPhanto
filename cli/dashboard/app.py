@@ -98,6 +98,8 @@ class _State:
     session_turns: int = 0
     session_tokens: int = 0
     session_cost: float = 0.0
+    last_provider: str = ""
+    last_model: str = ""
 
     # MIND panel
     mind_state: str = "unknown"  # running | sleeping | paused | disabled
@@ -202,12 +204,23 @@ class _AgentPanel(_SidePanel):
             if s.session_tokens >= 1000
             else str(s.session_tokens)
         )
+        # Provider/model line
+        if s.last_provider and s.last_model:
+            model_short = s.last_model.split("/")[-1][:20]
+            provider_model = (
+                f"  [{_DIM}]via[/] [{_BRIGHT}]{s.last_provider}/{model_short}[/]"
+            )
+        else:
+            provider_model = ""
+
         stats = (
             f"  [{_DIM}]turns:[/][{_BRIGHT}]{s.session_turns}[/] "
             f"[{_DIM}]tokens:[/][{_BRIGHT}]{tkn}[/] "
             f"[{_DIM}]cost:[/][{_BRIGHT}]${s.session_cost:.2f}[/]"
         )
         lines = [f"  {tool}"]
+        if provider_model:
+            lines.append(provider_model)
         if goal:
             lines.append(goal)
         if chk:
@@ -637,11 +650,24 @@ class EloPhantoDashboard(App):
             self._repaint_all()
             return
 
+        # Extract provider/model from response metadata
+        _resp_provider = msg.data.get("provider", "")
+        _resp_model = msg.data.get("model", "")
+        if _resp_provider:
+            self._state.last_provider = _resp_provider
+        if _resp_model:
+            self._state.last_model = _resp_model
+
         if content:
             self._last_response = content
             chat = self.query_one("#chat", RichLog)
             chat.write("")
-            chat.write(f"[#b8b2a8]─[/] [bold {_MIND}]EloPhanto[/]")
+            # Show provider/model in response header
+            _model_tag = ""
+            if _resp_provider and _resp_model:
+                _m_short = _resp_model.split("/")[-1][:20]
+                _model_tag = f"  [{_DIM}]{_resp_provider}/{_m_short}[/]"
+            chat.write(f"[#b8b2a8]─[/] [bold {_MIND}]EloPhanto[/]{_model_tag}")
             chat.write(content)
             chat.write("")
 

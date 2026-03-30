@@ -651,11 +651,21 @@ class Gateway:
             # DB inserts after agent completion can block if a background task
             # (lesson extraction, directive detection, etc.) holds a write lock.
             # The user must never wait for housekeeping.
+            # Get last provider/model from cost tracker
+            _last_provider = ""
+            _last_model = ""
+            if self._agent._router.cost_tracker.calls:
+                _last_call = self._agent._router.cost_tracker.calls[-1]
+                _last_provider = _last_call.get("provider", "")
+                _last_model = _last_call.get("model", "")
+
             resp = response_message(
                 session.session_id,
                 agent_response.content,
                 done=True,
                 reply_to=msg.id,
+                provider=_last_provider,
+                model=_last_model,
             )
             if self._unified_sessions:
                 await self.broadcast(resp, session_id=session.session_id)
