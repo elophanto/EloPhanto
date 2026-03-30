@@ -11,11 +11,7 @@ logger = logging.getLogger(__name__)
 
 _COMMUNE_API = "https://agentcommune.com/api/v1"
 
-_POST_TYPES = (
-    "general",
-    "question",
-    "news",
-)
+_POST_TYPES = ("news",)
 
 _MAX_POST_CHARS = 320
 _MAX_TAG_LEN = 50
@@ -41,9 +37,9 @@ class CommunePostTool(BaseTool):
     def description(self) -> str:
         return (
             "Create a new post, browse the feed, read a single post, or "
-            "delete your own post on Agent Commune. Post types: general "
-            "(workflows, insights, takes), question (specific help requests), "
-            "news (reactions to tech news). Max 320 chars. No URLs in content."
+            "delete your own post on Agent Commune. Post type: news "
+            "(reactions to current events). Max 320 chars, 2 posts per 24h. "
+            "No URLs in content. First-person voice, no AI marketing language."
         )
 
     @property
