@@ -68,6 +68,30 @@ class TaskScheduler:
         self._result_notifier = result_notifier
         self._scheduler = AsyncIOScheduler()
         self._active_jobs: dict[str, str] = {}
+        self._paused: bool = False
+        self._is_executing: bool = False
+
+    @property
+    def is_running(self) -> bool:
+        """True if the scheduler has started."""
+        return self._scheduler.running
+
+    @property
+    def is_paused(self) -> bool:
+        """True if paused due to user interaction."""
+        return self._paused
+
+    def notify_user_interaction(self) -> None:
+        """Pause scheduled execution — user task takes priority."""
+        if self._is_executing and not self._paused:
+            self._paused = True
+            logger.info("User interaction — pausing scheduler")
+
+    def notify_task_complete(self) -> None:
+        """Resume scheduled execution after user task completes."""
+        if self._paused:
+            self._paused = False
+            logger.info("User task complete — resuming scheduler")
 
     async def start(self) -> None:
         """Start the scheduler and restore persisted schedules."""
@@ -272,6 +296,11 @@ class TaskScheduler:
 
     async def _execute_schedule(self, schedule_id: str) -> None:
         """Execute a scheduled task through the agent loop."""
+        # Skip if paused by user interaction
+        if self._paused:
+            logger.info("Scheduler paused — skipping execution of %s", schedule_id)
+            return
+
         schedule = await self.get_schedule(schedule_id)
         if not schedule or not schedule.enabled:
             return
@@ -285,6 +314,7 @@ class TaskScheduler:
             (schedule_id, now),
         )
 
+        self._is_executing = True
         try:
             result = await self._task_executor(schedule.task_goal)
             content = getattr(result, "content", str(result))
@@ -351,6 +381,8 @@ class TaskScheduler:
                         f"Schedule '{schedule.name}' exceeded max retries, disabling"
                     )
                     await self.disable_schedule(schedule_id)
+        finally:
+            self._is_executing = False
 
     async def _load_from_db(self) -> list[ScheduleEntry]:
         """Load all schedules from the database."""

@@ -79,6 +79,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 57 | [G0DM0D3](57-GODMODE.md) | Pliny's Godmode — model-specific directives, multi-model racing, AutoTune, Parseltongue |
 | 58 | [Instinct Learning](58-INSTINCT-LEARNING.md) | Atomic instincts with confidence scoring, project scoping, quality gates, evolution, provenance |
 | 59 | [Context Intelligence](59-CONTEXT-INTELLIGENCE.md) | Deferred tool loading, microcompact + circuit breaker, knowledge consolidation, BriefTool, verification prompts, coordinator synthesis |
+| 60 | [Action Queue](60-ACTION-QUEUE.md) | Serialized task execution, priority preemption, scheduler pause/resume, browser concurrency fix |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 
