@@ -433,6 +433,11 @@ class Agent:
 
         self._compaction_breaker = CompactionCircuitBreaker()
 
+        # Action queue — serializes all task execution (browser, tools, etc.)
+        from core.action_queue import ActionQueue
+
+        self._action_queue = ActionQueue()
+
         # Phase 2-4: Plugin loader, browser, scheduler
         self._plugin_loader: PluginLoader | None = None
         self._browser_manager: Any = None
@@ -1578,36 +1583,45 @@ class Agent:
             self._autonomous_mind.notify_user_interaction()
         if self._heartbeat_engine and self._heartbeat_engine.is_running:
             self._heartbeat_engine.notify_user_interaction()
+        if self._scheduler and hasattr(self._scheduler, "notify_user_interaction"):
+            self._scheduler.notify_user_interaction()
 
-        # Temporarily override callbacks for this session
-        prev_approval = self._executor._approval_callback
-        prev_step = self._on_step
+        # Acquire exclusive action queue slot (user = highest priority)
+        from core.action_queue import TaskPriority
 
-        if approval_callback:
-            self._executor.set_approval_callback(approval_callback)
-        if on_step:
-            self._on_step = on_step
+        async with self._action_queue.acquire(TaskPriority.USER):
+            # Temporarily override callbacks for this session
+            prev_approval = self._executor._approval_callback
+            prev_step = self._on_step
 
-        try:
-            response = await self._run_with_history(
-                goal,
-                session.conversation_history,
-                session.append_conversation_turn,
-                authority=authority,
-                session=session,
-            )
-            session.touch()
-            return response
-        finally:
-            # Restore previous callbacks
-            self._executor._approval_callback = prev_approval
-            self._on_step = prev_step
-            # Resume autonomous mind after user task
-            if self._autonomous_mind and self._autonomous_mind.is_paused:
-                asyncio.create_task(self._autonomous_mind.notify_task_complete())
-            # Resume heartbeat engine after user task
-            if self._heartbeat_engine and self._heartbeat_engine.is_paused:
-                self._heartbeat_engine.notify_task_complete()
+            if approval_callback:
+                self._executor.set_approval_callback(approval_callback)
+            if on_step:
+                self._on_step = on_step
+
+            try:
+                response = await self._run_with_history(
+                    goal,
+                    session.conversation_history,
+                    session.append_conversation_turn,
+                    authority=authority,
+                    session=session,
+                )
+                session.touch()
+                return response
+            finally:
+                # Restore previous callbacks
+                self._executor._approval_callback = prev_approval
+                self._on_step = prev_step
+                # Resume autonomous mind after user task
+                if self._autonomous_mind and self._autonomous_mind.is_paused:
+                    asyncio.create_task(self._autonomous_mind.notify_task_complete())
+                # Resume heartbeat engine after user task
+                if self._heartbeat_engine and self._heartbeat_engine.is_paused:
+                    self._heartbeat_engine.notify_task_complete()
+                # Resume scheduler after user task
+                if self._scheduler and hasattr(self._scheduler, "notify_task_complete"):
+                    self._scheduler.notify_task_complete()
 
     async def run(
         self, goal: str, *, max_steps_override: int | None = None
@@ -2674,7 +2688,10 @@ class Agent:
 
     async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
         """Execute a task goal for a scheduled task."""
-        return await self.run(goal)
+        from core.action_queue import TaskPriority
+
+        async with self._action_queue.acquire(TaskPriority.SCHEDULED):
+            return await self.run(goal)
 
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str
