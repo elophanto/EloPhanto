@@ -752,7 +752,7 @@ class AutonomousMind:
     # ------------------------------------------------------------------
 
     async def _run_maintenance(self) -> None:
-        """Run periodic maintenance tasks (process reaping, storage quota check)."""
+        """Run periodic maintenance tasks (process reaping, storage quota, knowledge consolidation)."""
         agent = self._agent
 
         # Reap expired child processes
@@ -773,6 +773,33 @@ class AutonomousMind:
                     await agent._storage_manager.cleanup_expired()
             except Exception:
                 pass
+
+        # Knowledge consolidation — prune stale, merge duplicates, enforce caps
+        if hasattr(agent, "_db") and agent._db:
+            try:
+                from core.knowledge_consolidator import KnowledgeConsolidator
+
+                consolidator = KnowledgeConsolidator(agent._db, self._project_root)
+                if await consolidator.should_run():
+                    stats = await consolidator.consolidate()
+                    total = stats["pruned"] + stats["merged"] + stats["capped"]
+                    if total > 0:
+                        logger.info(
+                            "Mind maintenance: knowledge consolidation cleaned %d entries",
+                            total,
+                        )
+                        await self._broadcast_event(
+                            EventType.MIND_ACTION,
+                            {
+                                "summary": f"[Maintenance] Knowledge consolidation: {stats}",
+                                "tools_used": [],
+                                "tool_count": 0,
+                                "cost": "$0.0000",
+                                "elapsed": "0.0s",
+                            },
+                        )
+            except Exception as e:
+                logger.debug("Knowledge consolidation error: %s", e)
 
     # ------------------------------------------------------------------
     # Think cycle

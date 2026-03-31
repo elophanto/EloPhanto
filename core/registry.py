@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from tools.base import BaseTool
+from tools.base import BaseTool, ToolTier
 
 
 class ToolRegistry:
@@ -48,6 +48,61 @@ class ToolRegistry:
     def all_tools(self) -> list[BaseTool]:
         """Return all registered tool instances."""
         return list(self._tools.values())
+
+    # ── Tiered tool access ──────────────────────────────────────────
+
+    def get_core_tools(self) -> list[BaseTool]:
+        """Return only tier-0 (CORE) tools — always sent to the LLM."""
+        return [t for t in self._tools.values() if t.tier == ToolTier.CORE]
+
+    def get_tools_for_context(
+        self,
+        task_groups: set[str],
+        activated_names: set[str] | None = None,
+    ) -> list[BaseTool]:
+        """Return tier-0 + tier-1 tools whose group matches *task_groups*.
+
+        Also includes any tier-2 (DEFERRED) tools whose names appear in
+        *activated_names* (i.e. previously discovered via tool_discover).
+        """
+        activated = activated_names or set()
+        result: list[BaseTool] = []
+        for t in self._tools.values():
+            if t.tier == ToolTier.CORE:
+                result.append(t)
+            elif t.tier == ToolTier.PROFILE and t.group in task_groups:
+                result.append(t)
+            elif t.name in activated:
+                result.append(t)
+        return result
+
+    def get_deferred_catalog(self) -> list[dict[str, str]]:
+        """Return compact catalog entries for all tier-2 (DEFERRED) tools.
+
+        Used to populate the ``<deferred_tools>`` section in the system
+        prompt so the LLM knows what is available on-demand.
+        """
+        return [
+            {"name": t.name, "description": t.description, "group": t.group}
+            for t in self._tools.values()
+            if t.tier == ToolTier.DEFERRED
+        ]
+
+    def discover_tools(self, query: str) -> list[BaseTool]:
+        """Fuzzy-match *query* against all registered tools.
+
+        Returns tools whose name, description, or group contain any query
+        token.  Intended for use by the ``tool_discover`` meta-tool.
+        """
+        tokens = query.lower().split()
+        if not tokens:
+            return []
+        matches: list[BaseTool] = []
+        for t in self._tools.values():
+            haystack = f"{t.name} {t.description} {t.group}".lower()
+            if any(tok in haystack for tok in tokens):
+                matches.append(t)
+        return matches
 
     def load_builtin_tools(self, config: Any) -> None:
         """Instantiate and register all built-in tools."""
@@ -317,6 +372,11 @@ class ToolRegistry:
         self.register(CommuneSearchTool())
         self.register(CommuneProfileTool())
 
+        # Proactive communication tool (agent briefs)
+        from tools.communication.brief_tool import AgentBriefTool
+
+        self.register(AgentBriefTool())
+
         # Content monetization tools (publishing + affiliate marketing)
         from tools.affiliate.campaign_tool import AffiliateCampaignTool
         from tools.affiliate.pitch_tool import AffiliatePitchTool
@@ -331,3 +391,124 @@ class ToolRegistry:
         self.register(AffiliateScrapeTool())
         self.register(AffiliatePitchTool())
         self.register(AffiliateCampaignTool())
+
+        # Tool discover meta-tool (always available — tier 0)
+        from tools.system.discover_tool import ToolDiscoverTool
+
+        self.register(ToolDiscoverTool())
+
+        # ── Tier overrides ─────────────────────────────────────────
+        # All tools default to ToolTier.PROFILE (tier 1).
+        # Override specific tools to CORE (tier 0) or DEFERRED (tier 2).
+
+        _CORE_TOOLS = {
+            "shell_execute",
+            "file_read",
+            "file_write",
+            "file_patch",
+            "file_list",
+            "file_delete",
+            "file_move",
+            "knowledge_search",
+            "knowledge_write",
+            "goal_manage",
+            "goal_status",
+            "browser_navigate",
+            "browser_click",
+            "browser_type",
+            "browser_evaluate",
+            "tool_discover",
+        }
+
+        _DEFERRED_TOOLS = {
+            # Payment tools
+            "wallet_status",
+            "wallet_export",
+            "payment_balance",
+            "payment_validate",
+            "payment_preview",
+            "crypto_transfer",
+            "crypto_swap",
+            "payment_history",
+            "payment_request",
+            # Email tools
+            "email_create_inbox",
+            "email_send",
+            "email_list",
+            "email_read",
+            "email_reply",
+            "email_search",
+            "email_monitor",
+            # TOTP tools
+            "totp_generate",
+            "totp_enroll",
+            "totp_list",
+            "totp_delete",
+            # Deployment tools
+            "deploy_website",
+            "create_database",
+            "deployment_status",
+            # Publishing tools
+            "youtube_upload",
+            "tiktok_upload",
+            "twitter_post",
+            # Affiliate tools
+            "affiliate_scrape",
+            "affiliate_pitch",
+            "affiliate_campaign",
+            # Prospecting tools
+            "prospect_search",
+            "prospect_evaluate",
+            "prospect_outreach",
+            "prospect_status",
+            # Commune tools
+            "commune_register",
+            "commune_home",
+            "commune_post",
+            "commune_comment",
+            "commune_vote",
+            "commune_search",
+            "commune_profile",
+            # Desktop tools — matched by prefix below
+            # Experimentation tools
+            "experiment_setup",
+            "experiment_run",
+            "experiment_status",
+            "autoloop_control",
+            # Self-dev tools
+            "self_read_source",
+            "self_run_tests",
+            "self_list_capabilities",
+            "self_create_plugin",
+            "self_modify_source",
+            "self_rollback",
+            "execute_code",
+            # Context tools
+            "context_ingest",
+            "context_query",
+            "context_slice",
+            "context_index",
+            "context_transform",
+            # Document tools
+            "document_analyze",
+            "document_query",
+            "document_collections",
+            # Swarm / organization tools
+            "swarm_spawn",
+            "swarm_status",
+            "swarm_redirect",
+            "swarm_stop",
+            "organization_spawn",
+            "organization_delegate",
+            "organization_review",
+            "organization_teach",
+            "organization_status",
+            # Communication tools
+            "agent_brief",
+        }
+
+        for name, tool in self._tools.items():
+            if name in _CORE_TOOLS:
+                tool._tier_override = ToolTier.CORE
+            elif name in _DEFERRED_TOOLS or name.startswith("desktop_"):
+                tool._tier_override = ToolTier.DEFERRED

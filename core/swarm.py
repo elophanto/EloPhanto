@@ -72,6 +72,7 @@ class SwarmManager:
         self._monitor_task: asyncio.Task[None] | None = None
         self._knowledge_search_tool: Any = None  # Injected by agent.py
         self._skill_manager: Any = None  # Injected by agent.py
+        self._router: Any = None  # Injected by agent.py (LLMRouter for synthesis)
         self._last_spawn_times: dict[str, float] = {}  # profile → monotonic time
         self._output_reports: dict[str, Any] = {}  # agent_id → SwarmOutputReport
 
@@ -520,6 +521,11 @@ class SwarmManager:
                 knowledge = sanitize_enrichment_context(knowledge)
                 sections.append(f"\nRelevant project knowledge:\n{knowledge}")
 
+        # Inject failure-mode awareness for specialist agents
+        failure_section = self._get_failure_modes(profile)
+        if failure_section:
+            sections.append(failure_section)
+
         if is_external:
             sections.append(
                 "\nYou are working in an ISOLATED project directory — this is NOT "
@@ -546,6 +552,108 @@ class SwarmManager:
         )
 
         return "\n".join(sections)
+
+    # ── Failure Mode Awareness ───────────────────────────────────────
+
+    _FAILURE_MODES: dict[str, str] = {
+        "claude": (
+            "\n## Verification Protocol\n"
+            "Your job is to try to BREAK your own work, not just confirm it.\n\n"
+            "Common failure patterns:\n"
+            "1. Import errors — module moved, renamed, or not installed. Run the code.\n"
+            "2. Type mismatches — passing str where int expected. Check function signatures.\n"
+            "3. Test failures — tests pass locally but fail in CI due to env differences.\n"
+            "4. Lint violations — ruff/mypy catch issues your logic misses. Always lint.\n\n"
+            "Before reporting success:\n"
+            "- Run the build/test command. Read the FULL output. THEN claim success.\n"
+            "- If 3 consecutive attempts fail, report the failure with full diagnostics.\n"
+        ),
+        "browser": (
+            "\n## Verification Protocol\n"
+            "Your job is to verify the page state matches expectations.\n\n"
+            "Common failure patterns:\n"
+            "1. Element not found — DOM changed, iframe context, dynamic loading.\n"
+            "2. Navigation timeout — page didn't load, redirect loop, paywall.\n"
+            "3. Stale DOM — element existed when queried but changed before click.\n"
+            "4. Cookie/auth walls — site requires login before showing content.\n\n"
+            "Before reporting success:\n"
+            "- Take a screenshot. Read it. Confirm the expected content is visible.\n"
+            "- If a page shows unexpected content, diagnose before retrying.\n"
+        ),
+        "default": (
+            "\n## Verification Protocol\n"
+            "Before reporting task completion:\n"
+            "- Run verification commands and read their full output\n"
+            "- If an approach fails 3 times, report failure with diagnostics\n"
+            "- Never claim success without evidence\n"
+        ),
+    }
+
+    def _get_failure_modes(self, profile: AgentProfileConfig) -> str:
+        """Get failure-mode section based on agent profile."""
+        cmd = (profile.command or "").lower()
+        if "claude" in cmd or "codex" in cmd or "gemini" in cmd:
+            return self._FAILURE_MODES["claude"]
+        if "browser" in cmd or "playwright" in cmd:
+            return self._FAILURE_MODES["browser"]
+        return self._FAILURE_MODES["default"]
+
+    # ── Coordinator Synthesis ──────────────────────────────────────────
+
+    async def _synthesize_results(self, agent_ids: list[str]) -> str:
+        """Synthesize results from multiple completed agents into unified understanding.
+
+        Returns a synthesis string with conflicts, gaps, and actionable findings.
+        """
+        if not agent_ids or len(agent_ids) < 2:
+            return ""
+
+        results = []
+        for aid in agent_ids:
+            agent = self._agents.get(aid)
+            if agent and agent.status == "completed":
+                results.append(
+                    f"Agent: {agent.profile} (task: {agent.task})\n"
+                    f"Branch: {agent.branch}\n"
+                    f"PR: {agent.pr_url or 'none'}\n"
+                    f"CI: {agent.ci_status or 'unknown'}"
+                )
+
+        if len(results) < 2:
+            return ""
+
+        synthesis_prompt = (
+            "You are synthesizing results from multiple coding agents. "
+            "Identify:\n"
+            "1. Conflicts — do any agents' changes overlap or contradict?\n"
+            "2. Gaps — what was NOT covered that should have been?\n"
+            "3. Actionable findings — what specific follow-up is needed?\n\n"
+            "IMPORTANT: Include exact file paths and line numbers. "
+            "NEVER say 'based on the findings' — include the specifics.\n\n"
+            "Agent results:\n" + "\n\n".join(results)
+        )
+
+        try:
+            if not self._router:
+                logger.debug("No router available for synthesis")
+                return ""
+            response = await self._router.complete(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a technical synthesis agent.",
+                    },
+                    {"role": "user", "content": synthesis_prompt},
+                ],
+                task_type="simple",
+                temperature=0.1,
+            )
+            return response.content.strip()
+        except Exception as e:
+            logger.warning("Synthesis failed: %s", e)
+            return ""
+
+    # ── Knowledge Enrichment ───────────────────────────────────────
 
     async def _pull_knowledge_context(self, query: str) -> str:
         """Search knowledge base for relevant context chunks."""
@@ -694,11 +802,35 @@ class SwarmManager:
 
     async def _check_agents(self) -> None:
         """Check all running agents for completion criteria."""
+        # Track which agents were running before this tick
+        running_before = {a.agent_id for a in self.running_agents}
+
         for agent in list(self.running_agents):
             try:
                 await self._check_single_agent(agent)
             except Exception as e:
                 logger.debug("Error checking agent %s: %s", agent.agent_id, e)
+
+        # Detect agents that completed in this tick
+        newly_completed = [
+            aid
+            for aid in running_before
+            if (a := self._agents.get(aid)) and a.status == "completed"
+        ]
+
+        # Synthesize results when multiple agents complete in same batch
+        if len(newly_completed) >= 2:
+            synthesis = await self._synthesize_results(newly_completed)
+            if synthesis:
+                logger.info("Swarm synthesis:\n%s", synthesis)
+                await self._broadcast(
+                    EventType.NOTIFICATION,
+                    {
+                        "type": "swarm_synthesis",
+                        "agent_ids": newly_completed,
+                        "synthesis": synthesis,
+                    },
+                )
 
     async def _check_single_agent(self, agent: SwarmAgent) -> None:
         """Check if a single agent has met its done criteria."""

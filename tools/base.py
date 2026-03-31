@@ -19,6 +19,19 @@ class PermissionLevel(StrEnum):
     CRITICAL = "critical"
 
 
+class ToolTier(StrEnum):
+    """Loading tier for deferred tool loading.
+
+    CORE (tier 0) — always sent to the LLM.
+    PROFILE (tier 1) — sent when the tool's group matches the task profile.
+    DEFERRED (tier 2) — only sent after explicit discovery via tool_discover.
+    """
+
+    CORE = "core"
+    PROFILE = "profile"
+    DEFERRED = "deferred"
+
+
 @dataclass
 class ToolResult:
     """Standardized result from tool execution."""
@@ -40,6 +53,15 @@ class ToolResult:
 
 class BaseTool(abc.ABC):
     """Abstract base class for all EloPhanto tools."""
+
+    @property
+    def tier(self) -> ToolTier:
+        """Loading tier for deferred tool loading. Default: PROFILE (tier 1).
+
+        The registry may set ``_tier_override`` to change the tier after
+        construction without requiring each tool class to declare it.
+        """
+        return getattr(self, "_tier_override", ToolTier.PROFILE)
 
     @property
     def group(self) -> str:
