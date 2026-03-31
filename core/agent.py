@@ -428,6 +428,11 @@ class Agent:
             skills_dir = config.project_root / "skills"
         self._skill_manager = SkillManager(skills_dir)
 
+        # Context compression circuit breaker
+        from core.context_compressor import CompactionCircuitBreaker
+
+        self._compaction_breaker = CompactionCircuitBreaker()
+
         # Phase 2-4: Plugin loader, browser, scheduler
         self._plugin_loader: PluginLoader | None = None
         self._browser_manager: Any = None
@@ -469,6 +474,9 @@ class Agent:
 
         # Conversation history across turns (user + assistant messages only)
         self._conversation_history: list[dict[str, Any]] = []
+
+        # Deferred tool loading: tools activated via tool_discover this session
+        self._activated_tools: set[str] = set()
 
         # Security: agent fingerprint (set during initialize if vault available)
         self._fingerprint: str = ""
@@ -913,6 +921,7 @@ class Agent:
                 )
                 await self._swarm_manager.start()
                 self._swarm_manager._skill_manager = self._skill_manager
+                self._swarm_manager._router = self._router
                 self._inject_swarm_deps()
                 logger.info("Swarm system ready")
             except Exception as e:
@@ -948,6 +957,9 @@ class Agent:
 
         # Initialize content monetization tools (publishing + affiliate)
         self._inject_monetization_deps()
+
+        # Initialize tool_discover meta-tool (deferred tool loading)
+        self._inject_discover_deps()
 
         # Initialize parent channel adapter (child agents connecting to master)
         if self._config.parent_channel.enabled:
@@ -1519,6 +1531,13 @@ class Agent:
                 if hasattr(tool, "_identity_manager") and self._identity_manager:
                     tool._identity_manager = self._identity_manager
 
+    def _inject_discover_deps(self) -> None:
+        """Inject registry and activated-tools set into tool_discover."""
+        discover_tool = self._registry.get("tool_discover")
+        if discover_tool:
+            discover_tool._registry = self._registry
+            discover_tool._activated_tools = self._activated_tools
+
     def set_approval_callback(
         self, callback: Callable[[str, str, dict[str, Any]], bool]
     ) -> None:
@@ -1879,13 +1898,44 @@ class Agent:
         profiled_tools = self._router.filter_tools_for_task(
             authorized_tools, task_type="planning"
         )
-        _tools = [t.to_llm_schema() for t in profiled_tools]
+
+        # ── Tiered tool loading ────────────────────────────────────
+        # Determine which groups the profiled router selected, then use the
+        # registry's tier-aware method to build the final tool list:
+        #   tier 0 (CORE) — always included
+        #   tier 1 (PROFILE) — included when group matches task profile
+        #   tier 2 (DEFERRED) — only if previously activated via tool_discover
+        _profiled_groups = {t.group for t in profiled_tools}
+        _tiered_tools = self._registry.get_tools_for_context(
+            _profiled_groups, self._activated_tools
+        )
+        # Intersect with authorized_tools to respect permission filtering
+        _authorized_names = {t.name for t in authorized_tools}
+        _tiered_tools = [t for t in _tiered_tools if t.name in _authorized_names]
+        _tools = [t.to_llm_schema() for t in _tiered_tools]
+
+        # Build deferred catalog for system prompt so agent knows what else exists
+        _deferred_catalog = self._registry.get_deferred_catalog()
+        if _deferred_catalog:
+            _catalog_lines = [
+                f"- {entry['name']}: {entry['description']} [{entry['group']}]"
+                for entry in _deferred_catalog
+            ]
+            _deferred_section = (
+                "\n<deferred_tools>\n"
+                "Additional tools available on demand (use tool_discover to load them):\n"
+                + "\n".join(_catalog_lines)
+                + "\n</deferred_tools>"
+            )
+            system_content += _deferred_section
+
         logger.info(
-            "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d (profiled from %d) | messages=%d",
+            "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d (tiered from %d, profiled %d) | messages=%d",
             _time.monotonic() - _prompt_start,
             len(system_content),
             len(_tools),
             len(authorized_tools),
+            len(profiled_tools),
             len(messages),
         )
 
@@ -1959,12 +2009,15 @@ class Agent:
             # Always run — conversation_history may carry browser content from prior turns.
             _compress_browser_context(messages)
 
-            # Mid-conversation context compression — summarize middle turns
-            # when approaching context window limits
-            from core.context_compressor import compress_messages, needs_compression
+            # Mid-conversation tiered context compression with circuit breaker
+            from core.context_compressor import needs_compression, tiered_compress
 
             if needs_compression(messages):
-                messages = await compress_messages(messages, self._router)
+                messages = await tiered_compress(
+                    messages,
+                    self._router,
+                    circuit_breaker=self._compaction_breaker,
+                )
 
             # Proactive nudge — inject periodically to encourage skill/memory capture
             _nudge_interval = getattr(self._config, "nudge_interval", 15)

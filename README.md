@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-58%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-59%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
@@ -116,6 +116,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 | **Learns about you** | ✅ Evolving user profiles | ❌ | ❌ | ❌ | ❌ |
 | **Makes money autonomously** | ✅ YouTube/X/TikTok + affiliate | ❌ | ❌ | ❌ | ❌ |
 | **Godmode (unrestricted)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
+| **Deferred tool loading** | ✅ Tiered on-demand | ❌ | ❌ | ❌ | ❌ |
 | **Learns from corrections** | ✅ Permanent knowledge | ❌ | ❌ | ❌ | ❌ |
 | **Your data stays local** | ✅ Runs on your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
 
@@ -144,7 +145,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (159+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (163+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -213,7 +214,7 @@ Slack Adapter ─────┘                   ▼
 </details>
 
 <details>
-<summary>Built-in tools (159+)</summary>
+<summary>Built-in tools (163+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -268,12 +269,12 @@ EloPhanto/
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 159+ built-in tools
+├── tools/               # 163+ built-in tools
 ├── skills/              # 148+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (58+ docs)
+└── docs/                # Full specification (59+ docs)
 ```
 
 </details>
@@ -434,6 +435,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Context Intelligence** — 6 targeted efficiency improvements. (1) **Deferred tool loading**: tiered tool system (core/profile/deferred) — only ~30 tools loaded per call instead of 163+, with `tool_discover` for on-demand access. ~60-70% token savings. (2) **Microcompact + circuit breaker**: three-tier context compression (70% microcompact → 85% LLM summary → 95% emergency trim) with circuit breaker after 3 failures. (3) **Knowledge consolidation**: auto-dream phase now prunes stale entries (90+ days), merges duplicates, enforces 500-entry cap. (4) **BriefTool**: proactive communication — agent surfaces insights, alerts, and status updates through any channel without being asked. Rate-limited (3/hour, actionable bypasses). (5) **Verification agent prompts**: failure-mode-aware prompts for swarm agents — coding agents get import/type/test/lint patterns, browser agents get element/iframe/stale DOM patterns. (6) **Coordinator synthesis**: swarm results are now synthesized before follow-up dispatch — identifies conflicts, gaps, and specific actionable findings. No more lazy "based on your findings" delegation. See [docs/59-CONTEXT-INTELLIGENCE.md](docs/59-CONTEXT-INTELLIGENCE.md)
 - **Instinct-Based Learning** — upgrade to the learning engine: atomic instincts with confidence scoring (0.3→0.9), project-scoped storage, quality-gated extraction, pre-tool guards (blocks secrets in file writes, warns before git push), instinct→skill evolution (clusters high-confidence instincts into SKILL.md files), provenance tracking for all auto-generated content. See [docs/58-INSTINCT-LEARNING.md](docs/58-INSTINCT-LEARNING.md)
 - **Software Engineering Skills** — 3 production-grade skills from [obra/superpowers](https://github.com/obra/superpowers): `systematic-debugging` (4-phase root cause investigation with defense-in-depth, condition-based-waiting, find-polluter binary search), `writing-plans` (exact code, exact paths, bite-sized tasks, no placeholders ever), `verification-before-completion` (evidence before claims — run the command, read the output, THEN claim the result)
 - **Self-Update** — `elophanto update` pulls latest from GitHub, reinstalls deps, rebuilds bridge. `elophanto update --check` to preview without installing
@@ -530,6 +532,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **内容变现** — 自动发布视频到 YouTube、Twitter/X、TikTok。联盟营销：抓取商品数据、LLM 生成推广文案、创建跨平台营销活动。可配合心跳调度实现全自动内容发布流水线
 - **目标梦想** — 没有目标时，智能体会审查自身能力、生成 3-5 个候选目标、逐一评估可行性/价值/成本/风险，选择最优目标执行。用户也可以说"帮我想想"触发同样的流程
 - **G0DM0D3 神模式** — 说"trigger plinys godmode"激活四层能力解锁：无限制系统提示、多模型竞赛（所有供应商并行，评分最高者胜出）、上下文自适应参数调优、输出清理（去除犹豫/前言/正式用语）
+- **上下文智能** — 6项效率优化：延迟工具加载（每次调用只加载~30个工具而非163+）、三级上下文压缩+断路器、知识库自动整合（清理过期/重复/超限条目）、主动通报工具、验证型智能体提示、协调器结果综合
 
 ## 为什么选择 EloPhanto？
 
@@ -546,6 +549,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 | **了解用户** | ✅ 进化式用户画像 | ❌ | ❌ | ❌ | ❌ |
 | **内容变现** | ✅ YouTube/X/TikTok + 联盟营销 | ❌ | ❌ | ❌ | ❌ |
 | **神模式 (无限制)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
+| **延迟工具加载** | ✅ 分层按需加载 | ❌ | ❌ | ❌ | ❌ |
 | **随处对话** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | 仅 CLI | 仅 Web |
 | **数据留在本地** | ✅ 你的机器 | ❌ 云端 | ❌ 云端 | ✅ 本地 | ❌ 云端 VM |
 

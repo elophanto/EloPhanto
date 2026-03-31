@@ -21,6 +21,42 @@ _DEFAULT_KEEP_FIRST = 3  # Protected early turns
 _DEFAULT_KEEP_LAST = 4  # Protected recent turns
 _DEFAULT_CONTEXT_WINDOW = 200_000  # Fallback context window size in tokens
 
+# Tiered compression thresholds (% of context window)
+_TIER1_MICROCOMPACT_PCT = 70  # Tier 1: clear old tool results (no LLM call)
+_TIER2_SMART_COMPACT_PCT = 85  # Tier 2: LLM summarization
+_TIER3_EMERGENCY_TRIM_PCT = 95  # Tier 3: aggressive drop
+
+# Circuit breaker
+_MAX_CONSECUTIVE_FAILURES = 3
+
+
+class CompactionCircuitBreaker:
+    """Tracks compression failures and stops retrying after threshold."""
+
+    def __init__(self) -> None:
+        self._consecutive_failures: int = 0
+        self._tripped: bool = False
+
+    def record_failure(self) -> None:
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+            self._tripped = True
+            logger.warning(
+                "Compaction circuit breaker TRIPPED after %d failures",
+                self._consecutive_failures,
+            )
+
+    def record_success(self) -> None:
+        self._consecutive_failures = 0
+        self._tripped = False
+
+    def is_tripped(self) -> bool:
+        return self._tripped
+
+    def reset(self) -> None:
+        self._consecutive_failures = 0
+        self._tripped = False
+
 
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 chars per token."""
@@ -224,3 +260,89 @@ async def compress_messages(
     )
 
     return compressed
+
+
+def microcompact(
+    messages: list[dict[str, Any]],
+    keep_recent: int = 5,
+) -> tuple[list[dict[str, Any]], int]:
+    """Clear old tool result contents without LLM call.
+
+    Returns (messages, cleared_count). Mutates in-place for efficiency.
+    """
+    tool_indices = [
+        i
+        for i, m in enumerate(messages)
+        if m.get("role") == "tool" and isinstance(m.get("content"), str)
+    ]
+    if len(tool_indices) <= keep_recent:
+        return messages, 0
+
+    cleared = 0
+    for i in tool_indices[:-keep_recent]:
+        content = messages[i]["content"]
+        if len(content) > 200:  # Don't bother with tiny results
+            messages[i] = {
+                **messages[i],
+                "content": "[result cleared \u2014 context optimization]",
+            }
+            cleared += 1
+
+    return messages, cleared
+
+
+async def tiered_compress(
+    messages: list[dict[str, Any]],
+    router: Any,
+    context_window: int = _DEFAULT_CONTEXT_WINDOW,
+    circuit_breaker: CompactionCircuitBreaker | None = None,
+) -> list[dict[str, Any]]:
+    """Three-tier context compression with circuit breaker.
+
+    Tier 1 (70%): Microcompact \u2014 clear old tool results (free, no LLM)
+    Tier 2 (85%): Smart compact \u2014 LLM summarization of middle turns
+    Tier 3 (95%): Emergency trim \u2014 drop oldest turns aggressively
+    """
+    total = _total_tokens(messages)
+
+    # Tier 1: Microcompact
+    tier1_threshold = (context_window * _TIER1_MICROCOMPACT_PCT) // 100
+    if total > tier1_threshold:
+        messages, cleared = microcompact(messages)
+        if cleared:
+            logger.info("Tier 1 microcompact: cleared %d old tool results", cleared)
+            total = _total_tokens(messages)
+
+    # Tier 2: Smart compact (LLM summarization)
+    tier2_threshold = (context_window * _TIER2_SMART_COMPACT_PCT) // 100
+    if total > tier2_threshold:
+        if circuit_breaker and circuit_breaker.is_tripped():
+            logger.warning("Circuit breaker tripped \u2014 skipping LLM compaction")
+        else:
+            try:
+                messages = await compress_messages(
+                    messages,
+                    router,
+                    context_window,
+                    threshold_pct=0,  # Force compression (we already checked threshold)
+                )
+                if circuit_breaker:
+                    circuit_breaker.record_success()
+            except Exception as e:
+                logger.warning("Tier 2 compaction failed: %s", e)
+                if circuit_breaker:
+                    circuit_breaker.record_failure()
+            total = _total_tokens(messages)
+
+    # Tier 3: Emergency trim
+    tier3_threshold = (context_window * _TIER3_EMERGENCY_TRIM_PCT) // 100
+    if total > tier3_threshold:
+        logger.warning("Tier 3 emergency trim \u2014 dropping oldest messages")
+        keep_first = 2
+        keep_last = 5
+        if len(messages) > keep_first + keep_last + 2:
+            messages = messages[:keep_first] + messages[-keep_last:]
+            messages = _fix_orphaned_tool_calls(messages)
+            logger.info("Emergency trimmed to %d messages", len(messages))
+
+    return messages

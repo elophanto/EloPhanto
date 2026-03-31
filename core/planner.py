@@ -1708,6 +1708,7 @@ def build_system_prompt(
     is_mind_mode: bool = False,
     is_goal_active: bool = False,
     user_context: str = "",
+    deferred_tools_catalog: str = "",
 ) -> str:
     """Assemble the full system prompt from XML-structured sections.
 
@@ -1857,5 +1858,14 @@ def build_system_prompt(
         nudge = _build_nudge(nudge_messages or [], nudge_turn_count)
         if nudge:
             sections.append(nudge)
+
+    # Deferred tool catalog (compact list of on-demand tools)
+    if deferred_tools_catalog:
+        sections.append(
+            "<deferred_tools>\n"
+            "Additional tools available on demand (use tool_discover to load them):\n"
+            + deferred_tools_catalog
+            + "\n</deferred_tools>"
+        )
 
     return "\n\n".join(sections)

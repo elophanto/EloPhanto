@@ -463,6 +463,13 @@ _SCHEMA = [
         PRIMARY KEY (user_id, channel)
     )
     """,
+    # ── Metadata (key-value store for consolidation, etc.) ──────────
+    """
+    CREATE TABLE IF NOT EXISTS metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    """,
     # ── Content Monetization ─────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS publishing_log (
@@ -516,6 +523,8 @@ _MIGRATIONS = [
     "ALTER TABLE chat_messages ADD COLUMN conversation_id TEXT DEFAULT ''",
     # Knowledge drift detection — tracks which source files a knowledge doc covers
     "ALTER TABLE knowledge_chunks ADD COLUMN covers TEXT DEFAULT '[]'",
+    # Knowledge consolidation — track when a chunk was last accessed
+    "ALTER TABLE knowledge_chunks ADD COLUMN last_accessed_at TEXT DEFAULT NULL",
     # Session search FTS5 index (requires FTS5 extension — bundled in Python 3.12+)
     # NOTE: FTS5 virtual table creation handled separately in _init_fts5()
 ]
