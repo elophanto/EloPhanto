@@ -661,13 +661,10 @@ class AutonomousMind:
 
         cycle_start = time.monotonic()
         try:
-            from core.action_queue import TaskPriority
-
-            async with self._agent._action_queue.acquire(TaskPriority.MIND):
-                response = await self._agent.run(
-                    prompt,
-                    max_steps_override=self._config.max_rounds_per_wakeup,
-                )
+            response = await self._agent.run(
+                prompt,
+                max_steps_override=self._config.max_rounds_per_wakeup,
+            )
 
             cost = self._agent._router.cost_tracker.task_total
             self._spent_today_usd += cost
@@ -898,13 +895,10 @@ class AutonomousMind:
 
         try:
             # Run through the agent's normal pipeline with max_rounds as step limit
-            from core.action_queue import TaskPriority
-
-            async with self._agent._action_queue.acquire(TaskPriority.MIND):
-                response = await self._agent.run(
-                    prompt,
-                    max_steps_override=self._config.max_rounds_per_wakeup,
-                )
+            response = await self._agent.run(
+                prompt,
+                max_steps_override=self._config.max_rounds_per_wakeup,
+            )
 
             # Track cost
             cost = self._agent._router.cost_tracker.task_total

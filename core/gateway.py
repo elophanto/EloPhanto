@@ -344,6 +344,11 @@ class Gateway:
             self._host,
             self._port,
             process_request=self._process_http_request,
+            # Increase keepalive tolerance — long-running tasks (heartbeat,
+            # scheduled, browser automation) can starve the event loop for
+            # extended periods, causing default 20s pings to time out.
+            ping_interval=60,
+            ping_timeout=120,
         )
         logger.info("Gateway started on %s", self.url)
 

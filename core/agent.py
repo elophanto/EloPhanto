@@ -2687,11 +2687,13 @@ class Agent:
             ]
 
     async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
-        """Execute a task goal for a scheduled task."""
-        from core.action_queue import TaskPriority
+        """Execute a task goal for a scheduled task.
 
-        async with self._action_queue.acquire(TaskPriority.SCHEDULED):
-            return await self.run(goal)
+        Does NOT acquire the action queue — background tasks coordinate
+        via pause/resume signals. Only user messages acquire the queue
+        to get exclusive access.
+        """
+        return await self.run(goal)
 
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str

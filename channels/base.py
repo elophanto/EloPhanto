@@ -91,7 +91,11 @@ class ChannelAdapter(ABC):
                 "websockets package required: pip install websockets"
             ) from err
 
-        self._ws = await websockets.connect(self._gateway_url)
+        self._ws = await websockets.connect(
+            self._gateway_url,
+            ping_interval=60,
+            ping_timeout=120,
+        )
         self._running = True
 
         # Wait for initial connected status
