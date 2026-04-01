@@ -54,6 +54,8 @@ class ToolResult:
 class BaseTool(abc.ABC):
     """Abstract base class for all EloPhanto tools."""
 
+    _tier_override: ToolTier | None = None
+
     @property
     def tier(self) -> ToolTier:
         """Loading tier for deferred tool loading. Default: PROFILE (tier 1).
@@ -61,7 +63,9 @@ class BaseTool(abc.ABC):
         The registry may set ``_tier_override`` to change the tier after
         construction without requiring each tool class to declare it.
         """
-        return getattr(self, "_tier_override", ToolTier.PROFILE)
+        if self._tier_override is not None:
+            return self._tier_override
+        return ToolTier.PROFILE
 
     @property
     def group(self) -> str:

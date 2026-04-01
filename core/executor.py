@@ -199,12 +199,14 @@ class Executor:
         for guard in _PRETOOL_GUARDS:
             if guard["tool"] == tool_name:
                 param_val = str(params.get(guard["param"], ""))
-                if guard["pattern"].search(param_val):
+                pattern = guard["pattern"]
+                assert isinstance(pattern, re.Pattern)
+                if pattern.search(param_val):
                     if guard["action"] == "block":
                         return ExecutionResult(
                             tool_name=tool_name,
                             tool_call_id=tool_call_id,
-                            error=guard["message"],
+                            error=str(guard["message"]),
                         )
                     elif guard["action"] == "warn":
                         logger.warning("[guard] %s", guard["message"])

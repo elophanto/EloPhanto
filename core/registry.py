@@ -507,8 +507,8 @@ class ToolRegistry:
             "agent_brief",
         }
 
-        for name, tool in self._tools.items():
-            if name in _CORE_TOOLS:
-                tool._tier_override = ToolTier.CORE
-            elif name in _DEFERRED_TOOLS or name.startswith("desktop_"):
-                tool._tier_override = ToolTier.DEFERRED
+        for _name, _t in self._tools.items():
+            if _name in _CORE_TOOLS:
+                _t._tier_override = ToolTier.CORE
+            elif _name in _DEFERRED_TOOLS or _name.startswith("desktop_"):
+                _t._tier_override = ToolTier.DEFERRED
