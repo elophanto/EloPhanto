@@ -32,7 +32,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 10 | [Implementation Roadmap](10-ROADMAP.md) | 23-phase build plan with exit criteria for each phase |
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
-| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 155+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry, product launch/press/validation/TDD playbooks |
+| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 156+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry, product launch/press/validation/TDD playbooks |
 | 13b | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, progress tracking, self-evaluation, goal dreaming, deletion |
 | 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail |
@@ -80,6 +80,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 58 | [Instinct Learning](58-INSTINCT-LEARNING.md) | Atomic instincts with confidence scoring, project scoping, quality gates, evolution, provenance |
 | 59 | [Context Intelligence](59-CONTEXT-INTELLIGENCE.md) | Deferred tool loading, microcompact + circuit breaker, knowledge consolidation, BriefTool, verification prompts, coordinator synthesis |
 | 60 | [Action Queue](60-ACTION-QUEUE.md) | Serialized task execution, priority preemption, scheduler pause/resume, browser concurrency fix |
+| 61 | [Video Meeting](61-VIDEO-MEETING.md) | Join Google Meet/Zoom as AI avatar via PikaStream — voice cloning, context-aware conversation, auto-billing |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 
