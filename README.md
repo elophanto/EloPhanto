@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-61%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-62%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
@@ -274,7 +274,7 @@ EloPhanto/
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (61+ docs)
+└── docs/                # Full specification (62+ docs)
 ```
 
 </details>
@@ -435,6 +435,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Agent OS** — foundational pieces for making EloPhanto the agent operating system. (1) **Agent Protocol v1.0** — formal spec for agent-to-agent communication (WebSocket + HTTP, capability discovery, session lifecycle, 33 event types). New `GET /capabilities` endpoint. (2) **Distribution profiles** — `--profile developer|marketer|researcher|trader|minimal` to pre-configure tools and skills for your use case. (3) **Contributor ecosystem** — GitHub issue templates, PR template, GOVERNANCE.md (BDFL + RFC process), SECURITY.md (vulnerability reporting). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) and [docs/62-AGENT-OS.md](docs/62-AGENT-OS.md)
 - **Video Meeting Agent** — join Google Meet and Zoom calls as a real-time AI avatar via [PikaStreaming](https://pika.me/dev/). Voice cloning from recordings, AI-generated avatars, context-aware conversation (reads identity + memory + daily logs for meeting context), auto-billing ($0.50/min). Say "join this meeting" with a link. See [docs/61-VIDEO-MEETING.md](docs/61-VIDEO-MEETING.md)
 - **Action Queue** — serialized task execution with priority preemption. Scheduled tasks, manual messages, autonomous mind, and heartbeat now run through a central `ActionQueue` — only one task at a time. User messages get highest priority and preempt background tasks. Fixes the bug where cron jobs and manual commands competed for the browser simultaneously. See [docs/60-ACTION-QUEUE.md](docs/60-ACTION-QUEUE.md)
 - **Context Intelligence** — 6 targeted efficiency improvements. (1) **Deferred tool loading**: tiered tool system (core/profile/deferred) — only ~30 tools loaded per call instead of 163+, with `tool_discover` for on-demand access. ~60-70% token savings. (2) **Microcompact + circuit breaker**: three-tier context compression (70% microcompact → 85% LLM summary → 95% emergency trim) with circuit breaker after 3 failures. (3) **Knowledge consolidation**: auto-dream phase now prunes stale entries (90+ days), merges duplicates, enforces 500-entry cap. (4) **BriefTool**: proactive communication — agent surfaces insights, alerts, and status updates through any channel without being asked. Rate-limited (3/hour, actionable bypasses). (5) **Verification agent prompts**: failure-mode-aware prompts for swarm agents — coding agents get import/type/test/lint patterns, browser agents get element/iframe/stale DOM patterns. (6) **Coordinator synthesis**: swarm results are now synthesized before follow-up dispatch — identifies conflicts, gaps, and specific actionable findings. No more lazy "based on your findings" delegation. See [docs/59-CONTEXT-INTELLIGENCE.md](docs/59-CONTEXT-INTELLIGENCE.md)

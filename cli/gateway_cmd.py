@@ -52,8 +52,18 @@ _C_BORDER = "grey50"
     default=False,
     help="Use linear terminal UI instead of full-screen dashboard",
 )
+@click.option(
+    "--profile",
+    type=str,
+    default="",
+    help="Distribution profile (developer, marketer, researcher, trader, minimal)",
+)
 def gateway_cmd(
-    config_path: str | None, debug: bool, no_cli: bool, no_dashboard: bool
+    config_path: str | None,
+    debug: bool,
+    no_cli: bool,
+    no_dashboard: bool,
+    profile: str,
 ) -> None:
     """Start the gateway with agent and all enabled channel adapters."""
     import signal
@@ -79,10 +89,12 @@ def gateway_cmd(
         import os
 
         os.environ["NO_DASHBOARD"] = "1"
-    asyncio.run(_run_gateway(config_path, no_cli=no_cli))
+    asyncio.run(_run_gateway(config_path, no_cli=no_cli, profile=profile))
 
 
-async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
+async def _run_gateway(
+    config_path: str | None, no_cli: bool = False, profile: str = ""
+) -> None:
     """Initialize agent, start gateway, launch adapters."""
     # Suppress benign aiohttp "Unclosed client session" GC warnings that come from
     # litellm's internal sessions.  Without this, prompt_toolkit's asyncio exception
@@ -111,7 +123,7 @@ async def _run_gateway(config_path: str | None, no_cli: bool = False) -> None:
 
     cloud_mode = os.environ.get("ELOPHANTO_CLOUD") == "1"
 
-    cfg = load_config(config_path)
+    cfg = load_config(config_path, profile=profile)
 
     # In cloud mode, always bind to all interfaces so Fly.io proxy can reach us
     if cloud_mode:

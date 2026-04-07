@@ -1,0 +1,28 @@
+# profiles/developer.yaml
+# Coding, debugging, git, testing, code review
+name: Developer
+description: Full-stack development with debugging, testing, code review, and documentation tools. Browser enabled for docs and Stack Overflow lookups.
+tool_groups:
+  - system
+  - browser
+  - knowledge
+  - self_dev
+  - context
+  - swarm
+skills_priority:
+  - systematic-debugging
+  - test-driven-development
+  - writing-plans
+  - verification-before-completion
+config_overrides:
+  shell:
+    timeout: 60
+  browser:
+    enabled: true
+    headless: true
+  self_dev:
+    max_llm_calls: 80
+    max_retries: 5
+  goals:
+    enabled: true
+    auto_continue: true

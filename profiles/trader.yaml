@@ -1,0 +1,23 @@
+# profiles/trader.yaml
+# Crypto trading, market data, payments, Solana, prospecting
+name: Trader
+description: Payments and Solana wallet tools, web search for market data, browser for exchanges and charts, prospecting for deal flow.
+tool_groups:
+  - system
+  - browser
+  - knowledge
+  - payments
+  - solana
+  - prospecting
+  - web_search
+  - context
+skills_priority:
+  - verification-before-completion
+  - writing-plans
+config_overrides:
+  browser:
+    enabled: true
+  payments:
+    enabled: true
+    crypto:
+      enabled: true

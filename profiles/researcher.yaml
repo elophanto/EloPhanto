@@ -1,0 +1,27 @@
+# profiles/researcher.yaml
+# Deep web research, document analysis, knowledge management
+name: Researcher
+description: Web search, document analysis, knowledge base management, context store, and email for outreach. Optimized for information gathering and synthesis.
+tool_groups:
+  - system
+  - browser
+  - knowledge
+  - context
+  - documents
+  - email
+  - web_search
+skills_priority:
+  - systematic-debugging
+  - writing-plans
+  - verification-before-completion
+config_overrides:
+  browser:
+    enabled: true
+    headless: true
+  documents:
+    enabled: true
+    retrieval_top_k: 20
+  knowledge:
+    search_top_k: 10
+  email:
+    enabled: true
