@@ -28,6 +28,7 @@ from core.protocol import (
     GatewayMessage,
     MessageType,
     approval_request_message,
+    capability_response_message,
     error_message,
     event_message,
     response_message,
@@ -137,6 +138,16 @@ class Gateway:
                 body,
             )
 
+        # --- Capability discovery ---
+        if request.path == "/capabilities":
+            body = json.dumps(self._build_capabilities_payload()).encode()
+            return Response(
+                200,
+                "OK",
+                Headers({"Content-Type": "application/json"}),
+                body,
+            )
+
         # --- Webhook endpoints ---
         if request.path.startswith("/hooks/"):
             return self._handle_webhook(request)
@@ -169,6 +180,84 @@ class Gateway:
                 )
 
         return None  # Continue with WebSocket upgrade
+
+    def _build_capabilities_payload(self) -> dict[str, Any]:
+        """Build the capabilities payload used by both HTTP and WebSocket responses."""
+        import hashlib
+
+        # Tools
+        tools_data: list[dict[str, str]] = []
+        registry = getattr(self._agent, "_registry", None)
+        if registry:
+            for t in registry.all_tools():
+                tools_data.append(
+                    {
+                        "name": t.name,
+                        "description": t.description,
+                        "group": t.group,
+                    }
+                )
+
+        # Skills
+        skills_data: list[str] = []
+        skill_mgr = getattr(self._agent, "_skill_manager", None)
+        if skill_mgr:
+            skills_data = [s.name for s in skill_mgr.list_skills()]
+
+        # Providers
+        providers_data: list[str] = []
+        router = getattr(self._agent, "_router", None)
+        if router:
+            router_cfg = getattr(router, "_config", None)
+            if router_cfg and hasattr(router_cfg, "llm"):
+                providers_data = list(router_cfg.llm.provider_priority)
+
+        # Channels — derive from connected clients + config
+        channels: list[str] = sorted(
+            {c.channel for c in self._clients.values() if c.channel}
+        )
+        if not channels:
+            channels = ["cli"]
+
+        # Features — detect from registered tool groups
+        tool_groups = {t.get("group", "") for t in tools_data}
+        feature_map = {
+            "browser": "browser",
+            "payment": "payments",
+            "email": "email",
+            "deployment": "deployment",
+            "desktop": "desktop",
+            "commune": "commune",
+        }
+        features = [
+            feat for group_key, feat in feature_map.items() if group_key in tool_groups
+        ]
+
+        # Agent ID — stable fingerprint from identity or config
+        identity_mgr = getattr(self._agent, "_identity_manager", None)
+        agent_id = ""
+        if identity_mgr:
+            ident = getattr(identity_mgr, "_identity", None)
+            if ident and hasattr(ident, "name"):
+                agent_id = hashlib.sha256(ident.name.encode()).hexdigest()[:16]
+        if not agent_id:
+            agent_id = hashlib.sha256(
+                f"{self._host}:{self._port}".encode()
+            ).hexdigest()[:16]
+
+        # Version
+        version = getattr(self._agent, "VERSION", "0.0.0")
+
+        return {
+            "protocol_version": "1.0",
+            "agent_id": agent_id,
+            "tools": tools_data,
+            "skills": skills_data,
+            "providers": providers_data,
+            "channels": channels,
+            "features": features,
+            "version": version,
+        }
 
     def _handle_webhook(self, request: Any) -> Any:
         """Route webhook HTTP requests."""
@@ -511,6 +600,7 @@ class Gateway:
             MessageType.APPROVAL_RESPONSE: self._handle_approval_response,
             MessageType.COMMAND: self._handle_command,
             MessageType.STATUS: self._handle_status,
+            MessageType.CAPABILITY_REQUEST: self._handle_capability_request,
         }
 
         handler = handlers.get(msg.type)  # type: ignore[call-overload]
@@ -1984,6 +2074,19 @@ class Gateway:
             await client.websocket.send(
                 error_message(f"Unknown command: {command}", session_id).to_json()
             )
+
+    async def _handle_capability_request(
+        self, client: ClientConnection, msg: GatewayMessage
+    ) -> None:
+        """Handle capability discovery request — return what this agent can do."""
+        payload = self._build_capabilities_payload()
+        resp = capability_response_message(
+            tools=payload["tools"],
+            skills=payload["skills"],
+            providers=payload["providers"],
+            version=payload.get("version", "0.0.0"),
+        )
+        await client.websocket.send(resp.to_json())
 
     async def _handle_status(
         self, client: ClientConnection, msg: GatewayMessage

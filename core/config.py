@@ -680,6 +680,7 @@ class Config:
     parent_channel: ParentChannelConfig = field(default_factory=ParentChannelConfig)
     authority: AuthorityConfig | None = None
     workspace: str = ""
+    profile: str = ""  # Distribution profile name (e.g., "developer", "marketer")
     project_root: Path = field(default_factory=Path.cwd)
 
 
@@ -777,12 +778,48 @@ def _apply_env_overrides(config: Config) -> None:
         config.browser.user_data_dir = "/tmp/elophanto-browser-profile"
 
 
-def load_config(config_path: Path | str | None = None) -> Config:
+def _load_profile(profile_name: str, project_root: Path) -> dict[str, Any]:
+    """Load a distribution profile YAML and return its raw dict.
+
+    Searches ``profiles/<name>.yaml`` relative to *project_root*.
+    Returns an empty dict when the profile is not found or empty.
+    """
+    if not profile_name:
+        return {}
+    profile_path = project_root / "profiles" / f"{profile_name}.yaml"
+    if not profile_path.exists():
+        return {}
+    with open(profile_path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _apply_profile_overrides(raw: dict[str, Any], profile: dict[str, Any]) -> None:
+    """Merge profile ``config_overrides`` into the raw config dict in-place.
+
+    Only performs a shallow merge per top-level section so that profile
+    overrides supplement (not replace) the user's base config.
+    """
+    overrides = profile.get("config_overrides")
+    if not overrides or not isinstance(overrides, dict):
+        return
+    for section, values in overrides.items():
+        if not isinstance(values, dict):
+            continue
+        if section not in raw:
+            raw[section] = {}
+        if isinstance(raw[section], dict):
+            raw[section].update(values)
+
+
+def load_config(config_path: Path | str | None = None, profile: str = "") -> Config:
     """Load and validate configuration from YAML file.
 
     Args:
         config_path: Path to config.yaml. If None, checks ELOPHANTO_CONFIG
                      env var, then falls back to ./config.yaml.
+        profile: Distribution profile name (e.g. "developer"). When set,
+                 loads ``profiles/<name>.yaml`` and merges its
+                 ``config_overrides`` into the raw config before parsing.
 
     Returns:
         Populated Config dataclass.
@@ -801,6 +838,12 @@ def load_config(config_path: Path | str | None = None) -> Config:
 
     with open(config_path) as f:
         raw = yaml.safe_load(f) or {}
+
+    # Resolve distribution profile: CLI flag > config file value
+    profile_name = profile or raw.get("profile", "")
+    if profile_name:
+        profile_data = _load_profile(profile_name, config_path.parent)
+        _apply_profile_overrides(raw, profile_data)
 
     # Parse agent section
     agent = raw.get("agent", {})
@@ -1385,6 +1428,7 @@ def load_config(config_path: Path | str | None = None) -> Config:
         desktop=desktop_config,
         parent_channel=parent_channel_config,
         authority=authority_config,
+        profile=profile_name,
         project_root=config_path.parent,
     )
 

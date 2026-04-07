@@ -1,0 +1,27 @@
+# profiles/marketer.yaml
+# Social media, content creation, publishing, affiliate, outreach
+name: Marketer
+description: Content creation, social media management, community engagement, affiliate marketing, and prospecting tools.
+tool_groups:
+  - system
+  - browser
+  - knowledge
+  - social
+  - publishing
+  - affiliate
+  - commune
+  - prospecting
+  - context
+  - email
+skills_priority:
+  - content-strategy
+  - social-media-posting
+  - audience-research
+  - writing-plans
+config_overrides:
+  browser:
+    enabled: true
+  email:
+    enabled: true
+  commune:
+    enabled: true

@@ -1,0 +1,19 @@
+# profiles/minimal.yaml
+# Bare-bones setup: core system tools only
+name: Minimal
+description: Core system tools only — file operations, shell, and knowledge base. No browser, no payments, no social integrations. Ideal for lightweight or air-gapped deployments.
+tool_groups:
+  - system
+  - knowledge
+skills_priority: []
+config_overrides:
+  browser:
+    enabled: false
+  payments:
+    enabled: false
+  email:
+    enabled: false
+  commune:
+    enabled: false
+  scheduler:
+    enabled: false

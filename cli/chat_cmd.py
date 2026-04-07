@@ -647,12 +647,18 @@ def _try_unlock_vault(agent: Any) -> None:
     default=False,
     help="Skip gateway, connect directly to agent",
 )
-def chat_cmd(config_path: str | None, debug: bool, direct: bool) -> None:
+@click.option(
+    "--profile",
+    type=str,
+    default="",
+    help="Distribution profile (developer, marketer, researcher, trader, minimal)",
+)
+def chat_cmd(config_path: str | None, debug: bool, direct: bool, profile: str) -> None:
     """Start an interactive chat session with EloPhanto."""
     import signal
 
     setup_logging(debug=debug)
-    cfg = load_config(config_path)
+    cfg = load_config(config_path, profile=profile)
 
     # Force-kill on second Ctrl+C (handles cases where aiogram swallows the first one)
     _interrupted_once = False
@@ -672,7 +678,7 @@ def chat_cmd(config_path: str | None, debug: bool, direct: bool) -> None:
     if cfg.gateway.enabled and not direct:
         asyncio.run(_chat_gateway(cfg))
     else:
-        asyncio.run(_chat_loop(config_path))
+        asyncio.run(_chat_loop(config_path, profile=profile))
 
 
 async def _chat_gateway(cfg: Any) -> None:
@@ -905,9 +911,9 @@ async def _chat_gateway(cfg: Any) -> None:
     console.print(f"  [{_C_DIM}]Goodbye.[/]")
 
 
-async def _chat_loop(config_path: str | None) -> None:
+async def _chat_loop(config_path: str | None, profile: str = "") -> None:
     """Main chat REPL."""
-    cfg = load_config(config_path)
+    cfg = load_config(config_path, profile=profile)
     agent = Agent(cfg)
     stats = SessionStats()
 

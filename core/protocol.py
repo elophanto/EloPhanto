@@ -26,6 +26,10 @@ class MessageType(StrEnum):
     APPROVAL_REQUEST = "approval_request"
     EVENT = "event"
 
+    # Capability negotiation
+    CAPABILITY_REQUEST = "capability_request"  # Client → Gateway
+    CAPABILITY_RESPONSE = "capability_response"  # Gateway → Client
+
     # Bidirectional
     STATUS = "status"
     ERROR = "error"
@@ -214,4 +218,35 @@ def command_message(
         user_id=user_id,
         session_id=session_id,
         data={"command": command, "args": args or {}},
+    )
+
+
+def capability_request_message(
+    channel: str = "",
+    user_id: str = "",
+) -> GatewayMessage:
+    """Create a capability request — asks the gateway what the agent can do."""
+    return GatewayMessage(
+        type=MessageType.CAPABILITY_REQUEST,
+        channel=channel,
+        user_id=user_id,
+    )
+
+
+def capability_response_message(
+    tools: list[dict[str, Any]],
+    skills: list[str],
+    providers: list[str],
+    version: str,
+) -> GatewayMessage:
+    """Create a capability response with the agent's available tools, skills, and providers."""
+    return GatewayMessage(
+        type=MessageType.CAPABILITY_RESPONSE,
+        data={
+            "protocol_version": "1.0",
+            "tools": tools,
+            "skills": skills,
+            "providers": providers,
+            "version": version,
+        },
     )

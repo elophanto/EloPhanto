@@ -81,6 +81,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 59 | [Context Intelligence](59-CONTEXT-INTELLIGENCE.md) | Deferred tool loading, microcompact + circuit breaker, knowledge consolidation, BriefTool, verification prompts, coordinator synthesis |
 | 60 | [Action Queue](60-ACTION-QUEUE.md) | Serialized task execution, priority preemption, scheduler pause/resume, browser concurrency fix |
 | 61 | [Video Meeting](61-VIDEO-MEETING.md) | Join Google Meet/Zoom as AI avatar via PikaStream — voice cloning, context-aware conversation, auto-billing |
+| 62 | [Agent OS](62-AGENT-OS.md) | Agent Protocol v1.0, distribution profiles, SDK roadmap, contributor governance, agent mesh vision |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 

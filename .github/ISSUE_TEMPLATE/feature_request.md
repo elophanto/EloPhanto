@@ -1,27 +1,17 @@
 ---
 name: Feature Request
 about: Suggest a new feature or improvement
-title: "[Feature] "
 labels: enhancement
-assignees: ''
 ---
 
-## Description
-
-A clear description of the feature you'd like.
-
-## Use Case
-
-Why is this feature needed? What problem does it solve?
+## Problem
+<!-- What problem does this solve? -->
 
 ## Proposed Solution
-
-How do you think this should work? Include any relevant details about the interface, behavior, or implementation approach.
+<!-- How should it work? -->
 
 ## Alternatives Considered
-
-Any alternative solutions or workarounds you've considered.
+<!-- Other approaches you thought about -->
 
 ## Additional Context
-
-Any other relevant information, mockups, or references.
+<!-- Screenshots, links, related issues -->
