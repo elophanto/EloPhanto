@@ -617,7 +617,10 @@ class LLMRouter:
         }
 
         if provider == "openrouter":
-            kwargs["model"] = f"openrouter/{model}"
+            # Strip provider prefix if already present (e.g., vision_model
+            # may be configured as "openrouter/x-ai/grok-4.1-fast")
+            _or_model = model.removeprefix("openrouter/")
+            kwargs["model"] = f"openrouter/{_or_model}"
             or_cfg = self._config.llm.providers.get("openrouter")
             if or_cfg:
                 kwargs["api_key"] = or_cfg.api_key
