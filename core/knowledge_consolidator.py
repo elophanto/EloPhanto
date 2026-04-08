@@ -60,14 +60,18 @@ class KnowledgeConsolidator:
         # Phase 3: Enforce entry cap
         stats["capped"] = await self._enforce_cap()
 
-        # Phase 4: Log consolidation
+        # Phase 4: Clean orphaned disk files
+        stats["disk_cleaned"] = await self._clean_orphaned_files()
+
+        # Phase 5: Log consolidation
         await self._log_consolidation(stats)
 
         logger.info(
-            "Knowledge consolidation complete: pruned=%d merged=%d capped=%d",
+            "Knowledge consolidation complete: pruned=%d merged=%d capped=%d disk_cleaned=%d",
             stats["pruned"],
             stats["merged"],
             stats["capped"],
+            stats.get("disk_cleaned", 0),
         )
         return stats
 
@@ -155,6 +159,61 @@ class KnowledgeConsolidator:
             _MAX_KNOWLEDGE_ENTRIES,
         )
         return excess
+
+    async def _clean_orphaned_files(self) -> int:
+        """Remove learned/ markdown files that have no DB index entries.
+
+        Files accumulate on disk as the learner creates them, but are never
+        deleted when their DB entries are pruned. This phase finds files in
+        ``knowledge/learned/`` that have zero corresponding rows in
+        ``knowledge_chunks`` and removes them.
+        """
+        learned_dir = self._project_root / "knowledge" / "learned"
+        if not learned_dir.is_dir():
+            return 0
+
+        # Get all indexed file paths from DB
+        rows = await self._db.execute(
+            "SELECT DISTINCT file_path FROM knowledge_chunks", ()
+        )
+        indexed_paths: set[str] = set()
+        for row in rows:
+            fp = row["file_path"]
+            if fp:
+                # Normalize: DB stores relative paths like "learned/strategy/x.md"
+                indexed_paths.add(fp)
+                # Also add with "knowledge/" prefix variant
+                if not fp.startswith("knowledge/"):
+                    indexed_paths.add(f"knowledge/{fp}")
+
+        cleaned = 0
+        for md_file in learned_dir.rglob("*.md"):
+            # Build relative path variants to check against DB
+            rel = md_file.relative_to(self._project_root)
+            rel_str = str(rel)
+            # Also try without "knowledge/" prefix
+            alt_str = str(rel).removeprefix("knowledge/")
+
+            if rel_str not in indexed_paths and alt_str not in indexed_paths:
+                try:
+                    md_file.unlink()
+                    cleaned += 1
+                    logger.debug("Cleaned orphaned file: %s", rel_str)
+                except OSError as e:
+                    logger.debug("Failed to clean %s: %s", rel_str, e)
+
+        # Clean empty directories left behind
+        if cleaned:
+            for dirpath in sorted(learned_dir.rglob("*"), reverse=True):
+                if dirpath.is_dir() and not any(dirpath.iterdir()):
+                    try:
+                        dirpath.rmdir()
+                    except OSError:
+                        pass
+
+        if cleaned:
+            logger.info("Cleaned %d orphaned knowledge files from disk", cleaned)
+        return cleaned
 
     async def _log_consolidation(self, stats: dict[str, int]) -> None:
         """Record consolidation run in metadata table."""
