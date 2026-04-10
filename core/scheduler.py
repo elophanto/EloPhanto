@@ -6,6 +6,7 @@ Schedules are persisted to SQLite and restored on restart.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -68,6 +69,7 @@ class TaskScheduler:
         self._result_notifier = result_notifier
         self._scheduler = AsyncIOScheduler()
         self._active_jobs: dict[str, str] = {}
+        self._running_tasks: dict[str, asyncio.Task[Any]] = {}
         self._paused: bool = False
         self._is_executing: bool = False
 
@@ -218,7 +220,17 @@ class TaskScheduler:
             pass
 
     async def delete_schedule(self, schedule_id: str) -> bool:
-        """Delete a scheduled task."""
+        """Delete a scheduled task. Cancels in-flight execution if running."""
+        # Cancel in-flight task if running
+        running = self._running_tasks.pop(schedule_id, None)
+        if running and not running.done():
+            running.cancel()
+            try:
+                await running
+            except (asyncio.CancelledError, Exception):
+                pass
+            logger.info("Cancelled running task for schedule %s", schedule_id)
+
         job_id = self._active_jobs.pop(schedule_id, None)
         if job_id:
             try:
@@ -226,6 +238,10 @@ class TaskScheduler:
             except Exception:
                 pass
 
+        # Delete child rows first to satisfy foreign key constraint
+        await self._db.execute_insert(
+            "DELETE FROM schedule_runs WHERE schedule_id = ?", (schedule_id,)
+        )
         await self._db.execute_insert(
             "DELETE FROM scheduled_tasks WHERE id = ?", (schedule_id,)
         )
@@ -243,7 +259,17 @@ class TaskScheduler:
             self._add_job(schedule)
 
     async def disable_schedule(self, schedule_id: str) -> None:
-        """Disable a schedule."""
+        """Disable a schedule. Cancels in-flight execution if running."""
+        # Cancel in-flight task if running
+        running = self._running_tasks.pop(schedule_id, None)
+        if running and not running.done():
+            running.cancel()
+            try:
+                await running
+            except (asyncio.CancelledError, Exception):
+                pass
+            logger.info("Cancelled running task for schedule %s", schedule_id)
+
         now = datetime.now(UTC).isoformat()
         await self._db.execute_insert(
             "UPDATE scheduled_tasks SET enabled = 0, updated_at = ? WHERE id = ?",
@@ -255,6 +281,40 @@ class TaskScheduler:
                 self._scheduler.remove_job(job_id)
             except Exception:
                 pass
+
+    async def stop_running(self, schedule_id: str) -> bool:
+        """Cancel an in-flight scheduled task without disabling/deleting it.
+
+        Returns True if a task was cancelled, False if nothing was running.
+        """
+        running = self._running_tasks.pop(schedule_id, None)
+        if running and not running.done():
+            running.cancel()
+            try:
+                await running
+            except (asyncio.CancelledError, Exception):
+                pass
+            logger.info("Stopped running task for schedule %s", schedule_id)
+            return True
+        return False
+
+    async def stop_all_running(self) -> int:
+        """Cancel ALL in-flight scheduled tasks. Returns count cancelled."""
+        cancelled = 0
+        for task in list(self._running_tasks.values()):
+            if not task.done():
+                task.cancel()
+                cancelled += 1
+        # Wait for cancellations to settle
+        for task in list(self._running_tasks.values()):
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._running_tasks.clear()
+        if cancelled:
+            logger.info("Stopped %d running scheduled tasks", cancelled)
+        return cancelled
 
     async def list_schedules(self) -> list[ScheduleEntry]:
         """List all schedules from the database."""
@@ -315,8 +375,13 @@ class TaskScheduler:
         )
 
         self._is_executing = True
+        # Wrap executor in a tracked task so we can cancel it on delete/disable
+        executor_task: asyncio.Task[Any] = asyncio.create_task(
+            self._task_executor(schedule.task_goal)
+        )
+        self._running_tasks[schedule_id] = executor_task
         try:
-            result = await self._task_executor(schedule.task_goal)
+            result = await executor_task
             content = getattr(result, "content", str(result))
             steps = getattr(result, "steps_taken", 0)
 
@@ -346,6 +411,26 @@ class TaskScheduler:
                 except Exception:
                     logger.debug("Schedule notification failed", exc_info=True)
 
+        except asyncio.CancelledError:
+            logger.info("Scheduled task cancelled: %s", schedule.name)
+            completed_at = datetime.now(UTC).isoformat()
+            try:
+                await self._db.execute_insert(
+                    """UPDATE schedule_runs
+                       SET completed_at = ?, status = 'cancelled'
+                       WHERE id = ?""",
+                    (completed_at, run_id),
+                )
+                await self._db.execute_insert(
+                    """UPDATE scheduled_tasks
+                       SET last_run_at = ?, last_status = 'cancelled',
+                           updated_at = ?
+                       WHERE id = ?""",
+                    (completed_at, completed_at, schedule_id),
+                )
+            except Exception:
+                pass
+            return
         except Exception as e:
             completed_at = datetime.now(UTC).isoformat()
             await self._db.execute_insert(
@@ -382,6 +467,7 @@ class TaskScheduler:
                     )
                     await self.disable_schedule(schedule_id)
         finally:
+            self._running_tasks.pop(schedule_id, None)
             self._is_executing = False
 
     async def _load_from_db(self) -> list[ScheduleEntry]:

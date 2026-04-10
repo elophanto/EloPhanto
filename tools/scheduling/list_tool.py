@@ -25,7 +25,8 @@ class ScheduleListTool(BaseTool):
     def description(self) -> str:
         return (
             "List all scheduled tasks with their status, next run time, and "
-            "last result. Can also enable, disable, or delete schedules."
+            "last result. Can also enable, disable, delete, stop a running "
+            "task, stop all running tasks, or view run history."
         )
 
     @property
@@ -35,8 +36,21 @@ class ScheduleListTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "enable", "disable", "delete", "history"],
-                    "description": "Action to perform (default: list)",
+                    "enum": [
+                        "list",
+                        "enable",
+                        "disable",
+                        "delete",
+                        "history",
+                        "stop",
+                        "stop_all",
+                    ],
+                    "description": (
+                        "Action to perform (default: list). 'stop' cancels an "
+                        "in-flight task without disabling. 'stop_all' cancels "
+                        "every running task. 'disable' and 'delete' also "
+                        "cancel in-flight execution."
+                    ),
                 },
                 "schedule_id": {
                     "type": "string",
@@ -60,6 +74,13 @@ class ScheduleListTool(BaseTool):
 
         action = params.get("action", "list")
         schedule_id = params.get("schedule_id", "")
+
+        if action == "stop_all":
+            count = await self._scheduler.stop_all_running()
+            return ToolResult(
+                success=True,
+                data={"action": "stop_all", "cancelled": count},
+            )
 
         if action == "list":
             schedules = await self._scheduler.list_schedules()
@@ -107,5 +128,15 @@ class ScheduleListTool(BaseTool):
             limit = params.get("limit", 10)
             history = await self._scheduler.get_run_history(schedule_id, limit)
             return ToolResult(success=True, data={"history": history})
+        elif action == "stop":
+            stopped = await self._scheduler.stop_running(schedule_id)
+            return ToolResult(
+                success=True,
+                data={
+                    "action": "stop",
+                    "schedule_id": schedule_id,
+                    "was_running": stopped,
+                },
+            )
 
         return ToolResult(success=False, error=f"Unknown action: {action}")

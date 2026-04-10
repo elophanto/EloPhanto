@@ -173,3 +173,104 @@ class TestTaskScheduler:
         )
         history = await scheduler.get_run_history(entry.id)
         assert history == []
+
+    @pytest.mark.asyncio
+    async def test_stop_running_when_idle(self, scheduler: TaskScheduler) -> None:
+        """Stopping a non-running schedule should return False."""
+        result = await scheduler.stop_running("nonexistent")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_stop_running_cancels_in_flight(self, db: Database) -> None:
+        """A running task should be cancelled by stop_running."""
+        import asyncio
+
+        # Slow executor that never finishes
+        async def slow_executor(goal: str):
+            await asyncio.sleep(60)
+            return type("Result", (), {"content": "done", "steps_taken": 1})()
+
+        scheduler = TaskScheduler(db=db, task_executor=slow_executor)
+        entry = await scheduler.create_schedule(
+            name="Slow", task_goal="Slow task", cron_expression="0 0 * * *"
+        )
+
+        # Manually start an execution
+        task = asyncio.create_task(scheduler._execute_schedule(entry.id))
+        await asyncio.sleep(0.05)  # Let it start
+
+        # Stop it
+        was_running = await scheduler.stop_running(entry.id)
+        assert was_running is True
+
+        # Wait for the wrapped execution to settle
+        try:
+            await asyncio.wait_for(task, timeout=2)
+        except (TimeoutError, asyncio.CancelledError):
+            pass
+
+        # Should no longer be tracked
+        assert entry.id not in scheduler._running_tasks
+
+    @pytest.mark.asyncio
+    async def test_stop_all_running(self, db: Database) -> None:
+        """stop_all_running cancels every in-flight task."""
+        import asyncio
+
+        async def slow_executor(goal: str):
+            await asyncio.sleep(60)
+            return type("Result", (), {"content": "done", "steps_taken": 1})()
+
+        scheduler = TaskScheduler(db=db, task_executor=slow_executor)
+        entry1 = await scheduler.create_schedule(
+            name="A", task_goal="A", cron_expression="0 0 * * *"
+        )
+        entry2 = await scheduler.create_schedule(
+            name="B", task_goal="B", cron_expression="0 0 * * *"
+        )
+
+        # Start two executions
+        t1 = asyncio.create_task(scheduler._execute_schedule(entry1.id))
+        t2 = asyncio.create_task(scheduler._execute_schedule(entry2.id))
+        await asyncio.sleep(0.05)
+
+        count = await scheduler.stop_all_running()
+        assert count == 2
+
+        # Settle outer wrappers
+        for task in (t1, t2):
+            try:
+                await asyncio.wait_for(task, timeout=2)
+            except (TimeoutError, asyncio.CancelledError):
+                pass
+
+        assert len(scheduler._running_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_cancels_running(self, db: Database) -> None:
+        """delete_schedule should cancel an in-flight task."""
+        import asyncio
+
+        async def slow_executor(goal: str):
+            await asyncio.sleep(60)
+            return type("Result", (), {"content": "done", "steps_taken": 1})()
+
+        scheduler = TaskScheduler(db=db, task_executor=slow_executor)
+        entry = await scheduler.create_schedule(
+            name="Slow", task_goal="Slow", cron_expression="0 0 * * *"
+        )
+
+        task = asyncio.create_task(scheduler._execute_schedule(entry.id))
+        await asyncio.sleep(0.05)
+
+        await scheduler.delete_schedule(entry.id)
+
+        try:
+            await asyncio.wait_for(task, timeout=2)
+        except (TimeoutError, asyncio.CancelledError):
+            pass
+
+        # Schedule deleted from DB
+        assert await scheduler.get_schedule(entry.id) is None
+        # No longer tracked as running
+        assert entry.id not in scheduler._running_tasks
