@@ -745,6 +745,7 @@ def _apply_env_overrides(config: Config) -> None:
         "zai": {"base_url": "https://api.z.ai/api/paas/v4"},
         "kimi": {"base_url": "https://api.kilo.ai/api/gateway"},
         "huggingface": {"base_url": "https://router.huggingface.co/v1"},
+        "codex": {"base_url": "https://chatgpt.com/backend-api/codex"},
     }
     _ENV_MAP = {
         "OPENROUTER_API_KEY": "openrouter",
@@ -769,6 +770,32 @@ def _apply_env_overrides(config: Config) -> None:
         else:
             config.llm.providers[provider_name].api_key = env_key
             config.llm.providers[provider_name].enabled = True
+
+    # Codex auto-detection: if ~/.codex/auth.json exists with auth_mode=chatgpt,
+    # auto-enable the Codex provider. No api_key needed — OAuth tokens come
+    # from the Codex CLI's login file.
+    _codex_home = os.environ.get("CODEX_HOME")
+    _codex_auth_path = (
+        Path(_codex_home) / "auth.json"
+        if _codex_home
+        else Path.home() / ".codex" / "auth.json"
+    )
+    if _codex_auth_path.exists():
+        try:
+            import json as _json
+
+            _auth_data = _json.loads(_codex_auth_path.read_text("utf-8"))
+            if _auth_data.get("auth_mode") == "chatgpt":
+                if "codex" not in config.llm.providers:
+                    config.llm.providers["codex"] = ProviderConfig(
+                        enabled=True,
+                        base_url=_PROVIDER_DEFAULTS["codex"]["base_url"],
+                        default_model="gpt-5.4",
+                    )
+                else:
+                    config.llm.providers["codex"].enabled = True
+        except Exception:
+            pass
 
     # In cloud mode: override browser to headless playwright Chromium (no system Chrome)
     if os.environ.get("ELOPHANTO_CLOUD") == "1":

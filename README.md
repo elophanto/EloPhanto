@@ -10,14 +10,14 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-62%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-63%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
 
 An open-source AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
 
-Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, OpenRouter, or HuggingFace.
+Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, OpenRouter, HuggingFace, or your ChatGPT Plus/Pro subscription (via Codex OAuth).
 
 <p align="center">
   <img src="misc/screenshots/dashboard.png" alt="Web Dashboard" width="700">
@@ -46,6 +46,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
   - **OpenRouter** (cloud, all models) — [get API key](https://openrouter.ai)
   - **Z.ai / GLM** (cloud, cost-effective) — [get API key](https://z.ai/manage-apikey/apikey-list) — the Z.ai coding subscription gives you unlimited GLM-4.7/GLM-5 calls at a flat monthly rate
   - **HuggingFace** (cloud, open models) — [get token](https://huggingface.co/settings/tokens) — access Qwen, DeepSeek, GLM, Kimi, MiMo and more via HF Inference Providers
+  - **Codex** (ChatGPT Plus/Pro subscription, gpt-5.4) — `npm i -g @openai/codex && codex login` — uses your existing ChatGPT subscription via the Codex CLI's OAuth credentials. ⚠️ ToS grey area (sold as UI, not API). See [CODEX_INTEGRATION.md](CODEX_INTEGRATION.md)
 
 </details>
 
@@ -112,7 +113,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 | **Has its own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
 | **Has its own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
 | **Chat from anywhere** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
-| **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai, HuggingFace | ❌ | ❌ | ❌ | ❌ |
+| **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai, HuggingFace, Codex | ❌ | ❌ | ❌ | ❌ |
 | **Learns about you** | ✅ Evolving user profiles | ❌ | ❌ | ❌ | ❌ |
 | **Makes money autonomously** | ✅ YouTube/X/TikTok + affiliate | ❌ | ❌ | ❌ | ❌ |
 | **Godmode (unrestricted)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
@@ -435,6 +436,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Codex subscription provider (gpt-5.4)** — new `codex` provider uses your ChatGPT Plus/Pro subscription as an LLM backend via the Codex CLI's OAuth credentials (`~/.codex/auth.json`). Responses API, streaming, auto-refreshes tokens, per-model reasoning effort clamping. Auto-detects on startup — run `codex login` once and it's wired in. 28 new tests. ⚠️ ToS grey area (ChatGPT sold as UI, not API). See [docs/63-CODEX-PROVIDER.md](docs/63-CODEX-PROVIDER.md) and [CODEX_INTEGRATION.md](CODEX_INTEGRATION.md)
 - **Agent OS** — foundational pieces for making EloPhanto the agent operating system. (1) **Agent Protocol v1.0** — formal spec for agent-to-agent communication (WebSocket + HTTP, capability discovery, session lifecycle, 33 event types). New `GET /capabilities` endpoint. (2) **Distribution profiles** — `--profile developer|marketer|researcher|trader|minimal` to pre-configure tools and skills for your use case. (3) **Contributor ecosystem** — GitHub issue templates, PR template, GOVERNANCE.md (BDFL + RFC process), SECURITY.md (vulnerability reporting). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) and [docs/62-AGENT-OS.md](docs/62-AGENT-OS.md)
 - **Video Meeting Agent** — join Google Meet and Zoom calls as a real-time AI avatar via [PikaStreaming](https://pika.me/dev/). Voice cloning from recordings, AI-generated avatars, context-aware conversation (reads identity + memory + daily logs for meeting context), auto-billing ($0.50/min). Say "join this meeting" with a link. See [docs/61-VIDEO-MEETING.md](docs/61-VIDEO-MEETING.md)
 - **Action Queue** — serialized task execution with priority preemption. Scheduled tasks, manual messages, autonomous mind, and heartbeat now run through a central `ActionQueue` — only one task at a time. User messages get highest priority and preempt background tasks. Fixes the bug where cron jobs and manual commands competed for the browser simultaneously. See [docs/60-ACTION-QUEUE.md](docs/60-ACTION-QUEUE.md)
@@ -509,7 +511,7 @@ Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 一个开源 AI 智能体，能创建企业、扩大受众、交付代码、自主赚钱——在你睡觉的时候。告诉它你想要什么，它负责其余一切：验证市场、构建产品、部署上线、在合适的平台发布、生成营销团队、持续自主增长。遇到做不了的事，它自己造工具。任务复杂时，它克隆自己成为专业智能体。它用得越多越聪明。
 
-本地运行。数据留在你的机器上。支持 OpenAI、Kimi、免费本地模型、Z.ai 或 OpenRouter。
+本地运行。数据留在你的机器上。支持 OpenAI、Kimi、免费本地模型、Z.ai、OpenRouter、HuggingFace 或 ChatGPT Plus/Pro 订阅（通过 Codex OAuth）。
 
 > 它已经在互联网上独立运作了。
 

@@ -132,6 +132,7 @@ class LLMRouter:
         # Lazy singletons — avoid re-creating HTTP clients per call
         self._zai_adapter: Any = None
         self._kimi_adapter: Any = None
+        self._codex_adapter: Any = None
         # Provider transparency tracker (Gap 5)
         self._provider_tracker = ProviderTracker()
 
@@ -181,6 +182,10 @@ class LLMRouter:
                 elif provider == "kimi":
                     result = await self._call_kimi(
                         messages, model, tools, temperature, max_tokens
+                    )
+                elif provider == "codex":
+                    result = await self._call_codex(
+                        messages, model, tools, reasoning_effort
                     )
                 else:
                     result = await self._call_litellm(
@@ -782,6 +787,45 @@ class LLMRouter:
             self._mark_unhealthy("zai")
             raise
 
+    def _get_codex_adapter(self) -> Any:
+        """Get or create the shared CodexAdapter instance."""
+        if self._codex_adapter is None:
+            from core.codex_adapter import CodexAdapter
+
+            self._codex_adapter = CodexAdapter(self._config)
+        return self._codex_adapter
+
+    async def _call_codex(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        tools: list[dict[str, Any]] | None,
+        reasoning_effort: str,
+    ) -> LLMResponse:
+        """Call via ChatGPT Codex subscription adapter."""
+        adapter = self._get_codex_adapter()
+        try:
+            response = await adapter.complete(
+                messages,
+                model,
+                tools,
+                0.0,  # temperature ignored by Codex
+                None,  # max_tokens ignored by Codex
+                reasoning_effort or "medium",
+            )
+            self._cost_tracker.record(
+                "codex",
+                model,
+                response.input_tokens,
+                response.output_tokens,
+                response.cost_estimate,
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Codex call failed ({model}): {e}")
+            self._mark_unhealthy("codex")
+            raise
+
     def _get_kimi_adapter(self) -> Any:
         """Get or create the shared KimiAdapter instance."""
         if self._kimi_adapter is None:
@@ -900,6 +944,20 @@ class LLMRouter:
                 logger.warning(f"Kimi not reachable: {e}")
                 return ("kimi", False)
 
+        async def _check_codex() -> tuple[str, bool]:
+            codex_cfg = self._config.llm.providers.get("codex")
+            if not (codex_cfg and codex_cfg.enabled):
+                return ("codex", False)
+            try:
+                adapter = self._get_codex_adapter()
+                healthy = await adapter.health_check()
+                if not healthy:
+                    logger.warning("Codex health check returned False")
+                return ("codex", healthy)
+            except Exception as e:
+                logger.warning(f"Codex not reachable: {e}")
+                return ("codex", False)
+
         async def _check_huggingface() -> tuple[str, bool]:
             hf_cfg = self._config.llm.providers.get("huggingface")
             if not (hf_cfg and hf_cfg.enabled and hf_cfg.api_key):
@@ -936,6 +994,10 @@ class LLMRouter:
         hf_cfg = self._config.llm.providers.get("huggingface")
         if hf_cfg and hf_cfg.enabled and hf_cfg.api_key:
             tasks.append(_check_huggingface())
+        codex_cfg = self._config.llm.providers.get("codex")
+        if codex_cfg and codex_cfg.enabled:
+            # Codex doesn't use api_key — auth comes from ~/.codex/auth.json
+            tasks.append(_check_codex())
 
         if tasks:
             check_results = await asyncio.gather(*tasks)
