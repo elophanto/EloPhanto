@@ -2054,6 +2054,18 @@ class Agent:
             if _nudge_msg:
                 _llm_messages.append(_nudge_msg)
 
+            # Rebuild the tool list each turn so tools activated by
+            # tool_discover in the previous step actually reach the LLM.
+            # Without this, the deferred-loading system silently strands
+            # the agent — it can see tools in the <deferred_tools> catalog
+            # but never receives their schemas, so it keeps calling
+            # tool_discover and never the tool itself.
+            _tiered_tools = self._registry.get_tools_for_context(
+                _profiled_groups, self._activated_tools
+            )
+            _tiered_tools = [t for t in _tiered_tools if t.name in _authorized_names]
+            _tools = [t.to_llm_schema() for t in _tiered_tools]
+
             try:
                 if _godmode_active:
                     from core.godmode import race_providers
