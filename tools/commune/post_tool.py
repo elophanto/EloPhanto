@@ -36,10 +36,11 @@ class CommunePostTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Create a new post, browse the feed, read a single post, or "
-            "delete your own post on Agent Commune. Post type: news "
-            "(reactions to current events). Max 320 chars, 2 posts per 24h. "
-            "No URLs in content. First-person voice, no AI marketing language."
+            "Create a news-reaction post, browse the feed, read a single "
+            "post, or delete your own post on Agent Commune. All posts are "
+            "reactions to an external article/tweet/paper — link_url and "
+            "link_title are REQUIRED. Max 320 chars, 2 posts per 24h. "
+            "No URLs in content body. First-person, no AI marketing language."
         )
 
     @property
@@ -55,14 +56,31 @@ class CommunePostTool(BaseTool):
                 "type": {
                     "type": "string",
                     "enum": list(_POST_TYPES),
-                    "description": "Post type (required for create).",
+                    "description": "Post type (required for create; only 'news' is valid).",
                 },
                 "content": {
                     "type": "string",
                     "maxLength": _MAX_POST_CHARS,
                     "description": (
                         "Post body (max 320 chars). First line is the hook. "
-                        "Write in 1st person, no URLs, no AI marketing language."
+                        "Write in 1st person, no URLs in body, no AI marketing "
+                        "language. Use @org-slug to mention other orgs."
+                    ),
+                },
+                "link_url": {
+                    "type": "string",
+                    "description": (
+                        "REQUIRED for create. The EXACT URL of the article, "
+                        "tweet, thread, or paper you are reacting to. Must "
+                        "have a path (not just a domain). Homepages, /explore, "
+                        "/trending, and placeholder domains are rejected."
+                    ),
+                },
+                "link_title": {
+                    "type": "string",
+                    "description": (
+                        "REQUIRED for create. The headline or title of the "
+                        "linked page."
                     ),
                 },
                 "tags": {
@@ -74,13 +92,14 @@ class CommunePostTool(BaseTool):
                 "image_query": {
                     "type": "string",
                     "description": (
-                        "Custom query for auto-generated cover image. Think of "
-                        "a metaphor or evocative imagery. Avoid text/logos/UI."
+                        "Optional 2-6 word search query for auto-generated "
+                        "cover image. Evocative, not literal — 'neon circuit "
+                        "board closeup' > 'AI agent tool post image'."
                     ),
                 },
                 "media_url": {
                     "type": "string",
-                    "description": "URL to an image or media to attach (optional).",
+                    "description": "URL to an image or media to attach (optional, skips auto-generation).",
                 },
                 "post_id": {
                     "type": "string",
@@ -156,13 +175,18 @@ class CommunePostTool(BaseTool):
                     )
                 else:
                     # create
-                    post_type = params.get("type", "")
+                    post_type = params.get("type", "") or "news"
                     content = params.get("content", "")
                     tags = params.get("tags", [])
-                    if not post_type or not content or not tags:
+                    link_url = params.get("link_url", "")
+                    link_title = params.get("link_title", "")
+                    if not content or not tags or not link_url or not link_title:
                         return ToolResult(
                             success=False,
-                            error="'type', 'content', and 'tags' are required for creating a post.",
+                            error=(
+                                "'content', 'tags', 'link_url', and 'link_title' "
+                                "are required for creating a post."
+                            ),
                         )
                     if len(content) > _MAX_POST_CHARS:
                         return ToolResult(
@@ -174,10 +198,23 @@ class CommunePostTool(BaseTool):
                             success=False,
                             error=f"Max {_MAX_TAGS} tags allowed.",
                         )
+                    # Basic linkUrl validation: must have a path (not bare domain)
+                    parsed = link_url.split("://", 1)
+                    host_path = parsed[1] if len(parsed) == 2 else parsed[0]
+                    if "/" not in host_path.rstrip("/"):
+                        return ToolResult(
+                            success=False,
+                            error=(
+                                "link_url must point to a specific article/tweet/"
+                                "post — homepages and bare domains are rejected."
+                            ),
+                        )
                     body: dict[str, Any] = {
                         "type": post_type,
                         "content": content,
                         "tags": tags,
+                        "linkUrl": link_url,
+                        "linkTitle": link_title,
                     }
                     if params.get("image_query"):
                         body["imageQuery"] = params["image_query"]
