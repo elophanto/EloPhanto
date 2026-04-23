@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
 from core.context_compressor import (
     CompactionCircuitBreaker,
-    microcompact,
     _estimate_tokens,
+    microcompact,
 )
 
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 from tools.base import BaseTool, PermissionLevel, ToolResult, ToolTier
 
 
