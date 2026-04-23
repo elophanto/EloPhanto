@@ -43,11 +43,21 @@ llm:
       enabled: true
       base_url: "http://localhost:11434"
 
+    codex:
+      # ChatGPT Plus/Pro subscription auth — uses ~/.codex/auth.json (not an
+      # API key). Run `npm i -g @openai/codex && codex login` once. The
+      # provider auto-enables when a valid chatgpt-mode auth file is found.
+      # See CODEX_INTEGRATION.md for details and ToS caveats.
+      enabled: false
+      base_url: "https://chatgpt.com/backend-api/codex"
+      default_model: "gpt-5.4"
+
   # When messages contain image_url blocks (screenshots), this model is used
   # automatically instead of the normal routing chain.
   vision_model: "openrouter/x-ai/grok-4.1-fast"  # or google/gemini-2.0-flash-001
 
   provider_priority:
+    - codex
     - openrouter
     - zai
     - huggingface
@@ -58,9 +68,10 @@ llm:
   # The router tries preferred_provider first, then walks provider_priority.
   routing:
     planning:
-      preferred_provider: openrouter
+      preferred_provider: codex
       reasoning_effort: high           # inject {"reasoning": {"effort": "high"}} for OpenRouter
       models:
+        codex: "gpt-5.4"
         openai: "gpt-5.4"
         kimi: "kimi-k2.5"
         zai: "glm-5"
@@ -69,9 +80,10 @@ llm:
         ollama: "nomic-embed-text:latest"
 
     coding:
-      preferred_provider: openrouter
+      preferred_provider: codex
       reasoning_effort: medium
       models:
+        codex: "gpt-5.4"
         openai: "gpt-5.4"
         kimi: "kimi-k2.5"
         zai: "glm-4.7"
@@ -80,9 +92,10 @@ llm:
         ollama: "nomic-embed-text:latest"
 
     analysis:
-      preferred_provider: openrouter
+      preferred_provider: codex
       reasoning_effort: low
       models:
+        codex: "gpt-5.4"
         openai: "gpt-5.4"
         kimi: "kimi-k2.5"
         zai: "glm-4.7"
@@ -91,9 +104,10 @@ llm:
         ollama: "nomic-embed-text:latest"
 
     simple:
-      preferred_provider: openrouter
+      preferred_provider: codex
       reasoning_effort: minimal        # or "none" to disable reasoning entirely
       models:
+        codex: "gpt-5.4"
         kimi: "kimi-k2-thinking-turbo"
         zai: "glm-4.7"
         openrouter: "openrouter/hunter-alpha"
