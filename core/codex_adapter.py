@@ -508,7 +508,7 @@ class CodexAdapter:
                 elif etype in ("response.failed", "response.error", "error"):
                     raise RuntimeError(f"Codex stream error: {json.dumps(evt)[:500]}")
 
-        content = "".join(text_parts).strip()
+        content_text = "".join(text_parts).strip()
 
         # Assemble tool_calls in the shape downstream code expects
         # (matches chat/completions: {id, type: "function", function: {name, arguments}}).
@@ -529,6 +529,24 @@ class CodexAdapter:
                 )
             finish_reason = "tool_calls"
 
+        # Match chat/completions convention: content is None when the
+        # assistant produced only tool calls (no text) — downstream code
+        # uses `content is None` to detect pure tool-call turns.
+        content: str | None = content_text if content_text else None
+        if tool_calls_out and not content_text:
+            content = None
+
+        # Surface the reasoning trace at debug level (captured but not
+        # persisted — helps debug why models picked a particular tool).
+        if reasoning_parts and logger.isEnabledFor(logging.DEBUG):
+            logger.debug("[codex reasoning] %s", "".join(reasoning_parts)[:500])
+
+        # Heuristic truncation detection — matches ZaiAdapter / KimiAdapter
+        # so the provider_tracker can surface stealth-censoring / cutoffs.
+        from core.provider_tracker import detect_truncation
+
+        truncated = detect_truncation(finish_reason, output_tokens, content)
+
         costs = _COSTS.get(model, {"input": 0.002, "output": 0.010})
         cost_estimate = (
             input_tokens * costs["input"] / 1_000_000
@@ -544,7 +562,7 @@ class CodexAdapter:
             cost_estimate=cost_estimate,
             tool_calls=tool_calls_out,
             finish_reason=finish_reason,
-            suspected_truncated=False,
+            suspected_truncated=truncated,
         )
 
     async def health_check(self) -> bool:
