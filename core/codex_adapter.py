@@ -243,8 +243,10 @@ class CodexAdapter:
         - Assistant messages use ``output_text`` content parts.
         - Image blocks (list-typed content with ``image_url``) are passed
           through as ``input_image`` parts on user messages.
-        - Tool messages and tool_calls are currently skipped — Codex CLI
-          does tool use differently, and this path is for plain chat.
+        - Assistant ``tool_calls`` become Responses API ``function_call``
+          items so the model has the correct prior-action context.
+        - ``role: tool`` messages become ``function_call_output`` items
+          referencing the ``tool_call_id`` (mapped to ``call_id``).
         """
         instructions_parts: list[str] = []
         blocks: list[dict[str, Any]] = []
@@ -258,9 +260,21 @@ class CodexAdapter:
                     instructions_parts.append(content)
                 continue
 
+            # Tool/function results from the agent loop
+            if role == "tool":
+                call_id = msg.get("tool_call_id") or ""
+                output = content if isinstance(content, str) else json.dumps(content)
+                if call_id:
+                    blocks.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": output or "",
+                        }
+                    )
+                continue
+
             if role not in ("user", "assistant"):
-                # Skip tool / function results — Responses API handles these
-                # differently and we don't surface function-calling via Codex.
                 continue
 
             # Normalize content into a list of parts
@@ -291,8 +305,48 @@ class CodexAdapter:
             if parts:
                 blocks.append({"type": "message", "role": role, "content": parts})
 
+            # Preserve assistant tool calls as function_call items so the
+            # model knows what it previously called when a tool result follows.
+            if role == "assistant":
+                for tc in msg.get("tool_calls") or []:
+                    fn = tc.get("function") or {}
+                    blocks.append(
+                        {
+                            "type": "function_call",
+                            "call_id": tc.get("id", ""),
+                            "name": fn.get("name", ""),
+                            "arguments": fn.get("arguments", "") or "",
+                        }
+                    )
+
         instructions = "\n\n".join(instructions_parts) if instructions_parts else None
         return instructions, blocks
+
+    @staticmethod
+    def _convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Convert chat/completions tool schemas to Responses API shape.
+
+        chat/completions: ``{type: "function", function: {name, description, parameters}}``
+        Responses API:    ``{type: "function", name, description, parameters}``
+        """
+        converted: list[dict[str, Any]] = []
+        for t in tools:
+            if not isinstance(t, dict):
+                continue
+            if t.get("type") == "function" and "function" in t:
+                fn = t["function"] or {}
+                converted.append(
+                    {
+                        "type": "function",
+                        "name": fn.get("name", ""),
+                        "description": fn.get("description", ""),
+                        "parameters": fn.get("parameters") or {"type": "object"},
+                    }
+                )
+            else:
+                # Already in Responses API shape — pass through
+                converted.append(t)
+        return converted
 
     async def complete(
         self,
@@ -323,30 +377,22 @@ class CodexAdapter:
 
         effort = _clamp_effort(model, reasoning_effort or "medium")
 
+        converted_tools = self._convert_tools(tools or [])
+
         payload: dict[str, Any] = {
             "model": model,
             "input": input_blocks,
             "stream": True,
             "store": False,
-            "parallel_tool_calls": False,
-            "tool_choice": "none",
-            "tools": [],
+            "parallel_tool_calls": bool(converted_tools),
+            "tool_choice": "auto" if converted_tools else "none",
+            "tools": converted_tools,
             "reasoning": {"effort": effort, "summary": "auto"},
             "include": [],
             "text": {"verbosity": "medium"},
         }
         if instructions:
             payload["instructions"] = instructions
-
-        if tools:
-            # Tool-calling via Codex backend uses a different schema than
-            # chat/completions. For now we don't forward tools — warn loudly
-            # so callers know to use a different provider for tool-heavy work.
-            logger.warning(
-                "Codex adapter does not forward tool schemas "
-                "(got %d tools). Use OpenAI/OpenRouter for tool use.",
-                len(tools),
-            )
 
         headers = {
             "Authorization": f"Bearer {self._auth['access']}",
@@ -360,6 +406,9 @@ class CodexAdapter:
 
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
+        # function_call items in progress — keyed by item index in the output.
+        # Each value: {"id", "name", "args_parts": [str]}.
+        fn_calls_by_index: dict[int, dict[str, Any]] = {}
         input_tokens = 0
         output_tokens = 0
         finish_reason = "stop"
@@ -401,19 +450,55 @@ class CodexAdapter:
                     d = evt.get("delta")
                     if isinstance(d, str):
                         reasoning_parts.append(d)
+                elif etype == "response.output_item.added":
+                    item = evt.get("item") or {}
+                    if item.get("type") == "function_call":
+                        idx = evt.get("output_index", len(fn_calls_by_index))
+                        fn_calls_by_index[idx] = {
+                            "id": item.get("call_id") or item.get("id") or "",
+                            "name": item.get("name") or "",
+                            "args_parts": [],
+                        }
+                elif etype == "response.function_call_arguments.delta":
+                    idx = evt.get("output_index")
+                    d = evt.get("delta")
+                    if (
+                        isinstance(idx, int)
+                        and isinstance(d, str)
+                        and idx in fn_calls_by_index
+                    ):
+                        fn_calls_by_index[idx]["args_parts"].append(d)
+                elif etype == "response.output_item.done":
+                    item = evt.get("item") or {}
+                    if item.get("type") == "function_call":
+                        idx = evt.get("output_index", -1)
+                        # Finalize: prefer the server's complete arguments string
+                        args_full = item.get("arguments")
+                        if isinstance(idx, int) and idx in fn_calls_by_index:
+                            if isinstance(args_full, str) and args_full:
+                                fn_calls_by_index[idx]["args_parts"] = [args_full]
+                            # Also refresh name/id in case they arrived late
+                            if item.get("call_id"):
+                                fn_calls_by_index[idx]["id"] = item["call_id"]
+                            if item.get("name"):
+                                fn_calls_by_index[idx]["name"] = item["name"]
                 elif etype in ("response.completed", "response.done"):
-                    # Safety net: if no deltas arrived, pull text from the
-                    # final response object's output array.
-                    if not text_parts:
-                        resp_obj = evt.get("response") or {}
-                        for item in resp_obj.get("output") or []:
-                            if item.get("type") != "message":
-                                continue
+                    resp_obj = evt.get("response") or {}
+                    # Safety net: walk final output[] for any missed content
+                    for out_idx, item in enumerate(resp_obj.get("output") or []):
+                        itype = item.get("type")
+                        if itype == "message" and not text_parts:
                             for c in item.get("content") or []:
                                 if c.get("type") in ("output_text", "text"):
                                     text_parts.append(c.get("text") or "")
-                    # Pull usage + final model
-                    resp_obj = evt.get("response") or {}
+                        elif itype == "function_call":
+                            # Pick up any function calls not seen during streaming
+                            if out_idx not in fn_calls_by_index:
+                                fn_calls_by_index[out_idx] = {
+                                    "id": item.get("call_id") or item.get("id") or "",
+                                    "name": item.get("name") or "",
+                                    "args_parts": [item.get("arguments") or ""],
+                                }
                     usage = resp_obj.get("usage") or {}
                     input_tokens = int(usage.get("input_tokens") or 0)
                     output_tokens = int(usage.get("output_tokens") or 0)
@@ -424,6 +509,25 @@ class CodexAdapter:
                     raise RuntimeError(f"Codex stream error: {json.dumps(evt)[:500]}")
 
         content = "".join(text_parts).strip()
+
+        # Assemble tool_calls in the shape downstream code expects
+        # (matches chat/completions: {id, type: "function", function: {name, arguments}}).
+        tool_calls_out: list[dict[str, Any]] | None = None
+        if fn_calls_by_index:
+            tool_calls_out = []
+            for idx in sorted(fn_calls_by_index.keys()):
+                fc = fn_calls_by_index[idx]
+                tool_calls_out.append(
+                    {
+                        "id": fc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": fc["name"],
+                            "arguments": "".join(fc["args_parts"]),
+                        },
+                    }
+                )
+            finish_reason = "tool_calls"
 
         costs = _COSTS.get(model, {"input": 0.002, "output": 0.010})
         cost_estimate = (
@@ -438,7 +542,7 @@ class CodexAdapter:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost_estimate=cost_estimate,
-            tool_calls=None,
+            tool_calls=tool_calls_out,
             finish_reason=finish_reason,
             suspected_truncated=False,
         )

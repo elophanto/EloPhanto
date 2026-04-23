@@ -247,16 +247,98 @@ class TestBuildInput:
         parts = blocks[0]["content"]
         assert parts[1]["image_url"] == "https://example.com/pic.png"
 
-    def test_tool_role_skipped(self, adapter: CodexAdapter) -> None:
+    def test_tool_role_becomes_function_call_output(
+        self, adapter: CodexAdapter
+    ) -> None:
         messages = [
             {"role": "user", "content": "Q"},
-            {"role": "tool", "content": "result", "tool_call_id": "x"},
+            {"role": "tool", "content": "result", "tool_call_id": "call_x"},
             {"role": "assistant", "content": "A"},
         ]
         _, blocks = adapter._build_input(messages)
-        roles = [b["role"] for b in blocks]
-        assert "tool" not in roles
-        assert roles == ["user", "assistant"]
+        types = [b["type"] for b in blocks]
+        # Order: user message → function_call_output → assistant message
+        assert types == ["message", "function_call_output", "message"]
+        fco = blocks[1]
+        assert fco["call_id"] == "call_x"
+        assert fco["output"] == "result"
+
+    def test_assistant_tool_calls_become_function_call(
+        self, adapter: CodexAdapter
+    ) -> None:
+        messages = [
+            {"role": "user", "content": "Search docs"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "search",
+                            "arguments": '{"q":"docs"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "content": "results...",
+                "tool_call_id": "call_1",
+            },
+        ]
+        _, blocks = adapter._build_input(messages)
+        types = [b["type"] for b in blocks]
+        # user message → function_call (from assistant) → function_call_output
+        assert types == ["message", "function_call", "function_call_output"]
+        assert blocks[1]["name"] == "search"
+        assert blocks[1]["call_id"] == "call_1"
+        assert blocks[1]["arguments"] == '{"q":"docs"}'
+        assert blocks[2]["call_id"] == "call_1"
+        assert blocks[2]["output"] == "results..."
+
+    def test_convert_tools_from_chat_completions_schema(self) -> None:
+        from core.codex_adapter import CodexAdapter
+
+        chat_style = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"city": {"type": "string"}},
+                    },
+                },
+            }
+        ]
+        out = CodexAdapter._convert_tools(chat_style)
+        assert len(out) == 1
+        assert out[0] == {
+            "type": "function",
+            "name": "get_weather",
+            "description": "Get weather",
+            "parameters": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+            },
+        }
+
+    def test_convert_tools_passes_through_responses_api_shape(self) -> None:
+        from core.codex_adapter import CodexAdapter
+
+        already_converted = [
+            {
+                "type": "function",
+                "name": "ping",
+                "description": "ping",
+                "parameters": {"type": "object"},
+            }
+        ]
+        out = CodexAdapter._convert_tools(already_converted)
+        assert out == already_converted
 
     def test_empty_content_dropped(self, adapter: CodexAdapter) -> None:
         messages = [
