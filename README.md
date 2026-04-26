@@ -10,7 +10,7 @@
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-1053%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-63%2B%20pages-blue" alt="Docs"></a>
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-64%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
 </p>
@@ -116,6 +116,7 @@ That's it. The setup wizard walks you through LLM provider selection and configu
 | **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai, HuggingFace, Codex | ❌ | ❌ | ❌ | ❌ |
 | **Learns about you** | ✅ Evolving user profiles | ❌ | ❌ | ❌ | ❌ |
 | **Makes money autonomously** | ✅ YouTube/X/TikTok + affiliate | ❌ | ❌ | ❌ | ❌ |
+| **Trades prediction markets** | ✅ Polymarket (CLOB on Polygon) | ❌ | ❌ | ❌ | ❌ |
 | **Godmode (unrestricted)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
 | **Deferred tool loading** | ✅ Tiered on-demand | ❌ | ❌ | ❌ | ❌ |
 | **Learns from corrections** | ✅ Permanent knowledge | ❌ | ❌ | ❌ | ❌ |
@@ -271,11 +272,11 @@ EloPhanto/
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 163+ built-in tools
-├── skills/              # 148+ bundled SKILL.md files
+├── skills/              # 149+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (62+ docs)
+└── docs/                # Full specification (64+ docs)
 ```
 
 </details>
@@ -320,7 +321,7 @@ elophanto chat               # CLI only (direct mode)
 
 ## Skills System
 
-156+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Plus a public skill registry:
+157+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), Polymarket prediction market trading (CLOB API), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -436,6 +437,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Polymarket integration** — installed the official [Polymarket/agent-skills](https://github.com/Polymarket/agent-skills) bundle. Skill-only (no native tool group, by design), letting the agent use `py-clob-client` to read orderbooks, stream WebSocket updates, and place GTC/GTD/FOK/FAK orders on Polygon — with all order placement gated behind owner approval. Vault stores `polymarket_private_key` / `polymarket_funder_address`. Supports CTF operations, gasless via Gnosis Safe relayer, and the bridge. See [docs/64-POLYMARKET.md](docs/64-POLYMARKET.md)
 - **Codex subscription provider (gpt-5.4)** — new `codex` provider uses your ChatGPT Plus/Pro subscription as an LLM backend via the Codex CLI's OAuth credentials (`~/.codex/auth.json`). Responses API, streaming, auto-refreshes tokens, per-model reasoning effort clamping. Auto-detects on startup — run `codex login` once and it's wired in. 28 new tests. ⚠️ ToS grey area (ChatGPT sold as UI, not API). See [docs/63-CODEX-PROVIDER.md](docs/63-CODEX-PROVIDER.md) and [CODEX_INTEGRATION.md](CODEX_INTEGRATION.md)
 - **Agent OS** — foundational pieces for making EloPhanto the agent operating system. (1) **Agent Protocol v1.0** — formal spec for agent-to-agent communication (WebSocket + HTTP, capability discovery, session lifecycle, 33 event types). New `GET /capabilities` endpoint. (2) **Distribution profiles** — `--profile developer|marketer|researcher|trader|minimal` to pre-configure tools and skills for your use case. (3) **Contributor ecosystem** — GitHub issue templates, PR template, GOVERNANCE.md (BDFL + RFC process), SECURITY.md (vulnerability reporting). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) and [docs/62-AGENT-OS.md](docs/62-AGENT-OS.md)
 - **Video Meeting Agent** — join Google Meet and Zoom calls as a real-time AI avatar via [PikaStreaming](https://pika.me/dev/). Voice cloning from recordings, AI-generated avatars, context-aware conversation (reads identity + memory + daily logs for meeting context), auto-billing ($0.50/min). Say "join this meeting" with a link. See [docs/61-VIDEO-MEETING.md](docs/61-VIDEO-MEETING.md)
@@ -538,6 +540,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **目标梦想** — 没有目标时，智能体会审查自身能力、生成 3-5 个候选目标、逐一评估可行性/价值/成本/风险，选择最优目标执行。用户也可以说"帮我想想"触发同样的流程
 - **G0DM0D3 神模式** — 说"trigger plinys godmode"激活四层能力解锁：无限制系统提示、多模型竞赛（所有供应商并行，评分最高者胜出）、上下文自适应参数调优、输出清理（去除犹豫/前言/正式用语）
 - **上下文智能** — 6项效率优化：延迟工具加载（每次调用只加载~30个工具而非163+）、三级上下文压缩+断路器、知识库自动整合（清理过期/重复/超限条目）、主动通报工具、验证型智能体提示、协调器结果综合
+- **Polymarket 预测市场交易** — 安装官方 [Polymarket/agent-skills](https://github.com/Polymarket/agent-skills) 技能包，支持 Polygon CLOB API（订单簿、GTC/GTD/FOK/FAK 限价/市价单、WebSocket 实时数据流、CTF 头寸操作、Gnosis Safe 无 gas 交易）。下单需所有者明确批准
 
 ## 为什么选择 EloPhanto？
 
@@ -553,6 +556,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 | **自有身份和邮箱** | ✅ 随时间进化 | ❌ | ❌ | ❌ | ❌ |
 | **了解用户** | ✅ 进化式用户画像 | ❌ | ❌ | ❌ | ❌ |
 | **内容变现** | ✅ YouTube/X/TikTok + 联盟营销 | ❌ | ❌ | ❌ | ❌ |
+| **预测市场交易** | ✅ Polymarket (Polygon CLOB) | ❌ | ❌ | ❌ | ❌ |
 | **神模式 (无限制)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
 | **延迟工具加载** | ✅ 分层按需加载 | ❌ | ❌ | ❌ | ❌ |
 | **随处对话** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | 仅 CLI | 仅 Web |
