@@ -80,14 +80,46 @@ replicate_generate(
 ## Output Modes
 
 ### `local` (Recommended)
-- Downloads image to `workspace/generated_images/` directory
-- Images persist permanently on your machine
-- Recommended for production use
+- Downloads image to `<agent.workspace>/generated_images/` (the workspace
+  configured under the `agent:` block in `config.yaml`; falls back to
+  `<project_root>/workspace/generated_images/` if unset).
+- Images persist permanently on your machine.
+- **Returns absolute paths** — `data["path"]` and `data["absolute_path"]`
+  are both the resolved absolute filesystem path. Pass either directly to
+  `browser_upload_file` / `browser_file_chooser` — no CWD juggling needed.
+- **Auto-registers in the knowledge base** — every successful local save
+  also writes a metadata stub to `knowledge/learned/images/{date}-{slug}.md`
+  containing the prompt, model, dimensions, absolute path, and Replicate
+  URL. Future calls to `knowledge_search` ("the meeting avatar from
+  yesterday", "the moonscape with a bee") will surface these naturally,
+  letting the agent reuse old assets instead of regenerating them.
+- Recommended for production use.
 
 ### `url` (Temporary)
-- Returns a public URL to the generated image
-- **Important**: Replicate deletes URL content after ~12 hours
-- Use for quick testing or previews only
+- Returns a public URL to the generated image.
+- **Important**: Replicate deletes URL content after ~12 hours. The tool
+  returns `data["url_expires_in_hours"] = 12` as a reminder.
+- Use for quick testing, previews, or uploads to platforms that ingest
+  remote URLs. For long-lived assets always prefer `local`.
+
+## Tool Result Shape
+
+`output_mode: "local"` returns:
+```json
+{
+  "path": "/Users/you/agent-ws/generated_images/foo.jpg",
+  "absolute_path": "/Users/you/agent-ws/generated_images/foo.jpg",
+  "url": "https://replicate.delivery/...",
+  "url_expires_in_hours": 12
+}
+```
+
+`output_mode: "url"` returns:
+```json
+{
+  "url": "https://replicate.delivery/..."
+}
+```
 
 ## Prompt Tips
 
@@ -114,9 +146,21 @@ Permission level: `moderate`
 - Restart the agent after updating config
 
 ### Images Not Saving
-- Check `workspace/generated_images/` directory exists
-- Verify write permissions on workspace directory
+- Check `<agent.workspace>/generated_images/` exists (the plugin creates
+  it automatically; if creation fails check parent-dir permissions)
+- Verify write permissions on the configured workspace
 - Ensure `output_mode="local"` is set
+- If `agent.workspace` isn't configured in `config.yaml`, files land at
+  `<project_root>/workspace/generated_images/` instead — check there
+
+### Browser Can't Find the File
+The plugin returns absolute paths so this should be rare, but if you see
+"file not found" when calling `browser_upload_file` after a generation:
+- Confirm the path you're passing matches `data["absolute_path"]` from the
+  `replicate_generate` result, not `data["path"]` — they're the same value
+  but using `absolute_path` makes the intent explicit
+- Check the browser bridge process has read access to the workspace dir
+  (it should — same user, same machine)
 
 ### Poor Image Quality
 - Try higher resolution (1024 or 2048)
