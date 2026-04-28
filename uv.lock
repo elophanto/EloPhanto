@@ -907,7 +907,7 @@ wheels = [
 
 [[package]]
 name = "elophanto"
-version = "2026.3.10"
+version = "2026.3.27"
 source = { editable = "." }
 dependencies = [
     { name = "agentmail" },
@@ -972,7 +972,7 @@ requires-dist = [
     { name = "ebooklib", specifier = ">=0.18" },
     { name = "eth-account", marker = "extra == 'payments'", specifier = ">=0.13.0" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "litellm", specifier = ">=1.50.0" },
+    { name = "litellm", specifier = ">=1.50.0,!=1.82.7,!=1.82.8" },
     { name = "mcp", extras = ["cli"], marker = "extra == 'mcp'", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "openpyxl", specifier = ">=3.1.0" },

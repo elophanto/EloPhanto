@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
+from tools.browser.eval_utils import eval_value
 
 logger = logging.getLogger(__name__)
 
@@ -207,11 +208,12 @@ class TikTokUploadTool(BaseTool):
                 "browser_eval",
                 {"expression": "window.location.href"},
             )
-            current_url = ""
-            if isinstance(url_result, dict):
-                current_url = url_result.get("result", "")
-            elif isinstance(url_result, str):
-                current_url = url_result
+            # Bridge returns the JS value JSON-encoded under "resultJson",
+            # not "result" — use the shared eval_value helper to decode.
+            current_url_value = eval_value(url_result)
+            current_url = (
+                current_url_value if isinstance(current_url_value, str) else ""
+            )
 
             video_url = current_url if "/video/" in current_url else ""
 
