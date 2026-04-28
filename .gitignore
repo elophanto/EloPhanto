@@ -69,6 +69,50 @@ tmp/
 # Internal docs
 docs/WEBSITE.md
 docs/WALLET.md
+ZAI_INTEGRATION.md
+docs/*.bak
+
+# Third-party AI coding tool config dirs
+.agent/
+.agents/
+.claude/
+.codebuddy/
+.commandcode/
+.continue/
+.crush/
+.factory/
+.goose/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.windsurf/
+.zencoder/
+
+# Sub-agent scratch dirs
+accounts/
+leadgen/
+learned/
+recon/
+workspace/
+in_scope_alive.txt
+package-lock.json
+skills-lock.json
+*-brief.md
+-a
+
+# Backup files
+*.bak
 
 # EXAMPLES
 

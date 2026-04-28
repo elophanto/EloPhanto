@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
+from tools.browser.eval_utils import eval_value
 
 logger = logging.getLogger(__name__)
 
@@ -185,11 +186,13 @@ class AffiliateScrapeTool(BaseTool):
                 "browser_eval", {"expression": extraction_js}
             )
 
-            raw = ""
-            if isinstance(result, dict):
-                raw = result.get("result", "")
-            elif isinstance(result, str):
-                raw = result
+            # Bridge returns JS values JSON-encoded under "resultJson", not
+            # "result". The extraction script itself returns a JSON string
+            # (so the bridge double-encodes), which is why we json.loads()
+            # twice: once via eval_value to undo the bridge's encoding, then
+            # again here to parse the script's own JSON string.
+            decoded = eval_value(result)
+            raw = decoded if isinstance(decoded, str) else ""
 
             if not raw:
                 return ToolResult(

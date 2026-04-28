@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
@@ -9,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
+from tools.browser.eval_utils import eval_value
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +138,11 @@ class TwitterPostTool(BaseTool):
                     "browser_wait", {"milliseconds": 2000}
                 )
 
-            # Step 2: Find and click the text area — try multiple selectors
+            # Step 2: Find and click the text area — try multiple selectors.
+            # Wrap as an IIFE so the script always returns a value the bridge
+            # can JSON-stringify; previously a multi-statement eval combined
+            # with reading the wrong result key (resultJson vs result) made
+            # this loop silently fail on every call.
             selectors = [
                 'div[data-testid="tweetTextarea_0"][role="textbox"]',
                 'div[data-testid="tweetTextarea_0"] div[role="textbox"]',
@@ -149,16 +155,14 @@ class TwitterPostTool(BaseTool):
                         "browser_eval",
                         {
                             "expression": (
-                                f"const el = document.querySelector('{selector}');"
-                                "if (el) { el.focus(); 'found'; } else { ''; }"
+                                "(() => { const el = document.querySelector("
+                                + json.dumps(selector)
+                                + "); if (el) { el.focus(); return 'found'; }"
+                                " return ''; })()"
                             )
                         },
                     )
-                    val = (
-                        result.get("result", "")
-                        if isinstance(result, dict)
-                        else str(result)
-                    )
+                    val = eval_value(result)
                     if val == "found":
                         focused = True
                         break
@@ -176,25 +180,62 @@ class TwitterPostTool(BaseTool):
                 "browser_type_text", {"text": content}
             )
 
-            # Step 4: Attach media if provided
+            # Step 4: Attach media if provided.
+            # Previous code did `await self._browser_manager.agent.getPage()`
+            # — that attribute doesn't exist on BrowserManager, so this branch
+            # always threw. Replaced with a sequence that uses only public
+            # bridge tools: refresh the element tree, look up the file input's
+            # element index, then call browser_upload_file with the absolute
+            # local path. setInputFiles-equivalent without touching the
+            # bridge or relying on indexes the agent doesn't have a hook into.
             if media_path:
                 await self._browser_manager.call_tool(
                     "browser_wait", {"milliseconds": 1000}
                 )
-                # Find the media upload input
-                page = await self._browser_manager.agent.getPage()
-                file_input = await page.querySelector('input[data-testid="fileInput"]')
-                if file_input:
-                    await file_input.setInputFiles(media_path)
-                else:
-                    # Fallback: try generic file input
-                    file_input = await page.querySelector('input[type="file"]')
-                    if file_input:
-                        await file_input.setInputFiles(media_path)
-
-                # Wait for media to upload
+                # Make sure the bridge has indexed the file input — it's
+                # hidden, but it IS an <input> so the bridge's interactive
+                # selector picks it up.
                 await self._browser_manager.call_tool(
-                    "browser_wait", {"milliseconds": 3000}
+                    "browser_get_elements", {"showAll": True, "compact": True}
+                )
+                # Read the data-aware-idx the bridge stamped on the input.
+                idx_result = await self._browser_manager.call_tool(
+                    "browser_eval",
+                    {
+                        "expression": (
+                            "(() => {"
+                            " const el = document.querySelector("
+                            "'input[data-testid=\"fileInput\"]')"
+                            " || document.querySelector('input[type=\"file\"]');"
+                            " if (!el) return -1;"
+                            " const idx = el.getAttribute('data-aware-idx');"
+                            " return idx === null ? -1 : Number(idx);"
+                            " })()"
+                        )
+                    },
+                )
+                file_input_idx = eval_value(idx_result)
+                if isinstance(file_input_idx, int) and file_input_idx >= 0:
+                    try:
+                        await self._browser_manager.call_tool(
+                            "browser_upload_file",
+                            {"index": file_input_idx, "files": [media_path]},
+                        )
+                    except Exception as upload_err:
+                        logger.warning(
+                            "browser_upload_file failed for index %d: %s",
+                            file_input_idx,
+                            upload_err,
+                        )
+                else:
+                    logger.warning(
+                        "Could not locate file input on X compose page; "
+                        "tweet will be posted without media."
+                    )
+
+                # Wait for media to upload + thumbnail to render
+                await self._browser_manager.call_tool(
+                    "browser_wait", {"milliseconds": 4000}
                 )
 
             # Step 5: Click Post button
@@ -212,11 +253,10 @@ class TwitterPostTool(BaseTool):
                 "browser_eval",
                 {"expression": "window.location.href"},
             )
-            current_url = ""
-            if isinstance(url_result, dict):
-                current_url = url_result.get("result", "")
-            elif isinstance(url_result, str):
-                current_url = url_result
+            current_url_value = eval_value(url_result)
+            current_url = (
+                current_url_value if isinstance(current_url_value, str) else ""
+            )
 
             # Check if we're on a tweet page (contains /status/)
             tweet_url = current_url if "/status/" in current_url else ""

@@ -392,6 +392,11 @@ class ToolRegistry:
         self.register(AffiliatePitchTool())
         self.register(AffiliateCampaignTool())
 
+        # Pump.fun livestream — wraps auth + LiveKit publish for the agent's coin
+        from tools.pumpfun.livestream_tool import PumpLivestreamTool
+
+        self.register(PumpLivestreamTool())
+
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
 
@@ -505,6 +510,8 @@ class ToolRegistry:
             "organization_status",
             # Communication tools
             "agent_brief",
+            # Pump.fun
+            "pump_livestream",
         }
 
         for _name, _t in self._tools.items():

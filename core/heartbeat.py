@@ -234,10 +234,25 @@ class HeartbeatEngine:
                 f"---\n{content}\n---"
             )
 
-            response = await self._agent.run(
-                prompt,
-                max_steps_override=self._config.max_rounds,
-            )
+            # Acquire the action queue so heartbeat doesn't race with
+            # scheduled / mind / user tasks for the browser. Skip this
+            # cycle if another task is holding it for >10 min.
+            from core.action_queue import TaskPriority
+
+            try:
+                async with self._agent._action_queue.acquire(
+                    TaskPriority.HEARTBEAT, timeout=600.0
+                ):
+                    response = await self._agent.run(
+                        prompt,
+                        max_steps_override=self._config.max_rounds,
+                    )
+            except TimeoutError:
+                logger.warning(
+                    "Heartbeat skipped — action queue held >10 min by "
+                    "another task. Will retry next cycle."
+                )
+                return
 
             elapsed = time.monotonic() - cycle_start
             response_text = (response.content or "")[:500]

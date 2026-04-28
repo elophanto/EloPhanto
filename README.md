@@ -240,7 +240,7 @@ Slack Adapter ─────┘                   ▼
 | Deployment | deploy_website, create_database, deployment_status | 3 |
 | Commune | commune_register, commune_home, commune_post, commune_comment, commune_vote, commune_search, commune_profile | 7 |
 | Context (RLM) | context_ingest, context_query, context_slice, context_index, context_transform | 5 |
-| Monetization | youtube_upload, twitter_post, tiktok_upload, affiliate_scrape, affiliate_pitch, affiliate_campaign | 6 |
+| Monetization | youtube_upload, twitter_post, tiktok_upload, affiliate_scrape, affiliate_pitch, affiliate_campaign, pump_livestream | 7 |
 | Image Gen | replicate_generate | 1 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
@@ -437,6 +437,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Pump.fun livestream** — new `pump_livestream` tool streams a local video file to the agent's pump.fun coin live page, end-to-end from chat. Auth signs `frontend-api-v3.pump.fun/auth/login` with the agent's existing Solana wallet (no separate pump.fun account). Publishing goes through pump.fun's WHIP/RTMP ingress on LiveKit Cloud via ffmpeg — no LiveKit CLI required. ffmpeg's `-stream_loop -1` gives seamless looping for free (no Python supervisor). Drop videos in `<workspace>/livestream_videos/` and pass just the filename; `{action: "start", video: "1.mp4", loop: true}` runs until `stop`. New: `tools/pumpfun/`, `skills/pumpfun-livestream/`, `docs/65-PUMPFUN-LIVESTREAM.md`
 - **Polymarket integration** — installed the official [Polymarket/agent-skills](https://github.com/Polymarket/agent-skills) bundle. Skill-only (no native tool group, by design), letting the agent use `py-clob-client` to read orderbooks, stream WebSocket updates, and place GTC/GTD/FOK/FAK orders on Polygon — with all order placement gated behind owner approval. Vault stores `polymarket_private_key` / `polymarket_funder_address`. Supports CTF operations, gasless via Gnosis Safe relayer, and the bridge. See [docs/64-POLYMARKET.md](docs/64-POLYMARKET.md)
 - **Codex subscription provider (gpt-5.4)** — new `codex` provider uses your ChatGPT Plus/Pro subscription as an LLM backend via the Codex CLI's OAuth credentials (`~/.codex/auth.json`). Responses API, streaming, auto-refreshes tokens, per-model reasoning effort clamping. Auto-detects on startup — run `codex login` once and it's wired in. 28 new tests. ⚠️ ToS grey area (ChatGPT sold as UI, not API). See [docs/63-CODEX-PROVIDER.md](docs/63-CODEX-PROVIDER.md) and [CODEX_INTEGRATION.md](CODEX_INTEGRATION.md)
 - **Agent OS** — foundational pieces for making EloPhanto the agent operating system. (1) **Agent Protocol v1.0** — formal spec for agent-to-agent communication (WebSocket + HTTP, capability discovery, session lifecycle, 33 event types). New `GET /capabilities` endpoint. (2) **Distribution profiles** — `--profile developer|marketer|researcher|trader|minimal` to pre-configure tools and skills for your use case. (3) **Contributor ecosystem** — GitHub issue templates, PR template, GOVERNANCE.md (BDFL + RFC process), SECURITY.md (vulnerability reporting). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) and [docs/62-AGENT-OS.md](docs/62-AGENT-OS.md)

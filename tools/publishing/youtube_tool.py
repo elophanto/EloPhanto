@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
+from tools.browser.eval_utils import eval_value
 
 logger = logging.getLogger(__name__)
 
@@ -256,11 +257,11 @@ class YouTubeUploadTool(BaseTool):
                     )
                 },
             )
-            video_url = ""
-            if isinstance(url_result, dict):
-                video_url = url_result.get("result", "")
-            elif isinstance(url_result, str):
-                video_url = url_result
+            # Bridge returns the JS value JSON-encoded under "resultJson",
+            # not "result" — go through the shared helper so we read the
+            # right field and decode the JSON correctly.
+            video_url_value = eval_value(url_result)
+            video_url = video_url_value if isinstance(video_url_value, str) else ""
 
             publish_id = await self._log_publish(
                 title=title,

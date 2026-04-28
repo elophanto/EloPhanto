@@ -660,11 +660,27 @@ class AutonomousMind:
         self._agent._executor._on_tool_executed = _on_tool
 
         cycle_start = time.monotonic()
+        # Acquire the action queue so mind doesn't race with scheduled /
+        # heartbeat / user tasks for the browser. Skip this cycle if
+        # another task holds the queue for >10 min — mind will try again
+        # at next wakeup.
+        from core.action_queue import TaskPriority
+
         try:
-            response = await self._agent.run(
-                prompt,
-                max_steps_override=self._config.max_rounds_per_wakeup,
-            )
+            try:
+                async with self._agent._action_queue.acquire(
+                    TaskPriority.MIND, timeout=600.0
+                ):
+                    response = await self._agent.run(
+                        prompt,
+                        max_steps_override=self._config.max_rounds_per_wakeup,
+                    )
+            except TimeoutError:
+                logger.warning(
+                    "AutoLoop iteration skipped — action queue held >10 min "
+                    "by another task. Will retry next wakeup."
+                )
+                return
 
             cost = self._agent._router.cost_tracker.task_total
             self._spent_today_usd += cost
@@ -893,12 +909,27 @@ class AutonomousMind:
         prev_tool_cb = self._agent._executor._on_tool_executed
         self._agent._executor._on_tool_executed = _on_tool
 
+        # Acquire the action queue so mind doesn't race with scheduled /
+        # heartbeat / user tasks for the browser. Skip this think cycle
+        # if another task holds the queue for >10 min.
+        from core.action_queue import TaskPriority
+
         try:
-            # Run through the agent's normal pipeline with max_rounds as step limit
-            response = await self._agent.run(
-                prompt,
-                max_steps_override=self._config.max_rounds_per_wakeup,
-            )
+            try:
+                async with self._agent._action_queue.acquire(
+                    TaskPriority.MIND, timeout=600.0
+                ):
+                    # Run through the agent's normal pipeline with max_rounds as step limit
+                    response = await self._agent.run(
+                        prompt,
+                        max_steps_override=self._config.max_rounds_per_wakeup,
+                    )
+            except TimeoutError:
+                logger.warning(
+                    "Mind think cycle skipped — action queue held >10 min "
+                    "by another task. Will retry next wakeup."
+                )
+                return
 
             # Track cost
             cost = self._agent._router.cost_tracker.task_total

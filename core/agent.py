@@ -1513,6 +1513,17 @@ class Agent:
                 tool._browser_manager = self._browser_manager
                 tool._db = self._db
 
+        # pump_livestream needs the unlocked vault (wallet + JWT) and
+        # the agent's workspace path (so users can drop videos in
+        # <workspace>/livestream_videos/ and just pass the filename).
+        # No browser manager — it shells out to ffmpeg + lk.
+        pump_livestream = self._registry.get("pump_livestream")
+        if pump_livestream:
+            if self._vault:
+                pump_livestream._vault = self._vault
+            if self._config.workspace:
+                pump_livestream._workspace = self._config.workspace
+
         # Affiliate tools
         scrape_tool = self._registry.get("affiliate_scrape")
         if scrape_tool:
@@ -2701,11 +2712,30 @@ class Agent:
     async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
         """Execute a task goal for a scheduled task.
 
-        Does NOT acquire the action queue — background tasks coordinate
-        via pause/resume signals. Only user messages acquire the queue
-        to get exclusive access.
+        Acquires the action queue with SCHEDULED priority so two scheduled
+        tasks (or scheduled vs heartbeat/mind) don't both grab the browser
+        and corrupt each other's state. If the queue is held longer than
+        the timeout, the task is skipped — APScheduler will fire it again
+        on the next cron beat rather than letting tasks pile up.
         """
-        return await self.run(goal)
+        from core.action_queue import TaskPriority
+
+        try:
+            async with self._action_queue.acquire(
+                TaskPriority.SCHEDULED, timeout=600.0
+            ):
+                return await self.run(goal)
+        except TimeoutError:
+            logger.warning(
+                "Scheduled task '%s' skipped — action queue held "
+                "for >10 min (likely a long-running heartbeat or user task). "
+                "Will retry on next cron beat.",
+                goal[:80],
+            )
+            return AgentResponse(
+                content="(skipped — agent busy with another task)",
+                steps_taken=0,
+            )
 
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str
