@@ -29,11 +29,18 @@ Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free loc
 
 ```bash
 git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh
-./start.sh            # terminal chat
-./start.sh --web      # web dashboard at localhost:3000
+cp config.demo.yaml config.yaml          # then edit: add API keys + Chrome profile path
+./start.sh bootstrap                      # generate identity + capability docs (one time)
+./start.sh                                # terminal chat
+./start.sh --web                          # web dashboard at localhost:3000
 ```
 
-That's it. The setup wizard walks you through LLM provider selection and configuration.
+That's it. The setup wizard walks you through LLM provider selection. **Two things you must set in `config.yaml` before the agent works well:**
+
+- At least one LLM provider with an API key (`enabled: true`)
+- The `browser:` section's `user_data_dir` and `profile_directory` — point to your real Chrome profile (find it in `chrome://version` → "Profile Path"). Browser-dependent tools (twitter, youtube, agent commune, etc.) reuse your existing logins.
+
+`./start.sh bootstrap` writes `knowledge/system/{identity,capabilities,styleguide}.md` based on what you tell it about the agent. The planner reads these for grounding — skipping it is the #1 cause of "the agent hallucinates on day one." Re-run with `--force` anytime to regenerate.
 
 <details>
 <summary>Prerequisites</summary>
