@@ -8,10 +8,28 @@ gateway sessions, tool calls) alongside the chat REPL in real time.
 from __future__ import annotations
 
 import asyncio
+import re
 import time as _time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
+
+# Mouse SGR escape sequences (e.g. ``\x1b[<35;62;22M``) and other CSI
+# sequences sometimes leak into the input field when the terminal
+# briefly steals mouse capture (Shift-drag for native selection,
+# trackpad scrolls during widget transitions, etc.). Strip them on
+# arrival so they never appear as visible characters or get submitted.
+_ANSI_CSI_RE = re.compile(r"\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]")
+# Some terminals send the bracket without the escape byte (the ESC was
+# consumed by Textual's keyboard handler before the widget got it).
+# Catch the visible-text leftover too: ``[<35;62;22M`` / ``[<35;62;22m``.
+_BARE_MOUSE_RE = re.compile(r"\[<\d+;\d+;\d+[Mm]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences and bare mouse-code leftovers."""
+    return _BARE_MOUSE_RE.sub("", _ANSI_CSI_RE.sub("", text))
+
 
 from textual import events, work
 from textual.app import App, ComposeResult
@@ -913,8 +931,19 @@ class EloPhantoDashboard(App):
 
     # ── Input handler ─────────────────────────────────────────────────────
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Strip leaked mouse-tracking / ANSI bytes as the user types.
+
+        Without this, Shift-drag for terminal selection (or any moment
+        the terminal briefly handles mouse outside Textual) can dump
+        sequences like ``[<35;62;22M`` into the input field.
+        """
+        cleaned = _strip_ansi(event.value)
+        if cleaned != event.value:
+            event.input.value = cleaned
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
+        text = _strip_ansi(event.value).strip()
         event.input.clear()
         if not text:
             return
