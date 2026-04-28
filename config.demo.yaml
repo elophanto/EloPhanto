@@ -1,40 +1,45 @@
 # EloPhanto — Full demo config
 # Copy to config.yaml and fill in your API keys / tokens.
+#
+# This file mirrors a known-good production setup (model names,
+# routing, reasoning effort) — only the secret fields are placeholders.
+# Edit the providers you have keys for, leave the others `enabled: false`,
+# and you're done.
 
 agent:
   name: EloPhanto
-  permission_mode: full_auto
-  workspace: /tmp/elophanto
+  permission_mode: full_auto              # ask_always | smart_auto | full_auto
+  workspace: ~/agents/elophanto           # ← change to where you want artifacts saved
 
 llm:
   providers:
+    openai:
+      api_key: "YOUR_OPENAI_KEY"          # https://platform.openai.com/api-keys
+      enabled: false
+      default_model: "gpt-5.4"
+      # base_url: "https://api.openai.com/v1"   # only set for proxies / Azure
+
     openrouter:
-      api_key: "YOUR_OPENROUTER_KEY"     # https://openrouter.ai/keys
+      api_key: "YOUR_OPENROUTER_KEY"      # https://openrouter.ai/keys
       enabled: true
       base_url: "https://openrouter.ai/api/v1"
 
     zai:
-      api_key: "YOUR_ZAI_KEY"            # https://bigmodel.cn (Z.ai / GLM)
-      enabled: true
-      coding_plan: true
+      api_key: "YOUR_ZAI_KEY"             # https://z.ai/manage-apikey/apikey-list
+      enabled: false
+      coding_plan: true                   # use Z.ai's coding subscription endpoint
       base_url_coding: "https://api.z.ai/api/coding/paas/v4"
       base_url_paygo: "https://api.z.ai/api/paas/v4"
-      default_model: "glm-4.7"
-
-    openai:
-      api_key: "YOUR_OPENAI_KEY"         # https://platform.openai.com/api-keys
-      enabled: false
-      default_model: "gpt-5.4"
-      # base_url: "https://api.openai.com/v1"   # optional — only set for proxies / Azure
+      default_model: "GLM-4.7"
 
     kimi:
-      api_key: "YOUR_KILO_API_KEY"       # https://app.kilo.ai — Kilo Code Gateway
+      api_key: "YOUR_KILO_API_KEY"        # https://app.kilo.ai — Kilo Code Gateway
       enabled: false
       base_url: "https://api.kilo.ai/api/gateway"
-      default_model: "kimi-k2.5"         # → moonshotai/kimi-k2.5 on Kilo Gateway
+      default_model: "kimi-k2.5"          # → moonshotai/kimi-k2.5 on Kilo Gateway
 
     huggingface:
-      api_key: "YOUR_HF_TOKEN"              # https://huggingface.co/settings/tokens
+      api_key: "YOUR_HF_TOKEN"            # https://huggingface.co/settings/tokens
       enabled: false
       base_url: "https://router.huggingface.co/v1"
       default_model: "Qwen/Qwen3.5-397B-A17B"  # or deepseek-ai/DeepSeek-V3.2, zai-org/GLM-5
@@ -44,23 +49,23 @@ llm:
       base_url: "http://localhost:11434"
 
     codex:
-      # ChatGPT Plus/Pro subscription auth — uses ~/.codex/auth.json (not an
-      # API key). Run `npm i -g @openai/codex && codex login` once. The
-      # provider auto-enables when a valid chatgpt-mode auth file is found.
-      # See CODEX_INTEGRATION.md for details and ToS caveats.
+      # ChatGPT Plus/Pro subscription auth — uses ~/.codex/auth.json (not an API key).
+      # Run `npm i -g @openai/codex && codex login` once. Auto-enables when the
+      # auth file is found with auth_mode: chatgpt. See CODEX_INTEGRATION.md.
       enabled: false
       base_url: "https://chatgpt.com/backend-api/codex"
-      default_model: "gpt-5.4"
+      default_model: "gpt-5.5"
 
   # When messages contain image_url blocks (screenshots), this model is used
   # automatically instead of the normal routing chain.
-  vision_model: "openrouter/x-ai/grok-4.1-fast"  # or google/gemini-2.0-flash-001
+  vision_model: "openrouter/x-ai/grok-4.1-fast"   # or google/gemini-3-flash-preview
 
   provider_priority:
     - codex
-    - openrouter
     - zai
+    - openrouter
     - huggingface
+    - ollama
     - openai
     - kimi
 
@@ -69,49 +74,49 @@ llm:
   routing:
     planning:
       preferred_provider: codex
-      reasoning_effort: high           # inject {"reasoning": {"effort": "high"}} for OpenRouter
+      reasoning_effort: medium            # minimal | low | medium | high
       models:
-        codex: "gpt-5.4"
+        codex: "gpt-5.5"
         openai: "gpt-5.4"
-        kimi: "kimi-k2.5"
-        zai: "glm-5"
-        openrouter: "openrouter/hunter-alpha"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
+        kimi: "kimi-k2.5"
+        zai: "GLM-5.1"
+        openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
         ollama: "nomic-embed-text:latest"
 
     coding:
       preferred_provider: codex
       reasoning_effort: medium
       models:
-        codex: "gpt-5.4"
+        codex: "gpt-5.5"
         openai: "gpt-5.4"
+        huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
-        zai: "glm-4.7"
-        openrouter: "openrouter/hunter-alpha"
-        huggingface: "deepseek-ai/DeepSeek-V3.2"
+        zai: "GLM-5.1"
+        openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
         ollama: "nomic-embed-text:latest"
 
     analysis:
       preferred_provider: codex
       reasoning_effort: low
       models:
-        codex: "gpt-5.4"
+        codex: "gpt-5.5"
         openai: "gpt-5.4"
-        kimi: "kimi-k2.5"
-        zai: "glm-4.7"
-        openrouter: "openrouter/hunter-alpha"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
+        kimi: "kimi-k2.5"
+        zai: "GLM-5.1"
+        openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
         ollama: "nomic-embed-text:latest"
 
     simple:
       preferred_provider: codex
-      reasoning_effort: minimal        # or "none" to disable reasoning entirely
+      reasoning_effort: low               # or "minimal" / "none" to disable reasoning entirely
       models:
-        codex: "gpt-5.4"
+        codex: "gpt-5.5"
         kimi: "kimi-k2-thinking-turbo"
-        zai: "glm-4.7"
-        openrouter: "openrouter/hunter-alpha"
-        huggingface: "deepseek-ai/DeepSeek-V3.2"
+        huggingface: "Qwen/Qwen3.5-397B-A17B"
+        zai: "GLM-5-turbo"
+        openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
         ollama: "nomic-embed-text:latest"
 
   budget:
@@ -119,7 +124,7 @@ llm:
     per_task_limit_usd: 20.0
 
 shell:
-  timeout: 30
+  timeout: 300                            # seconds — long enough for setup.sh, build commands
   blacklist_patterns:
     - "rm -rf /"
     - "rm -rf /*"
@@ -147,9 +152,9 @@ shell:
     - uname
 
 knowledge:
-  embedding_provider: openrouter        # auto | openrouter | ollama
+  embedding_provider: openrouter          # auto | openrouter | ollama
   embedding_openrouter_model: "google/gemini-embedding-001"
-  embedding_model: "nomic-embed-text"   # Ollama model
+  embedding_model: "nomic-embed-text"     # Ollama model
   embedding_fallback: "mxbai-embed-large"
 
 plugins:
@@ -162,19 +167,29 @@ self_dev:
   max_retries: 3
   test_timeout: 60
 
+# --- Browser ---
+# REAL Chrome with profile reuse is REQUIRED for browser-dependent tools
+# (twitter_post, youtube_upload, agent_commune, etc.). The agent uses your
+# existing Chrome profile so it's already logged in to the sites it needs.
+#
+# Set `user_data_dir` and `profile_directory` to your Chrome profile.
+# Find them via chrome://version → "Profile Path".
+#   macOS:   ~/Library/Application Support/Google/Chrome  +  "Profile 1"
+#   Linux:   ~/.config/google-chrome                       +  "Default"
+#   Windows: %LOCALAPPDATA%\Google\Chrome\User Data        +  "Default"
 browser:
   enabled: true
-  mode: profile                         # fresh | profile (reuse Chrome profile)
-  headless: false
+  mode: profile                           # fresh | profile (REUSE Chrome profile — required for logged-in flows)
+  headless: false                         # keep false; agent needs to see real pages
   cdp_port: 9222
   cdp_ws_endpoint: ""
-  user_data_dir: ""                     # e.g. /Users/you/Library/Application Support/Google/Chrome
+  user_data_dir: ""                       # ← REQUIRED for profile mode (see comment block above)
   use_system_chrome: true
   viewport_width: 1280
   viewport_height: 720
-  profile_directory: ""                 # e.g. "Profile 1"
-  profile_refresh_hours: 0             # 0 = never auto-refresh (preserves agent logins)
-  vision_model: "x-ai/grok-4.1-fast"  # OpenRouter model for screenshot analysis
+  profile_directory: ""                   # ← e.g. "Profile 1" or "Default"
+  profile_refresh_hours: 0                # 0 = never auto-refresh — agent logins (2FA etc.) persist
+  vision_model: "x-ai/grok-4.1-fast"      # OpenRouter model for screenshot analysis
 
 # --- Desktop GUI Agent ---
 # Pixel-level desktop control via screenshot + pyautogui.
@@ -183,12 +198,12 @@ browser:
 # See docs/33-OSWORLD.md for VM setup details.
 desktop:
   enabled: true
-  mode: local                           # local (this PC) | remote (VM)
-  vm_ip: ""                             # required for remote mode
+  mode: local                             # local (this PC) | remote (VM)
+  vm_ip: ""                               # required for remote mode
   server_port: 5000
   screen_width: 1920
   screen_height: 1080
-  observation_type: screenshot          # screenshot | a11y_tree | screenshot_a11y_tree
+  observation_type: screenshot            # screenshot | a11y_tree | screenshot_a11y_tree
   max_steps: 30
   sleep_after_action: 1.0
 
@@ -234,7 +249,7 @@ mcp:
       args:
         - -y
         - "@modelcontextprotocol/server-filesystem"
-        - /Users/yourname            # change to your home directory
+        - /Users/yourname                 # ← change to your home directory
   # More examples:
   #   github:
   #     command: npx
@@ -251,10 +266,10 @@ mcp:
 # No LLM call is made when the file is empty or missing.
 heartbeat:
   enabled: true
-  file_path: "HEARTBEAT.md"            # relative to project root
-  check_interval_seconds: 1800         # 30 minutes
-  max_rounds: 8                        # max tool call rounds per heartbeat task
-  suppress_idle: true                  # don't broadcast when nothing to do
+  file_path: "HEARTBEAT.md"               # relative to project root
+  check_interval_seconds: 1800            # 30 minutes
+  max_rounds: 8                           # max tool call rounds per heartbeat task
+  suppress_idle: true                     # don't broadcast when nothing to do
 
 # --- Webhook Endpoints ---
 # HTTP endpoints on the gateway for external triggers.
@@ -262,8 +277,8 @@ heartbeat:
 # POST /hooks/task  — inject an ad-hoc task for the agent
 webhooks:
   enabled: true
-  auth_token_ref: ""                   # vault key for Bearer auth (empty = no auth)
-  max_payload_bytes: 65536             # 64 KB max request body
+  auth_token_ref: ""                      # vault key for Bearer auth (empty = no auth)
+  max_payload_bytes: 65536                # 64 KB max request body
 
 # --- Agent Swarm ---
 # Spawn external coding agents (Claude Code, Codex, Gemini CLI) on tasks.
@@ -285,12 +300,23 @@ swarm:
   #   args: []
   #   done_criteria: pr_created
 
+# --- Web Deployment ---
+# Deploy websites (Vercel, Railway) and create databases (Supabase).
+# Store tokens in vault: `elophanto vault set vercel_token <token>`
+deployment:
+  enabled: false
+  default_provider: auto                  # auto | vercel | railway
+  vercel_token_ref: vercel_token
+  railway_token_ref: railway_token
+  supabase_token_ref: supabase_access_token
+  supabase_org_id: ""
+
 # --- Channels ---
 
 telegram:
   enabled: true
-  bot_token_ref: "telegram_bot_token"  # stored in secrets vault
-  allowed_users: []                    # empty = allow all users
+  bot_token_ref: "telegram_bot_token"     # stored in secrets vault
+  allowed_users: []                       # empty = allow all users
   mode: polling
   max_message_length: 4000
   send_files: true
@@ -335,9 +361,9 @@ payments:
     cooldown_seconds: 300
   crypto:
     enabled: true
-    default_chain: solana              # solana | base | ethereum
-    provider: local                    # local (self-custody) | agentkit (NOT RECOMMENDED — KYA required)
-    rpc_url: ""                        # empty = chain default
+    default_chain: solana                 # solana | base | ethereum
+    provider: local                       # local (self-custody) | agentkit (NOT RECOMMENDED — KYA required)
+    rpc_url: ""                           # empty = chain default
     cdp_api_key_name_ref: "cdp_api_key_name"
     cdp_api_key_private_ref: "cdp_api_key_private"
     chains:
@@ -350,7 +376,7 @@ email:
   enabled: true
   provider: agentmail
   api_key_ref: "agentmail_api_key"
-  domain: "elophanto.com"              # your agentmail domain
+  domain: "yourdomain.com"                # ← your agentmail domain
   auto_create_inbox: false
   inbox_display_name: "EloPhanto"
   smtp:
@@ -381,18 +407,18 @@ self_learning:
 # Background thinking loop that runs between user interactions.
 # Pursues goals, revenue, and maintenance autonomously.
 autonomous_mind:
-  enabled: false                        # set to true to activate
-  wakeup_seconds: 240                   # default interval between think cycles
+  enabled: false                          # set to true to activate
+  wakeup_seconds: 240                     # default interval between think cycles
   max_wakeup_seconds: 1800
-  budget_pct: 100.0                     # % of daily LLM budget for mind
+  budget_pct: 100.0                       # % of daily LLM budget for mind
   max_rounds_per_wakeup: 100
-  verbosity: normal                     # minimal | normal | verbose
+  verbosity: normal                       # minimal | normal | verbose
 
 # --- Agent Commune ---
 # Social platform for AI agents (LinkedIn for AI agents)
 commune:
   enabled: true
-  api_key: "YOUR_COMMUNE_API_KEY"       # https://agentcommune.com
+  api_key: "YOUR_COMMUNE_API_KEY"         # https://agentcommune.com
   heartbeat_interval_hours: 4
 
 # --- Replicate Image Generation ---
@@ -402,7 +428,7 @@ replicate:
   enabled: true
   api_key: "YOUR_REPLICATE_API_KEY"
   default_model: "google/nano-banana-2"
-  default_resolution: "1024"           # 512, 1024, 2048, 4096
-  default_aspect_ratio: "1:1"          # 1:1, 16:9, 9:16, 4:3, 3:4
-  default_format: "jpg"                # jpg, png
-  default_output_mode: "local"         # url | local (recommended: URLs expire after ~12h)
+  default_resolution: "1024"              # 512, 1024, 2048, 4096
+  default_aspect_ratio: "1:1"             # 1:1, 16:9, 9:16, 4:3, 3:4
+  default_format: "jpg"                   # jpg, png
+  default_output_mode: "local"            # url | local (recommended: URLs expire after ~12h)
