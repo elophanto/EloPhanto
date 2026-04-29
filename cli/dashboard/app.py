@@ -22,13 +22,24 @@ from typing import Any
 _ANSI_CSI_RE = re.compile(r"\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]")
 # Some terminals send the bracket without the escape byte (the ESC was
 # consumed by Textual's keyboard handler before the widget got it).
-# Catch the visible-text leftover too: ``[<35;62;22M`` / ``[<35;62;22m``.
-_BARE_MOUSE_RE = re.compile(r"\[<\d+;\d+;\d+[Mm]")
+# Catch every common leftover shape:
+#   ``[<35;62;22M``  — SGR mouse press/release (full)
+#   ``<35;62;22M``   — SGR mouse with the ``[`` also eaten
+#   ``[A`` ``[B`` …  — bare cursor / function keys (mess up the input cursor)
+#   ``[2~``          — bare special key codes
+_BARE_CSI_RE = re.compile(r"(?:\[<?\d*(?:;\d+)*[a-zA-Z~]|<\d+;\d+;\d+[Mm])")
+# Stand-alone control characters that shouldn't appear in a chat input.
+_CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 def _strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences and bare mouse-code leftovers."""
-    return _BARE_MOUSE_RE.sub("", _ANSI_CSI_RE.sub("", text))
+    """Remove ANSI escape sequences, bare CSI leftovers, and stray
+    control characters that can leak into the Input widget when the
+    terminal handles mouse/keys outside Textual."""
+    text = _ANSI_CSI_RE.sub("", text)
+    text = _BARE_CSI_RE.sub("", text)
+    text = _CTRL_CHARS_RE.sub("", text)
+    return text
 
 
 from textual import events, work
@@ -553,6 +564,25 @@ class EloPhantoDashboard(App):
         )
         # Focus input immediately
         self.query_one("#input", Input).focus()
+        # Disable terminal mouse tracking — we don't react to mouse here
+        # and Textual's default tracking dumps SGR codes into the Input
+        # whenever the cursor passes over the window or a trackpad
+        # twitch fires while focus is elsewhere. Send the disable
+        # sequences directly to the terminal; Textual's renderer leaves
+        # them alone.
+        try:
+            import sys as _sys
+
+            _sys.stdout.write(
+                "\x1b[?1000l"  # X10 mouse tracking off
+                "\x1b[?1002l"  # button-event tracking off
+                "\x1b[?1003l"  # any-event tracking off
+                "\x1b[?1006l"  # SGR extended mode off
+                "\x1b[?1015l"  # urxvt extended mode off
+            )
+            _sys.stdout.flush()
+        except Exception:
+            pass
 
     @work(exclusive=True)
     async def _connect_gateway(self, url: str) -> None:
