@@ -119,7 +119,13 @@ def build_ffmpeg_cmd(
     process. All reliability knobs (bitrate cap, handshake timeout,
     720p downscale) live here in one place.
     """
-    cmd: list[str] = [ffmpeg_path, "-y", "-re"]
+    # Quiet logging — ffmpeg's per-frame progress meter (-stats) and
+    # default INFO logs add up to MB of noise per hour. Anything tools
+    # need to read (status checks, error tail) survives at "warning";
+    # the supervisor still gets exit code on failure. Without this the
+    # log file grew to 5+ MB / hour and a single tool capture could
+    # bloat conversation context past every provider's limit.
+    cmd: list[str] = [ffmpeg_path, "-loglevel", "warning", "-nostats", "-y", "-re"]
     if loop:
         # -stream_loop -1 = infinite; otherwise N means "play (N+1) times"
         n = -1 if max_iterations <= 0 else max(0, max_iterations - 1)
