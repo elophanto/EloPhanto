@@ -44,6 +44,63 @@ client = ClobClient(
 )
 ```
 
+### 3a. Auto-detect which signature_type holds the collateral
+
+The same `polymarket_private_key` can have funds across **multiple
+proxy types** (EOA, POLY_PROXY, GNOSIS_SAFE). Polymarket's web UI
+shows whichever wallet you're toggled to; users routinely deposit
+into one (e.g. POLY_PROXY) while their vault config points at
+another (e.g. GNOSIS_SAFE). Result: SDK reports `$0 USDC` and the
+order fails with "insufficient balance" or `order_version_mismatch`
+for reasons that look like coding errors.
+
+**Always probe all three before placing the first order of a
+session** and use whichever one is funded:
+
+```python
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+
+best_sig_type = None
+best_balance_usdc = 0.0
+for sig_type in (0, 1, 2):
+    try:
+        c = ClobClient(
+            "https://clob.polymarket.com",
+            key=pk, chain_id=137,
+            signature_type=sig_type,
+            funder=funder,
+        )
+        c.set_api_creds(c.create_or_derive_api_creds())
+        bal = c.get_balance_allowance(
+            BalanceAllowanceParams(
+                asset_type=AssetType.COLLATERAL, signature_type=sig_type
+            )
+        )
+        usdc = int(bal.get("balance", 0)) / 1_000_000
+        print(f"sig_type={sig_type}: ${usdc:.2f} USDC")
+        if usdc > best_balance_usdc:
+            best_balance_usdc, best_sig_type = usdc, sig_type
+    except Exception as e:
+        print(f"sig_type={sig_type}: probe failed ({e!r})")
+
+if best_sig_type is None or best_balance_usdc == 0:
+    raise SystemExit("No funded Polymarket wallet found for this key.")
+
+# Use the funded sig_type for the rest of the session.
+client = ClobClient(
+    "https://clob.polymarket.com",
+    key=pk, chain_id=137,
+    signature_type=best_sig_type,
+    funder=funder,
+)
+client.set_api_creds(client.create_or_derive_api_creds())
+```
+
+If the detected `best_sig_type` differs from the vault setting,
+**update the vault** so future sessions don't re-probe:
+`vault_set polymarket_signature_type <N>`.
+
 ### 4. Place orders ONLY via the API. Never via the browser.
 
 **Hard rule:** all Polymarket order placement must go through
