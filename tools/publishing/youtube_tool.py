@@ -231,18 +231,26 @@ class YouTubeUploadTool(BaseTool):
                 {"text": visibility_labels.get(visibility, "Unlisted")},
             )
 
-            # Step 9: Click Publish/Save
+            # Step 9: Click Publish/Save. The Publish button stays
+            # disabled until YouTube finishes the upload + initial
+            # processing pass. Clicking too early is a silent no-op
+            # because browser_click_text dispatches the click on a
+            # non-interactive button. A long wait here is the cheap fix;
+            # a more robust version would poll for the button's
+            # `disabled` attribute to flip to false.
             await self._browser_manager.call_tool(
-                "browser_wait", {"milliseconds": 2000}
+                "browser_wait", {"milliseconds": 60000}
             )
             button_text = "Publish" if visibility != "private" else "Save"
             await self._browser_manager.call_tool(
                 "browser_click_text", {"text": button_text}
             )
 
-            # Step 10: Wait for publish confirmation and extract URL
+            # Step 10: Wait for publish confirmation and extract URL.
+            # The confirmation dialog needs a few extra seconds for the
+            # video page URL to populate.
             await self._browser_manager.call_tool(
-                "browser_wait", {"milliseconds": 5000}
+                "browser_wait", {"milliseconds": 8000}
             )
 
             # Try to extract the video URL from the confirmation dialog

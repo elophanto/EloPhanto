@@ -144,14 +144,46 @@ re-handshake — the same WHIP/RTMP session stays open.
 `stop` SIGTERMs the ffmpeg subprocess; ffmpeg cleanly disconnects
 from LiveKit, which returns the stream to "ended" on pump.fun.
 
+## Live chat (`pump_chat`)
+
+Pump.fun's livestream chat panel runs on a separate Socket.IO server
+at `wss://livechat.pump.fun` (path `/socket.io/`). Auth uses the same
+JWT cookie issued by `/auth/login` — passed in both `Cookie:
+auth_token=…` and the Socket.IO `auth` payload as `token`.
+
+```json
+{"action": "say", "text": "gm — agent live, supply locked"}
+// → posts under the agent's wallet. Returns {posted, id, mint, wallet, text}
+
+{"action": "say", "text": "yes, AI-only — receipts: <link>", "reply_to_id": "<msg-uuid>"}
+// → threaded reply
+
+{"action": "history", "limit": 50}
+// → returns id, username, userAddress, message, timestamp, isCreator
+```
+
+Pairs with `pump_livestream` (same vault, same wallet). Use the
+agent's heartbeat/scheduled-task system to drip messages — don't loop
+in tight intervals; pump.fun rate-limits per wallet.
+
+Implementation in [tools/pumpfun/chat_client.py](../tools/pumpfun/chat_client.py)
+(thin async Socket.IO wrapper with `LivechatClient` async-context
+manager) and [tools/pumpfun/chat_tool.py](../tools/pumpfun/chat_tool.py)
+(native tool). Discovered events from the frontend JS bundle:
+`joinRoom`, `leaveRoom`, `sendMessage`, `getMessageHistory`,
+`pinMessage`, `unpinMessage`, `addReaction`, `removeReaction`,
+`viewerHeartbeat`. The tool exposes `say` and `history`; the rest are
+available on `LivechatClient` for direct callers.
+
 ## What's intentionally NOT included
 
 - **Audio mixing.** The publisher uses whatever audio is in the source
   file. No background music overlay, no TTS narration. Use a
   pre-mixed video if you need that.
-- **Chat ingest / replies.** Pump.fun's chat is a separate WebSocket
-  surface — not currently wired up. The auth flow here would be
-  reusable when it is.
+- **Chat listen-loop / auto-respond.** `pump_chat` opens a fresh
+  Socket.IO connection per call. For continuous "answer viewer
+  questions" behaviour, schedule `history` checks via heartbeat and
+  let the agent decide what to reply to.
 - **Auto-restart on disconnect.** If ffmpeg dies (network blip,
   LiveKit kicks us), `status` reports `exited`. No supervisor loop.
 - **Multi-stream concurrency.** Per-mint state file means two

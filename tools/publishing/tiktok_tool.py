@@ -153,9 +153,13 @@ class TikTokUploadTool(BaseTool):
                 )
                 await self._browser_manager.agent.uploadFileChooser([file_path])
 
-            # Step 3: Wait for video to process
+            # Step 3: Wait for TikTok to upload + transcode the video.
+            # 8 s was too short for anything beyond a tiny clip — TikTok
+            # rejects the post or strips the media when Post is clicked
+            # before processing finishes. 60 s covers most short-form
+            # clips on a normal connection.
             await self._browser_manager.call_tool(
-                "browser_wait", {"milliseconds": 8000}
+                "browser_wait", {"milliseconds": 60000}
             )
 
             # Step 4: Fill in caption

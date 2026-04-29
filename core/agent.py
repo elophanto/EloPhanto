@@ -1524,6 +1524,12 @@ class Agent:
             if self._config.workspace:
                 pump_livestream._workspace = self._config.workspace
 
+        # pump_chat — same vault auth as pump_livestream; talks to
+        # pump.fun's livechat Socket.IO server. No browser, no workspace.
+        pump_chat = self._registry.get("pump_chat")
+        if pump_chat and self._vault:
+            pump_chat._vault = self._vault
+
         # Affiliate tools
         scrape_tool = self._registry.get("affiliate_scrape")
         if scrape_tool:

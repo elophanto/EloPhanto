@@ -52,7 +52,7 @@ llm:
       # ChatGPT Plus/Pro subscription auth — uses ~/.codex/auth.json (not an API key).
       # Run `npm i -g @openai/codex && codex login` once. Auto-enables when the
       # auth file is found with auth_mode: chatgpt. See CODEX_INTEGRATION.md.
-      enabled: false
+      enabled: true
       base_url: "https://chatgpt.com/backend-api/codex"
       default_model: "gpt-5.5"
 

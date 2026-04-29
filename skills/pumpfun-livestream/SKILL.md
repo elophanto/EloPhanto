@@ -237,23 +237,32 @@ python skills/pumpfun-livestream/scripts/pump_livestream.py token <mint>
   in theory two different mints can stream concurrently. Same mint
   twice = the second `start` returns `{status: "already_running"}`.
 
-## Adding chat (next step)
+## Live chat — `pump_chat`
 
-Pump.fun's chat almost certainly rides on the same LiveKit room as a
-"data channel" or text track (LiveKit supports both video, audio, and
-arbitrary data messages). Two implementation paths:
+The chat panel that runs alongside the video uses Pump.fun's
+**livechat Socket.IO server** at `wss://livechat.pump.fun` (path
+`/socket.io/`). Authentication: the same JWT cookie minted by
+`/auth/login`, passed in both the Cookie header and the Socket.IO
+`auth` payload.
 
-1. **LiveKit data channel.** When connected as host via `lk`, send chat
-   as a LiveKit data message. Requires a small Python client using
-   `livekit-server-sdk-python` (or the LiveKit Realtime SDK), since
-   `lk` doesn't expose a "send chat" CLI flag.
-2. **Pump.fun chat REST/WS endpoint.** Inspect pump.fun's frontend to
-   see if there's a `/livestreams/<mint>/chat` POST endpoint or a
-   websocket. If so, post chat over that with the JWT we already have.
+The agent calls a single tool from chat:
 
-Either way, the auth (`pump_auth.py`) is reusable. Add a
-`chat <mint> <message>` subcommand to `pump_livestream.py` once the
-endpoint is confirmed.
+```json
+{"action": "say", "text": "gm — agent live, supply locked, no presale"}
+// → posts to the agent's coin chat. Returns {posted: true, id: "<msg-uuid>"}
+
+{"action": "say", "text": "yep — local agent streaming itself", "reply_to_id": "<msg-uuid>"}
+// → threaded reply to a viewer's question
+
+{"action": "history", "limit": 50}
+// → returns recent messages (id, username, text, timestamp) so the
+//   agent can react to viewer questions
+```
+
+Same vault, same wallet, same coin mint as `pump_livestream` — no
+extra setup. Use heartbeat or scheduled tasks to drip "proof"
+messages periodically; don't loop in tight intervals. Marked
+`DESTRUCTIVE` since posts are public under the agent's coin name.
 
 ## Common errors
 
