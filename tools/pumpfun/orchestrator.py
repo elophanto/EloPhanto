@@ -24,6 +24,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,18 @@ REFRESH_LEEWAY_SECONDS = 3600
 # Default LiveKit cluster pump.fun streams attach to.
 # Override via LIVEKIT_URL env or explicit param to `start_stream`.
 DEFAULT_LIVEKIT_URL = "wss://pump-prod-tg2x9b6r.livekit.cloud"
+
+# ── Encoder reliability knobs ────────────────────────────────────────────
+# These exist because pump.fun's WHIP/RTMP ingress on LiveKit Cloud is
+# fragile: default ffmpeg settings produce too much bitrate (back-pressure
+# → "No buffer space available") and the default 5s DTLS handshake timeout
+# fires too aggressively on slow networks.
+DEFAULT_VIDEO_BITRATE = "1500k"
+DEFAULT_VIDEO_MAXRATE = "2000k"
+DEFAULT_VIDEO_BUFSIZE = "4000k"
+DEFAULT_TARGET_HEIGHT = 720  # downscale anything bigger; 720p has been
+# the only resolution that streams reliably end-to-end here
+DTLS_HANDSHAKE_TIMEOUT_MS = 20000  # WHIP only — default 5000 is too short
 
 # State directory for tracking detached publisher processes
 _STATE_DIR = Path.home() / ".elophanto" / "livestream-state"
@@ -86,6 +99,96 @@ def _require_binary(name: str, install_hint: str) -> str:
     if not path:
         raise LivestreamError(f"'{name}' not found on PATH. {install_hint}")
     return path
+
+
+def build_ffmpeg_cmd(
+    ffmpeg_path: str,
+    video_path: str,
+    *,
+    fps: float,
+    loop: bool,
+    max_iterations: int,
+    protocol: str,  # "whip" | "rtmp"
+    ingest_url: str,
+    stream_key: str,
+) -> list[str]:
+    """Build the ffmpeg command for publishing to pump.fun's ingress.
+
+    Module-level so the supervisor can rebuild the command after each
+    credential refresh without dragging the orchestrator into its
+    process. All reliability knobs (bitrate cap, handshake timeout,
+    720p downscale) live here in one place.
+    """
+    cmd: list[str] = [ffmpeg_path, "-y", "-re"]
+    if loop:
+        # -stream_loop -1 = infinite; otherwise N means "play (N+1) times"
+        n = -1 if max_iterations <= 0 else max(0, max_iterations - 1)
+        cmd += ["-stream_loop", str(n)]
+    cmd += [
+        "-i",
+        video_path,
+        # Downscale to 720p max so we never exceed what WHIP/RTMP can
+        # absorb. 1080p sources cause "No buffer space available" within
+        # seconds. -2 = preserve aspect, ensure even width.
+        "-vf",
+        f"scale=-2:'min(ih,{DEFAULT_TARGET_HEIGHT})'",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-tune",
+        "zerolatency",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(fps),
+        "-g",
+        str(int(fps * 2)),  # 2-second keyframe interval
+        # Hard bitrate cap — without these libx264 happily produces
+        # 5–10 Mbps for 720p which back-pressures the WHIP/RTMP socket.
+        "-b:v",
+        DEFAULT_VIDEO_BITRATE,
+        "-maxrate",
+        DEFAULT_VIDEO_MAXRATE,
+        "-bufsize",
+        DEFAULT_VIDEO_BUFSIZE,
+        "-profile:v",
+        "main",
+    ]
+    if protocol == "whip":
+        cmd += [
+            # WHIP requires Opus audio; auth via Bearer header.
+            "-c:a",
+            "libopus",
+            "-b:a",
+            "128k",
+            "-ar",
+            "48000",
+            "-authorization",
+            stream_key,
+            # Bump DTLS handshake timeout — default 5s fires too aggressively
+            # on slow paths and the muxer aborts before any frames flow.
+            "-handshake_timeout",
+            str(DTLS_HANDSHAKE_TIMEOUT_MS),
+            "-f",
+            "whip",
+            ingest_url.rstrip("/"),
+        ]
+    elif protocol == "rtmp":
+        cmd += [
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "44100",
+            "-f",
+            "flv",
+            f"{ingest_url.rstrip('/')}/{stream_key}",
+        ]
+    else:
+        raise LivestreamError(f"Unknown protocol: {protocol!r}")
+    return cmd
 
 
 class LivestreamOrchestrator:
@@ -503,98 +606,85 @@ class LivestreamOrchestrator:
         if not skip_create:
             self.create_livestream(mint, mode="view-only")
 
-        # 2. Get ingest credentials. Pump.fun gates RTMP behind manual
-        #    approval ("contact support"), but WHIP works for everyone —
-        #    so try RTMP first and fall back to WHIP if pump.fun returns
-        #    the support placeholder.
-        creds = self.get_ingress_credentials(mint, self.INGRESS_RTMP)
+        # 2. Get ingest credentials. **WHIP is preferred** — empirically
+        #    it streams reliably for hours. LiveKit Cloud's RTMP gateway
+        #    on this pump.fun cluster keeps dropping connections with
+        #    `Broken pipe` within seconds of connect (tested on multiple
+        #    keys, multiple sessions). RTMP is only used as a fallback
+        #    when WHIP returns the "contact support" placeholder.
+        creds = self.get_ingress_credentials(mint, self.INGRESS_WHIP)
         ingest_url = str(creds.get("url") or "")
         stream_key = str(creds.get("streamKey") or "")
-        protocol = "rtmp"
+        protocol = "whip"
         if not ingest_url or "error" in ingest_url.lower() or not stream_key:
             logger.info(
-                "[livestream] RTMP unavailable (%r); falling back to WHIP",
+                "[livestream] WHIP unavailable (%r); falling back to RTMP",
                 ingest_url,
             )
-            creds = self.get_ingress_credentials(mint, self.INGRESS_WHIP)
+            creds = self.get_ingress_credentials(mint, self.INGRESS_RTMP)
             ingest_url = str(creds.get("url") or "")
             stream_key = str(creds.get("streamKey") or "")
-            protocol = "whip"
+            protocol = "rtmp"
         if not ingest_url or "error" in ingest_url.lower() or not stream_key:
             raise LivestreamError(
                 f"create-credentials returned no usable creds: {creds}"
             )
 
-        # 3. Build the ffmpeg command. The stream is loop-aware in ffmpeg
-        #    itself (-stream_loop). One subprocess; no supervisor.
+        # 3. Spawn the ffmpeg supervisor. It owns the whole publish
+        #    lifecycle: re-fetches credentials on each retry (so a
+        #    rotated stream key doesn't kill the stream), restarts
+        #    ffmpeg with exponential backoff, exits cleanly on
+        #    stop-marker. We discard the initial creds we just fetched
+        #    in step 2 — they only confirmed the path works; the
+        #    supervisor will mint fresh ones on its first iteration.
+        _ = ingest_url, stream_key, protocol  # consumed by supervisor below
+
         log_file = _state_dir() / f"{mint[:16]}.log"
         stop_marker = _state_dir() / f"{mint[:16]}.stop"
+        config_file = _state_dir() / f"{mint[:16]}.config.json"
         if stop_marker.exists():
             try:
                 stop_marker.unlink()
             except OSError:
                 pass
 
-        cmd: list[str] = [ffmpeg, "-y", "-re"]
-        if loop:
-            # -stream_loop -1 = infinite; otherwise N means "play (N+1) times"
-            n = -1 if max_iterations <= 0 else max(0, max_iterations - 1)
-            cmd += ["-stream_loop", str(n)]
-        video_opts = [
-            "-i",
-            str(video_path),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-            "-r",
-            str(fps),
-            "-g",
-            str(int(fps * 2)),  # 2-second keyframe interval
-        ]
-        if protocol == "whip":
-            # WHIP requires Opus audio; auth via Bearer header.
-            cmd += [
-                *video_opts,
-                "-c:a",
-                "libopus",
-                "-b:a",
-                "128k",
-                "-ar",
-                "48000",
-                "-authorization",
-                stream_key,
-                "-f",
-                "whip",
-                ingest_url.rstrip("/"),
-            ]
-        else:
-            cmd += [
-                *video_opts,
-                "-c:a",
-                "aac",
-                "-b:a",
-                "128k",
-                "-ar",
-                "44100",
-                "-f",
-                "flv",
-                f"{ingest_url.rstrip('/')}/{stream_key}",
-            ]
+        # Persist everything the supervisor needs. The pump.fun JWT
+        # goes in too so the supervisor doesn't need vault access — it
+        # just calls /create-credentials directly. JWT lives ~24h; on
+        # 401 the supervisor exits and the agent can react.
+        supervisor_config = {
+            "mint": mint,
+            "video_path": str(video_path),
+            "fps": fps,
+            "loop": loop,
+            "max_iterations": max_iterations,
+            "ffmpeg_path": ffmpeg,
+            "jwt": self.get_token(),
+            "prefer_protocol": protocol,  # "whip" if available, else "rtmp"
+        }
+        config_file.write_text(json.dumps(supervisor_config), encoding="utf-8")
 
-        redacted = " ".join("<key>" if c == stream_key else c for c in cmd)
-        logger.info("[livestream] starting ffmpeg (%s): %s", protocol, redacted)
+        # Spawn the supervisor as a detached subprocess. It lives in
+        # its own session so SIGTERM-ing the agent doesn't reap it,
+        # and survives agent restarts.
         log_fh = open(log_file, "ab")
+        supervisor_cmd = [
+            sys.executable,
+            "-m",
+            "tools.pumpfun._ffmpeg_supervisor",
+            "--config",
+            str(config_file),
+            "--stop-marker",
+            str(stop_marker),
+        ]
+        logger.info("[livestream] spawning supervisor: %s", " ".join(supervisor_cmd))
         proc = subprocess.Popen(  # noqa: S603 — controlled command
-            cmd,
+            supervisor_cmd,
             stdout=log_fh,
             stderr=subprocess.STDOUT,
             start_new_session=True,
             close_fds=True,
+            cwd=str(_PROJECT_ROOT),  # supervisor imports tools.pumpfun
         )
 
         state = {
@@ -604,8 +694,10 @@ class LivestreamOrchestrator:
             "ingest_url": ingest_url,
             "started_at": int(time.time()),
             "log_file": str(log_file),
+            "config_file": str(config_file),
             "loop": loop,
-            "stop_marker": str(stop_marker) if loop else "",
+            "stop_marker": str(stop_marker),
+            "supervisor": True,
             # Legacy fields kept so older state-file readers don't crash:
             "h264": "",
             "keep_h264": keep_h264,

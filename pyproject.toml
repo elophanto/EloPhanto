@@ -32,6 +32,7 @@ dependencies = [
     "base58>=2.1.1",
     "prompt-toolkit>=3.0",
     "textual>=0.70",
+    "python-socketio[asyncio-client]>=5.11",
 ]
 
 [project.optional-dependencies]

@@ -119,6 +119,16 @@ class TwitterPostTool(BaseTool):
                 success=False, error=f"Media file not found: {media_path}"
             )
 
+        # Videos take much longer than images for X to process
+        # (transcoding, format check, thumbnail extraction). 4 s is plenty
+        # for an image but lets X drop video silently because the Post
+        # button gets clicked before the upload completes. Detect by
+        # extension and budget accordingly.
+        is_video = media_path.lower().endswith(
+            (".mp4", ".mov", ".m4v", ".webm", ".gif", ".avi")
+        )
+        media_wait_ms = 30000 if is_video else 4000
+
         try:
             # Step 1: Navigate to compose page or reply URL
             target_url = reply_to_url if reply_to_url else _X_COMPOSE_URL
@@ -233,9 +243,10 @@ class TwitterPostTool(BaseTool):
                         "tweet will be posted without media."
                     )
 
-                # Wait for media to upload + thumbnail to render
+                # Wait for media to upload + thumbnail to render. Videos
+                # need ~30 s for X to transcode; images need ~4 s.
                 await self._browser_manager.call_tool(
-                    "browser_wait", {"milliseconds": 4000}
+                    "browser_wait", {"milliseconds": media_wait_ms}
                 )
 
             # Step 5: Click Post button
