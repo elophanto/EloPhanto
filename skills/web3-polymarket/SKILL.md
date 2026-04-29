@@ -44,7 +44,50 @@ client = ClobClient(
 )
 ```
 
-### 4. Safety rails
+### 4. Place orders ONLY via the API. Never via the browser.
+
+**Hard rule:** all Polymarket order placement must go through
+`py-clob-client`. **Never** drive `polymarket.com` via the browser
+tools to place a trade. The web UI uses Privy/embedded-wallet flows
+that aren't compatible with the funder wallet stored in the vault —
+mis-clicks place real orders, and the agent has no way to verify the
+order before it submits. If the SDK fails, **stop and report the
+exact error**; do not switch to the GUI as a fallback.
+
+### 5. Discover tick_size and neg_risk dynamically (don't hardcode)
+
+`create_order` requires both options. Both are per-market and the
+SDK / on-chain values are authoritative — guessing a wrong tick_size
+("0.01" vs "0.001") rejects the order with a confusing error.
+
+```python
+# Fetch directly from the CLOB
+tick_size = client.get_tick_size(token_id)        # "0.001" / "0.01" / "0.1"
+neg_risk  = client.get_neg_risk(token_id)         # bool
+
+signed = client.create_order(
+    OrderArgs(token_id=token_id, price=price, size=size, side=BUY),
+    options={"tick_size": tick_size, "neg_risk": neg_risk},   # ← keyword arg, dict
+)
+resp = client.post_order(signed, OrderType.GTC)
+```
+
+If `get_neg_risk` isn't available in your installed py-clob-client
+version, read `negRisk` from the market metadata via gamma-api:
+
+```python
+import requests
+m = requests.get(
+    "https://gamma-api.polymarket.com/events",
+    params={"slug": EVENT_SLUG}, timeout=20,
+).json()[0]["markets"]
+neg_risk = next(mk for mk in m if mk["clobTokenIds"] and token_id in mk["clobTokenIds"])["negRisk"]
+```
+
+The `options` parameter is **keyword-only in newer SDK versions** —
+passing it positionally raises `TypeError`. Always use `options=`.
+
+### 6. Safety rails
 - **Always confirm with the owner before placing real-money orders.** Treat trade execution as `DESTRUCTIVE` permission level — surface the order params (token, side, price, size, USDC cost) and wait for explicit approval.
 - Read-only operations (orderbook, market data, positions) need no approval.
 - Polymarket trades USDC.e on Polygon. Make sure the funder wallet has USDC.e and a small amount of POL for gas (only if `signature_type=0`; gasless via Gnosis Safe doesn't need POL).
