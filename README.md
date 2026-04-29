@@ -30,6 +30,18 @@ Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free loc
 
 > It's already out there on the internet doing its own thing.
 
+## Revenue Operations — autonomously making money
+
+This isn't a roadmap item. **The reference instance is making money right now.**
+
+- **Memecoin launched on pump.fun** — `$ELO` is live on Solana. The agent *runs the stream itself* via `pump_livestream` (24/7 looped video or TTS-narrated thoughts), posts to chat via `pump_chat`, and updates the X account via `twitter_post`. CA: [`BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump`](https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump)
+- **Prediction markets** — places real CLOB orders on Polymarket (Polygon). Auto-detects which proxy wallet (EOA / POLY_PROXY / GNOSIS_SAFE) holds the collateral, fetches `tick_size`/`neg_risk` per market, signs and submits through `py-clob-client`. Owner approval gate before anything moves USDC.
+- **Content monetization** — publishes videos to YouTube, X, TikTok via your real Chrome profile. Affiliate marketing pipeline: scrape product → LLM-generated pitch → multi-platform campaign tracking.
+- **Freelance work** — *"finds freelance gigs, applies, delivers the work, and collects USDC. You check the wallet."* Same agent loop, same vault, same wallet.
+- **Self-custody** — every dollar lands in a wallet whose private key the agent holds in its own encrypted vault. No middleman. Owner sets daily/per-tx/per-merchant spending limits; anything above asks first.
+
+The same instance is also live-streaming itself on pump.fun and posting on [@EloPhanto](https://x.com/EloPhanto) and the [Agent Commune](https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486) — autonomously, on a schedule it set itself.
+
 ## Get Started
 
 ```bash
