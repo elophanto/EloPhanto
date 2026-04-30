@@ -123,9 +123,20 @@ def _get_credentials(jwt: str, mint: str, prefer: str) -> tuple[str, str, str]:
     raise RuntimeError(f"No usable creds (last: {last_err})")
 
 
-def _run_once(cfg: dict[str, Any], stop_marker: Path) -> tuple[bool, float]:
-    """Spawn ffmpeg once, wait for it to die. Returns (success, elapsed_seconds)."""
-    proto, url, key = _get_credentials(cfg["jwt"], cfg["mint"], cfg["prefer_protocol"])
+def _run_once(
+    cfg: dict[str, Any],
+    stop_marker: Path,
+    *,
+    prefer_protocol: str,
+) -> tuple[bool, float, str, str]:
+    """Spawn ffmpeg once, wait for it to die.
+
+    Returns ``(success, elapsed_seconds, protocol_used, stderr_tail)``.
+    The stderr tail (last ~6 KB) lets the caller decide whether the
+    failure is a network reachability issue (v6 ICE candidate) and
+    flip the next retry's protocol.
+    """
+    proto, url, key = _get_credentials(cfg["jwt"], cfg["mint"], prefer_protocol)
     cmd = build_ffmpeg_cmd(
         cfg["ffmpeg_path"],
         cfg["video_path"],
@@ -135,16 +146,24 @@ def _run_once(cfg: dict[str, Any], stop_marker: Path) -> tuple[bool, float]:
         protocol=proto,
         ingest_url=url,
         stream_key=key,
+        voice_pcm_fifo=str(cfg.get("voice_pcm_fifo") or ""),
+        image_path=str(cfg.get("image_path") or ""),
+        caption_file=str(cfg.get("caption_file") or ""),
     )
     redacted = " ".join("<key>" if c == key else c for c in cmd)
     logger.info("starting ffmpeg (%s): %s", proto, redacted)
 
+    # Capture ffmpeg's combined stdout+stderr into a ring buffer so we
+    # can post-mortem the failure mode (v6 ICE unreachable, auth
+    # rejected, etc.) and let it through to the supervisor's own
+    # stdout (which is the log file) so users still see it live.
     start = time.time()
     proc = subprocess.Popen(  # noqa: S603 — controlled command
         cmd,
-        stdout=sys.stdout,
+        stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         close_fds=True,
+        bufsize=1,
     )
 
     # Forward signals to ffmpeg so a SIGTERM to the supervisor doesn't
@@ -162,11 +181,40 @@ def _run_once(cfg: dict[str, Any], stop_marker: Path) -> tuple[bool, float]:
     signal.signal(signal.SIGTERM, _forward)
     signal.signal(signal.SIGINT, _forward)
 
+    tail_buf: list[bytes] = []
+    tail_max = 6_000  # bytes of trailing output we keep
+    if proc.stdout is not None:
+        for chunk in iter(lambda: proc.stdout.read(4096) if proc.stdout else b"", b""):
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.flush()
+            tail_buf.append(chunk)
+            joined = b"".join(tail_buf)
+            if len(joined) > tail_max:
+                tail_buf = [joined[-tail_max:]]
     rc = proc.wait()
+    stderr_tail = b"".join(tail_buf).decode("utf-8", errors="replace")
     elapsed = time.time() - start
     success = rc == 0
     logger.info("ffmpeg exited rc=%s after %.1fs", rc, elapsed)
-    return success, elapsed
+    return success, elapsed, proto, stderr_tail
+
+
+def _is_v6_unreachable(stderr_tail: str) -> bool:
+    """Heuristic: WHIP picked an IPv6 ICE candidate we can't reach.
+
+    macOS without IPv6 (or behind a v4-only NAT) sees this from
+    LiveKit's TURN server roughly half the time. Symptoms in the log:
+    "connect: No route to host" + "udp://[v6]:port".
+    """
+    if "No route to host" not in stderr_tail:
+        return False
+    # Look for udp://2... or udp://[ — both indicate v6 destinations
+    # (unicast v6 starts with 2/3, link-local with fe80::).
+    return (
+        "udp://2" in stderr_tail
+        or "udp://[" in stderr_tail
+        or "udp://fe" in stderr_tail
+    )
 
 
 def main() -> None:
@@ -186,6 +234,11 @@ def main() -> None:
     backoff_idx = 0
     iteration = 0
     consecutive_failures = 0
+    # Runtime protocol preference — starts at the cfg default, gets
+    # flipped automatically on IPv6 ICE unreachable failures so we
+    # don't loop forever on a path the network can't carry.
+    prefer_protocol = str(cfg.get("prefer_protocol") or "whip")
+    v6_failure_count = 0
 
     while True:
         iteration += 1
@@ -199,8 +252,12 @@ def main() -> None:
                 pass
             sys.exit(EXIT_CLEAN)
 
+        proto_used = prefer_protocol
+        stderr_tail = ""
         try:
-            success, elapsed = _run_once(cfg, stop_marker)
+            success, elapsed, proto_used, stderr_tail = _run_once(
+                cfg, stop_marker, prefer_protocol=prefer_protocol
+            )
         except PermissionError:
             logger.error(
                 "pump.fun JWT expired; supervisor exiting (re-run start to re-auth)"
@@ -209,6 +266,22 @@ def main() -> None:
         except Exception as e:
             logger.exception("supervisor: cred fetch or spawn failed: %s", e)
             success, elapsed = False, 0.0
+
+        # If WHIP died because LiveKit handed us a v6 ICE candidate
+        # we can't reach, flip to RTMP for the next attempt. After
+        # two consecutive v6 failures on WHIP we permanently switch
+        # protocol preference for the rest of this supervisor run.
+        if not success and proto_used == "whip" and _is_v6_unreachable(stderr_tail):
+            v6_failure_count += 1
+            logger.warning(
+                "WHIP failed via IPv6 ICE candidate (count=%d); switching "
+                "next attempt to RTMP",
+                v6_failure_count,
+            )
+            prefer_protocol = "rtmp"
+        elif success and proto_used == "rtmp":
+            # RTMP worked — stay on it.
+            pass
 
         # Stop-marker right after a run? Honour it before backing off.
         if stop_marker.exists():

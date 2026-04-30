@@ -392,12 +392,16 @@ class ToolRegistry:
         self.register(AffiliatePitchTool())
         self.register(AffiliateCampaignTool())
 
-        # Pump.fun — livestream (video publish) + chat (Socket.IO) for the agent's coin
+        # Pump.fun — livestream (video / voice publish) + chat + say (TTS) + caption (overlay)
+        from tools.pumpfun.caption_tool import PumpCaptionTool
         from tools.pumpfun.chat_tool import PumpChatTool
         from tools.pumpfun.livestream_tool import PumpLivestreamTool
+        from tools.pumpfun.voice_tool import PumpSayTool
 
         self.register(PumpLivestreamTool())
         self.register(PumpChatTool())
+        self.register(PumpSayTool())
+        self.register(PumpCaptionTool())
 
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
@@ -515,6 +519,8 @@ class ToolRegistry:
             # Pump.fun
             "pump_livestream",
             "pump_chat",
+            "pump_say",
+            "pump_caption",
         }
 
         for _name, _t in self._tools.items():
