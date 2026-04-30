@@ -138,6 +138,40 @@ class PumpLivestreamTool(BaseTool):
                         "for re-streaming without re-encoding. Default false."
                     ),
                 },
+                "voice": {
+                    "type": "boolean",
+                    "description": (
+                        "Voice mode: stream a static image as the video "
+                        "track and the agent's spoken thoughts as the "
+                        "audio track (TTS via OpenAI). Skips the 'video' "
+                        "param entirely. Use the pump_say tool to queue "
+                        "lines for the agent to speak. Requires "
+                        "openai_api_key in the vault."
+                    ),
+                },
+                "image_path": {
+                    "type": "string",
+                    "description": (
+                        "Optional static image (PNG/JPG) to display "
+                        "while voice mode runs. Bare filename resolves "
+                        "under <workspace>/livestream_videos/. If omitted, "
+                        "a placeholder is auto-generated."
+                    ),
+                },
+                "voice_model": {
+                    "type": "string",
+                    "description": (
+                        "OpenAI TTS model (default 'tts-1'). 'tts-1-hd' "
+                        "is higher quality at higher cost."
+                    ),
+                },
+                "voice_id": {
+                    "type": "string",
+                    "description": (
+                        "OpenAI TTS voice id (default 'onyx'). Options: "
+                        "alloy, echo, fable, onyx, nova, shimmer."
+                    ),
+                },
             },
             "required": ["action"],
         }
@@ -199,12 +233,13 @@ class PumpLivestreamTool(BaseTool):
                 return ToolResult(success=True, data=orch.stop_stream(mint))
 
             if action == "start":
+                voice = bool(params.get("voice", False))
                 video = params.get("video", "") or ""
-                if not video:
+                if not voice and not video:
                     return ToolResult(
                         success=False,
-                        error="'video' (absolute path to local video file) "
-                        "is required for action='start'.",
+                        error="action='start' needs either 'video' (path) "
+                        "or 'voice'=true (TTS-driven static-image stream).",
                     )
                 fps = float(params.get("fps", 30.0))
                 livekit_url = str(params.get("livekit_url", "") or "")
@@ -212,6 +247,9 @@ class PumpLivestreamTool(BaseTool):
                 keep_h264 = bool(params.get("keep_h264", False))
                 loop = bool(params.get("loop", False))
                 max_iterations = int(params.get("max_iterations", 0))
+                image_path = str(params.get("image_path", "") or "")
+                voice_model = str(params.get("voice_model", "") or "tts-1")
+                voice_id = str(params.get("voice_id", "") or "onyx")
                 result = orch.start_stream(
                     mint,
                     video,
@@ -221,6 +259,10 @@ class PumpLivestreamTool(BaseTool):
                     keep_h264=keep_h264,
                     loop=loop,
                     max_iterations=max_iterations,
+                    voice=voice,
+                    image_path=image_path,
+                    voice_model=voice_model,
+                    voice_id=voice_id,
                 )
                 return ToolResult(success=True, data=result)
 

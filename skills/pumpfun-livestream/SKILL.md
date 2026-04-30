@@ -14,10 +14,13 @@ and publishing.
 ## Triggers
 
 - "stream this video to pump.fun"
-- "go live on pump"
-- "pump.fun livestream"
-- "broadcast on pump"
-- "pumpfun stream", "live on pump.fun"
+- "loop voice on the pump.fun livestream"
+- "go live on pump", "broadcast on pump"
+- "pump.fun livestream", "pumpfun stream", "live on pump.fun"
+- "say X on pump.fun stream" → use ``pump_say`` (TTS audio)
+- "write X / display X / show X on pump.fun stream" → use
+  ``pump_caption`` (visible text overlay)
+- "post X in pump.fun chat" → use ``pump_chat`` (chat panel)
 
 ## How it works (architecture)
 
@@ -236,6 +239,25 @@ python skills/pumpfun-livestream/scripts/pump_livestream.py token <mint>
 - **Multi-coin / multi-stream concurrency.** State is keyed by mint, so
   in theory two different mints can stream concurrently. Same mint
   twice = the second `start` returns `{status: "already_running"}`.
+
+## Live captions — `pump_caption`
+
+Set or clear an on-screen text overlay on the voice-mode stream.
+ffmpeg's drawtext filter reloads the file every frame (~33 ms
+latency) so the caption updates as soon as the agent writes it.
+
+```json
+{"action": "set", "text": "$ELO live · supply locked · CA: BwUg…pump"}
+{"action": "set", "text": "answering: yes, the agent runs the chat itself.\nproof: tx 0xabc…"}
+{"action": "clear"}
+{"action": "current"}    // returns whatever's on screen right now
+```
+
+Pair with the scheduler / heartbeat to rotate messages — price
+tick, recent trade, FAQ answer, scrolling proof line. Pairs with
+`pump_say` so viewers with sound off can still read what the agent
+is "saying". Voice mode only — video-mode streams render the file
+contents but it's not on the encode path.
 
 ## Live chat — `pump_chat`
 

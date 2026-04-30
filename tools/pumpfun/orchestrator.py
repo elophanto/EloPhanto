@@ -101,6 +101,138 @@ def _require_binary(name: str, install_hint: str) -> str:
     return path
 
 
+# System fonts for ffmpeg drawtext. macOS first, then Linux.
+# Iterated lazily so a missing path on one OS doesn't break the build
+# on another. drawtext fails the whole filter if the font is missing.
+_FONT_CANDIDATES = (
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/SFNS.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+    "/Library/Fonts/Arial.ttf",
+)
+
+
+def _find_font() -> str:
+    for f in _FONT_CANDIDATES:
+        if Path(f).is_file():
+            return f
+    return ""  # drawtext will be skipped
+
+
+_DRAWTEXT_AVAILABLE: bool | None = None
+
+
+def _drawtext_available() -> bool:
+    """Probe the ffmpeg binary to check if drawtext is compiled in.
+
+    Homebrew's default ffmpeg 8.x build on macOS doesn't ship with
+    libfreetype/libfontconfig, so the drawtext filter is missing.
+    Without this check we'd build cmds that crash with "No such
+    filter: 'drawtext'" on every retry. Cached after first probe.
+    """
+    global _DRAWTEXT_AVAILABLE
+    if _DRAWTEXT_AVAILABLE is not None:
+        return _DRAWTEXT_AVAILABLE
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        _DRAWTEXT_AVAILABLE = False
+        return False
+    try:
+        out = subprocess.run(
+            [ffmpeg, "-hide_banner", "-filters"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        _DRAWTEXT_AVAILABLE = "drawtext" in out.stdout
+    except Exception:
+        _DRAWTEXT_AVAILABLE = False
+    if not _DRAWTEXT_AVAILABLE:
+        logger.warning(
+            "[livestream] ffmpeg has no 'drawtext' filter — caption "
+            "overlay disabled. Install a full ffmpeg build "
+            "(e.g. `brew tap homebrew-ffmpeg/ffmpeg && brew install "
+            "homebrew-ffmpeg/ffmpeg/ffmpeg --with-fontconfig`) to "
+            "enable on-stream text."
+        )
+    return _DRAWTEXT_AVAILABLE
+
+
+def _build_video_filter(caption_file: str) -> str:
+    """Compose the -vf chain for voice-mode ffmpeg.
+
+    Always scales to 720p max. When ``caption_file`` is given AND a
+    system font is available AND ffmpeg has drawtext compiled in,
+    appends an overlay that reads the file every frame (``reload=1``).
+    If any prerequisite is missing we silently skip the overlay so
+    the stream keeps publishing.
+    """
+    chain = [f"scale=-2:'min(ih,{DEFAULT_TARGET_HEIGHT})'"]
+    if caption_file and _drawtext_available():
+        font = _find_font()
+        if font:
+            # Single quotes need escaping for ffmpeg filter syntax.
+            font_esc = font.replace("'", r"\'")
+            cap_esc = caption_file.replace("'", r"\'")
+            chain.append(
+                f"drawtext=fontfile='{font_esc}':textfile='{cap_esc}':"
+                "reload=1:fontsize=36:fontcolor=white:"
+                "box=1:boxcolor=black@0.55:boxborderw=18:"
+                "x=(w-text_w)/2:y=h-text_h-50"
+            )
+    return ",".join(chain)
+
+
+def _generate_idle_png(path: Path, mint: str) -> None:
+    """Write a tiny 'agent idle' placeholder PNG at ``path``.
+
+    Used as the video track when voice mode is on and the caller
+    didn't supply an image. ffmpeg loops this still frame at low fps
+    so almost no bandwidth goes to video and everything goes to the
+    voice audio. We generate it via ffmpeg's lavfi color source so
+    we don't need Pillow as a dep.
+    """
+    color_hex = "#16a34a"  # match the agent UI accent
+    label = f"EloPhanto · {mint[:6]}…{mint[-4:]}"
+    ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=c={color_hex}:s=720x720:d=1",
+        "-vf",
+        f"drawtext=text='{label}':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2",
+        "-frames:v",
+        "1",
+        str(path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except Exception:
+        # Fallback: solid colour without text. Rare — only if the
+        # libfreetype dep on the ffmpeg build is missing.
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={color_hex}:s=720x720:d=1",
+            "-frames:v",
+            "1",
+            str(path),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+
+
 def build_ffmpeg_cmd(
     ffmpeg_path: str,
     video_path: str,
@@ -111,8 +243,21 @@ def build_ffmpeg_cmd(
     protocol: str,  # "whip" | "rtmp"
     ingest_url: str,
     stream_key: str,
+    voice_pcm_fifo: str = "",
+    image_path: str = "",
+    caption_file: str = "",
 ) -> list[str]:
     """Build the ffmpeg command for publishing to pump.fun's ingress.
+
+    Two modes:
+
+      - **video** (default): ``video_path`` is an mp4/mov; its audio
+        track is what viewers hear.
+      - **voice** (``voice_pcm_fifo`` set): ``image_path`` is a static
+        PNG/JPG looped as the video; ``voice_pcm_fifo`` is a named
+        FIFO from which the voice engine writes 48 kHz mono s16le PCM
+        in real time. ffmpeg encodes that to Opus (WHIP) or AAC
+        (RTMP) on the way out. ``video_path`` is ignored in this mode.
 
     Module-level so the supervisor can rebuild the command after each
     credential refresh without dragging the orchestrator into its
@@ -125,42 +270,122 @@ def build_ffmpeg_cmd(
     # the supervisor still gets exit code on failure. Without this the
     # log file grew to 5+ MB / hour and a single tool capture could
     # bloat conversation context past every provider's limit.
-    cmd: list[str] = [ffmpeg_path, "-loglevel", "warning", "-nostats", "-y", "-re"]
-    if loop:
-        # -stream_loop -1 = infinite; otherwise N means "play (N+1) times"
-        n = -1 if max_iterations <= 0 else max(0, max_iterations - 1)
-        cmd += ["-stream_loop", str(n)]
-    cmd += [
-        "-i",
-        video_path,
-        # Downscale to 720p max so we never exceed what WHIP/RTMP can
-        # absorb. 1080p sources cause "No buffer space available" within
-        # seconds. -2 = preserve aspect, ensure even width.
-        "-vf",
-        f"scale=-2:'min(ih,{DEFAULT_TARGET_HEIGHT})'",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-tune",
-        "zerolatency",
-        "-pix_fmt",
-        "yuv420p",
-        "-r",
-        str(fps),
-        "-g",
-        str(int(fps * 2)),  # 2-second keyframe interval
-        # Hard bitrate cap — without these libx264 happily produces
-        # 5–10 Mbps for 720p which back-pressures the WHIP/RTMP socket.
-        "-b:v",
-        DEFAULT_VIDEO_BITRATE,
-        "-maxrate",
-        DEFAULT_VIDEO_MAXRATE,
-        "-bufsize",
-        DEFAULT_VIDEO_BUFSIZE,
-        "-profile:v",
-        "main",
-    ]
+    cmd: list[str] = [ffmpeg_path, "-loglevel", "warning", "-nostats", "-y"]
+
+    voice_mode = bool(voice_pcm_fifo)
+
+    if voice_mode:
+        # Static image looped at low fps (still image — 5 fps is
+        # plenty; libx264 + -tune stillimage compresses repeats to
+        # near-zero bitrate). PCM audio fed from the named FIFO.
+        # Big thread_queue_size on both inputs because the FIFO can
+        # be momentarily empty (TTS render gap) and the image input
+        # is real-time-ish — small queues hit "Not yet implemented"
+        # paths inside the WHIP muxer's audio filter chain.
+        # Match the proven video-mode encoder settings exactly. Earlier
+        # attempts used `-tune stillimage -r 5 -g 10` to save bitrate,
+        # but the WHIP muxer rejects those codec parameters with
+        # "Could not write header (incorrect codec parameters ?)" —
+        # whatever WHIP wants for 30 fps + zerolatency + main profile
+        # works, anything cleverer doesn't. libx264 still compresses
+        # static-image P-frames to near-zero, so 30 fps is fine.
+        cmd += [
+            # -re on each input: read at native rate. Without this,
+            # `-loop 1` floods the encoder with image frames faster
+            # than the audio can keep up; the WHIP muxer rejects the
+            # resulting unsynced streams with "Could not write header
+            # (incorrect codec parameters ?)".
+            "-re",
+            "-thread_queue_size",
+            "4096",
+            "-loop",
+            "1",
+            "-framerate",
+            "30",
+            "-i",
+            image_path or "",
+            "-re",
+            "-thread_queue_size",
+            "4096",
+            "-f",
+            "s16le",
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            "-i",
+            voice_pcm_fifo,
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-vf",
+            _build_video_filter(caption_file),
+            # async=1 keeps the timeline monotonic when the FIFO has
+            # gaps between TTS utterances. ``aformat`` forces stereo
+            # output — pump.fun's WHIP muxer rejects mono with
+            # "Unsupported audio channels 1 by RTC, choose stereo".
+            "-af",
+            "aresample=async=1:first_pts=0,aformat=channel_layouts=stereo",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            "30",
+            "-g",
+            "60",
+            "-b:v",
+            "500k",
+            "-maxrate",
+            "800k",
+            "-bufsize",
+            "1600k",
+            "-profile:v",
+            "main",
+        ]
+    else:
+        cmd += ["-re"]
+        if loop:
+            # -stream_loop -1 = infinite; otherwise N means "play (N+1) times"
+            n = -1 if max_iterations <= 0 else max(0, max_iterations - 1)
+            cmd += ["-stream_loop", str(n)]
+        cmd += [
+            "-i",
+            video_path,
+            # Downscale to 720p max so we never exceed what WHIP/RTMP
+            # can absorb. 1080p sources cause "No buffer space
+            # available" within seconds. -2 = preserve aspect.
+            "-vf",
+            f"scale=-2:'min(ih,{DEFAULT_TARGET_HEIGHT})'",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(fps),
+            "-g",
+            str(int(fps * 2)),  # 2-second keyframe interval
+            # Hard bitrate cap — without these libx264 happily
+            # produces 5–10 Mbps for 720p which back-pressures the
+            # WHIP/RTMP socket.
+            "-b:v",
+            DEFAULT_VIDEO_BITRATE,
+            "-maxrate",
+            DEFAULT_VIDEO_MAXRATE,
+            "-bufsize",
+            DEFAULT_VIDEO_BUFSIZE,
+            "-profile:v",
+            "main",
+        ]
     if protocol == "whip":
         cmd += [
             # WHIP requires Opus audio; auth via Bearer header.
@@ -570,6 +795,10 @@ class LivestreamOrchestrator:
         keep_h264: bool = False,
         loop: bool = False,
         max_iterations: int = 0,
+        voice: bool = False,
+        image_path: str = "",
+        voice_model: str = "tts-1",
+        voice_id: str = "onyx",
     ) -> dict[str, Any]:
         """End-to-end: create → token → transcode → publish.
 
@@ -597,15 +826,38 @@ class LivestreamOrchestrator:
                 "started_at": existing.get("started_at"),
             }
 
-        video_path = self._resolve_video_path(video)
-        if not video_path.is_file():
-            raise LivestreamError(
-                f"Video file not found: {video_path}. "
-                f"Drop your video in {self._workspace_dir}/livestream_videos/ "
-                "and pass just the filename, or use an absolute path."
-                if self._workspace_dir
-                else f"Video file not found: {video_path}"
-            )
+        # Resolve video XOR image (voice mode) input.
+        if voice:
+            # Voice mode: needs a static image, not a video file. Falls
+            # back to a generated 720x720 colour fill if no image given.
+            if image_path:
+                image_resolved = self._resolve_video_path(image_path)
+                if not image_resolved.is_file():
+                    raise LivestreamError(f"Image not found: {image_resolved}")
+            else:
+                # Place the auto-generated placeholder where the user's
+                # videos live (next to whatever they'd swap it for) so
+                # it's discoverable and easy to replace. Falls back to
+                # the state dir only when no workspace is configured.
+                if self._workspace_dir is not None:
+                    target_dir = self._workspace_dir / "livestream_videos"
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    image_resolved = target_dir / "idle.png"
+                else:
+                    image_resolved = _state_dir() / f"{mint[:16]}.idle.png"
+                if not image_resolved.exists():
+                    _generate_idle_png(image_resolved, mint)
+            video_path = image_resolved  # placeholder; not actually used as video
+        else:
+            video_path = self._resolve_video_path(video)
+            if not video_path.is_file():
+                raise LivestreamError(
+                    f"Video file not found: {video_path}. "
+                    f"Drop your video in {self._workspace_dir}/livestream_videos/ "
+                    "and pass just the filename, or use an absolute path."
+                    if self._workspace_dir
+                    else f"Video file not found: {video_path}"
+                )
 
         # 1. Make sure the livestream record exists. Use view-only mode —
         #    that's the one paired with RTMP/WHIP ingest credentials.
@@ -654,6 +906,42 @@ class LivestreamOrchestrator:
             except OSError:
                 pass
 
+        # Voice mode: prepare the FIFO + queue file BEFORE spawning
+        # ffmpeg, then spawn the voice engine which will block on the
+        # FIFO write side until ffmpeg starts reading.
+        voice_fifo = ""
+        voice_queue = ""
+        voice_cursor = ""
+        caption_file_path = ""
+        voice_pid = 0
+        if voice:
+            openai_key = (self._vault.get("openai_api_key") or "").strip()
+            if not openai_key:
+                # Try config-shaped vault key as a fallback.
+                openai_key = (self._vault.get("openai_key") or "").strip()
+            if not openai_key:
+                raise LivestreamError(
+                    "voice mode needs an OpenAI API key — vault_set "
+                    "openai_api_key <sk-...>"
+                )
+            voice_fifo = str(_state_dir() / f"{mint[:16]}.voice.pcm")
+            voice_queue = str(_state_dir() / f"{mint[:16]}.voice_queue.jsonl")
+            voice_cursor = str(_state_dir() / f"{mint[:16]}.voice_cursor")
+            caption_file_path = str(_state_dir() / f"{mint[:16]}.caption.txt")
+            # Replace any stale FIFO / queue.
+            for p in (voice_fifo, voice_cursor):
+                try:
+                    Path(p).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            os.mkfifo(voice_fifo)
+            # Make sure queue + caption files exist so the engine and
+            # ffmpeg drawtext (reload=1) can stat / read them. Empty
+            # caption renders nothing — drawtext silently skips empty
+            # textfiles.
+            Path(voice_queue).touch()
+            Path(caption_file_path).touch()
+
         # Persist everything the supervisor needs. The pump.fun JWT
         # goes in too so the supervisor doesn't need vault access — it
         # just calls /create-credentials directly. JWT lives ~24h; on
@@ -667,6 +955,9 @@ class LivestreamOrchestrator:
             "ffmpeg_path": ffmpeg,
             "jwt": self.get_token(),
             "prefer_protocol": protocol,  # "whip" if available, else "rtmp"
+            "voice_pcm_fifo": voice_fifo,
+            "image_path": str(video_path) if voice else "",
+            "caption_file": caption_file_path,
         }
         config_file.write_text(json.dumps(supervisor_config), encoding="utf-8")
 
@@ -693,9 +984,50 @@ class LivestreamOrchestrator:
             cwd=str(_PROJECT_ROOT),  # supervisor imports tools.pumpfun
         )
 
+        # Voice engine spawn — independent of the supervisor so a
+        # ffmpeg restart doesn't reset the queue.
+        if voice:
+            voice_log = _state_dir() / f"{mint[:16]}.voice.log"
+            voice_log_fh = open(voice_log, "ab")
+            voice_cmd = [
+                sys.executable,
+                "-m",
+                "tools.pumpfun._voice_engine",
+                "--queue-file",
+                voice_queue,
+                "--cursor-file",
+                voice_cursor,
+                "--pcm-fifo",
+                voice_fifo,
+                "--stop-marker",
+                str(stop_marker),
+                "--openai-api-key",
+                openai_key,
+                "--model",
+                voice_model,
+                "--voice",
+                voice_id,
+            ]
+            voice_proc = subprocess.Popen(  # noqa: S603 — controlled command
+                voice_cmd,
+                stdout=voice_log_fh,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                close_fds=True,
+                cwd=str(_PROJECT_ROOT),
+            )
+            voice_pid = voice_proc.pid
+            logger.info(
+                "[livestream] voice engine spawned pid=%s queue=%s",
+                voice_pid,
+                voice_queue,
+            )
+
         state = {
             "mint": mint,
             "pid": proc.pid,
+            "voice_pid": voice_pid,
+            "voice": voice,
             "video": str(video_path),
             "ingest_url": ingest_url,
             "started_at": int(time.time()),
@@ -704,6 +1036,9 @@ class LivestreamOrchestrator:
             "loop": loop,
             "stop_marker": str(stop_marker),
             "supervisor": True,
+            "voice_fifo": voice_fifo,
+            "voice_queue": voice_queue,
+            "caption_file": caption_file_path,
             # Legacy fields kept so older state-file readers don't crash:
             "h264": "",
             "keep_h264": keep_h264,
@@ -727,29 +1062,41 @@ class LivestreamOrchestrator:
             except OSError:
                 pass
 
-        pid = state.get("pid")
+        pids_to_kill: list[int] = []
+        for key in ("pid", "voice_pid"):
+            v = state.get(key)
+            if isinstance(v, int) and v > 0 and _is_alive(v):
+                pids_to_kill.append(v)
+
         killed = False
-        if isinstance(pid, int) and _is_alive(pid):
+        for pid in pids_to_kill:
             try:
                 os.kill(pid, signal.SIGTERM)
-                for _ in range(50):
-                    if not _is_alive(pid):
-                        break
-                    time.sleep(0.1)
-                if _is_alive(pid):
+            except OSError:
+                continue
+        # Wait up to 5s for them all to exit, then SIGKILL the holdouts.
+        for _ in range(50):
+            if not any(_is_alive(p) for p in pids_to_kill):
+                break
+            time.sleep(0.1)
+        for pid in pids_to_kill:
+            if _is_alive(pid):
+                try:
                     os.kill(pid, signal.SIGKILL)
-                killed = True
-            except OSError as e:
-                return {
-                    "status": "kill_failed",
-                    "mint": mint,
-                    "error": str(e),
-                }
+                except OSError:
+                    pass
+        killed = bool(pids_to_kill)
 
-        # Clean up any leftover stop marker
+        # Clean up any leftover stop marker + voice FIFO
         if stop_marker_path:
             try:
                 Path(stop_marker_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        voice_fifo = state.get("voice_fifo") or ""
+        if voice_fifo:
+            try:
+                Path(voice_fifo).unlink(missing_ok=True)
             except OSError:
                 pass
 

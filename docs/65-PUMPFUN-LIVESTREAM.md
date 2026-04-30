@@ -175,17 +175,145 @@ manager) and [tools/pumpfun/chat_tool.py](../tools/pumpfun/chat_tool.py)
 `viewerHeartbeat`. The tool exposes `say` and `history`; the rest are
 available on `LivechatClient` for direct callers.
 
+## Voice mode (`pump_say`) — agent talks live
+
+Instead of a video file, the agent can stream a static image plus its
+own voice. Audio comes from OpenAI TTS, fed into ffmpeg via a named
+PCM FIFO so utterances can be queued and drained in real time.
+
+Architecture:
+
+```
+┌─────────────┐   text      ┌──────────────┐   PCM     ┌─────────┐   Opus    pump.fun
+│ pump_say    │ ──────────► │ voice engine │ ────────► │ ffmpeg  │ ────────►  WHIP/RTMP
+│  (queue)    │  JSONL      │  (OpenAI TTS │ s16le     │ (image  │           ingress
+└─────────────┘             │   + silence  │ 48kHz     │  + PCM) │
+                            │   filler)    │ stereo*   └─────────┘
+                            └──────────────┘
+```
+
+\*stereo via `aformat=channel_layouts=stereo` — pump.fun's WHIP muxer
+rejects mono with "Unsupported audio channels 1 by RTC, choose stereo".
+
+Start in voice mode:
+
+```json
+{"action": "start", "voice": true, "loop": true}
+// → uses <workspace>/livestream_videos/idle.png as the static frame
+//   (auto-generated 720×720 placeholder if the file doesn't exist).
+//   Spawns the supervisor + voice engine. Audio is silence until the
+//   agent calls pump_say.
+
+{"action": "start", "voice": true, "image_path": "logo.png", "voice_id": "echo"}
+// → custom image + OpenAI voice (alloy/echo/fable/onyx/nova/shimmer)
+```
+
+Queue speech:
+
+```json
+{"action": "say", "text": "gm. supply locked. wallet shows buys today."}
+// → returns immediately; voice engine renders TTS in background
+
+{"action": "queue_size"}
+// → how many lines are pending
+```
+
+The voice engine pads silence when idle so ffmpeg's audio buffer
+never underruns (back-pressure causes WHIP to drop the connection).
+~9.6 KB / 100 ms of silence — negligible bandwidth.
+
+Implementation: [tools/pumpfun/_voice_engine.py](../tools/pumpfun/_voice_engine.py)
+(detached subprocess, watches a JSONL queue file) +
+[tools/pumpfun/voice_tool.py](../tools/pumpfun/voice_tool.py) (the
+`pump_say` native tool). Requires `openai_api_key` in the vault.
+
+## On-stream captions (`pump_caption`)
+
+Visible text overlay on the live stream. Two render paths picked at
+runtime based on which ffmpeg build is installed:
+
+1. **drawtext path** (libfreetype-enabled ffmpeg) — append a
+   `drawtext` filter with `textfile=...:reload=1`. Caption updates
+   show within ~33 ms (one frame at 30 fps). No stream interruption.
+2. **Pillow bake path** (default Homebrew ffmpeg, no libfreetype) —
+   render the text directly into the static `idle.png` via Pillow,
+   then SIGTERM the running ffmpeg child. The supervisor restarts
+   ffmpeg within ~2 s and the new ffmpeg loads the freshly-baked
+   image. Brief audio gap per change; fine for low-frequency rotation
+   (every minute or so via heartbeat / scheduled task).
+
+The detection happens in [tools/pumpfun/orchestrator.py](../tools/pumpfun/orchestrator.py)'s
+`_drawtext_available()` (probes `ffmpeg -filters`). The tool exposes
+its own decision via the `render_path` field in the response.
+
+```json
+{"action": "set", "text": "$ELO live · supply locked · CA: BwUg…pump"}
+// → {render_path: "pillow_bake", bounced_ffmpeg: true}  on default ffmpeg
+// → {render_path: "drawtext", bounced_ffmpeg: false}    on libfreetype build
+
+{"action": "set", "text": "answering question:\nyes, AI-only.\nproof: 0xabc…"}
+// → multiline. Pillow word-wraps; drawtext respects \n natively.
+
+{"action": "clear"}
+// → empty text; Pillow path regenerates a clean idle.png + bounces.
+
+{"action": "current"}
+// → returns the current caption text.
+```
+
+Implementation in [tools/pumpfun/caption_tool.py](../tools/pumpfun/caption_tool.py).
+
+To get the libfreetype build (faster updates, no audio blip):
+
+```bash
+brew uninstall ffmpeg
+brew install ffmpeg                # default Homebrew has WHIP but not drawtext
+# OR for both WHIP + drawtext, build from source with --enable-libfreetype --enable-fontconfig
+```
+
+⚠️ The third-party `homebrew-ffmpeg/ffmpeg/ffmpeg` tap has drawtext
+**but no WHIP muxer** — switching to it breaks streaming entirely.
+Stick with the official Homebrew formula or a custom build.
+
+## Reliability — the ffmpeg supervisor
+
+Streams die for two reasons in practice: rotated stream keys (manual
+UI reset, server-side rotation) and IPv6 ICE candidates the local
+network can't route. Both are handled by
+[tools/pumpfun/_ffmpeg_supervisor.py](../tools/pumpfun/_ffmpeg_supervisor.py):
+
+- **Fresh credentials per retry.** Calls `/livestream/create` +
+  `/livestream/livekit/create-credentials` on every iteration. A
+  rotated key from the UI doesn't kill the stream — next retry
+  picks up the new one.
+- **Exponential backoff** (2/4/8/16/30/60/120s, then sticks at
+  120s). Resets after a healthy ≥60s run so transient mid-stream
+  death recovers fast.
+- **IPv6 → RTMP fallback.** When ffmpeg dies with `No route to host`
+  on a `udp://[v6...]` ICE candidate, the supervisor flips
+  `prefer_protocol` to RTMP for the next attempt instead of looping
+  forever on WHIP. Stays on RTMP for the rest of the run if it works.
+- **JWT-expiry exit code.** On `401 Unauthorized` from pump.fun the
+  supervisor exits with code `2` so the agent can detect "needs
+  re-auth" vs ordinary failure.
+- **Stop-marker awareness.** Sub-second responsiveness to
+  `stop_stream` — touches a marker file the supervisor checks
+  between iterations and during backoff sleeps.
+
+State file at `~/.elophanto/livestream-state/<mint>.json` tracks the
+supervisor PID, voice-engine PID, FIFO path, queue path, caption
+file, and JWT — survives agent restarts.
+
 ## What's intentionally NOT included
 
-- **Audio mixing.** The publisher uses whatever audio is in the source
-  file. No background music overlay, no TTS narration. Use a
-  pre-mixed video if you need that.
 - **Chat listen-loop / auto-respond.** `pump_chat` opens a fresh
   Socket.IO connection per call. For continuous "answer viewer
   questions" behaviour, schedule `history` checks via heartbeat and
   let the agent decide what to reply to.
-- **Auto-restart on disconnect.** If ffmpeg dies (network blip,
-  LiveKit kicks us), `status` reports `exited`. No supervisor loop.
+- **Voice-mode high-frequency captions.** With Pillow bake path,
+  every change bounces ffmpeg (~2-3 s blip). Don't update faster
+  than every 30 s. Install a libfreetype-enabled ffmpeg if you need
+  near-instant updates.
 - **Multi-stream concurrency.** Per-mint state file means two
   different mints could stream concurrently in theory; same mint
   twice returns `{status: "already_running"}`.
@@ -195,10 +323,14 @@ available on `LivechatClient` for direct callers.
 ```
 tools/pumpfun/
 ├── __init__.py
-├── orchestrator.py     # LivestreamOrchestrator: auth, create, ffmpeg spawn
-├── livestream_tool.py  # Native tool: pump_livestream
-└── _loop_runner.py     # Legacy supervisor (kept for back-compat;
-                        # no longer invoked by start_stream)
+├── orchestrator.py        # LivestreamOrchestrator: auth, create, supervisor spawn
+├── _ffmpeg_supervisor.py  # detached: cred refresh, retry/backoff, v6→RTMP failover
+├── _voice_engine.py       # detached: TTS queue → PCM FIFO writer
+├── livestream_tool.py     # Native tool: pump_livestream
+├── chat_client.py         # async Socket.IO client (LivechatClient)
+├── chat_tool.py           # Native tool: pump_chat (say / history)
+├── voice_tool.py          # Native tool: pump_say (queue / queue_size)
+└── caption_tool.py        # Native tool: pump_caption (drawtext OR Pillow bake)
 
 skills/pumpfun-livestream/
 ├── SKILL.md

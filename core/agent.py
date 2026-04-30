@@ -1530,6 +1530,22 @@ class Agent:
         if pump_chat and self._vault:
             pump_chat._vault = self._vault
 
+        # pump_say — appends to the voice-engine queue (TTS path).
+        # Only needs the vault for mint resolution.
+        pump_say = self._registry.get("pump_say")
+        if pump_say and self._vault:
+            pump_say._vault = self._vault
+
+        # pump_caption — writes the on-screen text overlay file and
+        # (when ffmpeg lacks drawtext) bakes captions into idle.png +
+        # bounces ffmpeg. Needs workspace to locate the same idle.png
+        # the orchestrator's start_stream uses.
+        pump_caption = self._registry.get("pump_caption")
+        if pump_caption and self._vault:
+            pump_caption._vault = self._vault
+            if self._config.workspace:
+                pump_caption._workspace = self._config.workspace
+
         # Affiliate tools
         scrape_tool = self._registry.get("affiliate_scrape")
         if scrape_tool:
