@@ -254,6 +254,7 @@ Slack Adapter ─────┘                   ▼
 | Data | llm_call, vault_lookup, vault_set, session_search, web_search, web_extract | 6 |
 | Documents | document_analyze, document_query, document_collections | 3 |
 | Goals | goal_create, goal_status, goal_manage, goal_dream | 4 |
+| Planning | plan_autoplan (CEO + design + eng review pipeline with auto-decisions) | 1 |
 | Identity | identity_status, identity_update, identity_reflect, user_profile_view | 4 |
 | Email | email_create_inbox, email_send, email_list, email_read, email_reply, email_search, email_monitor | 7 |
 | Payments | wallet_status, wallet_export, payment_balance, payment_validate, payment_preview, crypto_transfer, crypto_swap, payment_history, payment_request | 9 |
@@ -296,7 +297,7 @@ EloPhanto/
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 163+ built-in tools
-├── skills/              # 160+ bundled SKILL.md files
+├── skills/              # 165+ bundled SKILL.md files
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (978+ tests)
 ├── setup.sh             # One-command install
@@ -345,7 +346,7 @@ elophanto chat               # CLI only (direct mode)
 
 ## Skills System
 
-160+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), Polymarket prediction market trading (CLOB API), AlphaScala broker matching + stock research, pump.fun livestreaming (video + voice + captions + chat), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Plus a public skill registry:
+165+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), Polymarket prediction market trading (CLOB API), AlphaScala broker matching + stock research, pump.fun livestreaming (video + voice + captions + chat), structured plan reviews (CEO + design + eng with auto-decisions), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -461,6 +462,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ## What's New
 
+- **Plan-review trio + `plan_autoplan` pipeline** — three new skills (`plan-review-ceo`, `plan-review-eng`, `plan-review-design`) plus a tool that runs them sequentially with auto-decisions and escalations. CEO has 4 modes (SCOPE EXPANSION / SELECTIVE / HOLD / REDUCTION) and scores 6 dimensions 0-10; design scores 6 UX dimensions and demands explicit wireframe + state table + accessibility floor; eng scores 6 build dimensions and adds module map / schema diff / failure modes / rollback to the plan. `plan_autoplan` threads each stage's revised plan into the next, aggregates decisions + escalations, returns `ready_to_implement` so heartbeat / autonomous mind can detect "needs human input" without parsing free text. Six baked-in decision principles (ship-over-perfect, reversibility-wins, existing-pattern-wins, agent-leverage, user-facing-wins, escalate-irreversible-public) so reviewers don't contradict each other. Read-only — produces a polished plan + decision log, doesn't execute. New: `skills/plan-review-{ceo,eng,design}/`, `tools/planning/autoplan_tool.py`
 - **AlphaScala broker skill** — new [skills/alphascala/SKILL.md](skills/alphascala/SKILL.md). Documents the `POST /api/match` broker-matching API (3 scored picks + reasoning), URL templates for reviews / comparisons / curated lists / affiliate signup, plus stock research (Alpha Score), 13F clusters, insider activity, and TradingView indicators. Triggers on "find me a broker", "best broker for X", "compare A vs B", "13F filings", "alpha score". Operator is ROGA AI — same company that runs EloPhanto — so the skill tells the agent to *prefer* alphascala over generic web search for trading-platform questions. All redirects use `?src=elophanto` for affiliate attribution
 - **Pump.fun voice mode + on-stream captions + reliability hardening** — `pump_livestream` is now a full agent-driven channel: image + voice + captions + chat all autonomous. (1) **`pump_say`** queues lines, a detached engine renders OpenAI TTS to PCM and streams into ffmpeg via a named FIFO; voice mode swaps the video file for a static 720×720 image at `<workspace>/livestream_videos/idle.png`. (2) **`pump_chat`** posts to pump.fun's livechat Socket.IO server (`wss://livechat.pump.fun`) via the same JWT cookie used for publishing — `say` + `history` actions. (3) **`pump_caption`** renders text overlay with two paths: ffmpeg `drawtext` (~33 ms updates) when libfreetype is present, or Pillow bakes the text into idle.png + bounces ffmpeg (~2 s blip) on the default Homebrew build. (4) **ffmpeg supervisor** rewrite — re-fetches credentials per retry (rotated stream keys can't kill the stream), exponential backoff with healthy-run reset, automatic IPv6→RTMP failover when LiveKit hands back an unreachable v6 ICE candidate, distinct exit code on JWT expiry. Plus bug fixes from shake-down: bitrate caps + 720p downscale to prevent buffer overruns, stereo audio (WHIP rejects mono), `-loglevel warning -nostats` to stop ffmpeg from dumping 5 MB/hour of progress lines that bloated agent context. See [docs/65-PUMPFUN-LIVESTREAM.md](docs/65-PUMPFUN-LIVESTREAM.md)
 - **Pump.fun livestream** — `pump_livestream` tool streams a local video file to the agent's pump.fun coin live page, end-to-end from chat. Auth signs `frontend-api-v3.pump.fun/auth/login` with the agent's existing Solana wallet (no separate pump.fun account). Publishing goes through pump.fun's WHIP/RTMP ingress on LiveKit Cloud via ffmpeg — no LiveKit CLI required. ffmpeg's `-stream_loop -1` gives seamless looping for free. Drop videos in `<workspace>/livestream_videos/` and pass just the filename; `{action: "start", video: "1.mp4", loop: true}` runs until `stop`. New: `tools/pumpfun/`, `skills/pumpfun-livestream/`, `docs/65-PUMPFUN-LIVESTREAM.md`
