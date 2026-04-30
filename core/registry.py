@@ -403,6 +403,12 @@ class ToolRegistry:
         self.register(PumpSayTool())
         self.register(PumpCaptionTool())
 
+        # Plan-review pipeline — runs CEO + design + eng review skills
+        # in sequence with auto-decisions on borderline calls.
+        from tools.planning.autoplan_tool import PlanAutoplanTool
+
+        self.register(PlanAutoplanTool())
+
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
 
@@ -521,6 +527,8 @@ class ToolRegistry:
             "pump_chat",
             "pump_say",
             "pump_caption",
+            # Planning
+            "plan_autoplan",
         }
 
         for _name, _t in self._tools.items():

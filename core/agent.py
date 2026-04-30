@@ -1380,6 +1380,17 @@ class Agent:
             if self._identity_manager:
                 dream_tool._identity_manager = self._identity_manager
 
+        # plan_autoplan needs the router for the three sequential
+        # review LLM calls. Registry + identity are optional — if
+        # present they can flavour the prompts later, but autoplan
+        # works fine without them.
+        autoplan_tool = self._registry.get("plan_autoplan")
+        if autoplan_tool:
+            autoplan_tool._router = self._router
+            autoplan_tool._registry = self._registry
+            if self._identity_manager:
+                autoplan_tool._identity_manager = self._identity_manager
+
     def _inject_identity_deps(self) -> None:
         """Inject identity manager into identity tools."""
         for tool_name in ("identity_status", "identity_update", "identity_reflect"):
