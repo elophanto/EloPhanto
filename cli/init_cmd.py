@@ -129,29 +129,107 @@ def edit_cmd(ctx: click.Context, section: str | None) -> None:
 # Each reads current config values as defaults, modifies config in-place.
 
 
+def _detect_codex_auth() -> bool:
+    """Mirror of core/config.py's codex auto-detection. Returns True if a
+    valid ChatGPT-mode auth.json is present."""
+    import json
+    import os
+
+    codex_home = os.environ.get("CODEX_HOME")
+    auth_path = (
+        Path(codex_home) / "auth.json"
+        if codex_home
+        else Path.home() / ".codex" / "auth.json"
+    )
+    if not auth_path.exists():
+        return False
+    try:
+        return json.loads(auth_path.read_text("utf-8")).get("auth_mode") == "chatgpt"
+    except Exception:
+        return False
+
+
+def _load_demo_routing() -> dict | None:
+    """Load the routing + provider_priority blocks from config.demo.yaml.
+
+    config.demo.yaml is the single source of truth for per-task model
+    selection. Init copies these verbatim so users never have to know
+    what each task costs or what model to pick.
+    """
+    demo_path = Path(__file__).parent.parent / "config.demo.yaml"
+    if not demo_path.exists():
+        return None
+    try:
+        with open(demo_path) as f:
+            demo = yaml.safe_load(f) or {}
+        return demo.get("llm", {})
+    except Exception:
+        return None
+
+
 def _edit_providers(config: dict) -> None:
-    """Edit LLM provider API keys and settings."""
+    """Edit LLM provider API keys and settings.
+
+    Flow (provider-first, no model questions):
+    1. Auto-detect codex (~/.codex/auth.json) — enable silently if found.
+    2. Require at least one cloud chat provider: codex OR openrouter.
+       OpenRouter is mandatory if codex isn't present.
+    3. Auto-detect ollama — enable silently if running.
+    4. "Add more providers?" (default N) gates the optional list:
+       Z.ai, Kimi, OpenAI.
+
+    Models per task come from config.demo.yaml at the end of the wizard.
+    """
     active_providers: dict[str, bool] = {}
 
-    # --- OpenRouter ---
-    console.print(
-        "[bold]OpenRouter[/bold] (cloud models: Claude, GPT, Gemini, Llama, etc.)"
-    )
+    # --- Codex (auto-detected from ~/.codex/auth.json) ---
+    codex_present = _detect_codex_auth()
+    if codex_present:
+        _ensure_provider(config, "codex")
+        config["llm"]["providers"]["codex"]["enabled"] = True
+        config["llm"]["providers"]["codex"].setdefault(
+            "base_url", "https://chatgpt.com/backend-api/codex"
+        )
+        config["llm"]["providers"]["codex"].setdefault("default_model", "gpt-5.5")
+        active_providers["codex"] = True
+        console.print(
+            "[bold]Codex[/bold] [green](detected ChatGPT subscription)[/green]"
+        )
+        console.print()
+    else:
+        _ensure_provider(config, "codex")
+        config["llm"]["providers"]["codex"]["enabled"] = False
+        active_providers["codex"] = False
+
+    # --- OpenRouter (mandatory unless codex is present) ---
+    or_required = not codex_present
+    title = "[bold]OpenRouter[/bold] (cloud models — one key, all providers)"
+    if or_required:
+        console.print(title + " [yellow]· required[/yellow]")
+    else:
+        console.print(title + " [dim]· recommended fallback[/dim]")
     current_or_key = (
         config.get("llm", {})
         .get("providers", {})
         .get("openrouter", {})
         .get("api_key", "")
     )
-    or_key = Prompt.ask(
-        (
-            "  API key (press Enter to keep current)"
-            if current_or_key
-            else "  API key (press Enter to skip)"
-        ),
-        default=current_or_key,
-        show_default=False,
-    )
+    while True:
+        or_key = Prompt.ask(
+            (
+                "  API key (press Enter to keep current)"
+                if current_or_key
+                else "  API key (https://openrouter.ai/keys)"
+            ),
+            default=current_or_key,
+            show_default=False,
+        )
+        if or_key or not or_required:
+            break
+        console.print(
+            "  [red]Required: enter an OpenRouter key, or skip by setting up Codex"
+            " (npm i -g @openai/codex && codex login).[/red]"
+        )
     if or_key:
         _ensure_provider(config, "openrouter")
         config["llm"]["providers"]["openrouter"]["api_key"] = or_key
@@ -160,21 +238,61 @@ def _edit_providers(config: dict) -> None:
             "base_url", "https://openrouter.ai/api/v1"
         )
         active_providers["openrouter"] = True
-        or_models = _fetch_openrouter_models(or_key)
-        if or_models:
-            console.print(
-                f"  [green]Connected! {len(or_models)} models available.[/green]"
-            )
-        else:
-            console.print("  [green]API key saved.[/green]")
+        console.print("  [green]Saved.[/green]")
     else:
         _ensure_provider(config, "openrouter")
         config["llm"]["providers"]["openrouter"]["enabled"] = False
         active_providers["openrouter"] = False
         console.print("  [dim]Disabled.[/dim]")
-
     console.print()
 
+    # --- Ollama (auto-detected — local) ---
+    if _check_ollama():
+        _ensure_provider(config, "ollama")
+        config["llm"]["providers"]["ollama"]["enabled"] = True
+        config["llm"]["providers"]["ollama"].setdefault(
+            "base_url", "http://localhost:11434"
+        )
+        active_providers["ollama"] = True
+        ollama_models = _fetch_ollama_models()
+        msg = (
+            f"[bold]Ollama[/bold] [green](running, {len(ollama_models)} models)[/green]"
+            if ollama_models
+            else "[bold]Ollama[/bold] [yellow](running, no models pulled — run `ollama pull llama3.1:8b`)[/yellow]"
+        )
+        console.print(msg)
+        console.print()
+    else:
+        _ensure_provider(config, "ollama")
+        config["llm"]["providers"]["ollama"]["enabled"] = False
+        active_providers["ollama"] = False
+
+    # --- Optional providers (collapsed under one prompt) ---
+    if Confirm.ask("Add more providers (Z.ai / Kimi / OpenAI)?", default=False):
+        _edit_providers_optional(config, active_providers)
+    else:
+        for name in ("zai", "kimi", "openai"):
+            _ensure_provider(config, name)
+            config["llm"]["providers"][name]["enabled"] = False
+            active_providers[name] = False
+
+    # --- Provider priority (from demo, filtered to enabled providers) ---
+    demo_llm = _load_demo_routing() or {}
+    demo_priority = demo_llm.get("provider_priority") or [
+        "codex",
+        "zai",
+        "openrouter",
+        "huggingface",
+        "ollama",
+        "openai",
+        "kimi",
+    ]
+    priority = [p for p in demo_priority if active_providers.get(p)]
+    config.setdefault("llm", {})["provider_priority"] = priority
+
+
+def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) -> None:
+    """Walk the optional provider list — zai, kimi, openai. Each is skip-by-default."""
     # --- Z.ai ---
     console.print("[bold]Z.ai / GLM[/bold] (cost-effective coding models)")
     console.print("  [dim]Models: glm-5, glm-4.7, glm-4.7-flash, glm-4-plus[/dim]")
@@ -330,55 +448,6 @@ def _edit_providers(config: dict) -> None:
         console.print("  [dim]Disabled.[/dim]")
 
     console.print()
-
-    # --- Ollama ---
-    console.print("[bold]Ollama[/bold] (local models — free, private, offline)")
-    ollama_available = _check_ollama()
-    if ollama_available:
-        ollama_models = _fetch_ollama_models()
-        if ollama_models:
-            console.print(
-                f"  [green]Ollama running with {len(ollama_models)} model(s):[/green]"
-            )
-            for m in ollama_models:
-                console.print(f"    - {m}")
-        else:
-            console.print("  [green]Ollama running[/green] but no models installed.")
-            console.print("  [dim]Pull a model: ollama pull qwen2.5:7b[/dim]")
-        _ensure_provider(config, "ollama")
-        config["llm"]["providers"]["ollama"]["enabled"] = True
-        config["llm"]["providers"]["ollama"].setdefault(
-            "base_url", "http://localhost:11434"
-        )
-        active_providers["ollama"] = True
-    else:
-        console.print(
-            "  [yellow]Ollama not detected.[/yellow] "
-            "Install from https://ollama.ai for local models."
-        )
-        _ensure_provider(config, "ollama")
-        config["llm"]["providers"]["ollama"]["enabled"] = False
-        active_providers["ollama"] = False
-
-    # --- Provider Priority ---
-    console.print()
-    enabled_names = [p for p, active in active_providers.items() if active]
-    if len(enabled_names) > 1:
-        current_priority = config.get("llm", {}).get("provider_priority", enabled_names)
-        console.print(
-            "[bold]Provider Priority[/bold]\n"
-            "  [dim]Order in which providers are tried.[/dim]"
-        )
-        priority_input = Prompt.ask(
-            "  Priority order (comma-separated)",
-            default=", ".join(current_priority),
-        )
-        priority = [p.strip() for p in priority_input.split(",") if p.strip()]
-    else:
-        priority = enabled_names
-        if priority:
-            console.print(f"  Using: {priority[0]}")
-    config.setdefault("llm", {})["provider_priority"] = priority
 
 
 def _edit_models(config: dict) -> None:
@@ -1281,74 +1350,73 @@ def _run_full_wizard(config_dir: str) -> None:
     console.print("[bold]1. LLM Providers[/bold]")
     _edit_providers(config)
 
-    console.print()
-    console.print("[bold]2. Model Selection[/bold]")
-    # Only run model selection if any provider is active
-    providers = config.get("llm", {}).get("providers", {})
-    any_active = any(p.get("enabled") for p in providers.values())
-    if any_active:
-        _edit_models(config)
-    else:
-        console.print("  [dim]No providers active — skipping model selection.[/dim]")
+    # Models per task come from config.demo.yaml — single source of truth.
+    # We never ask the user; defaults are vetted and aligned with vision_model
+    # and reasoning_effort. Advanced users can edit via `elophanto init edit models`.
+    demo_llm = _load_demo_routing()
+    if demo_llm:
+        config.setdefault("llm", {})["routing"] = demo_llm.get("routing", {})
+        if demo_llm.get("vision_model"):
+            config["llm"]["vision_model"] = demo_llm["vision_model"]
 
     console.print()
-    console.print("[bold]3. Permission Mode[/bold]")
+    console.print("[bold]2. Permission Mode[/bold]")
     _edit_permissions(config)
 
     console.print()
     console.print("[bold]── Automation ──[/bold]")
     console.print()
 
-    console.print("[bold]4. Web Browsing[/bold]")
+    console.print("[bold]3. Web Browsing[/bold]")
     _edit_browser(config)
 
     console.print()
-    console.print("[bold]5. Desktop GUI Agent[/bold]")
+    console.print("[bold]4. Desktop GUI Agent[/bold]")
     _edit_desktop(config)
 
     console.print()
     console.print("[bold]── Channels & Communication ──[/bold]")
     console.print()
 
-    console.print("[bold]6. Channels (Telegram / Discord / Slack)[/bold]")
+    console.print("[bold]5. Channels (Telegram / Discord / Slack)[/bold]")
     _edit_channels(config)
 
     console.print()
-    console.print("[bold]7. Agent Email[/bold]")
+    console.print("[bold]6. Agent Email[/bold]")
     _edit_email(config)
 
     console.print()
-    console.print("[bold]8. Gateway[/bold]")
+    console.print("[bold]7. Gateway[/bold]")
     _edit_gateway(config)
 
     console.print()
     console.print("[bold]── Services ──[/bold]")
     console.print()
 
-    console.print("[bold]9. Payments & Crypto Wallet[/bold]")
+    console.print("[bold]8. Payments & Crypto Wallet[/bold]")
     _edit_payments(config)
 
     console.print()
-    console.print("[bold]10. AI Image Generation (Replicate)[/bold]")
+    console.print("[bold]9. AI Image Generation (Replicate)[/bold]")
     _edit_replicate(config)
 
     console.print()
     console.print("[bold]── Advanced ──[/bold]")
     console.print()
 
-    console.print("[bold]11. Agent Swarm[/bold]")
+    console.print("[bold]10. Agent Swarm[/bold]")
     _edit_swarm(config)
 
     console.print()
-    console.print("[bold]12. Background Scheduling[/bold]")
+    console.print("[bold]11. Background Scheduling[/bold]")
     _edit_scheduler(config)
 
     console.print()
-    console.print("[bold]13. MCP Tool Servers[/bold]")
+    console.print("[bold]12. MCP Tool Servers[/bold]")
     _edit_mcp(config)
 
     console.print()
-    console.print("[bold]14. Autonomous Mind[/bold]")
+    console.print("[bold]13. Autonomous Mind[/bold]")
     _edit_autonomous_mind(config)
 
     console.print()
