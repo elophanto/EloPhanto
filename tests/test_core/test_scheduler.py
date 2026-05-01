@@ -185,8 +185,10 @@ class TestTaskScheduler:
         """A running task should be cancelled by stop_running."""
         import asyncio
 
-        # Slow executor that never finishes
+        started = asyncio.Event()
+
         async def slow_executor(goal: str):
+            started.set()
             await asyncio.sleep(60)
             return type("Result", (), {"content": "done", "steps_taken": 1})()
 
@@ -195,9 +197,9 @@ class TestTaskScheduler:
             name="Slow", task_goal="Slow task", cron_expression="0 0 * * *"
         )
 
-        # Manually start an execution
+        # Manually start an execution and wait until the executor is actually running
         task = asyncio.create_task(scheduler._execute_schedule(entry.id))
-        await asyncio.sleep(0.05)  # Let it start
+        await asyncio.wait_for(started.wait(), timeout=5)
 
         # Stop it
         was_running = await scheduler.stop_running(entry.id)
@@ -217,7 +219,14 @@ class TestTaskScheduler:
         """stop_all_running cancels every in-flight task."""
         import asyncio
 
+        started_count = 0
+        all_started = asyncio.Event()
+
         async def slow_executor(goal: str):
+            nonlocal started_count
+            started_count += 1
+            if started_count >= 2:
+                all_started.set()
             await asyncio.sleep(60)
             return type("Result", (), {"content": "done", "steps_taken": 1})()
 
@@ -229,10 +238,10 @@ class TestTaskScheduler:
             name="B", task_goal="B", cron_expression="0 0 * * *"
         )
 
-        # Start two executions
+        # Start two executions and wait until both executors are actually running
         t1 = asyncio.create_task(scheduler._execute_schedule(entry1.id))
         t2 = asyncio.create_task(scheduler._execute_schedule(entry2.id))
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(all_started.wait(), timeout=5)
 
         count = await scheduler.stop_all_running()
         assert count == 2
@@ -251,7 +260,10 @@ class TestTaskScheduler:
         """delete_schedule should cancel an in-flight task."""
         import asyncio
 
+        started = asyncio.Event()
+
         async def slow_executor(goal: str):
+            started.set()
             await asyncio.sleep(60)
             return type("Result", (), {"content": "done", "steps_taken": 1})()
 
@@ -261,7 +273,7 @@ class TestTaskScheduler:
         )
 
         task = asyncio.create_task(scheduler._execute_schedule(entry.id))
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(started.wait(), timeout=5)
 
         await scheduler.delete_schedule(entry.id)
 
