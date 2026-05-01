@@ -9,6 +9,7 @@ import click
 
 from cli.bootstrap_cmd import bootstrap_cmd
 from cli.chat_cmd import chat_cmd
+from cli.doctor_cmd import doctor_cmd
 from cli.gateway_cmd import gateway_cmd
 from cli.init_cmd import init_cmd
 from cli.mcp_cmd import mcp_cmd
@@ -28,6 +29,7 @@ def cli() -> None:
 
 cli.add_command(init_cmd, "init")
 cli.add_command(bootstrap_cmd, "bootstrap")
+cli.add_command(doctor_cmd, "doctor")
 cli.add_command(chat_cmd, "chat")
 cli.add_command(gateway_cmd, "gateway")
 cli.add_command(schedule_cmd, "schedule")

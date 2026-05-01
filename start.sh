@@ -20,6 +20,46 @@ else
     exit 1
 fi
 
+# ── Preflight: refuse to start if the doctor finds blockers ──
+# Skipped when running diagnostic / setup commands directly so the
+# user can fix whatever the doctor would have flagged.
+case "${1:-}" in
+    doctor|init|vault|skills|mcp|update|rollback|--help|-h|"")
+        # for empty arg (default → chat) we DO want to gate
+        if [ -z "${1:-}" ] || [ "${1:-}" = "--web" ]; then
+            if ! elophanto doctor >/dev/null 2>&1; then
+                echo ""
+                echo "  ⚠ EloPhanto doctor found blockers. Running again with full output:"
+                echo ""
+                elophanto doctor || true
+                echo ""
+                echo "  Fix the items above, then re-run ./start.sh."
+                echo "  (skip the gate with: SKIP_DOCTOR=1 ./start.sh)"
+                if [ "${SKIP_DOCTOR:-0}" != "1" ]; then
+                    exit 1
+                fi
+                echo "  SKIP_DOCTOR=1 set — proceeding anyway."
+            fi
+        fi
+        ;;
+esac
+
+# ── Bootstrap autoprompt: if knowledge/system is empty the planner ──
+# improvises and the user gets bad answers on day one. Offer to bootstrap.
+if [ ! -f "knowledge/system/identity.md" ] && [ -t 0 ]; then
+    echo ""
+    echo "  knowledge/system/{identity,capabilities,styleguide}.md is missing."
+    echo "  The planner uses these for grounding — without them the agent"
+    echo "  improvises and tends to hallucinate on day one."
+    echo ""
+    read -r -p "  Run \`elophanto bootstrap\` now? (Y/n) " ans
+    case "${ans}" in
+        [Nn]*) echo "  Skipped. Run \`elophanto bootstrap\` later." ;;
+        *) elophanto bootstrap ;;
+    esac
+    echo ""
+fi
+
 # Kill any leftover gateway from a previous unclean shutdown
 STALE_PID=$(lsof -ti :18789 2>/dev/null || true)
 if [ -n "$STALE_PID" ]; then
