@@ -339,6 +339,7 @@ class IdentityConfig:
     )
     first_awakening: bool = True
     nature_file: str = "knowledge/self/nature.md"
+    ego_file: str = "knowledge/self/ego.md"
 
 
 @dataclass
@@ -1167,6 +1168,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         light_reflection_frequency=identity_raw.get("light_reflection_frequency", 5),
         first_awakening=identity_raw.get("first_awakening", True),
         nature_file=identity_raw.get("nature_file", "knowledge/self/nature.md"),
+        ego_file=identity_raw.get("ego_file", "knowledge/self/ego.md"),
     )
 
     # Parse learner section

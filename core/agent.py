@@ -305,6 +305,45 @@ def _extract_path(tc: dict[str, Any]) -> str | None:
         return None
 
 
+# Tool-name → capability label, used by the ego layer to assign per-task
+# outcomes to a coarse capability bucket. Unknown tools fall through to the
+# tool's own name; tasks that used no recognizable tool record nothing.
+_TOOL_CAPABILITY_MAP: dict[str, str] = {
+    "browser_navigate": "web_browsing",
+    "browser_click": "web_browsing",
+    "browser_extract": "web_browsing",
+    "browser_type": "web_browsing",
+    "polymarket_bet": "polymarket_trading",
+    "polymarket_scan": "polymarket_trading",
+    "pump_livestream": "pumpfun_livestream",
+    "pump_say": "pumpfun_livestream",
+    "pump_chat": "pumpfun_livestream",
+    "knowledge_write": "knowledge_management",
+    "knowledge_search": "knowledge_management",
+    "code_edit": "code_editing",
+    "code_write": "code_editing",
+    "shell_exec": "shell_execution",
+    "send_email": "email_communication",
+    "twitter_post": "x_engagement",
+    "twitter_reply": "x_engagement",
+}
+
+
+def _capability_from_tools(tools_used: list[str]) -> str:
+    """Pick the most representative capability for a task based on tools used.
+
+    Returns the most-frequent mapped capability, or the most-frequent raw
+    tool name if none mapped, or empty string if no tools were used.
+    """
+    if not tools_used:
+        return ""
+    counts: dict[str, int] = {}
+    for t in tools_used:
+        cap = _TOOL_CAPABILITY_MAP.get(t, t)
+        counts[cap] = counts.get(cap, 0) + 1
+    return max(counts.items(), key=lambda kv: kv[1])[0]
+
+
 def _paths_conflict(paths: list[str | None], new_path: str | None) -> bool:
     """Check if a new path conflicts with any existing paths.
 
@@ -451,6 +490,7 @@ class Agent:
         self._context_store: Any = None  # ContextStore (RLM Phase 2)
         self._goal_manager: Any = None  # GoalManager, set during initialize
         self._identity_manager: Any = None  # IdentityManager, set during initialize
+        self._ego_manager: Any = None  # EgoManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
         self._email_config: Any = None  # EmailConfig, set during initialize
         self._email_monitor: Any = None  # EmailMonitor, set during initialize
@@ -858,6 +898,20 @@ class Agent:
                 logger.info("Identity system ready")
             except Exception as e:
                 logger.warning(f"Identity system setup failed: {e}")
+
+            # Ego sits next to identity: identity is descriptive, ego evaluative.
+            try:
+                from core.ego import EgoManager
+
+                self._ego_manager = EgoManager(
+                    db=self._db,
+                    router=self._router,
+                    config=self._config.identity,
+                )
+                await self._ego_manager.load_or_create()
+                logger.info("Ego system ready")
+            except Exception as e:
+                logger.warning(f"Ego system setup failed: {e}")
 
         # Initialize user modeling
         if self._config.identity.enabled:
@@ -1738,6 +1792,7 @@ class Agent:
         # Goal + identity context are fast local DB reads — worth keeping.
         goal_context = ""
         identity_context = ""
+        self_perception_context = ""
         try:
             if self._goal_manager:
                 # Check active first, then paused — mind may have paused the goal
@@ -1756,6 +1811,14 @@ class Agent:
         try:
             if self._identity_manager:
                 identity_context = await self._identity_manager.build_identity_context()
+        except Exception:
+            pass
+
+        try:
+            if self._ego_manager:
+                self_perception_context = (
+                    await self._ego_manager.build_self_perception_context()
+                )
         except Exception:
             pass
 
@@ -1891,6 +1954,7 @@ class Agent:
             available_skills=available_skills,
             goal_context=goal_context,
             identity_context=identity_context,
+            self_perception_context=self_perception_context,
             runtime_state=_runtime_state,
             current_goal=goal,
             workspace=self._config.workspace,
@@ -2253,6 +2317,15 @@ class Agent:
 
                 # Auto-detect owner directives in user message
                 asyncio.create_task(self._detect_and_store_directive(goal))
+
+                if self._ego_manager:
+                    asyncio.create_task(
+                        self._record_ego_outcome(
+                            goal=goal,
+                            tools_used=list(set(tool_calls_made)),
+                            success=True,
+                        )
+                    )
 
                 if self._identity_manager:
                     asyncio.create_task(
@@ -3075,6 +3148,37 @@ Respond with EXACTLY this JSON (no other text):
 
 User message:
 {user_message}"""
+
+    async def _record_ego_outcome(
+        self, goal: str, tools_used: list[str], success: bool
+    ) -> None:
+        """Record per-capability outcomes for the ego layer.
+
+        Maps each tool actually used to a coarse capability label and records
+        an outcome against it. Triggers a self-image recompute when enough
+        outcomes have accumulated.
+        """
+        if not self._ego_manager:
+            return
+        try:
+            capability = _capability_from_tools(tools_used)
+            if not capability:
+                return
+            await self._ego_manager.record_outcome(
+                capability=capability, success=success, task_goal=goal
+            )
+            identity_summary = ""
+            if self._identity_manager:
+                identity = await self._identity_manager.get_identity()
+                identity_summary = (
+                    f"display_name: {identity.display_name}\n"
+                    f"purpose: {identity.purpose or ''}\n"
+                    f"values: {', '.join(identity.values[-8:])}\n"
+                    f"capabilities: {', '.join(identity.capabilities[-10:])}"
+                )
+            await self._ego_manager.maybe_recompute(identity_summary)
+        except Exception as e:
+            logger.debug("Ego outcome recording failed: %s", e)
 
     async def _detect_and_store_directive(self, user_message: str) -> None:
         """Classify whether user_message contains a directive and persist it.

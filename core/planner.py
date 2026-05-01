@@ -1699,6 +1699,7 @@ def build_system_prompt(
     available_skills: str = "",
     goal_context: str = "",
     identity_context: str = "",
+    self_perception_context: str = "",
     runtime_state: str = "",
     current_goal: str = "",
     workspace: str = "",
@@ -1757,6 +1758,11 @@ def build_system_prompt(
         identity_section = _IDENTITY + "\n\n" + identity_context
     else:
         identity_section = _IDENTITY
+
+    # Self-perception (ego): how reality has graded the declared identity.
+    # Sits next to identity so the planner sees both claim and measurement.
+    if self_perception_context:
+        identity_section = identity_section + "\n\n" + self_perception_context
 
     # Append runtime state (code-enforced self-model) after identity
     if runtime_state:

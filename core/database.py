@@ -228,6 +228,37 @@ _SCHEMA = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS ego_state (
+        id TEXT PRIMARY KEY DEFAULT 'self',
+        self_image TEXT NOT NULL DEFAULT '',
+        confidence_json TEXT NOT NULL DEFAULT '{}',
+        coherence_score REAL NOT NULL DEFAULT 1.0,
+        last_self_critique TEXT NOT NULL DEFAULT '',
+        tasks_since_recompute INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ego_humbling_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        capability TEXT NOT NULL,
+        claimed TEXT NOT NULL,
+        actual TEXT NOT NULL,
+        task_goal TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ego_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        capability TEXT NOT NULL,
+        success INTEGER NOT NULL,
+        task_goal TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS payment_audit (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT NOT NULL,
