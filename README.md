@@ -45,19 +45,24 @@ The same instance is also live-streaming itself on pump.fun and posting on [@Elo
 ## Get Started
 
 ```bash
-git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh
-cp config.demo.yaml config.yaml          # then edit: add API keys + Chrome profile path
-./start.sh bootstrap                      # generate identity + capability docs (one time)
-./start.sh                                # terminal chat
-./start.sh --web                          # web dashboard at localhost:3000
+git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
+./setup.sh         # installs deps, runs the config wizard, builds the browser bridge
+./start.sh         # preflight check → bootstrap prompt → terminal chat
+./start.sh --web   # same, but opens the web dashboard at localhost:3000
 ```
 
-That's it. The setup wizard walks you through LLM provider selection. **Two things you must set in `config.yaml` before the agent works well:**
+That's the entire happy path. **Don't copy `config.demo.yaml` manually** — `setup.sh` runs `elophanto init` for you, which auto-detects your Chrome profile, asks for at most one API key (OpenRouter is the easiest), and writes a working `config.yaml`. Manually copying the demo file and forgetting to replace `YOUR_OPENROUTER_KEY` is the #1 reason new installs fail silently.
 
-- At least one LLM provider with an API key (`enabled: true`)
-- The `browser:` section's `user_data_dir` and `profile_directory` — point to your real Chrome profile (find it in `chrome://version` → "Profile Path"). Browser-dependent tools (twitter, youtube, agent commune, etc.) reuse your existing logins.
+`./start.sh` runs `elophanto doctor` first — a green/yellow/red preflight that catches placeholder API keys, missing Chrome profile paths, uninitialised vault, missing bootstrap docs, etc. If anything would block chat, it tells you exactly what to fix. Override the gate with `SKIP_DOCTOR=1 ./start.sh` only if you know what you're doing.
 
-`./start.sh bootstrap` writes `knowledge/system/{identity,capabilities,styleguide}.md` based on what you tell it about the agent. The planner reads these for grounding — skipping it is the #1 cause of "the agent hallucinates on day one." Re-run with `--force` anytime to regenerate.
+You can also run the diagnostics directly any time:
+
+```bash
+elophanto doctor          # report what's healthy / broken / missing
+elophanto init            # re-run the config wizard (or: elophanto init edit <section>)
+elophanto bootstrap       # regenerate knowledge/system/{identity,capabilities,styleguide}.md
+elophanto vault list      # see what credentials the agent has stored
+```
 
 <details>
 <summary>Prerequisites</summary>

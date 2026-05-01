@@ -6,12 +6,15 @@ Supports environment variable overrides for API keys.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -684,11 +687,50 @@ class Config:
     project_root: Path = field(default_factory=Path.cwd)
 
 
+def is_placeholder_key(value: str) -> bool:
+    """Detect ``YOUR_*`` / ``<TODO>`` / ``CHANGEME`` style placeholder keys.
+
+    A user who copied ``config.demo.yaml`` and didn't run the wizard
+    will have placeholder strings in the api_key fields. We detect
+    those and refuse to enable the provider, which prevents cryptic
+    401/403 errors at first LLM call and instead points at the
+    config that needs editing.
+    """
+    if not value:
+        return False
+    upper = value.upper().strip()
+    if upper.startswith("YOUR_") or upper.startswith("YOUR-"):
+        return True
+    if upper in {"CHANGEME", "TODO", "TBD", "<TODO>", "<CHANGEME>", "PLACEHOLDER"}:
+        return True
+    if upper.startswith("<") and upper.endswith(">"):
+        return True
+    return False
+
+
 def _parse_provider(name: str, data: dict[str, Any]) -> ProviderConfig:
-    """Parse a provider config section."""
+    """Parse a provider config section.
+
+    If the user has a placeholder ``YOUR_*`` value still in api_key
+    and ``enabled: true``, force ``enabled: false`` so the router
+    doesn't try to call a real provider with a bogus credential.
+    The doctor command surfaces the misconfigured providers separately.
+    """
+    enabled = bool(data.get("enabled", False))
+    api_key = data.get("api_key", "")
+    # Codex / Ollama don't use api_key — skip placeholder check for those.
+    if enabled and api_key and is_placeholder_key(api_key):
+        logger.warning(
+            "[config] Provider %r has placeholder api_key %r — "
+            "auto-disabling. Run `elophanto init` or set a real "
+            "key in config.yaml.",
+            name,
+            api_key,
+        )
+        enabled = False
     return ProviderConfig(
-        api_key=data.get("api_key", ""),
-        enabled=data.get("enabled", False),
+        api_key=api_key,
+        enabled=enabled,
         base_url=data.get("base_url", ""),
         coding_plan=data.get("coding_plan", False),
         base_url_coding=data.get("base_url_coding", ""),
