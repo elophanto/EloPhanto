@@ -82,7 +82,7 @@ llm:
         kimi: "kimi-k2.5"
         zai: "GLM-5.1"
         openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
-        ollama: "nomic-embed-text:latest"
+        ollama: "llama3.1:8b"  # chat model — NOT an embedding model
 
     coding:
       preferred_provider: codex
@@ -94,7 +94,7 @@ llm:
         kimi: "kimi-k2.5"
         zai: "GLM-5.1"
         openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
-        ollama: "nomic-embed-text:latest"
+        ollama: "llama3.1:8b"  # chat model — NOT an embedding model
 
     analysis:
       preferred_provider: codex
@@ -106,7 +106,7 @@ llm:
         kimi: "kimi-k2.5"
         zai: "GLM-5.1"
         openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
-        ollama: "nomic-embed-text:latest"
+        ollama: "llama3.1:8b"  # chat model — NOT an embedding model
 
     simple:
       preferred_provider: codex
@@ -117,7 +117,7 @@ llm:
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         zai: "GLM-5-turbo"
         openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
-        ollama: "nomic-embed-text:latest"
+        ollama: "llama3.1:8b"  # chat model — NOT an embedding model
 
   budget:
     daily_limit_usd: 100.0
