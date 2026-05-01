@@ -1519,7 +1519,14 @@ class Agent:
 
     def _inject_swarm_deps(self) -> None:
         """Inject SwarmManager into swarm tools."""
-        swarm_tools = ("swarm_spawn", "swarm_status", "swarm_redirect", "swarm_stop")
+        swarm_tools = (
+            "swarm_spawn",
+            "swarm_status",
+            "swarm_redirect",
+            "swarm_stop",
+            "swarm_list_projects",
+            "swarm_archive_project",
+        )
         for tool_name in swarm_tools:
             tool = self._registry.get(tool_name)
             if tool and self._swarm_manager:

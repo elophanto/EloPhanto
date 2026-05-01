@@ -338,6 +338,24 @@ _SCHEMA = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS swarm_projects (
+        name TEXT PRIMARY KEY,
+        repo_kind TEXT NOT NULL,         -- 'local' (never github), 'github', 'self-dev'
+        repo TEXT,                       -- github URL or local path; NULL for 'new'/local-only
+        worktree_path TEXT NOT NULL,
+        main_branch TEXT NOT NULL DEFAULT 'main',
+        last_branch TEXT,                -- most recent feature/update branch worked on
+        last_pr_url TEXT,
+        last_agent_id TEXT,
+        agents_run INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active',  -- active | archived
+        created_at TEXT NOT NULL,
+        last_spawn_at TEXT NOT NULL,
+        description TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS organization_children (
         child_id TEXT PRIMARY KEY,
         role TEXT NOT NULL,
