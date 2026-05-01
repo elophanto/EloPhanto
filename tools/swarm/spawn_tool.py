@@ -66,6 +66,20 @@ class SwarmSpawnTool(BaseTool):
                     "type": "string",
                     "description": "Additional context to include in the agent's prompt",
                 },
+                "project": {
+                    "type": "string",
+                    "description": (
+                        "Optional project name (slug). If given, this spawn is "
+                        "tied to a long-lived project workspace. First spawn with "
+                        "a project name creates the project; later spawns with the "
+                        "same name reuse the worktree so the agent SEES and UPDATES "
+                        "prior code instead of starting from scratch. CRITICAL: when "
+                        "the user asks to update / extend / fix a previously-built "
+                        "project, you MUST pass the same project name as before. "
+                        "Use swarm_list_projects to find existing names. Projects "
+                        "can be local-only (never pushed to GitHub) or github-backed."
+                    ),
+                },
             },
             "required": ["task"],
         }
@@ -104,6 +118,12 @@ class SwarmSpawnTool(BaseTool):
                 profile_name=params.get("profile"),
                 branch_name=params.get("branch_name"),
                 extra_context=params.get("extra_context", ""),
+                project=params.get("project"),
+            )
+            project_msg = (
+                f" Project: '{agent.project}' (continuation reuses existing worktree)."
+                if agent.project
+                else ""
             )
             return ToolResult(
                 success=True,
@@ -113,9 +133,10 @@ class SwarmSpawnTool(BaseTool):
                     "branch": agent.branch,
                     "worktree_path": agent.worktree_path,
                     "tmux_session": agent.tmux_session,
+                    "project": agent.project,
                     "message": (
                         f"Agent '{agent.profile}' spawned on branch "
-                        f"'{agent.branch}' at {agent.worktree_path}. "
+                        f"'{agent.branch}' at {agent.worktree_path}.{project_msg} "
                         f"I'll notify you when it completes."
                     ),
                 },

@@ -1376,7 +1376,42 @@ own branch, inside a tmux session.
 - swarm_stop: Stop a running agent by killing its tmux session. The worktree and
   branch are preserved for manual inspection.
   Parameters: agent_id (required), reason (optional).
+- swarm_list_projects: List long-lived swarm projects (workspaces shared across
+  multiple spawns). Call BEFORE spawning a fresh project — if the user asks to
+  update / extend / fix something previously built, find the project name here.
+  Parameters: include_archived (optional, default false).
+- swarm_archive_project: Archive a dead project so it stops appearing in
+  swarm_list_projects. Worktree on disk is preserved.
+  Parameters: name (required), reason (optional).
 </available_tools>
+
+<continuation_protocol>
+CRITICAL: when the user asks to UPDATE, EXTEND, FIX, ITERATE ON, or ADD TO
+something previously built, you MUST:
+
+1. Call swarm_list_projects FIRST to see what exists.
+2. If a matching project exists, pass its name as `project=<name>` to
+   swarm_spawn. The agent will reuse that project's worktree and SEE the
+   prior code, then make the requested changes on a fresh sub-branch.
+3. ONLY spawn fresh (no project name, or a new project name) when the user
+   is genuinely starting something new. "Add a login screen to the wellness
+   app" is NEVER a fresh spawn — it's a continuation of the wellness project.
+
+When you spawn a NEW project the user is likely to iterate on, give it a
+short slug as `project=<slug>` from the start. That way later updates can
+find it. Examples: project="wellness-tracker", project="invoice-bot",
+project="elo-landing-page".
+
+If you don't pass `project=`, one is auto-derived from the task slug (e.g.
+"build a wellness tracker app" → project="wellness-tracker-app"). This is a
+safety net — explicit names are still preferred because they're more
+predictable for the user when they ask "what projects exist?".
+
+Projects can be local-only (never pushed to GitHub — the user explicitly
+said so, or the task is private) or github-backed (the user wants a remote).
+The agent infers from the `repo` argument: `repo='new'` is local-only,
+`repo='https://github.com/...'` is github-backed.
+</continuation_protocol>
 
 <swarm_protocol>
 1. SPAWN — Use swarm_spawn with a clear task description. The system auto-selects

@@ -52,6 +52,40 @@ class SwarmAgent:
     completed_at: str | None = None
     stopped_reason: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    project: str | None = None  # name of the SwarmProject this run belongs to
+
+
+@dataclass
+class SwarmProject:
+    """A long-lived workspace shared across multiple swarm spawns.
+
+    Projects give swarm spawns continuity: when the user says "update the
+    wellness app I built last week", the next spawn reuses the same worktree
+    and sees the prior code, instead of starting from an empty `git init`.
+
+    repo_kind:
+      - 'local'   — purely local, never pushed to GitHub. `repo` is None.
+                    Continuation just reuses the worktree on disk.
+      - 'github'  — backed by a remote. `repo` is the URL. On continuation we
+                    fetch + reset to the post-merge main if a previous PR was
+                    merged.
+      - 'self-dev' — modifying EloPhanto itself. Worktree is off the main repo.
+    """
+
+    name: str
+    repo_kind: str
+    repo: str | None
+    worktree_path: str
+    main_branch: str = "main"
+    last_branch: str | None = None
+    last_pr_url: str | None = None
+    last_agent_id: str | None = None
+    agents_run: int = 0
+    status: str = "active"
+    created_at: str = ""
+    last_spawn_at: str = ""
+    description: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class SwarmManager:
@@ -131,6 +165,7 @@ class SwarmManager:
         profile_name: str | None = None,
         branch_name: str | None = None,
         extra_context: str = "",
+        project: str | None = None,
     ) -> SwarmAgent:
         """Spawn a new external agent.
 
@@ -139,6 +174,11 @@ class SwarmManager:
         3. Enrich prompt with context
         4. Launch tmux session
         5. Persist to DB and broadcast event
+
+        If ``project`` is given and matches an existing active project, the
+        agent reuses that project's worktree (with a fresh sub-branch) so it
+        sees the prior code and updates it in place. If ``project`` is given
+        but doesn't exist, a new project record is created.
         """
         if len(self.running_agents) >= self._config.max_concurrent_agents:
             raise RuntimeError(
@@ -179,13 +219,47 @@ class SwarmManager:
 
         agent_id = uuid.uuid4().hex[:8]
 
+        # Project continuation: if a project name is given, look it up.
+        # Existing active project → reuse worktree, branch off latest main.
+        # Otherwise we'll create the project row after the worktree is built.
+        existing_project: SwarmProject | None = None
+        if project:
+            project = self._slugify(project)[:60] or None
+            if project:
+                existing_project = await self._load_project(project)
+                if existing_project and existing_project.status == "archived":
+                    raise RuntimeError(
+                        f"Project '{project}' is archived. Use a different name "
+                        f"or restore via swarm_archive_project."
+                    )
+        else:
+            # No project name passed — auto-derive one from the task slug so
+            # follow-up spawns can find this work via swarm_list_projects.
+            # Self-dev tasks are skipped: those are EloPhanto edits, not
+            # iterable user projects.
+            if repo:  # any non-self-dev spawn becomes a project
+                project = await self._auto_project_name(task)
+
         if not branch_name:
             slug = self._slugify(task)[:40]
-            branch_name = f"swarm/{slug}-{agent_id}"
+            if existing_project:
+                # Sub-branches under the project namespace make history readable
+                branch_name = f"swarm/{project}/update-{slug}-{agent_id}"
+            else:
+                branch_name = f"swarm/{slug}-{agent_id}"
 
-        # Resolve working directory based on repo parameter
-        is_external = bool(repo)
-        work_dir = await self._resolve_work_dir(repo, branch_name, agent_id)
+        # Resolve working directory: continuation reuses the existing worktree;
+        # new spawns go through the standard repo-resolution flow.
+        if existing_project:
+            work_dir = await self._continue_in_project(existing_project, branch_name)
+            # Continuation inherits the original repo kind; treat as external
+            # iff the project isn't self-dev.
+            is_external = existing_project.repo_kind != "self-dev"
+            # If repo arg conflicts with the project's actual kind, override.
+            repo = existing_project.repo or repo
+        else:
+            is_external = bool(repo)
+            work_dir = await self._resolve_work_dir(repo, branch_name, agent_id)
 
         enriched_prompt = await self._build_enriched_prompt(
             task, extra_context, profile, is_external=is_external
@@ -208,12 +282,54 @@ class SwarmManager:
             ),
             enriched_prompt=enriched_prompt,
             spawned_at=datetime.now(UTC).isoformat(),
+            project=project,
         )
 
         self._agents[agent_id] = agent
         self._last_spawn_times[profile_name] = _time.monotonic()
         await self._persist_agent(agent)
         await self._log_activity(agent_id, "spawned", f"Profile: {profile_name}")
+
+        # Project bookkeeping. New project rows are created on first spawn
+        # so even anonymous spawns can be promoted to projects retroactively
+        # by passing project=<name> on a follow-up spawn pointing at the
+        # same worktree (caller's responsibility).
+        if project:
+            if existing_project:
+                existing_project.last_branch = branch_name
+                existing_project.last_agent_id = agent_id
+                existing_project.agents_run += 1
+                existing_project.last_spawn_at = agent.spawned_at
+                await self._persist_project(existing_project)
+            else:
+                # Decide repo_kind from how this spawn was resolved:
+                #   self-dev  → no repo arg, working off main project
+                #   github    → repo URL given (https:// or git@)
+                #   local     → repo='new' OR a local path
+                if not repo:
+                    repo_kind = "self-dev"
+                    repo_value: str | None = None
+                elif repo.startswith("https://") or repo.startswith("git@"):
+                    repo_kind = "github"
+                    repo_value = repo
+                else:
+                    repo_kind = "local"
+                    repo_value = None if repo.lower() == "new" else repo
+                new_project = SwarmProject(
+                    name=project,
+                    repo_kind=repo_kind,
+                    repo=repo_value,
+                    worktree_path=work_dir,
+                    main_branch="main",
+                    last_branch=branch_name,
+                    last_agent_id=agent_id,
+                    agents_run=1,
+                    status="active",
+                    created_at=agent.spawned_at,
+                    last_spawn_at=agent.spawned_at,
+                    description=task[:300],
+                )
+                await self._persist_project(new_project)
 
         await self._broadcast(
             EventType.AGENT_SPAWNED,
@@ -339,6 +455,154 @@ class SwarmManager:
             best_profile = next(iter(self._config.profiles))
 
         return best_profile
+
+    # ── Project Management ──────────────────────────────────────────
+
+    async def list_projects(self, include_archived: bool = False) -> list[SwarmProject]:
+        """Return all known swarm projects."""
+        if include_archived:
+            rows = await self._db.execute(
+                "SELECT * FROM swarm_projects ORDER BY last_spawn_at DESC"
+            )
+        else:
+            rows = await self._db.execute(
+                "SELECT * FROM swarm_projects WHERE status = 'active' "
+                "ORDER BY last_spawn_at DESC"
+            )
+        return [self._row_to_project(r) for r in rows]
+
+    async def get_project(self, name: str) -> SwarmProject | None:
+        return await self._load_project(self._slugify(name)[:60] or name)
+
+    async def archive_project(self, name: str, reason: str = "") -> bool:
+        """Mark a project archived. Worktree on disk is left intact for now —
+        prune it manually if you want the disk space back."""
+        slug = self._slugify(name)[:60] or name
+        proj = await self._load_project(slug)
+        if not proj:
+            return False
+        proj.status = "archived"
+        if reason:
+            proj.metadata["archive_reason"] = reason
+        await self._persist_project(proj)
+        return True
+
+    async def _load_project(self, name: str) -> SwarmProject | None:
+        rows = await self._db.execute(
+            "SELECT * FROM swarm_projects WHERE name = ?", (name,)
+        )
+        if not rows:
+            return None
+        return self._row_to_project(rows[0])
+
+    async def _persist_project(self, proj: SwarmProject) -> None:
+        await self._db.execute_insert(
+            """INSERT INTO swarm_projects
+               (name, repo_kind, repo, worktree_path, main_branch, last_branch,
+                last_pr_url, last_agent_id, agents_run, status, created_at,
+                last_spawn_at, description, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(name) DO UPDATE SET
+                 repo_kind = excluded.repo_kind,
+                 repo = excluded.repo,
+                 worktree_path = excluded.worktree_path,
+                 main_branch = excluded.main_branch,
+                 last_branch = excluded.last_branch,
+                 last_pr_url = COALESCE(excluded.last_pr_url, swarm_projects.last_pr_url),
+                 last_agent_id = excluded.last_agent_id,
+                 agents_run = excluded.agents_run,
+                 status = excluded.status,
+                 last_spawn_at = excluded.last_spawn_at,
+                 description = excluded.description,
+                 metadata_json = excluded.metadata_json""",
+            (
+                proj.name,
+                proj.repo_kind,
+                proj.repo,
+                proj.worktree_path,
+                proj.main_branch,
+                proj.last_branch,
+                proj.last_pr_url,
+                proj.last_agent_id,
+                proj.agents_run,
+                proj.status,
+                proj.created_at,
+                proj.last_spawn_at,
+                proj.description,
+                json.dumps(proj.metadata),
+            ),
+        )
+
+    @staticmethod
+    def _row_to_project(row: Any) -> SwarmProject:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            metadata = {}
+        return SwarmProject(
+            name=row["name"],
+            repo_kind=row["repo_kind"],
+            repo=row["repo"],
+            worktree_path=row["worktree_path"],
+            main_branch=row["main_branch"] or "main",
+            last_branch=row["last_branch"],
+            last_pr_url=row["last_pr_url"],
+            last_agent_id=row["last_agent_id"],
+            agents_run=int(row["agents_run"] or 0),
+            status=row["status"] or "active",
+            created_at=row["created_at"] or "",
+            last_spawn_at=row["last_spawn_at"] or "",
+            description=row["description"] or "",
+            metadata=metadata,
+        )
+
+    async def _continue_in_project(self, proj: SwarmProject, branch_name: str) -> str:
+        """Reuse a project's worktree for a follow-up spawn.
+
+        - Verify the worktree still exists on disk; rebuild if it's gone.
+        - For github-backed projects: fetch + reset to origin/<main_branch>
+          if the previous PR has been merged, so updates start from latest
+          merged code, not stale feature-branch state.
+        - For local-only projects: just checkout the new branch off whatever
+          is currently HEAD (no remote, nothing to fetch).
+        - For self-dev: behave like local (no remote rebase).
+        """
+        work_dir = proj.worktree_path
+        wt_path = Path(work_dir)
+        if not wt_path.exists() or not (wt_path / ".git").exists():
+            # Worktree was deleted manually; rebuild from scratch.
+            logger.warning(
+                "Project '%s' worktree missing at %s — rebuilding",
+                proj.name,
+                work_dir,
+            )
+            if proj.repo_kind == "github" and proj.repo:
+                work_dir = await self._resolve_work_dir(
+                    proj.repo, branch_name, "rebuild"
+                )
+            else:
+                work_dir = await self._resolve_work_dir("new", branch_name, "rebuild")
+            proj.worktree_path = work_dir
+            return work_dir
+
+        if proj.repo_kind == "github" and proj.repo:
+            # Discard any uncommitted in-progress work, fetch, jump to main
+            # before branching. We accept the data loss here because the
+            # only way uncommitted work persists between spawns is the
+            # previous agent crashed; that work isn't reliable.
+            await self._run_shell(f"git -C {work_dir} reset --hard")
+            await self._run_shell(f"git -C {work_dir} fetch origin")
+            await self._run_shell(f"git -C {work_dir} checkout {proj.main_branch}")
+            await self._run_shell(
+                f"git -C {work_dir} reset --hard origin/{proj.main_branch}"
+            )
+            await self._run_shell(f"git -C {work_dir} checkout -b {branch_name}")
+        else:
+            # Local-only or self-dev: no remote. Branch off whatever HEAD is.
+            # Keep uncommitted changes (the user might have made edits).
+            await self._run_shell(f"git -C {work_dir} checkout -b {branch_name}")
+
+        return work_dir
 
     # ── Working Directory Resolution ────────────────────────────────
 
@@ -1128,3 +1392,37 @@ class SwarmManager:
         text = re.sub(r"[^\w\s-]", "", text)
         text = re.sub(r"[-\s]+", "-", text)
         return text.strip("-")
+
+    async def _auto_project_name(self, task: str) -> str:
+        """Derive a unique project slug from a task description.
+
+        Strips the leading verb ("build a", "create", "make") so a task like
+        "build a wellness tracker app" becomes ``wellness-tracker-app`` rather
+        than ``build-a-wellness-tracker-app`` — that way "add login to wellness
+        tracker app" is more likely to match a previous spawn semantically.
+
+        If the slug collides with an existing project, suffixes -2, -3, etc.
+        Callers can still pass an explicit project name to take full control.
+        """
+        cleaned = re.sub(
+            r"^\s*(build|create|make|ship|set up|setup|develop|design)"
+            r"\s+(me\s+)?(a|an|the)?\s*",
+            "",
+            task.strip(),
+            flags=re.IGNORECASE,
+        )
+        base = self._slugify(cleaned)[:60] or self._slugify(task)[:60] or "project"
+
+        # Collision dedup
+        if not await self._load_project(base):
+            return base
+        n = 2
+        while True:
+            candidate = f"{base}-{n}"[:60]
+            if not await self._load_project(candidate):
+                return candidate
+            n += 1
+            if n > 100:  # implausible; bail with timestamp
+                from datetime import datetime as _dt
+
+                return f"{base[:50]}-{_dt.now(UTC).strftime('%H%M%S')}"

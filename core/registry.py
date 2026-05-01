@@ -323,6 +323,8 @@ class ToolRegistry:
         self.register(TotpDeleteTool())
 
         # Swarm tools (agent orchestration)
+        from tools.swarm.archive_project_tool import SwarmArchiveProjectTool
+        from tools.swarm.list_projects_tool import SwarmListProjectsTool
         from tools.swarm.redirect_tool import SwarmRedirectTool
         from tools.swarm.spawn_tool import SwarmSpawnTool
         from tools.swarm.status_tool import SwarmStatusTool
@@ -332,6 +334,8 @@ class ToolRegistry:
         self.register(SwarmStatusTool())
         self.register(SwarmRedirectTool())
         self.register(SwarmStopTool())
+        self.register(SwarmListProjectsTool())
+        self.register(SwarmArchiveProjectTool())
 
         # Organization tools (persistent specialist agents)
         from tools.organization.delegate_tool import OrganizationDelegateTool
