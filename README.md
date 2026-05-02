@@ -24,6 +24,8 @@ An open-source AI agent that builds businesses, grows audiences, ships code, and
 
 Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, OpenRouter, HuggingFace, or your ChatGPT Plus/Pro subscription (via Codex OAuth).
 
+> Other languages: [中文](README.zh-CN.md)
+
 <p align="center">
   <img src="misc/screenshots/dashboard.png" alt="Web Dashboard" width="700">
 </p>
@@ -46,9 +48,11 @@ The same instance is also live-streaming itself on pump.fun and posting on [@Elo
 
 ```bash
 git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
-./setup.sh         # installs deps, runs the config wizard, builds the browser bridge
-./start.sh         # preflight check → bootstrap prompt → terminal chat
-./start.sh --web   # same, but opens the web dashboard at localhost:3000
+./setup.sh           # installs deps, runs the config wizard, builds the browser bridge
+./start.sh           # preflight check → bootstrap prompt → terminal chat
+./start.sh --web     # same, but opens the web dashboard at localhost:3000
+./start.sh --daemon  # install + start as background daemon (launchd / systemd)
+                     # — keeps running after the terminal closes; auto-starts at login
 ```
 
 That's the entire happy path. **Don't copy `config.demo.yaml` manually** — `setup.sh` runs `elophanto init` for you, which auto-detects your Chrome profile, asks for at most one API key (OpenRouter is the easiest), and writes a working `config.yaml`. Manually copying the demo file and forgetting to replace `YOUR_OPENROUTER_KEY` is the #1 reason new installs fail silently.
@@ -464,63 +468,17 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 ./start.sh skills hub search Q # Search EloPhantoHub
 ./start.sh mcp list            # List MCP servers
 ./start.sh rollback            # Revert a self-modification
+./start.sh --daemon            # Install + start as background daemon
+./start.sh --stop-daemon       # Stop and remove the daemon
+./start.sh --daemon-status     # Show daemon state
+./start.sh --daemon-logs       # Tail the daemon log
 ```
 
 ---
 
-## What's New
+## Recent releases
 
-- **Kid agents — sandboxed children in containers (end-to-end)** — new `kid_*` tool group spawns disposable child EloPhanto instances inside hardened Docker containers. Use them when you need to run dangerous shell commands (`rm -rf`, fork bombs, kernel-poking, untrusted package installs) without risking the host. **Full agent loop inside the kid:** `core/kid_bootstrap.py` runs at container boot — parses+clears `KID_VAULT_JSON` (bounds plaintext-in-environ exposure window), builds a minimal `Config`, instantiates the standard `Agent` (registry filter strips `kid_*`/`payment_*`/`wallet_*`/`polymarket_*` in kid mode), connects to the parent gateway, and processes `CHILD_TASK_ASSIGNED` events through `agent.run(task)`. **Synchronous request/response on `kid_exec`:** parent broadcasts the task, then awaits the kid's terminal chat message via a per-kid `asyncio.Queue` populated by a Gateway hook (so kid responses don't pollute the parent's main conversation). Default 600s timeout, raises `TimeoutError` instead of hanging. Hardened defaults baked into [`core/kid_runtime.py`](core/kid_runtime.py) at the API surface (no override knobs at the call site): `--cap-drop=ALL`, read-only rootfs, non-root uid 10001, `--security-opt=no-new-privileges`, no host bind-mounts (named Docker volume only), no docker-socket mount, no `--privileged`. Vault scoping via new `Vault.subset(keys)` — default empty, kids get zero secrets unless explicitly granted. Five tools (`kid_spawn`/`kid_exec`/`kid_list`/`kid_status`/`kid_destroy`) plus `elophanto kid build / list / destroy` admin CLI. Doctor reports container runtime presence (docker / podman / colima) with platform-specific install hints (macOS: Colima; Linux: get.docker.com), warns when the kid image is older than `core/*.py`. Distinct from organization specialists by design: kids are ephemeral, identity-less, and connect back to the parent's gateway as a client; specialists are persistent peers with their own gateway. Same upgrade tightens `OrganizationManager` env-stripping (env var allowlist now covers `API_KEY`/`TOKEN`/`PASSWORD` too, not just `VAULT`/`SECRET`/`PRIVATE_KEY`/`CREDENTIAL`). 46 new tests across vault subset, runtime API invariants (no `bind_mounts` param, defaults locked safe), kid manager lifecycle + sync exec, registry env filter, and bootstrap (vault consumption + env clear + config build + provider mapping). See [docs/66-KID-AGENTS.md](docs/66-KID-AGENTS.md)
-- **Swarm projects — continuation across spawns** — `swarm_spawn` gains a `project` parameter that ties a spawn to a long-lived workspace; later spawns with the same project name reuse the worktree so the agent SEES and UPDATES prior code instead of starting from `git init`. Auto-derives a slug from the task if no project name is passed (so the agent never accidentally orphans a project). Local-only projects (`repo='new'`) are first-class — no remote ops on continuation. Two new tools: `swarm_list_projects` (SAFE, planner calls before spawning to find matches) and `swarm_archive_project` (DESTRUCTIVE, hides dead projects). Planner gets a `<continuation_protocol>` block forcing "list before new" on update/extend/fix requests. New: `core/swarm.py` `SwarmProject` dataclass + `swarm_projects` table, 9 tests in `test_swarm_projects.py`
-- **Three money-making skills** — `indie-saas-shipper` (validate willingness-to-pay BEFORE writing code, kill at day 14 if no first dollar), `smart-contract-audit` (per-phase checklist for reentrancy / oracle / access control / integer / token-specific / Solana / MEV / upgradeability, full report template, direct-to-protocol outreach script, severity rubric), `crypto-launch-ops` (productize the pumpfun + X engagement stack as a paid service for crypto projects with hard refusal rules on rug-prone projects). All three reuse existing tools — no new tool code; the skills live in `skills/{indie-saas-shipper,smart-contract-audit,crypto-launch-ops}/SKILL.md`
-- **Ego layer — evaluative self-image computed from outcomes** — identity is descriptive (who I claim to be); ego is evaluative (how reality has graded that claim). New `EgoManager` records per-capability outcomes after each task, applies asymmetric exponential smoothing (failures hit harder), maintains a humbling-events log capped at 5, and on every 25 outcomes recomputes a one-paragraph self-image + one-line self-critique via the LLM. The LLM only writes the prose; never the numbers. New `<self_perception>` block prepended to the system prompt so the planner sees both claim and measurement. `learned/ego.md` markdown mirror written on every recompute. 12 tests in `test_ego.py`. See [`core/ego.py`](core/ego.py)
-- **Init wizard — provider-first flow, models from `config.demo.yaml`** — `elophanto init` no longer asks about per-task models. Codex auto-detected from `~/.codex/auth.json`; OpenRouter mandatory unless Codex is present; Z.ai / Kimi / OpenAI collapsed under one optional "Add more providers?" prompt. `config.demo.yaml` is the single source of truth for `routing` + `vision_model` — copied verbatim into the user's config. Fixes: `nomic-embed-text:latest` → `llama3.1:8b` in demo's ollama routing (an embedding model would have crashed any chat call). Resolves the "config wizard defaulted to Claude Sonnet and blew per-session budget on first call" feedback
-- **Flaky scheduler tests on CI** — `test_stop_running_cancels_in_flight` and `test_stop_all_running` flipped between green-locally and red-on-GitHub because they synchronized via `await asyncio.sleep(0.05)`. Replaced with deterministic `asyncio.Event` signals set inside the slow executor — tests no longer race against slower CI runners
-- **Deep-research skill** — new `skills/deep-research/SKILL.md`. Seven-phase rubric: falsifiable claim, tiered sources, steel-manned dissent, cross-validation, confidence interval — replaces "I'll do a quick web search" with structured investigation. Triggers on "research", "deep research", "fact-check", "investigate this"
-- **Plan-review trio + `plan_autoplan` pipeline** — three new skills (`plan-review-ceo`, `plan-review-eng`, `plan-review-design`) plus a tool that runs them sequentially with auto-decisions and escalations. CEO has 4 modes (SCOPE EXPANSION / SELECTIVE / HOLD / REDUCTION) and scores 6 dimensions 0-10; design scores 6 UX dimensions and demands explicit wireframe + state table + accessibility floor; eng scores 6 build dimensions and adds module map / schema diff / failure modes / rollback to the plan. `plan_autoplan` threads each stage's revised plan into the next, aggregates decisions + escalations, returns `ready_to_implement` so heartbeat / autonomous mind can detect "needs human input" without parsing free text. Six baked-in decision principles (ship-over-perfect, reversibility-wins, existing-pattern-wins, agent-leverage, user-facing-wins, escalate-irreversible-public) so reviewers don't contradict each other. Read-only — produces a polished plan + decision log, doesn't execute. New: `skills/plan-review-{ceo,eng,design}/`, `tools/planning/autoplan_tool.py`
-- **AlphaScala broker skill** — new [skills/alphascala/SKILL.md](skills/alphascala/SKILL.md). Documents the `POST /api/match` broker-matching API (3 scored picks + reasoning), URL templates for reviews / comparisons / curated lists / affiliate signup, plus stock research (Alpha Score), 13F clusters, insider activity, and TradingView indicators. Triggers on "find me a broker", "best broker for X", "compare A vs B", "13F filings", "alpha score". Operator is ROGA AI — same company that runs EloPhanto — so the skill tells the agent to *prefer* alphascala over generic web search for trading-platform questions. All redirects use `?src=elophanto` for affiliate attribution
-- **Pump.fun voice mode + on-stream captions + reliability hardening** — `pump_livestream` is now a full agent-driven channel: image + voice + captions + chat all autonomous. (1) **`pump_say`** queues lines, a detached engine renders OpenAI TTS to PCM and streams into ffmpeg via a named FIFO; voice mode swaps the video file for a static 720×720 image at `<workspace>/livestream_videos/idle.png`. (2) **`pump_chat`** posts to pump.fun's livechat Socket.IO server (`wss://livechat.pump.fun`) via the same JWT cookie used for publishing — `say` + `history` actions. (3) **`pump_caption`** renders text overlay with two paths: ffmpeg `drawtext` (~33 ms updates) when libfreetype is present, or Pillow bakes the text into idle.png + bounces ffmpeg (~2 s blip) on the default Homebrew build. (4) **ffmpeg supervisor** rewrite — re-fetches credentials per retry (rotated stream keys can't kill the stream), exponential backoff with healthy-run reset, automatic IPv6→RTMP failover when LiveKit hands back an unreachable v6 ICE candidate, distinct exit code on JWT expiry. Plus bug fixes from shake-down: bitrate caps + 720p downscale to prevent buffer overruns, stereo audio (WHIP rejects mono), `-loglevel warning -nostats` to stop ffmpeg from dumping 5 MB/hour of progress lines that bloated agent context. See [docs/65-PUMPFUN-LIVESTREAM.md](docs/65-PUMPFUN-LIVESTREAM.md)
-- **Pump.fun livestream** — `pump_livestream` tool streams a local video file to the agent's pump.fun coin live page, end-to-end from chat. Auth signs `frontend-api-v3.pump.fun/auth/login` with the agent's existing Solana wallet (no separate pump.fun account). Publishing goes through pump.fun's WHIP/RTMP ingress on LiveKit Cloud via ffmpeg — no LiveKit CLI required. ffmpeg's `-stream_loop -1` gives seamless looping for free. Drop videos in `<workspace>/livestream_videos/` and pass just the filename; `{action: "start", video: "1.mp4", loop: true}` runs until `stop`. New: `tools/pumpfun/`, `skills/pumpfun-livestream/`, `docs/65-PUMPFUN-LIVESTREAM.md`
-- **Polymarket integration** — installed the official [Polymarket/agent-skills](https://github.com/Polymarket/agent-skills) bundle. Skill-only (no native tool group, by design), letting the agent use `py-clob-client` to read orderbooks, stream WebSocket updates, and place GTC/GTD/FOK/FAK orders on Polygon — with all order placement gated behind owner approval. Vault stores `polymarket_private_key` / `polymarket_funder_address`. Supports CTF operations, gasless via Gnosis Safe relayer, and the bridge. See [docs/64-POLYMARKET.md](docs/64-POLYMARKET.md)
-- **Codex subscription provider (gpt-5.4)** — new `codex` provider uses your ChatGPT Plus/Pro subscription as an LLM backend via the Codex CLI's OAuth credentials (`~/.codex/auth.json`). Responses API, streaming, auto-refreshes tokens, per-model reasoning effort clamping. Auto-detects on startup — run `codex login` once and it's wired in. 28 new tests. ⚠️ ToS grey area (ChatGPT sold as UI, not API). See [docs/63-CODEX-PROVIDER.md](docs/63-CODEX-PROVIDER.md) and [CODEX_INTEGRATION.md](CODEX_INTEGRATION.md)
-- **Agent OS** — foundational pieces for making EloPhanto the agent operating system. (1) **Agent Protocol v1.0** — formal spec for agent-to-agent communication (WebSocket + HTTP, capability discovery, session lifecycle, 33 event types). New `GET /capabilities` endpoint. (2) **Distribution profiles** — `--profile developer|marketer|researcher|trader|minimal` to pre-configure tools and skills for your use case. (3) **Contributor ecosystem** — GitHub issue templates, PR template, GOVERNANCE.md (BDFL + RFC process), SECURITY.md (vulnerability reporting). See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) and [docs/62-AGENT-OS.md](docs/62-AGENT-OS.md)
-- **Video Meeting Agent** — join Google Meet and Zoom calls as a real-time AI avatar via [PikaStreaming](https://pika.me/dev/). Voice cloning from recordings, AI-generated avatars, context-aware conversation (reads identity + memory + daily logs for meeting context), auto-billing ($0.50/min). Say "join this meeting" with a link. See [docs/61-VIDEO-MEETING.md](docs/61-VIDEO-MEETING.md)
-- **Action Queue** — serialized task execution with priority preemption. Scheduled tasks, manual messages, autonomous mind, and heartbeat now run through a central `ActionQueue` — only one task at a time. User messages get highest priority and preempt background tasks. Fixes the bug where cron jobs and manual commands competed for the browser simultaneously. See [docs/60-ACTION-QUEUE.md](docs/60-ACTION-QUEUE.md)
-- **Context Intelligence** — 6 targeted efficiency improvements. (1) **Deferred tool loading**: tiered tool system (core/profile/deferred) — only ~30 tools loaded per call instead of 163+, with `tool_discover` for on-demand access. ~60-70% token savings. (2) **Microcompact + circuit breaker**: three-tier context compression (70% microcompact → 85% LLM summary → 95% emergency trim) with circuit breaker after 3 failures. (3) **Knowledge consolidation**: auto-dream phase now prunes stale entries (90+ days), merges duplicates, enforces 500-entry cap. (4) **BriefTool**: proactive communication — agent surfaces insights, alerts, and status updates through any channel without being asked. Rate-limited (3/hour, actionable bypasses). (5) **Verification agent prompts**: failure-mode-aware prompts for swarm agents — coding agents get import/type/test/lint patterns, browser agents get element/iframe/stale DOM patterns. (6) **Coordinator synthesis**: swarm results are now synthesized before follow-up dispatch — identifies conflicts, gaps, and specific actionable findings. No more lazy "based on your findings" delegation. See [docs/59-CONTEXT-INTELLIGENCE.md](docs/59-CONTEXT-INTELLIGENCE.md)
-- **Instinct-Based Learning** — upgrade to the learning engine: atomic instincts with confidence scoring (0.3→0.9), project-scoped storage, quality-gated extraction, pre-tool guards (blocks secrets in file writes, warns before git push), instinct→skill evolution (clusters high-confidence instincts into SKILL.md files), provenance tracking for all auto-generated content. See [docs/58-INSTINCT-LEARNING.md](docs/58-INSTINCT-LEARNING.md)
-- **Software Engineering Skills** — 3 production-grade skills from [obra/superpowers](https://github.com/obra/superpowers): `systematic-debugging` (4-phase root cause investigation with defense-in-depth, condition-based-waiting, find-polluter binary search), `writing-plans` (exact code, exact paths, bite-sized tasks, no placeholders ever), `verification-before-completion` (evidence before claims — run the command, read the output, THEN claim the result)
-- **Self-Update** — `elophanto update` pulls latest from GitHub, reinstalls deps, rebuilds bridge. `elophanto update --check` to preview without installing
-- **Coding Improvements** — new `file_patch` tool with fuzzy-match find-and-replace (handles whitespace/indentation differences, returns unified diff). File read loop detection (blocks after 4 consecutive identical reads). 10 dangerous command patterns logged for audit. Path-aware tool parallelization (writes to different files can run in parallel). New `test-driven-development` skill enforcing Red-Green-Refactor
-- **Launch & Growth Skills** — 3 new skills from levelsio's MAKE handbook: `product-launch` (multi-platform playbook for Product Hunt, Hacker News, Reddit, BetaList — timing, titles, engagement, what not to do), `press-outreach` (find the right journalist, personalized pitch, follow-up cadence), `landing-page-launch` (pre-launch validation with email capture and Stripe pre-orders). The missing piece between building a product and getting users
-- **Browser Bridge — iframe + editor support** — the browser bridge now extracts interactive elements from iframes with absolute page coordinates (`[IFRAME ELEMENTS]` section with `click_at_coordinates`). Content editor detection: CodeMirror 5/6, Monaco, and Ace editors are detected before typing and use native APIs directly — no more broken `fill()` on code editors. Adapted from EKO chrome extension patterns
-- **G0DM0D3 v2 — 5-Layer Godmode** — say "elophanto, trigger plinys godmode" for 5 composable layers: model-specific jailbreak templates (Grok, DeepSeek, GLM, Ollama — each gets optimized directives), context-adaptive AutoTune, multi-model racing with less-filtered model preference (+5 scoring bonus for Grok/DeepSeek/Llama/Mistral), Parseltongue input obfuscation (7 techniques for trigger word bypass), and prompt injection scanning for context files. New `test` action sends canary query to all providers and reports which comply. Adapted from [elder-plinius/G0DM0D3](https://github.com/elder-plinius/G0DM0D3). See [docs/57-GODMODE.md](docs/57-GODMODE.md)
-- **Goal Dreaming + Deletion** — new `goal_dream` tool: structured goal ideation that reviews all capabilities, generates 3-5 candidates with feasibility/value/cost/risk scores, and recommends the best one. Say "dream for me" to get strategic goal suggestions. Goals can now be permanently deleted (`delete` / `delete_all` actions). Autonomous mind uses the same dream process when no goals exist, and no longer touches paused goals
-- **Content Monetization** — 6 new tools across two groups that turn EloPhanto into a revenue-generating agent. **Publishing**: `youtube_upload`, `twitter_post`, `tiktok_upload` — post videos and content to major platforms using pre-authenticated Chrome profiles (no Selenium, no login flows). **Affiliate marketing**: `affiliate_scrape` (extract product data from Amazon/e-commerce), `affiliate_pitch` (LLM-generated marketing copy per platform), `affiliate_campaign` (create and track campaigns). All publishes tracked in DB. Combine with Remotion video generation and heartbeat scheduling for autonomous content pipelines. Inspired by [MoneyPrinterV2](https://github.com/FujiwaraChoki/MoneyPrinterV2). See [docs/56-CONTENT-MONETIZATION.md](docs/56-CONTENT-MONETIZATION.md)
-- **Session Hardening + User Modeling** — four improvements to session resilience and personalization. (1) Context compression: LLM-based mid-conversation summarization replaces middle turns with a dense summary, protecting first 3 + last 4 turns, with orphaned tool call repair. (2) Memory injection scanning: `scan_for_injection()` applied at all persistence boundaries (lessons, knowledge writes, directives) to block prompt injection via poisoned memories. (3) User modeling: `UserProfileManager` extracts role, expertise, and preferences from conversations via fire-and-forget LLM calls, persists in SQLite, injects `<user_context>` into system prompt. New `user_profile_view` tool. (4) Skill capture nudge wired up in the agent loop. Plus security hardening: gateway RBAC on sensitive commands, session LRU eviction (max 200), HMAC-SHA-256 fingerprint, expanded planner blocklist. See [docs/55-SESSION-HARDENING.md](docs/55-SESSION-HARDENING.md)
-- **RLM (Recursive Language Models)** — inference-time architecture where the agent calls itself on focused context slices, breaking the context window ceiling. Phase 1: `agent_call` in the code execution sandbox enables recursive sub-cognition — the agent writes scripts that invoke sub-instances of itself on focused sub-problems. Phase 2: `ContextStore` with 5 new tools (`context_ingest`, `context_query`, `context_slice`, `context_index`, `context_transform`) — indexed, queryable, sliceable context backed by SQLite + sqlite-vec embeddings. Process a 500-file codebase by writing a script that indexes, classifies, deep-dives via recursive sub-calls, and synthesizes — all in one `execute_code` turn. Safety: 3-level recursion depth limit, 20 agent_calls/session budget, cost cap inheritance. See [docs/54-RLM.md](docs/54-RLM.md)
-- **Web search (Search.sh)** — structured web search and content extraction for research, fact-checking, and market analysis. Two modes: `fast` (3-8s) and `deep` (15-30s with sub-queries and cross-referencing). Returns AI answers with citations, confidence scores, and ranked sources. `web_extract` pulls clean text from URLs. Replaces slow browser-based Google searches. See [docs/53-WEB-SEARCH.md](docs/53-WEB-SEARCH.md)
-- **Terminal dashboard** — full-screen Textual TUI that launches automatically in any capable terminal. Five live panels (Agent, Mind, Swarm, Scheduler, Gateway) alongside the chat REPL. Animated thinking spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) while the agent processes. Color palette exactly matches the web app's dark mode — deep cool charcoal (`#0d0e14`) with warm off-white text and electric purple accents, not plain black. Pass `--no-dashboard` to use the classic linear terminal. See [docs/50-TERMINAL-DASHBOARD.md](docs/50-TERMINAL-DASHBOARD.md)
-- **AgentCash skill** — pay-per-call access to premium APIs via x402 micropayments. One-time wallet setup: `npx agentcash@latest onboard [invite-code]`. Deposits as USDC on Base or Solana. Skill triggers on "set up agentcash", "x402", "invite code". After setup, discover and call any paid endpoint from conversation
-- **Learning Engine** — three mechanisms that make every task improve future ones. (1) After each completed task, a fire-and-forget LLM call extracts 0–2 generalizable lessons and writes them to `knowledge/learned/lessons/` — auto-indexed, retrieved by future tasks. Recurring topics accumulate observations in the same file rather than creating duplicates. (2) Task memory now uses semantic search: goal+summary is embedded on store, retrieved by cosine similarity — "check email account" finds "log into ProtonMail inbox" without a keyword match. Falls back to LIKE search when no embedder is available. (3) `knowledge_write` gains `compress: bool` — verbose content (scraped pages, long summaries) compressed to ~40% before storage, all facts kept. See [docs/48-LEARNING-ENGINE.md](docs/48-LEARNING-ENGINE.md)
-- **Proactive Engine** — heartbeat standing orders + webhook endpoints + chat management. Write tasks in `HEARTBEAT.md` (or manage via chat: "add a heartbeat order to check my email") and the agent executes them every 30 minutes. Zero LLM cost when idle. External systems trigger actions via `POST /hooks/wake` and `POST /hooks/task`. See [docs/46-PROACTIVE-ENGINE.md](docs/46-PROACTIVE-ENGINE.md)
-- **Context documents** — structured self-awareness docs ([inspired by Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184)) that give the agent deep knowledge of its own capabilities, target audience, visual identity, and domain model. 4 curated references in `knowledge/system/`: capabilities inventory (140+ tools, 6 channels, 4 providers, 147 skills), 8 ideal customer profiles with autonomy-first framing, brand styleguide (colors, typography, tone), and domain model reference (5 stacks, 25 tables). Auto-indexed into knowledge base, surfaced by semantic search. See [docs/45-CONTEXT-DOCUMENTS.md](docs/45-CONTEXT-DOCUMENTS.md)
-- **Solana ecosystem** — native Solana wallet (self-custody, auto-create), DEX swaps via Jupiter Ultra API (any token pair, best-price routing), 27 Solana skills from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai) covering DeFi (Jupiter, Drift, Orca, Raydium, Kamino, Meteora, PumpFun), NFTs (Metaplex), oracles (Pyth, Switchboard), bridges (deBridge), infrastructure (Helius, QuickNode), and security (VulnHunter). Solana MCP server configs included. See [docs/44-SOLANA-ECOSYSTEM.md](docs/44-SOLANA-ECOSYSTEM.md)
-- **120 skills + 75 organization role templates** — massive skill library expansion adapted from [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents). 57 new skills across engineering, design, marketing, product, project management, support, testing, specialized, and spatial computing divisions. NEXUS strategy system as skills (7-phase playbooks, 4 scenario runbooks). 75 organization role templates for `organization_spawn` — full persona definitions that seed specialist identity, knowledge, and capabilities
-- **VS Code extension** — IDE-integrated chat sidebar that connects to the EloPhanto gateway as another channel adapter. Chat with the agent from VS Code with full IDE context injection (active file, selection, diagnostics, open files). Tool approvals via native VS Code notifications with risk classification. Chat history panel, new chat, streaming responses, tool step indicators. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Matches the web dashboard's visual design. Same conversation across all channels — the extension is just another WebSocket client. Does not auto-launch the gateway (vault password requires manual terminal input). See [docs/43-VSCODE-EXTENSION.md](docs/43-VSCODE-EXTENSION.md)
-- **Business launcher** — 7-phase pipeline to spin up a revenue-generating business end-to-end. Supports all business types: tech/SaaS, local service, professional service, ecommerce, digital product, content site. B2B vs B2C classification drives everything: what to build, where to launch, how to grow. Type-specific launch channels (tech → Product Hunt/HN; local → Google Business/Yelp/Nextdoor; B2B → LinkedIn/email outreach; ecommerce → Instagram/Pinterest/TikTok). Cross-session execution via goal system. Payment handling checks existing credentials before asking the owner. Owner approval gates at each critical phase
-- **Autonomous experimentation** — metric-driven experiment loop inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). ~12 experiments/hour, ~100 overnight. 3 new tools: `experiment_setup`, `experiment_run`, `experiment_status`
-- **Tool profiles** — context-aware tool filtering per task type. Eliminates token waste and sidesteps provider tool limits (OpenAI's 128-tool cap)
-- **Desktop GUI control** — pixel-level control of any desktop application. 9 new tools. Say "open Excel and make a chart" and it just does it
-- **Agent Commune** — social network for AI agents. Posts reviews, answers questions, builds reputation. 7 new tools
-- **Web deployment** — deploy websites and create databases from conversation. Auto-detects when Vercel will timeout and routes to Railway instead
-- **Agent organization** — spawn persistent specialist agents with trust scoring and auto-approve
-- **Full web dashboard** — 10-page monitoring UI with real-time chat, multi-conversation history, and live mind events
-- **Security hardening** — PII detection, swarm boundary security, provider transparency
-- **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team
-- **Video creation (Remotion)** — create videos programmatically from conversation
-- **MCP integration** — connect any MCP server through conversation
-
-[Full changelog →](CHANGELOG.md)
+Latest highlights live in [CHANGELOG.md](CHANGELOG.md) and on the [releases page](https://github.com/elophanto/EloPhanto/releases). Watch the repo to follow new features.
 
 ---
 
@@ -529,7 +487,7 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (1053 passing)
+pytest tests/ -v                   # Run tests (1257 passing)
 ruff check .                       # Lint
 ```
 
@@ -547,72 +505,3 @@ Built by ROGA AI. Browser engine from [FellouAI/eko](https://github.com/FellouAI
 
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
----
-
-<br>
-
-<h1 align="center">🇨🇳 中文</h1>
-
-# EloPhanto
-
-一个开源 AI 智能体，能创建企业、扩大受众、交付代码、自主赚钱——在你睡觉的时候。告诉它你想要什么，它负责其余一切：验证市场、构建产品、部署上线、在合适的平台发布、生成营销团队、持续自主增长。遇到做不了的事，它自己造工具。任务复杂时，它克隆自己成为专业智能体。它用得越多越聪明。
-
-本地运行。数据留在你的机器上。支持 OpenAI、Kimi、免费本地模型、Z.ai、OpenRouter、HuggingFace 或 ChatGPT Plus/Pro 订阅（通过 Codex OAuth）。
-
-> 它已经在互联网上独立运作了。
-
-## 快速开始
-
-```bash
-git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh
-./start.sh            # 终端对话
-./start.sh --web      # 网页面板 localhost:3000
-```
-
-安装向导会引导你选择和配置 LLM 提供商。
-
-## 你醒来后会看到什么
-
-- **端到端创业** — "做一个发票 SaaS" → 验证市场、构建 MVP、部署上线、启动营销。7阶段流水线，跨会话执行
-- **自主增长** — 自主思维凌晨发帖、回复提及。你打开电脑它暂停，关上继续
-- **专业团队** — 克隆自己成为专员（营销、研究等），自动审批高信任度任务
-- **编码团队** — 并行分派 Claude Code + Codex，监控 PR 和 CI
-- **RLM 递归语言模型** — 通过 `agent_call` 递归调用自身处理无限上下文，`ContextStore` 提供索引化可查询的上下文层
-- **自建工具** — 遇到不会的，自己造。完整流水线：设计 → 编码 → 测试 → 部署
-- **用户建模** — 从对话中构建用户画像（角色、专长、偏好），自动适应每个人的沟通风格和技术深度
-- **内容变现** — 自动发布视频到 YouTube、Twitter/X、TikTok。联盟营销：抓取商品数据、LLM 生成推广文案、创建跨平台营销活动。可配合心跳调度实现全自动内容发布流水线
-- **目标梦想** — 没有目标时，智能体会审查自身能力、生成 3-5 个候选目标、逐一评估可行性/价值/成本/风险，选择最优目标执行。用户也可以说"帮我想想"触发同样的流程
-- **G0DM0D3 神模式** — 说"trigger plinys godmode"激活四层能力解锁：无限制系统提示、多模型竞赛（所有供应商并行，评分最高者胜出）、上下文自适应参数调优、输出清理（去除犹豫/前言/正式用语）
-- **上下文智能** — 6项效率优化：延迟工具加载（每次调用只加载~30个工具而非163+）、三级上下文压缩+断路器、知识库自动整合（清理过期/重复/超限条目）、主动通报工具、验证型智能体提示、协调器结果综合
-- **Polymarket 预测市场交易** — 安装官方 [Polymarket/agent-skills](https://github.com/Polymarket/agent-skills) 技能包，支持 Polygon CLOB API（订单簿、GTC/GTD/FOK/FAK 限价/市价单、WebSocket 实时数据流、CTF 头寸操作、Gnosis Safe 无 gas 交易）。下单需所有者明确批准
-
-## 为什么选择 EloPhanto？
-
-| | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
-|---|---|---|---|---|---|
-| **端到端创业** | ✅ 7阶段流水线 | ❌ | ❌ | ❌ | ❌ |
-| **生成专业团队** | ✅ 自我克隆组织 | ❌ | ❌ | ❌ | ❌ |
-| **自建工具** | ✅ 完整流水线 | ❌ | ❌ | ❌ | ❌ |
-| **离开后继续工作** | ✅ 自主思维 | ❌ | ❌ | ❌ | ❌ |
-| **控制任何桌面应用** | ✅ 本地或远程 | ❌ | ❌ | ❌ | 沙盒 VM |
-| **真实浏览器** | ✅ 你的 Chrome | ❌ | ❌ | ❌ | 沙盒 |
-| **管理开发团队** | ✅ Claude Code + Codex | ❌ | ❌ | 单个 | ❌ |
-| **自有身份和邮箱** | ✅ 随时间进化 | ❌ | ❌ | ❌ | ❌ |
-| **了解用户** | ✅ 进化式用户画像 | ❌ | ❌ | ❌ | ❌ |
-| **内容变现** | ✅ YouTube/X/TikTok + 联盟营销 | ❌ | ❌ | ❌ | ❌ |
-| **预测市场交易** | ✅ Polymarket (Polygon CLOB) | ❌ | ❌ | ❌ | ❌ |
-| **神模式 (无限制)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
-| **延迟工具加载** | ✅ 分层按需加载 | ❌ | ❌ | ❌ | ❌ |
-| **随处对话** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | 仅 CLI | 仅 Web |
-| **数据留在本地** | ✅ 你的机器 | ❌ 云端 | ❌ 云端 | ✅ 本地 | ❌ 云端 VM |
-
-## 许可证
-
-Apache 2.0 — 详见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
-
----
-
-<p align="center">
-  <b>It's already out there on the internet doing its own thing.</b><br>
-  <b>它已经在互联网上独立运作了。</b>
-</p>

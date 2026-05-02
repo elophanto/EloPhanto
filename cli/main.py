@@ -9,6 +9,7 @@ import click
 
 from cli.bootstrap_cmd import bootstrap_cmd
 from cli.chat_cmd import chat_cmd
+from cli.daemon_cmd import daemon_cmd
 from cli.doctor_cmd import doctor_cmd
 from cli.gateway_cmd import gateway_cmd
 from cli.init_cmd import init_cmd
@@ -40,6 +41,7 @@ cli.add_command(telegram_cmd, "telegram")
 cli.add_command(skills_cmd, "skills")
 cli.add_command(mcp_cmd, "mcp")
 cli.add_command(kid_cmd, "kid")
+cli.add_command(daemon_cmd, "daemon")
 cli.add_command(update_cmd, "update")
 
 
