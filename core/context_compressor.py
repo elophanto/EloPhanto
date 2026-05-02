@@ -95,12 +95,37 @@ def needs_compression(
 def _fix_orphaned_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Fix orphaned tool calls/results after compression.
 
-    If a tool_call message exists without its result (or vice versa),
-    insert a stub to maintain valid message structure.
+    Two failure modes happen when compaction cuts the conversation:
+
+    A. **Tool call without result.** The assistant emitted `tool_calls` but
+       the `role="tool"` response was dropped. Fixed by inserting a stub
+       result so the next API call sees a complete pair.
+
+    B. **Tool result without call.** The `role="tool"` message survived
+       but its parent assistant turn was dropped. Strict APIs (OpenAI
+       Responses, used by Codex) reject this with
+       "No tool call found for function call output with call_id X".
+       OpenRouter is lenient about it, which is why only Codex screams.
+
+    This function handles both. It does a forward pass tracking
+    declared tool_call_ids; any tool message referencing an id we
+    haven't seen is silently dropped (its content is irrecoverable
+    once the parent is gone — better to drop than to invent).
     """
+    # Pre-pass: collect every tool_call_id that an assistant turn
+    # declares ANYWHERE in the surviving history. Dropped parent →
+    # the id never appears here → tool result is orphan B.
+    declared_call_ids: set[str] = set()
+    for msg in messages:
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                tc_id = tc.get("id", "")
+                if tc_id:
+                    declared_call_ids.add(tc_id)
+
     result: list[dict[str, Any]] = []
-    # Track tool_call_ids that have been called vs responded to
-    pending_calls: dict[str, str] = {}  # id -> tool name
+    pending_calls: dict[str, str] = {}  # id → tool name (for orphan A stubs)
+    dropped_orphan_b = 0
 
     for msg in messages:
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
@@ -111,11 +136,16 @@ def _fix_orphaned_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, A
             result.append(msg)
         elif msg.get("role") == "tool":
             tc_id = msg.get("tool_call_id", "")
+            if tc_id and tc_id not in declared_call_ids:
+                # Orphan B — parent assistant turn was dropped. Skip
+                # silently; including this would 400 the next API call.
+                dropped_orphan_b += 1
+                continue
             pending_calls.pop(tc_id, None)
             result.append(msg)
         else:
-            # Before appending a non-tool message, flush any pending tool calls
-            # that never got results (orphaned)
+            # Before appending a non-tool message, flush any pending
+            # tool calls that never got results (orphan A).
             if pending_calls:
                 for orphan_id, orphan_name in pending_calls.items():
                     result.append(
@@ -131,7 +161,7 @@ def _fix_orphaned_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, A
                 pending_calls.clear()
             result.append(msg)
 
-    # Flush any remaining pending calls at the end
+    # Flush any remaining pending calls at the end (orphan A)
     for orphan_id, orphan_name in pending_calls.items():
         result.append(
             {
@@ -142,6 +172,13 @@ def _fix_orphaned_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, A
                     f"— see context summary above]"
                 ),
             }
+        )
+
+    if dropped_orphan_b:
+        logger.info(
+            "Dropped %d orphaned tool results (parent assistant turn was "
+            "trimmed). Required to keep Codex/OpenAI Responses API happy.",
+            dropped_orphan_b,
         )
 
     return result

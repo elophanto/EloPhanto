@@ -269,6 +269,14 @@ def _emergency_trim_messages(messages: list[dict[str, Any]]) -> list[dict[str, A
             ),
         }
         trimmed = [summary_msg] + trimmed[-_OVERFLOW_KEEP_RECENT:]
+        # The blind cut above can leave orphaned tool messages: a
+        # role="tool" whose parent assistant turn (with the matching
+        # tool_calls block) was in the dropped middle. Codex's strict
+        # validator rejects that with 400 "No tool call found for
+        # function call output". Run the pairing fixer.
+        from core.context_compressor import _fix_orphaned_tool_calls
+
+        trimmed = _fix_orphaned_tool_calls(trimmed)
 
     logger.warning(
         "Emergency context trim applied: %d messages remaining after overflow",

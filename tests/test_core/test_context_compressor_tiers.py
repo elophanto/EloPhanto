@@ -98,3 +98,139 @@ class TestEstimateTokens:
 
     def test_long(self) -> None:
         assert _estimate_tokens("a" * 4000) == 1000
+
+
+class TestFixOrphanedToolCalls:
+    """Regression tests for the Codex 400 'No tool call found for function
+    call output with call_id X' bug. Compaction must never leave a tool
+    result whose parent assistant turn is gone."""
+
+    def test_drops_tool_result_when_parent_was_trimmed(self) -> None:
+        """Orphan B: trimmer dropped the assistant turn that emitted
+        tool_call_id 'lost', but kept the matching tool result. Strict
+        APIs (Codex / OpenAI Responses) 400 on this. Fixer must drop it."""
+        from core.context_compressor import _fix_orphaned_tool_calls
+
+        messages = [
+            {"role": "user", "content": "do the thing"},
+            # Assistant turn with tool_calls "lost" was here, then trimmed.
+            {
+                "role": "tool",
+                "tool_call_id": "lost",
+                "content": "result that has no parent",
+            },
+            {"role": "assistant", "content": "i finished"},
+        ]
+        fixed = _fix_orphaned_tool_calls(messages)
+        assert not any(m.get("tool_call_id") == "lost" for m in fixed)
+        assert fixed[0]["role"] == "user"
+        assert fixed[-1]["role"] == "assistant"
+        assert len(fixed) == 2
+
+    def test_preserves_valid_pair(self) -> None:
+        """Sanity: a properly-paired tool call + result must round-trip
+        unchanged."""
+        from core.context_compressor import _fix_orphaned_tool_calls
+
+        messages = [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "ok",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "ok", "content": "done"},
+            {"role": "assistant", "content": "shipped"},
+        ]
+        fixed = _fix_orphaned_tool_calls(messages)
+        assert len(fixed) == len(messages)
+        assert fixed[2]["tool_call_id"] == "ok"
+        assert fixed[2]["content"] == "done"
+
+    def test_inserts_stub_for_unanswered_call(self) -> None:
+        """Orphan A: assistant emitted tool_calls but the result was dropped.
+        Fixer inserts a stub so the pair is complete."""
+        from core.context_compressor import _fix_orphaned_tool_calls
+
+        messages = [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "stub-me",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": "{}"},
+                    }
+                ],
+            },
+            # No tool result here — was trimmed. Fixer should backfill.
+            {"role": "user", "content": "follow-up"},
+        ]
+        fixed = _fix_orphaned_tool_calls(messages)
+        stub = next((m for m in fixed if m.get("tool_call_id") == "stub-me"), None)
+        assert stub is not None
+        assert stub["role"] == "tool"
+        assert "earlier in conversation" in stub["content"]
+
+    def test_drops_orphan_b_keeps_orphan_a_stub(self) -> None:
+        """Both orphan modes in the same trim — drop B, stub A. The
+        survivor list is API-clean."""
+        from core.context_compressor import _fix_orphaned_tool_calls
+
+        messages = [
+            {"role": "tool", "tool_call_id": "ghost", "content": "ghost result"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "real",
+                        "type": "function",
+                        "function": {"name": "f", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "real", "content": "ok"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "missing",
+                        "type": "function",
+                        "function": {"name": "g", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "user", "content": "next"},
+        ]
+        fixed = _fix_orphaned_tool_calls(messages)
+        ids_seen = [m.get("tool_call_id") for m in fixed if m.get("role") == "tool"]
+        assert "ghost" not in ids_seen  # orphan B dropped
+        assert "real" in ids_seen  # valid pair kept
+        assert "missing" in ids_seen  # orphan A stubbed
+
+    def test_emergency_trim_runs_pairing_fixer(self) -> None:
+        """End-to-end: _emergency_trim_messages cuts deep enough to
+        orphan a tool result and must clean it up before returning."""
+        from core.agent import _emergency_trim_messages
+
+        long_msgs: list[dict] = [
+            {"role": "user", "content": f"msg-{i}"} for i in range(50)
+        ]
+        long_msgs.append({"role": "tool", "tool_call_id": "stranded", "content": "x"})
+        long_msgs.append({"role": "assistant", "content": "done"})
+
+        fixed = _emergency_trim_messages(long_msgs)
+        stranded = [m for m in fixed if m.get("tool_call_id") == "stranded"]
+        assert (
+            stranded == []
+        ), "Emergency trim left an orphaned tool result — Codex would 400"
