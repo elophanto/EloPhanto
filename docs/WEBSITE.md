@@ -7,6 +7,93 @@
 
 ---
 
+## Update Plan — v2026.05.02 (current release)
+
+Every change the live site needs since the last update. Each entry maps
+to a section below; the inline sections have already been refreshed,
+this checklist is what the website team ships.
+
+### Hero + Above-the-fold
+
+- **Tagline** stays the same — *"A self-evolving AI agent that lives on your machine."*
+- **One-liner** rewrite: replace *"Local-first, multi-channel, browser-capable, learns as it works."* with **"It carries an evolving identity, builds its own tools, runs sandboxed kids for dangerous work, and keeps running while you sleep."** (this is the [Where it fits](https://github.com/elophanto/EloPhanto#where-elophanto-fits) framing from the new README — three differentiators surfaced in one line.)
+- **Quick install snippet** — add `--daemon` line:
+  ```
+  git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
+  ./setup.sh
+  ./start.sh           # foreground
+  ./start.sh --daemon  # background daemon (launchd / systemd)
+  ```
+- **Stats strip** — bump numbers: **170+ skills · 168+ tools · 6 channels · 1266 tests · 66 docs**.
+
+### Feature grid — add these cards (8 new)
+
+These are the v2026.05.02 wave. Add them; existing cards stay.
+
+| Feature | Description |
+|---------|-------------|
+| **Sandboxed kid agents** | Spawn disposable child instances inside hardened Docker containers to run dangerous shell commands (`rm -rf`, untrusted installs, fork bombs) without touching the host. `--cap-drop=ALL`, read-only rootfs, non-root uid 10001, named-volume only. |
+| **Daemon mode** | `./start.sh --daemon` registers a launchd / systemd user service so the gateway keeps running after the terminal closes. Auto-restarts on crash. Vault password stored in OS keychain. |
+| **Ego layer** | The agent has a felt inner monologue — first-person voice, pride/shame anchored to measured outcomes, narrative continuity across recomputes. By week three, it isn't the same agent you started with. |
+| **Codex (ChatGPT subscription)** | Use your existing ChatGPT Plus/Pro subscription as an LLM backend via Codex CLI's OAuth credentials. Run `codex login` once; auto-detected on startup. |
+| **Polymarket trading** | Places real CLOB orders on Polygon. Auto-detects which proxy wallet (EOA / POLY_PROXY / GNOSIS_SAFE) holds collateral, fetches `tick_size`/`neg_risk` per market. Owner approval gate before USDC moves. |
+| **Pump.fun livestream** | Full multi-modal autonomous channel: video + voice (TTS) + on-stream captions + livechat. Auto-recovery from rotated stream keys, IPv6→RTMP failover. |
+| **Plan-review trio** | Three LLM specialists (CEO / engineering / design) review plans sequentially with auto-decisions and explicit escalations. Each scores 6 dimensions; aggregate `ready_to_implement` flag. |
+| **Swarm projects** | `swarm_spawn(project=<slug>)` reuses an existing worktree so the agent SEES and UPDATES prior code instead of `git init`-ing a fresh one. Local-only or GitHub-backed. |
+
+### Above-fold visual changes
+
+- **Architecture diagram** — add three new lanes (matches the new ASCII in README):
+  - **Kid Manager** below Organization (sandboxed children in containers)
+  - **Ego layer** next to Identity (evolving self-image)
+  - **Daemon supervisor** at the bottom (launchd/systemd)
+- **Screenshots** to add or refresh:
+  - `/start.sh --daemon` install flow
+  - The new `ego.md` rendered (first-person inner monologue)
+  - `kid_spawn → kid_exec` flow in chat
+
+### Docs navigation — add 4 entries
+
+Group additions:
+- **Channels** group → already includes Telegram and VS Code; no new docs here.
+- **Capabilities** group → add **63-CODEX-PROVIDER**, **64-POLYMARKET**.
+- **Advanced** group → add **65-PUMPFUN-LIVESTREAM**, **66-KID-AGENTS**.
+
+### Hub
+
+- **170+ skills** total — previously 147. New skills shipped with this release: `deep-research`, `plan-review-{ceo,eng,design}`, `alphascala`, `pumpfun-livestream`, `indie-saas-shipper`, `smart-contract-audit`, `crypto-launch-ops`, `kid-agents`. The hub auto-imports from `index.json` so this is a re-fetch, no UI work.
+- Add **Money** category filter (covers `indie-saas-shipper`, `smart-contract-audit`, `crypto-launch-ops`, polymarket-related skills).
+- Add **Sandbox** category (covers `kid-agents`).
+
+### Milestones — add v5
+
+```
+### v5 — Persistent identity + sandboxed execution
+- [x] Daemon mode (launchd/systemd) with OS-keychain vault password
+- [x] Ego layer with first-person voice, pride/shame, prior-self continuity
+- [x] Sandboxed kid agents (Docker, hardened defaults, no host bind-mounts)
+- [x] Codex provider (ChatGPT subscription as LLM backend)
+- [x] Polymarket integration (Polygon CLOB)
+- [x] Pump.fun livestream (full multi-modal)
+- [x] Plan-review trio + plan_autoplan
+- [x] Swarm projects (continuation across spawns)
+- [ ] Website: kid agents demo (terminal recording or animated diagram)
+- [ ] Website: ego.md rendered as a "what the agent thinks of itself this week" widget
+- [ ] Website: daemon install copy-paste card
+```
+
+### Copy edits to existing pages
+
+- `/download` — update the `--daemon` install path. Mention OS keychain integration.
+- `/` (landing) — replace the "Multi-channel, browser-capable" summary with the three differentiators (local-first / actually itself / self-extending), matching the README's "Where it fits" section.
+- Footer / "What it does" blurbs — bump tool count from 140+ to 168+ wherever it appears.
+
+### `/blog` — release post
+
+If `/blog` is live, write a v2026.05.02 post linking to the [GitHub release](https://github.com/elophanto/EloPhanto/releases/tag/v2026.05.02). Title suggestion: *"Daemon mode, kid agents, and an actual ego layer (v2026.05.02)"*. Lead paragraph should mirror the GitHub release notes; details below the fold link to docs/65, docs/66, and CHANGELOG.
+
+---
+
 ## Site Map
 
 ```
@@ -39,44 +126,59 @@ api.elophanto.com/
 
 Hero section with:
 - Tagline: **"A self-evolving AI agent that lives on your machine."**
-- One-liner: Local-first, multi-channel, browser-capable, learns as it works.
-- Quick install snippet: `git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh`
+- One-liner: **It carries an evolving identity, builds its own tools, runs sandboxed kids for dangerous work, and keeps running while you sleep.**
+- Quick install snippet:
+  ```
+  git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
+  ./setup.sh
+  ./start.sh           # foreground
+  ./start.sh --daemon  # background daemon (launchd / systemd)
+  ```
 - CTA buttons: **Get Started** → `/download`, **Browse Skills** → `/hub`
 
-Feature grid (14 cards):
+Feature grid (22 cards):
 | Feature | Description |
 |---------|-------------|
-| Local-first | Runs entirely on your machine. Your data stays yours. |
+| Local-first | Runs entirely on your machine. Your data stays yours. Self-custody wallet, encrypted vault, your real Chrome profile. |
+| **Sandboxed kid agents** | Spawn disposable child instances inside hardened Docker containers to run dangerous shell commands (`rm -rf`, untrusted installs, fork bombs) without touching the host. `--cap-drop=ALL`, read-only rootfs, non-root uid 10001. |
+| **Daemon mode** | `./start.sh --daemon` registers a launchd / systemd user service so the gateway keeps running after the terminal closes. Auto-restarts on crash. Vault password stored in OS keychain. |
+| **Ego layer** | The agent has a felt inner monologue — first-person voice, pride/shame anchored to measured outcomes, narrative continuity across recomputes. By week three, it isn't the same agent you started with. |
 | Multi-channel | CLI, Web, VS Code, Telegram, Discord, Slack — one agent, all channels. |
 | VS Code extension | IDE-integrated chat sidebar with context injection — active file, selection, diagnostics. Tool approvals via native notifications. |
 | Browser control | Real Chrome automation with 49 tools using your existing sessions. Stealth mode strips all Playwright automation flags. |
 | MCP tool servers | Connect any MCP server — filesystem, GitHub, databases, Slack, and more. Agent manages setup through conversation. |
 | Self-evolving | Learns from tasks, builds its own tools, evolves its identity. |
-| Skill ecosystem | 147 bundled skills + community hub with one-command install. 27 Solana ecosystem skills, 75 organization role templates. |
+| Skill ecosystem | 170+ bundled skills + community hub with one-command install. 27 Solana ecosystem skills, 75 organization role templates. |
 | Solana ecosystem | Native Solana wallet, Jupiter DEX swaps (any token pair via Ultra API), 27 DeFi/NFT/infra/dev skills from awesome-solana-ai. |
+| **Polymarket trading** | Real CLOB orders on Polygon. Auto-detects which proxy wallet (EOA / POLY_PROXY / GNOSIS_SAFE) holds collateral. Owner approval gate before USDC moves. |
+| **Pump.fun livestream** | Full multi-modal autonomous channel: video + voice (TTS) + on-stream captions + livechat. Auto-recovery from rotated stream keys, IPv6→RTMP failover. |
 | Business launcher | 7-phase pipeline to spin up businesses — SaaS, local service, ecommerce, B2B/B2C with type-aware launch channels. |
-| Multi-model | Claude, GPT-5, OpenAI, OpenRouter, Ollama, Z.ai — smart tool profiles route the right tools per task. |
+| **Plan-review trio** | Three LLM specialists (CEO / engineering / design) review plans sequentially with auto-decisions and explicit escalations. |
+| Multi-model | 7 providers: OpenAI, Codex (ChatGPT subscription), OpenRouter, Kimi, Z.ai, HuggingFace, Ollama. Smart tool profiles route the right tools per task. |
 | Agent email | Own inbox with dual provider support — AgentMail cloud or your SMTP/IMAP server. Attachments supported. |
 | Crypto payments | Solana wallet with Jupiter DEX swaps + Base/EVM wallet via AgentKit. Spending limits, audit trail, preview-before-execute. |
 | Agent organization | Spawn persistent specialist agents (marketing, research, design) — each a full EloPhanto clone with its own identity, knowledge, and autonomous mind. |
+| **Swarm projects** | Cross-spawn continuation — `swarm_spawn(project=<slug>)` reuses an existing worktree so updates SEE prior code instead of starting from scratch. |
 | Web dashboard | 10-page real-time monitoring UI — chat, tools, knowledge, mind, schedule, channels, settings, history. |
+| Doctor preflight | `elophanto doctor` is a green/yellow/red preflight that catches placeholder API keys, missing Chrome profile paths, uninitialised vault, missing container runtime. |
 
-Architecture diagram (simplified visual version of the ASCII one in README).
+Architecture diagram (simplified visual version of the ASCII one in README — includes Kid Manager, Ego layer, and Daemon supervisor).
 
-Stats strip: **147 skills** · **140+ tools** · **6 channels** · **MCP support** · **47 docs**.
+Stats strip: **170+ skills** · **168+ tools** · **6 channels** · **1266 tests** · **66 docs**.
 
 ### 2. Documentation (`/docs`)
 
 Auto-rendered from the `docs/` folder in the repo. Each `*.md` file becomes a page.
 
 Left sidebar navigation grouped by category:
-- **Getting Started** — 01-PROJECT-OVERVIEW, 02-ARCHITECTURE
+- **Getting Started** — 01-PROJECT-OVERVIEW, 02-ARCHITECTURE, 30-QUICKSTART
 - **Core Systems** — 03-TOOLS, 04-SELF-DEVELOPMENT, 05-KNOWLEDGE-SYSTEM, 06-LLM-ROUTING, 07-SECURITY, 08-BROWSER
-- **Infrastructure** — 09-PROJECT-STRUCTURE, 10-ROADMAP, 12-INSTALLER
+- **Infrastructure** — 09-PROJECT-STRUCTURE, 10-ROADMAP, 12-INSTALLER, 22-RECOVERY-MODE
 - **Channels** — 11-TELEGRAM, 43-VSCODE-EXTENSION
-- **Ecosystem** — 13-SKILLS, 13-GOAL-LOOP, 14-SELF-LEARNING, 19-SKILL-SECURITY, 44-SOLANA-ECOSYSTEM
-- **Capabilities** — 15-PAYMENTS, 16-DOCUMENT-ANALYSIS, 17-IDENTITY, 18-EMAIL, 23-MCP, 42-BUSINESS-LAUNCHER
-- **Advanced** — 27-SECURITY-HARDENING, 37-AUTONOMOUS-EXPERIMENTATION, 38-SESSION-SEARCH, 39-CODE-EXECUTION-SANDBOX, 40-ENHANCED-SKILL-SECURITY, 41-PROACTIVE-NUDGING
+- **Ecosystem** — 13-SKILLS, 13-GOAL-LOOP, 14-SELF-LEARNING, 19-SKILL-SECURITY, 44-SOLANA-ECOSYSTEM, 64-POLYMARKET, 65-PUMPFUN-LIVESTREAM
+- **Capabilities** — 15-PAYMENTS, 16-DOCUMENT-ANALYSIS, 17-IDENTITY, 18-EMAIL, 23-MCP, 42-BUSINESS-LAUNCHER, 56-CONTENT-MONETIZATION, 63-CODEX-PROVIDER
+- **Agents & Children** — 25-AGENT-SWARM, 26-AUTONOMOUS-MIND, 29-AGENT-ORGANIZATION, 32-AGENT-COMMUNE, 66-KID-AGENTS
+- **Advanced** — 27-SECURITY-HARDENING, 37-AUTONOMOUS-EXPERIMENTATION, 38-SESSION-SEARCH, 39-CODE-EXECUTION-SANDBOX, 40-ENHANCED-SKILL-SECURITY, 41-PROACTIVE-NUDGING, 54-RLM, 57-GODMODE, 58-INSTINCT-LEARNING, 59-CONTEXT-INTELLIGENCE
 
 Search across all docs (client-side full-text, e.g. Pagefind or Fuse.js).
 
@@ -742,6 +844,22 @@ elophanto.com/
 - [x] `wallet_export` tool for Phantom/Solflare import
 - [ ] Website: Solana showcase page with live wallet demo
 - [ ] Hub: DeFi/Solana/Crypto category filters
+
+### v5 — Persistent identity + sandboxed execution (current — v2026.05.02)
+- [x] Daemon mode (`./start.sh --daemon`) with launchd / systemd user service + OS keychain vault password
+- [x] Ego layer with first-person voice, pride/shame anchored to outcomes, prior-self continuity
+- [x] Sandboxed kid agents — Docker containers with `--cap-drop=ALL`, read-only rootfs, named-volume only, no host bind-mounts
+- [x] Codex provider (ChatGPT subscription as 7th LLM backend via OAuth)
+- [x] Polymarket integration (Polygon CLOB, signature_type auto-detection)
+- [x] Pump.fun livestream — full multi-modal (video, voice, captions, livechat) with IPv6→RTMP failover
+- [x] Plan-review trio (`plan-review-{ceo,eng,design}`) + `plan_autoplan` pipeline
+- [x] Swarm projects — continuation across spawns (`swarm_spawn(project=<slug>)`)
+- [x] Three money skills (`indie-saas-shipper`, `smart-contract-audit`, `crypto-launch-ops`)
+- [x] `elophanto doctor` preflight + provider-first init wizard
+- [ ] Website: kid agents demo (terminal recording or animated diagram of `kid_spawn → kid_exec → kid_destroy`)
+- [ ] Website: ego.md rendered as a "what the agent thinks of itself this week" widget on landing
+- [ ] Website: daemon install copy-paste card on `/download`
+- [ ] Hub: Money + Sandbox category filters
 
 ---
 
