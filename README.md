@@ -332,30 +332,6 @@ Dangerous commands (`rm -rf /`, `mkfs`, `DROP DATABASE`) are always blocked rega
 
 ---
 
-## Multi-Channel Support
-
-```bash
-./start.sh --web             # Gateway + web dashboard (http://localhost:3000)
-elophanto gateway            # Gateway + CLI + all enabled channels
-elophanto gateway --no-cli   # Headless mode (channels only)
-elophanto chat               # CLI only (direct mode)
-```
-
-<details>
-<summary>Channel Setup</summary>
-
-**Telegram**: Create a bot via [@BotFather](https://t.me/BotFather), store the token in the vault (`elophanto vault set telegram_bot_token YOUR_TOKEN`), add your Telegram user ID to `config.yaml`.
-
-**Discord**: Create a Discord application and bot, store the token in the vault (`elophanto vault set discord_bot_token YOUR_TOKEN`), add guild IDs to `config.yaml`.
-
-**Slack**: Create a Slack app with Socket Mode, store both tokens in the vault (`elophanto vault set slack_bot_token` and `slack_app_token`), add channel IDs to `config.yaml`.
-
-**VS Code**: Install the extension from `vscode-extension/` — it connects to the gateway as another channel with IDE context injection. See [docs/43-VSCODE-EXTENSION.md](docs/43-VSCODE-EXTENSION.md).
-
-</details>
-
----
-
 ## Skills System
 
 165+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), Polymarket prediction market trading (CLOB API), AlphaScala broker matching + stock research, pump.fun livestreaming (video + voice + captions + chat), structured plan reviews (CEO + design + eng with auto-decisions), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Plus a public skill registry:
@@ -459,9 +435,11 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 
 ```bash
 ./start.sh                     # Chat (default)
-./start.sh --web               # Gateway + web dashboard
+./start.sh --web               # Gateway + web dashboard (http://localhost:3000)
 ./start.sh init                # Setup wizard
-./start.sh gateway             # Start gateway + all channels
+./start.sh gateway             # Gateway + CLI + all enabled channels
+./start.sh gateway --no-cli    # Gateway only (headless — channels keep working)
+./start.sh chat                # CLI only (direct mode, no gateway)
 ./start.sh vault set KEY VAL   # Store a key-value credential (API keys, tokens)
 ./start.sh vault set DOMAIN    # Interactively store domain credentials
 ./start.sh skills list         # List available skills
@@ -473,6 +451,8 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 ./start.sh --daemon-status     # Show daemon state
 ./start.sh --daemon-logs       # Tail the daemon log
 ```
+
+Channel setup (Telegram / Discord / Slack / VS Code): see [docs/11-TELEGRAM.md](docs/11-TELEGRAM.md) and [docs/43-VSCODE-EXTENSION.md](docs/43-VSCODE-EXTENSION.md).
 
 ---
 
