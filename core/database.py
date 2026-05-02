@@ -235,7 +235,11 @@ _SCHEMA = [
         coherence_score REAL NOT NULL DEFAULT 1.0,
         last_self_critique TEXT NOT NULL DEFAULT '',
         tasks_since_recompute INTEGER NOT NULL DEFAULT 0,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        proud_of TEXT NOT NULL DEFAULT '',
+        embarrassed_by TEXT NOT NULL DEFAULT '',
+        aspiration TEXT NOT NULL DEFAULT '',
+        prior_self_image TEXT NOT NULL DEFAULT ''
     )
     """,
     """
@@ -596,6 +600,11 @@ _MIGRATIONS = [
     "ALTER TABLE knowledge_chunks ADD COLUMN last_accessed_at TEXT DEFAULT NULL",
     # Session search FTS5 index (requires FTS5 extension — bundled in Python 3.12+)
     # NOTE: FTS5 virtual table creation handled separately in _init_fts5()
+    # Ego v2 — first-person voice fields (pride/shame/aspiration + prior-self continuity)
+    "ALTER TABLE ego_state ADD COLUMN proud_of TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE ego_state ADD COLUMN embarrassed_by TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE ego_state ADD COLUMN aspiration TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE ego_state ADD COLUMN prior_self_image TEXT NOT NULL DEFAULT ''",
 ]
 
 
