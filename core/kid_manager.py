@@ -356,7 +356,7 @@ class KidManager:
                 )
             try:
                 content = await asyncio.wait_for(inbox.get(), timeout=remaining)
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 raise TimeoutError(
                     f"Kid {kid.name} did not respond within {timeout}s."
                 ) from e

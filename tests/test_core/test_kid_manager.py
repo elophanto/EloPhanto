@@ -14,7 +14,7 @@ import pytest
 
 from core.config import KidConfig
 from core.database import Database
-from core.kid_manager import KidAgent, KidManager
+from core.kid_manager import KidManager
 from core.kid_runtime import ContainerRuntime, ContainerRuntimeError
 
 
