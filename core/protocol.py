@@ -30,6 +30,14 @@ class MessageType(StrEnum):
     CAPABILITY_REQUEST = "capability_request"  # Client → Gateway
     CAPABILITY_RESPONSE = "capability_response"  # Gateway → Client
 
+    # Agent-to-agent identity (Ed25519 handshake — both directions)
+    # Optional — peers that don't speak this still connect under the
+    # legacy auth-token model and end up as session.peer_verified=False.
+    IDENTIFY = "identify"  # Either side: "here is my agent_id + signed nonce"
+    IDENTIFY_RESPONSE = (
+        "identify_response"  # Either side: "verified / refused / conflict"
+    )
+
     # Bidirectional
     STATUS = "status"
     ERROR = "error"
@@ -248,5 +256,78 @@ def capability_response_message(
             "skills": skills,
             "providers": providers,
             "version": version,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Agent-to-agent identity (IDENTIFY handshake)
+#
+# Either side can initiate. The challenge is opaque bytes the receiver
+# previously emitted (in a prior IDENTIFY or via a STATUS challenge field
+# on connect). The signature must validate against the claimed public_key
+# and the receiver's challenge, proving liveness + key ownership.
+#
+# Backward compatible: peers that don't speak this stay on the legacy
+# auth-token-only path; the gateway records them as session.peer_verified
+# = False, and tools that need verified peers refuse them.
+# ---------------------------------------------------------------------------
+
+
+def identify_message(
+    agent_id: str,
+    public_key_b64: str,
+    challenge_b64: str,
+    signature_b64: str,
+) -> GatewayMessage:
+    """Initiate or respond to an IDENTIFY handshake.
+
+    Args:
+        agent_id: stable id derived from the public key (``elo-<12chars>``)
+        public_key_b64: 32-byte Ed25519 public key, base64
+        challenge_b64: the random nonce we're signing — base64 of bytes
+            the *peer* sent us (or our own session-bind nonce on first
+            initiator turn). Replay-resistant if both sides challenge.
+        signature_b64: base64 Ed25519 signature over the raw challenge bytes
+    """
+    return GatewayMessage(
+        type=MessageType.IDENTIFY,
+        data={
+            "agent_id": agent_id,
+            "public_key": public_key_b64,
+            "challenge": challenge_b64,
+            "signature": signature_b64,
+        },
+    )
+
+
+def identify_response_message(
+    *,
+    accepted: bool,
+    reason: str = "",
+    trust_level: str = "",
+    challenge_b64: str = "",
+) -> GatewayMessage:
+    """Respond to an IDENTIFY claim.
+
+    Args:
+        accepted: whether the signature verified AND the trust ledger
+            allows this peer
+        reason: short human-readable explanation when refused
+            (``"signature_invalid"``, ``"public_key_conflict"``,
+            ``"blocked"``)
+        trust_level: peer's recorded level after this handshake
+            (``tofu`` / ``verified`` / ``blocked``)
+        challenge_b64: when accepting, the receiver MAY include its own
+            random nonce so the peer can prove liveness back the other
+            way (mutual auth)
+    """
+    return GatewayMessage(
+        type=MessageType.IDENTIFY_RESPONSE,
+        data={
+            "accepted": accepted,
+            "reason": reason,
+            "trust_level": trust_level,
+            "challenge": challenge_b64,
         },
     )

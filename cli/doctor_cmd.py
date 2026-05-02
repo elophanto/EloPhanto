@@ -157,6 +157,47 @@ def _check_container_runtime() -> CheckResult:
     )
 
 
+def _check_agent_identity() -> CheckResult:
+    """Agent-to-agent cryptographic identity (Ed25519 keypair).
+
+    Auto-generated on first agent boot. Doctor only WARNS if missing —
+    the agent will create it on next start, no manual action required.
+    Reports the agent_id (truncated public-key prefix) for visibility
+    when present.
+    """
+    try:
+        from core.agent_identity import load_or_create
+    except Exception as e:
+        return CheckResult(
+            "agent identity (Ed25519)",
+            "warn",
+            f"agent_identity module unavailable: {e}",
+        )
+    from pathlib import Path as _Path
+
+    default_path = _Path.home() / ".elophanto" / "agent_identity.pem"
+    if default_path.exists():
+        try:
+            key = load_or_create(default_path, auto_create=False)
+            return CheckResult(
+                "agent identity (Ed25519)",
+                "ok",
+                f"loaded — {key.agent_id} (peer trust handshakes ready)",
+            )
+        except Exception as e:
+            return CheckResult(
+                "agent identity (Ed25519)",
+                "warn",
+                f"key file present but unreadable: {e}",
+                "rm ~/.elophanto/agent_identity.pem (agent will regenerate on next start — peers will see a new agent_id)",
+            )
+    return CheckResult(
+        "agent identity (Ed25519)",
+        "warn",
+        "no key yet — will be auto-generated on first agent start",
+    )
+
+
 def _check_kid_image(project_root: Path) -> CheckResult:
     """Check whether the elophanto-kid image is present and roughly fresh.
 
@@ -508,6 +549,7 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_bootstrap(project_root))
     rows.append(_check_container_runtime())
     rows.append(_check_kid_image(project_root))
+    rows.append(_check_agent_identity())
     return rows
 
 

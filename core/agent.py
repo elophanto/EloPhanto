@@ -510,6 +510,11 @@ class Agent:
             None  # OrganizationManager, set during initialize
         )
         self._kid_manager: Any = None  # KidManager, set during initialize
+        # Agent-to-agent identity layer. Auto-loaded (or generated) on
+        # initialize() — existing agents upgrade silently the first time
+        # they boot after this lands.
+        self._agent_identity: Any = None  # core.agent_identity.AgentIdentityKey
+        self._trust_ledger: Any = None  # core.trust_ledger.TrustLedger
         self._parent_adapter: Any = None  # ParentChannelAdapter, set during initialize
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._heartbeat_engine: Any = None  # HeartbeatEngine, set during initialize
@@ -1012,6 +1017,28 @@ class Agent:
                 logger.info("Organization system ready")
             except Exception as e:
                 logger.warning(f"Organization system setup failed: {e}")
+
+        # Agent-to-agent cryptographic identity. Auto-loads (or generates
+        # on first boot) the local Ed25519 keypair, then wires the trust
+        # ledger so the gateway can run IDENTIFY handshakes with peer
+        # agents. Backward compatible: peers that don't speak IDENTIFY
+        # still connect; the trust ledger only sees peers that DO.
+        try:
+            from core.agent_identity import load_or_create as _load_identity_key
+            from core.trust_ledger import TrustLedger
+
+            self._agent_identity = _load_identity_key()
+            self._trust_ledger = TrustLedger(self._db)
+            if self._gateway is not None:
+                self._gateway._agent_identity = self._agent_identity
+                self._gateway._trust_ledger = self._trust_ledger
+            self._inject_trust_deps()
+            logger.info(
+                "Agent identity ready: %s",
+                self._agent_identity.agent_id,
+            )
+        except Exception as e:
+            logger.warning(f"Agent identity setup failed: {e}")
 
         # Initialize kid agents (sandboxed children in containers).
         # Independent of organization — different lifetime + isolation model.
@@ -1590,6 +1617,13 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._kid_manager:
                 tool._kid_manager = self._kid_manager
+
+    def _inject_trust_deps(self) -> None:
+        """Inject TrustLedger into agent_trust_* tools."""
+        for tool_name in ("agent_trust_list", "agent_trust_set", "agent_trust_remove"):
+            tool = self._registry.get(tool_name)
+            if tool and self._trust_ledger:
+                tool._trust_ledger = self._trust_ledger
 
     def _inject_organization_deps(self) -> None:
         """Inject OrganizationManager into organization tools."""

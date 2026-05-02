@@ -51,6 +51,21 @@ class ClientConnection:
     session_id: str = ""
     conversation_id: str = ""
 
+    # Agent-to-agent identity (filled in by IDENTIFY handshake, optional).
+    # peer_verified=True ⇔ the peer signed our challenge with the private
+    # key matching the public_key recorded for `peer_agent_id` in the
+    # trust ledger, AND that ledger entry is not blocked.
+    # Legacy clients (no IDENTIFY) leave these empty / False — tools that
+    # need verified peers must check `peer_verified`.
+    peer_agent_id: str = ""
+    peer_public_key: str = ""
+    peer_trust_level: str = ""
+    peer_verified: bool = False
+    # Server-side challenge bytes (base64) we issued — peer must sign
+    # exactly these to prove key ownership. Rotated after a successful
+    # IDENTIFY so each handshake uses a fresh nonce.
+    pending_challenge: str = ""
+
 
 class Gateway:
     """WebSocket control plane for EloPhanto."""
@@ -98,6 +113,15 @@ class Gateway:
         # main conversation; instead they go to a per-kid queue that
         # KidManager.exec() awaits.
         self._kid_manager: Any = None
+
+        # Optional agent-identity hooks — set externally by
+        # Agent.initialize() once the keypair is loaded and the trust
+        # ledger is wired up. When both are present, IDENTIFY messages
+        # are processed end-to-end. When absent (e.g. cloud mode without
+        # local key), peers can still connect under the legacy
+        # auth-token path and end up as session.peer_verified=False.
+        self._agent_identity: Any = None  # core.agent_identity.AgentIdentityKey
+        self._trust_ledger: Any = None  # core.trust_ledger.TrustLedger
 
         # Recovery handler — pure Python, no LLM
         router = getattr(agent, "_router", None)
@@ -558,14 +582,32 @@ class Gateway:
 
         client_id = str(uuid.uuid4())
         client = ClientConnection(client_id=client_id, websocket=websocket)
+
+        # Issue an IDENTIFY challenge if agent identity is wired. Peers
+        # speaking the protocol will sign exactly this nonce and send it
+        # back in their first IDENTIFY message; legacy peers ignore the
+        # field and fall through to auth-token-only with peer_verified=False.
+        challenge_b64 = ""
+        if self._agent_identity is not None:
+            import base64
+
+            from core.agent_identity import make_nonce
+
+            challenge_b64 = base64.b64encode(make_nonce()).decode("ascii")
+            client.pending_challenge = challenge_b64
+
         self._clients[client_id] = client
         logger.info("Client connected: %s", client_id[:8])
 
         try:
-            # Send ready status
-            await websocket.send(
-                status_message("connected", {"client_id": client_id}).to_json()
-            )
+            # Send ready status. The optional `identify_challenge` lets
+            # IDENTIFY-aware peers sign + reply without an extra round-trip.
+            status_payload: dict[str, Any] = {"client_id": client_id}
+            if challenge_b64:
+                status_payload["identify_challenge"] = challenge_b64
+                status_payload["our_agent_id"] = self._agent_identity.agent_id
+                status_payload["our_public_key"] = self._agent_identity.public_key_b64()
+            await websocket.send(status_message("connected", status_payload).to_json())
 
             # Auto-subscribe to unified session so cross-channel forwarding
             # works immediately (without requiring the client to chat first).
@@ -608,6 +650,7 @@ class Gateway:
             MessageType.COMMAND: self._handle_command,
             MessageType.STATUS: self._handle_status,
             MessageType.CAPABILITY_REQUEST: self._handle_capability_request,
+            MessageType.IDENTIFY: self._handle_identify,
         }
 
         handler = handlers.get(msg.type)  # type: ignore[call-overload]
@@ -2107,6 +2150,165 @@ class Gateway:
             version=payload.get("version", "0.0.0"),
         )
         await client.websocket.send(resp.to_json())
+
+    async def _handle_identify(
+        self, client: ClientConnection, msg: GatewayMessage
+    ) -> None:
+        """Process an IDENTIFY claim from a peer.
+
+        Steps:
+
+        1. Decode ``agent_id``, ``public_key``, ``challenge``,
+           ``signature`` from msg.data.
+        2. Verify the signature against ``challenge`` using
+           ``public_key``. If it doesn't validate → refuse.
+        3. Confirm ``agent_id`` matches the public_key (we derive it
+           deterministically — peers can't lie about their id).
+        4. Confirm the signed challenge matches the one WE issued for
+           this client (anti-replay).
+        5. Hand the (agent_id, public_key) pair to the trust ledger.
+           If it raises ``TrustConflict`` → refuse with reason
+           ``public_key_conflict``. If the resulting entry is blocked
+           → refuse with reason ``blocked``. Otherwise mark
+           ``peer_verified=True`` on the connection.
+        6. Mint a fresh challenge and include it in the response so the
+           peer can sign it back for mutual auth in a follow-up
+           IDENTIFY.
+
+        If the gateway has no agent_identity / trust_ledger wired (cloud
+        mode without local key) we send back ``accepted=False`` with
+        reason ``protocol_unavailable`` so peers know not to bother.
+        """
+        from core.agent_identity import (
+            TRUST_BLOCKED,
+            derive_agent_id_from_public_key,
+            make_nonce,
+            verify_signature,
+        )
+        from core.protocol import identify_response_message
+
+        if self._trust_ledger is None or self._agent_identity is None:
+            await client.websocket.send(
+                identify_response_message(
+                    accepted=False,
+                    reason="protocol_unavailable",
+                ).to_json()
+            )
+            return
+
+        data = msg.data or {}
+        agent_id = str(data.get("agent_id", "")).strip()
+        public_key = str(data.get("public_key", "")).strip()
+        challenge_b64 = str(data.get("challenge", "")).strip()
+        signature_b64 = str(data.get("signature", "")).strip()
+
+        if not (agent_id and public_key and challenge_b64 and signature_b64):
+            await client.websocket.send(
+                identify_response_message(
+                    accepted=False, reason="missing_fields"
+                ).to_json()
+            )
+            return
+
+        # 1. agent_id must derive from claimed public_key. This stops a
+        # peer from pretending to be a different elo-* than its key
+        # implies.
+        if derive_agent_id_from_public_key(public_key) != agent_id:
+            await client.websocket.send(
+                identify_response_message(
+                    accepted=False, reason="agent_id_mismatch"
+                ).to_json()
+            )
+            return
+
+        # 2. The challenge MUST be the one we issued for this client —
+        # otherwise a peer could replay a signature it intercepted on
+        # another connection. (If pending_challenge is empty the gateway
+        # never set one; treat as misuse.)
+        if not client.pending_challenge:
+            await client.websocket.send(
+                identify_response_message(
+                    accepted=False, reason="no_challenge_issued"
+                ).to_json()
+            )
+            return
+        if challenge_b64 != client.pending_challenge:
+            await client.websocket.send(
+                identify_response_message(
+                    accepted=False, reason="challenge_mismatch"
+                ).to_json()
+            )
+            return
+
+        # 3. Signature must validate against the raw challenge bytes.
+        import base64
+
+        try:
+            challenge_raw = base64.b64decode(challenge_b64)
+            signature_raw = base64.b64decode(signature_b64)
+        except Exception:
+            await client.websocket.send(
+                identify_response_message(
+                    accepted=False, reason="bad_encoding"
+                ).to_json()
+            )
+            return
+
+        if not verify_signature(public_key, signature_raw, challenge_raw):
+            await client.websocket.send(
+                identify_response_message(
+                    accepted=False, reason="signature_invalid"
+                ).to_json()
+            )
+            return
+
+        # 4. Hand to the trust ledger. TrustConflict → key rotation
+        # detected; refuse and let the owner intervene with
+        # agent_trust_set.
+        from core.trust_ledger import TrustConflict
+
+        try:
+            entry = await self._trust_ledger.record_handshake(
+                agent_id=agent_id, public_key=public_key
+            )
+        except TrustConflict:
+            await client.websocket.send(
+                identify_response_message(
+                    accepted=False, reason="public_key_conflict"
+                ).to_json()
+            )
+            return
+
+        if entry.trust_level == TRUST_BLOCKED:
+            await client.websocket.send(
+                identify_response_message(accepted=False, reason="blocked").to_json()
+            )
+            return
+
+        # 5. Accepted — record peer identity on the connection.
+        client.peer_agent_id = agent_id
+        client.peer_public_key = public_key
+        client.peer_trust_level = entry.trust_level
+        client.peer_verified = True
+
+        # 6. Issue a fresh challenge so the peer can mutually verify us
+        # in a return IDENTIFY (signed by our own private key).
+        new_challenge = base64.b64encode(make_nonce()).decode("ascii")
+        client.pending_challenge = new_challenge
+
+        await client.websocket.send(
+            identify_response_message(
+                accepted=True,
+                trust_level=entry.trust_level,
+                challenge_b64=new_challenge,
+            ).to_json()
+        )
+        logger.info(
+            "Gateway: IDENTIFY accepted from %s (trust=%s, conn_count=%d)",
+            agent_id,
+            entry.trust_level,
+            entry.connection_count,
+        )
 
     async def _handle_status(
         self, client: ClientConnection, msg: GatewayMessage
