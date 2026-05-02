@@ -592,7 +592,7 @@ class KidManager:
         try:
             from core.protocol import event_message
 
-            await self._gateway.broadcast(event_message(event_type, data))
+            await self._gateway.broadcast(event_message("", str(event_type), data))
         except Exception as e:
             logger.debug("kid broadcast failed: %s", e)
 
