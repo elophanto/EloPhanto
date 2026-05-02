@@ -515,6 +515,7 @@ class Agent:
         # they boot after this lands.
         self._agent_identity: Any = None  # core.agent_identity.AgentIdentityKey
         self._trust_ledger: Any = None  # core.trust_ledger.TrustLedger
+        self._peer_manager: Any = None  # core.peer_manager.PeerManager
         self._parent_adapter: Any = None  # ParentChannelAdapter, set during initialize
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._heartbeat_engine: Any = None  # HeartbeatEngine, set during initialize
@@ -1032,7 +1033,19 @@ class Agent:
             if self._gateway is not None:
                 self._gateway._agent_identity = self._agent_identity
                 self._gateway._trust_ledger = self._trust_ledger
+
+            # Outbound peer connections — initiates the agent-to-agent
+            # handshake and holds open peer sockets so subsequent
+            # agent_message calls don't re-handshake.
+            from core.peer_manager import PeerManager
+
+            self._peer_manager = PeerManager(
+                my_key=self._agent_identity,
+                trust_ledger=self._trust_ledger,
+            )
+
             self._inject_trust_deps()
+            self._inject_peer_deps()
             logger.info(
                 "Agent identity ready: %s",
                 self._agent_identity.agent_id,
@@ -1325,6 +1338,11 @@ class Agent:
                 await self._kid_manager.stop()
             except Exception as e:
                 logger.debug("Kid manager shutdown error: %s", e)
+        if self._peer_manager:
+            try:
+                await self._peer_manager.disconnect_all()
+            except Exception as e:
+                logger.debug("Peer manager shutdown error: %s", e)
         if self._parent_adapter:
             try:
                 await self._parent_adapter.stop()
@@ -1624,6 +1642,18 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._trust_ledger:
                 tool._trust_ledger = self._trust_ledger
+
+    def _inject_peer_deps(self) -> None:
+        """Inject PeerManager into agent_connect/message/disconnect/peers tools."""
+        for tool_name in (
+            "agent_connect",
+            "agent_message",
+            "agent_disconnect",
+            "agent_peers",
+        ):
+            tool = self._registry.get(tool_name)
+            if tool and self._peer_manager:
+                tool._peer_manager = self._peer_manager
 
     def _inject_organization_deps(self) -> None:
         """Inject OrganizationManager into organization tools."""

@@ -427,13 +427,21 @@ class ToolRegistry:
         self.register(KidDestroyTool())
 
         # Agent identity / trust ledger — agent-to-agent peer auth.
+        from tools.agent_identity.connect_tool import AgentConnectTool
+        from tools.agent_identity.disconnect_tool import AgentDisconnectTool
         from tools.agent_identity.list_tool import AgentTrustListTool
+        from tools.agent_identity.message_tool import AgentMessageTool
+        from tools.agent_identity.peers_tool import AgentPeersTool
         from tools.agent_identity.remove_tool import AgentTrustRemoveTool
         from tools.agent_identity.set_tool import AgentTrustSetTool
 
         self.register(AgentTrustListTool())
         self.register(AgentTrustSetTool())
         self.register(AgentTrustRemoveTool())
+        self.register(AgentConnectTool())
+        self.register(AgentMessageTool())
+        self.register(AgentDisconnectTool())
+        self.register(AgentPeersTool())
 
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
@@ -476,6 +484,13 @@ class ToolRegistry:
             "agent_trust_list",
             "agent_trust_set",
             "agent_trust_remove",
+            # Agent-to-agent peer connections — outbound calls to other
+            # EloPhantos. Loaded on-demand (the agent doesn't need them
+            # for solo work).
+            "agent_connect",
+            "agent_message",
+            "agent_disconnect",
+            "agent_peers",
             # Payment tools
             "wallet_status",
             "wallet_export",
@@ -591,8 +606,14 @@ class ToolRegistry:
                 "payment_",
                 "wallet_",
                 "polymarket_",
-                # Kid must not mutate the parent's trust ledger.
+                # Kid must not mutate the parent's trust ledger or
+                # initiate outbound peer connections — those would
+                # bypass the parent's authorization gate.
                 "agent_trust_",
+                "agent_connect",
+                "agent_message",
+                "agent_disconnect",
+                "agent_peers",
             )
             _to_remove = [
                 n
