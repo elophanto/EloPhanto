@@ -132,29 +132,15 @@ elophanto vault list      # see what credentials the agent has stored
 
 ---
 
-## Why EloPhanto?
+## Where EloPhanto fits
 
-| | EloPhanto | AutoGPT | OpenAI Agents SDK | Claude Code | Manus |
-|---|---|---|---|---|---|
-| **Launches a business end-to-end** | ✅ 7-phase pipeline | ❌ | ❌ | ❌ | ❌ |
-| **Spawns a specialist team** | ✅ Self-cloning org | ❌ | ❌ | ❌ | ❌ |
-| **Sandboxed kid agents** | ✅ Hardened containers | ❌ | ❌ | ❌ | Sandboxed VM |
-| **Builds its own tools** | ✅ Full pipeline | ❌ | ❌ | ❌ | ❌ |
-| **Works while you're away** | ✅ Autonomous mind | ❌ | ❌ | ❌ | ❌ |
-| **Controls any desktop app** | ✅ Local or VM | ❌ | ❌ | ❌ | Sandboxed VM |
-| **Uses your real browser** | ✅ Your Chrome profile | ❌ | ❌ | ❌ | Sandboxed |
-| **Orchestrates a dev team** | ✅ Claude Code + Codex | ❌ | ❌ | Single | ❌ |
-| **Has its own identity & email** | ✅ Evolves over time | ❌ | ❌ | ❌ | ❌ |
-| **Has its own crypto wallet** | ✅ Self-custody | ❌ | ❌ | ❌ | ❌ |
-| **Chat from anywhere** | ✅ CLI+Web+VSCode+TG+Discord+Slack | ❌ | ❌ | CLI only | Web only |
-| **Any LLM provider** | ✅ OpenAI, Kimi, Ollama, OpenRouter, Z.ai, HuggingFace, Codex | ❌ | ❌ | ❌ | ❌ |
-| **Learns about you** | ✅ Evolving user profiles | ❌ | ❌ | ❌ | ❌ |
-| **Makes money autonomously** | ✅ YouTube/X/TikTok + affiliate | ❌ | ❌ | ❌ | ❌ |
-| **Trades prediction markets** | ✅ Polymarket (CLOB on Polygon) | ❌ | ❌ | ❌ | ❌ |
-| **Godmode (unrestricted)** | ✅ Pliny's G0DM0D3 | ❌ | ❌ | ❌ | ❌ |
-| **Deferred tool loading** | ✅ Tiered on-demand | ❌ | ❌ | ❌ | ❌ |
-| **Learns from corrections** | ✅ Permanent knowledge | ❌ | ❌ | ❌ | ❌ |
-| **Your data stays local** | ✅ Runs on your machine | ❌ Cloud | ❌ Cloud | ✅ Local | ❌ Cloud VM |
+**Local-first, self-custody.** EloPhanto runs on your machine. Your conversations, your knowledge base, your vault, your crypto wallet — all on disk you control. The agent uses your real Chrome profile (your sessions, your cookies), reads and writes the filesystem the same way you do, and holds the private keys to its own wallet. Cloud LLMs are a backend; the agent itself is yours.
+
+**It is actually itself.** Most "AI agents" are stateless prompts wrapped in a CLI — same cold-start every conversation. EloPhanto carries an evolving **identity** (values, beliefs, capabilities discovered through reflection), a persistent **knowledge base** it grows from every task, an **ego layer** that grades its own performance against measured outcomes (failures hit harder than successes, humbling events stick), and an **autonomous mind** that runs in the background between your messages. By the third week of running, it isn't the same agent you started with.
+
+**Self-extending.** When it hits a tool that doesn't exist, it builds one — research → design → implement → test → deploy. When tasks get parallel, it clones itself into persistent specialists with their own identity and trust score. When a task is dangerous, it spawns a sandboxed kid agent inside a hardened container so `rm -rf` can't touch the host. The agent is a system that grows, not a script that executes.
+
+**Where it doesn't fit.** If you want a hosted assistant you don't operate yourself — Claude.ai, ChatGPT, Manus — this isn't it. EloPhanto is for the operator, not the consumer.
 
 ---
 
