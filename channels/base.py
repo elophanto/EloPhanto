@@ -83,7 +83,18 @@ class ChannelAdapter(ABC):
     # ── Gateway connection ──────────────────────────────────────
 
     async def connect_gateway(self) -> None:
-        """Connect to the gateway WebSocket."""
+        """Connect to the gateway WebSocket.
+
+        Also performs the optional IDENTIFY handshake when:
+            - the connecting process has a local agent identity key, AND
+            - the server's STATUS frame includes an ``identify_challenge``
+              field (only sent by gateways with the identity layer wired)
+
+        Both ends degrade silently if either side doesn't speak the
+        protocol — the connection still works, but the server-side
+        ``ClientConnection.peer_verified`` stays False, and tools that
+        require a verified peer will refuse the operation.
+        """
         try:
             import websockets
         except ImportError as err:
@@ -101,13 +112,88 @@ class ChannelAdapter(ABC):
         # Wait for initial connected status
         raw = await self._ws.recv()
         msg = GatewayMessage.from_json(raw)
+        identify_challenge = ""
+        peer_agent_id = ""
+        peer_public_key = ""
         if msg.type == MessageType.STATUS:
             self._client_id = msg.data.get("client_id", "")
+            identify_challenge = str(msg.data.get("identify_challenge", ""))
+            peer_agent_id = str(msg.data.get("our_agent_id", ""))
+            peer_public_key = str(msg.data.get("our_public_key", ""))
             logger.info(
                 "%s adapter connected to gateway (client=%s)",
                 self.name,
                 self._client_id[:8],
             )
+
+        # Optional IDENTIFY handshake. Skipped when:
+        #   - the server didn't issue a challenge (legacy gateway)
+        #   - we have no local key (cloud mode, kid container before
+        #     bootstrap fills it in, etc.)
+        if identify_challenge:
+            await self._maybe_identify(
+                challenge_b64=identify_challenge,
+                peer_agent_id=peer_agent_id,
+                peer_public_key=peer_public_key,
+            )
+
+    async def _maybe_identify(
+        self,
+        *,
+        challenge_b64: str,
+        peer_agent_id: str = "",
+        peer_public_key: str = "",
+    ) -> None:
+        """Sign the gateway's IDENTIFY challenge if we have a local key.
+
+        Best-effort — any failure here is logged and swallowed. The
+        underlying connection stays up; the peer will simply be marked
+        ``peer_verified=False`` server-side. We never let an identity
+        problem block a working WebSocket session.
+        """
+        try:
+            import base64
+
+            from core.agent_identity import load_or_create
+            from core.protocol import identify_message
+        except Exception as e:
+            logger.debug("identify imports unavailable: %s", e)
+            return
+
+        try:
+            key = load_or_create(auto_create=False)
+        except Exception:
+            # No local key yet — fine. Connection remains unverified.
+            logger.debug(
+                "%s adapter has no local agent identity; skipping IDENTIFY",
+                self.name,
+            )
+            return
+
+        try:
+            challenge_raw = base64.b64decode(challenge_b64)
+        except Exception:
+            logger.debug("malformed IDENTIFY challenge from gateway; skipping")
+            return
+
+        try:
+            sig = key.sign(challenge_raw)
+            await self._ws.send(
+                identify_message(
+                    agent_id=key.agent_id,
+                    public_key_b64=key.public_key_b64(),
+                    challenge_b64=challenge_b64,
+                    signature_b64=base64.b64encode(sig).decode("ascii"),
+                ).to_json()
+            )
+            logger.info(
+                "%s adapter sent IDENTIFY (us=%s, peer=%s)",
+                self.name,
+                key.agent_id,
+                peer_agent_id or "unknown",
+            )
+        except Exception as e:
+            logger.debug("IDENTIFY send failed: %s", e)
 
     async def disconnect_gateway(self) -> None:
         """Disconnect from the gateway."""

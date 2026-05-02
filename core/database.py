@@ -380,6 +380,18 @@ _SCHEMA = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS known_agents (
+        agent_id TEXT PRIMARY KEY,
+        public_key TEXT NOT NULL,                  -- base64 Ed25519 public key (32 bytes raw)
+        trust_level TEXT NOT NULL DEFAULT 'tofu',  -- blocked | tofu | verified
+        first_seen TEXT NOT NULL,                  -- ISO timestamp of first IDENTIFY
+        last_seen TEXT NOT NULL,                   -- ISO timestamp of most recent
+        connection_count INTEGER NOT NULL DEFAULT 1,
+        notes TEXT NOT NULL DEFAULT '',            -- free-form, owner-set
+        metadata_json TEXT NOT NULL DEFAULT '{}'   -- discovered capabilities, last URL, etc.
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS organization_children (
         child_id TEXT PRIMARY KEY,
         role TEXT NOT NULL,

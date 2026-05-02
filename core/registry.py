@@ -426,6 +426,15 @@ class ToolRegistry:
         self.register(KidStatusTool())
         self.register(KidDestroyTool())
 
+        # Agent identity / trust ledger — agent-to-agent peer auth.
+        from tools.agent_identity.list_tool import AgentTrustListTool
+        from tools.agent_identity.remove_tool import AgentTrustRemoveTool
+        from tools.agent_identity.set_tool import AgentTrustSetTool
+
+        self.register(AgentTrustListTool())
+        self.register(AgentTrustSetTool())
+        self.register(AgentTrustRemoveTool())
+
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
 
@@ -461,6 +470,12 @@ class ToolRegistry:
             "kid_list",
             "kid_status",
             "kid_destroy",
+            # Agent identity / trust ledger — admin tools, only loaded
+            # when the planner actually needs to inspect or change peer
+            # trust state (rare).
+            "agent_trust_list",
+            "agent_trust_set",
+            "agent_trust_remove",
             # Payment tools
             "wallet_status",
             "wallet_export",
@@ -576,6 +591,8 @@ class ToolRegistry:
                 "payment_",
                 "wallet_",
                 "polymarket_",
+                # Kid must not mutate the parent's trust ledger.
+                "agent_trust_",
             )
             _to_remove = [
                 n
