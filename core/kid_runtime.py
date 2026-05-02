@@ -259,7 +259,7 @@ class DockerRuntime(ContainerRuntime):
             data = json.loads(stdout)
             return data[0] if isinstance(data, list) and data else {}
         except (json.JSONDecodeError, IndexError) as e:
-            raise ContainerRuntimeError(f"could not parse inspect output: {e}")
+            raise ContainerRuntimeError(f"could not parse inspect output: {e}") from e
 
     async def cp_to_container(
         self, container_id: str, dest_path: str, data: bytes
@@ -335,7 +335,7 @@ class DockerRuntime(ContainerRuntime):
                 )
             return data
         except tarfile.TarError as e:
-            raise ContainerRuntimeError(f"could not parse cp tar stream: {e}")
+            raise ContainerRuntimeError(f"could not parse cp tar stream: {e}") from e
 
     async def create_volume(self, volume_name: str) -> None:
         # Idempotent: `docker volume create` returns 0 if it already exists.
