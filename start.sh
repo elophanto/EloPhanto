@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # EloPhanto — Quick launcher
 # Activates the venv and runs elophanto with any arguments.
-# Usage: ./start.sh              → CLI chat (direct mode)
-#        ./start.sh --web        → gateway + web dashboard
-#        ./start.sh gateway      → gateway only (CLI + channels)
-#        ./start.sh telegram     → telegram adapter
-#        ./start.sh vault list   → any elophanto command
+# Usage: ./start.sh                  → CLI chat (direct mode)
+#        ./start.sh --web            → gateway + web dashboard
+#        ./start.sh gateway          → gateway only (CLI + channels)
+#        ./start.sh telegram         → telegram adapter
+#        ./start.sh vault list       → any elophanto command
+#        ./start.sh --daemon         → install + start as background daemon
+#                                       (launchd on macOS, systemd on Linux —
+#                                        keeps running after terminal closes)
+#        ./start.sh --stop-daemon    → stop and remove the daemon
+#        ./start.sh --daemon-status  → show running / stopped state
+#        ./start.sh --daemon-logs    → tail the daemon log
 
 set -e
 
@@ -19,6 +25,29 @@ else
     echo "Virtual environment not found. Run ./setup.sh first."
     exit 1
 fi
+
+# ── Daemon shortcuts ──
+# `./start.sh --daemon`         → install + start as background service (launchd/systemd)
+# `./start.sh --stop-daemon`    → stop + remove the daemon
+# `./start.sh --daemon-status`  → show state (running / stopped / not installed)
+# `./start.sh --daemon-logs`    → tail the daemon log
+case "${1:-}" in
+    --daemon)
+        shift
+        exec elophanto daemon install "$@"
+        ;;
+    --stop-daemon)
+        shift
+        exec elophanto daemon uninstall "$@"
+        ;;
+    --daemon-status)
+        exec elophanto daemon status
+        ;;
+    --daemon-logs)
+        shift
+        exec elophanto daemon logs "$@"
+        ;;
+esac
 
 # ── Preflight: refuse to start if the doctor finds blockers ──
 # Skipped when running diagnostic / setup commands directly so the

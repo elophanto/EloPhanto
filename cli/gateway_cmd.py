@@ -142,9 +142,16 @@ async def _run_gateway(
 
     # Unlock vault
     if Vault.exists("."):
-        if cloud_mode:
-            # In cloud mode read password from env secret — no interactive prompt
+        # Daemon mode (launched by `elophanto daemon install`) has no
+        # interactive stdin — pull the password from env or the OS
+        # keychain that `daemon install` populated.
+        daemon_mode = os.environ.get("ELOPHANTO_DAEMON") == "1"
+        if cloud_mode or daemon_mode:
             password = os.environ.get("ELOPHANTO_VAULT_PASSWORD", "")
+            if not password and daemon_mode:
+                from cli.daemon_cmd import _read_password as _kc_read
+
+                password = _kc_read() or ""
         else:
             from rich.prompt import Prompt
 
