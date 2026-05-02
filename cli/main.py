@@ -12,6 +12,7 @@ from cli.chat_cmd import chat_cmd
 from cli.doctor_cmd import doctor_cmd
 from cli.gateway_cmd import gateway_cmd
 from cli.init_cmd import init_cmd
+from cli.kid_cmd import kid_cmd
 from cli.mcp_cmd import mcp_cmd
 from cli.rollback_cmd import rollback_cmd
 from cli.schedule_cmd import schedule_cmd
@@ -38,6 +39,7 @@ cli.add_command(rollback_cmd, "rollback")
 cli.add_command(telegram_cmd, "telegram")
 cli.add_command(skills_cmd, "skills")
 cli.add_command(mcp_cmd, "mcp")
+cli.add_command(kid_cmd, "kid")
 cli.add_command(update_cmd, "update")
 
 

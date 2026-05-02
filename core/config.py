@@ -565,6 +565,49 @@ class SwarmConfig:
 
 
 @dataclass
+class KidConfig:
+    """Kid agents — sandboxed child EloPhanto instances inside containers.
+
+    Distinct from OrganizationConfig (persistent specialists with own
+    gateway) and SwarmConfig (external coding agents in tmux). Kids are
+    ephemeral, isolated, and connect back to the parent's gateway as
+    clients. Ideal for running dangerous shell commands without host risk.
+    """
+
+    enabled: bool = True
+    runtime_preference: list[str] = field(
+        default_factory=lambda: ["docker", "podman", "colima"]
+    )
+    default_image: str = "elophanto-kid:latest"
+    default_memory_mb: int = 1024
+    default_cpus: float = 1.0
+    default_pids_limit: int = 200
+    max_concurrent_kids: int = 5
+    spawn_cooldown_seconds: int = 5
+    monitor_interval_seconds: int = 30
+    default_network: str = "outbound-only"  # outbound-only | none | host
+    outbound_allowlist: list[str] = field(
+        default_factory=lambda: [
+            "openrouter.ai",
+            "api.openai.com",
+            "github.com",
+            "registry.npmjs.org",
+            "pypi.org",
+        ]
+    )
+    default_vault_scope: list[str] = field(default_factory=list)
+    volume_prefix: str = "elophanto-kid-"
+    max_file_read_bytes: int = 100 * 1024 * 1024  # 100 MB cap per docker cp read
+
+    # HARDENED defaults — these MUST stay True. Disabling them weakens
+    # isolation and the kid plan's safety guarantees.
+    drop_capabilities: bool = True  # --cap-drop=ALL
+    read_only_rootfs: bool = True  # --read-only
+    no_new_privileges: bool = True  # --security-opt=no-new-privileges
+    run_as_uid: int = 10001  # non-root user inside the container
+
+
+@dataclass
 class ChildSpecConfig:
     """Blueprint for a specialist child agent."""
 
@@ -575,6 +618,11 @@ class ChildSpecConfig:
     budget_pct: float = 10.0
     autonomous: bool = True
     wakeup_seconds: int = 300
+    # Allowlist of vault keys this specialist may receive at boot. Empty by
+    # default → no secrets passed through. Strictly stronger than the prior
+    # env-name heuristic (which let anything not literally containing
+    # VAULT/SECRET/PRIVATE_KEY/CREDENTIAL leak through).
+    vault_scope: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -678,6 +726,7 @@ class Config:
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     webhooks: WebhookConfig = field(default_factory=WebhookConfig)
     organization: OrganizationConfig = field(default_factory=OrganizationConfig)
+    kids: KidConfig = field(default_factory=KidConfig)
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     commune: CommuneConfig = field(default_factory=CommuneConfig)
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
@@ -1351,6 +1400,41 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         profiles=swarm_profiles,
     )
 
+    # Parse kids section
+    kids_raw = raw.get("kids", {})
+    kids_config = KidConfig(
+        enabled=kids_raw.get("enabled", True),
+        runtime_preference=kids_raw.get(
+            "runtime_preference", ["docker", "podman", "colima"]
+        ),
+        default_image=kids_raw.get("default_image", "elophanto-kid:latest"),
+        default_memory_mb=kids_raw.get("default_memory_mb", 1024),
+        default_cpus=kids_raw.get("default_cpus", 1.0),
+        default_pids_limit=kids_raw.get("default_pids_limit", 200),
+        max_concurrent_kids=kids_raw.get("max_concurrent_kids", 5),
+        spawn_cooldown_seconds=kids_raw.get("spawn_cooldown_seconds", 5),
+        monitor_interval_seconds=kids_raw.get("monitor_interval_seconds", 30),
+        default_network=kids_raw.get("default_network", "outbound-only"),
+        outbound_allowlist=kids_raw.get(
+            "outbound_allowlist",
+            [
+                "openrouter.ai",
+                "api.openai.com",
+                "github.com",
+                "registry.npmjs.org",
+                "pypi.org",
+            ],
+        ),
+        default_vault_scope=kids_raw.get("default_vault_scope", []),
+        volume_prefix=kids_raw.get("volume_prefix", "elophanto-kid-"),
+        max_file_read_bytes=kids_raw.get("max_file_read_bytes", 100 * 1024 * 1024),
+        # Hardening flags — DO NOT default these to False. Plan invariant.
+        drop_capabilities=kids_raw.get("drop_capabilities", True),
+        read_only_rootfs=kids_raw.get("read_only_rootfs", True),
+        no_new_privileges=kids_raw.get("no_new_privileges", True),
+        run_as_uid=kids_raw.get("run_as_uid", 10001),
+    )
+
     # Parse autonomous_mind section
     am_raw = raw.get("autonomous_mind", {})
     _wakeup_sec = am_raw.get("wakeup_seconds", 300)
@@ -1395,6 +1479,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
                 budget_pct=spec_data.get("budget_pct", 10.0),
                 autonomous=spec_data.get("autonomous", True),
                 wakeup_seconds=spec_data.get("wakeup_seconds", 300),
+                vault_scope=spec_data.get("vault_scope", []),
             )
     organization_config = OrganizationConfig(
         enabled=org_raw.get("enabled", False),
@@ -1494,6 +1579,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         heartbeat=heartbeat_config,
         webhooks=webhooks_config,
         organization=organization_config,
+        kids=kids_config,
         deployment=deployment_config,
         commune=commune_config,
         desktop=desktop_config,

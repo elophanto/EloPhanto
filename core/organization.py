@@ -610,16 +610,40 @@ class OrganizationManager:
                     if not dst_f.exists():
                         shutil.copy2(src_f, dst_f)
 
-        # Build environment — inherit Python path but strip sensitive vars
+        # Build environment — inherit Python path but strip sensitive vars.
         env = dict(os.environ)
         env["ELOPHANTO_CONFIG"] = str(child.config_path)
         env["PYTHONPATH"] = str(child_src)
-        # Strip vault/secret env vars
+
+        # Default-deny: strip any env var whose name suggests it carries
+        # credentials. This is strictly stricter than the prior list (which
+        # missed API_KEY / TOKEN / PASSWORD). Children boot with their OWN
+        # disk vault (own work_dir/config) — they don't receive parent
+        # vault contents via env.
+        #
+        # ChildSpec.vault_scope is reserved for future explicit inheritance
+        # (analogous to KidConfig — write a scoped JSON via env). For v1,
+        # keep parent ↔ child secrets isolated entirely.
+        _CRED_NEEDLES = (
+            "VAULT",
+            "SECRET",
+            "PRIVATE_KEY",
+            "CREDENTIAL",
+            "API_KEY",
+            "APIKEY",
+            "TOKEN",
+            "PASSWORD",
+            "PASSWD",
+        )
+        # Whitelist a small set of false positives — env vars that LOOK
+        # secret but are operational and safe to inherit (e.g. SHELL session,
+        # paths). Keep this list narrow.
+        _CRED_WHITELIST = {"HOMEBREW_NO_ANALYTICS_MESSAGE_OUTPUT"}
         for key in list(env.keys()):
+            if key in _CRED_WHITELIST:
+                continue
             key_upper = key.upper()
-            if any(
-                s in key_upper for s in ("VAULT", "SECRET", "PRIVATE_KEY", "CREDENTIAL")
-            ):
+            if any(needle in key_upper for needle in _CRED_NEEDLES):
                 del env[key]
 
         # Start the child process

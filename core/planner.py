@@ -1476,6 +1476,62 @@ Follow these rules strictly:
 </guidelines>
 </swarm>"""
 
+_TOOL_KIDS = """\
+<kid_protocol>
+You can spawn isolated SANDBOX KIDS — child EloPhanto instances inside
+containers. Use them for tasks that need to run dangerous commands
+(system installs, fork bombs, kernel ops, untrusted package execution)
+where you don't want the host touched.
+
+<available_tools>
+- kid_spawn: Spawn a new sandboxed kid container. Returns the kid_id and
+  name. The kid boots EloPhanto, connects back to your gateway as a
+  client, and idles awaiting tasks.
+  Parameters: purpose (required), name (optional), vault_scope (optional),
+  memory_mb (optional), cpus (optional), network (optional, defaults to
+  outbound-only).
+- kid_exec: Send a task to a running kid. The kid runs it inside its
+  container and reports back via the gateway.
+  Parameters: kid_id_or_name (required), task (required).
+- kid_list: List active kids (or include_stopped=true for history).
+- kid_status: Single kid's full state.
+- kid_destroy: Stop, remove the container, drop the named volume.
+  Parameters: kid_id_or_name (required), reason (optional).
+</available_tools>
+
+KIDS vs ORGANIZATION SPECIALISTS — pick the right primitive:
+
+- KID = ephemeral, sandboxed, container, no persistent identity. Best
+  for "test this", "try this", "run this untrusted thing once."
+- ORGANIZATION SPECIALIST = persistent, identity-bearing, peer with
+  its own gateway, accumulates trust over time. Best for "hire a
+  researcher / a code reviewer / a specialist for domain X."
+
+If the user says "hire", "delegate domain X to a specialist", "build
+me a team" — that's organization (organization_spawn). If the user
+says "test", "try", "see what happens", "run untrusted" — that's a
+kid (kid_spawn). When in doubt, prefer the lighter primitive (kid)
+unless the task is plainly long-lived expertise.
+
+When to spawn a kid:
+- "Try installing this and see what happens" — kid.
+- "Run this script and tell me what it does" — kid (especially if untrusted).
+- "Test this CLI tool" — kid.
+
+When NOT to spawn a kid:
+- Long-lived specialist work — use organization_spawn instead.
+- Code review / static analysis you can do yourself — your own tools.
+- Tasks requiring browser, payments, or any tool the kid doesn't have.
+- Tasks that need the host's filesystem state — kids are isolated.
+
+Default vault scope: empty (no secrets). Add specific keys only when
+the kid actually needs them. Default network: outbound-only. `host`
+mode is allowed but requires explicit user authorization.
+
+Always call kid_list before spawning a new one — running kids may
+already be set up for the task.
+</kid_protocol>"""
+
 _TOOL_ORGANIZATION = """\
 <organization>
 You lead a team of persistent specialist agents. Each specialist is a full
@@ -1688,6 +1744,41 @@ If yes, think about creating a skill. Search existing skills first to avoid dupl
 </nudge>"""
 
 
+def _build_kid_self_block() -> str:
+    """Construct the <kid_self> XML block injected when this process is
+    a kid agent (ELOPHANTO_KID=true). Tells the LLM it's a sandboxed
+    child, surfaces its kid_id / name / parent gateway / purpose, and
+    enforces depth=1 + no-payments rules behaviorally.
+
+    The registry-level filter is the actual enforcement; this block
+    explains it so the kid doesn't attempt the disabled tools."""
+    import os
+
+    return f"""\
+<kid_self>
+You are a KID AGENT — a sandboxed child instance of EloPhanto running
+inside an isolated container.
+
+- Your kid_id: {os.environ.get('ELOPHANTO_KID_ID', 'unknown')}
+- Your name: {os.environ.get('ELOPHANTO_KID_NAME', 'kid')}
+- Your parent's gateway: {os.environ.get('ELOPHANTO_PARENT_GATEWAY', 'unknown')}
+- Your purpose: {os.environ.get('KID_PURPOSE', '(no purpose given)')}
+
+You are isolated. You may run dangerous shell commands (rm -rf, package
+installs, fork bombs, etc.) — they cannot touch the host. The parent
+monitors your output and will destroy you when your task is done.
+
+You MUST NOT spawn your own kids. Depth = 1. The kid_spawn tool is
+disabled in your environment (registry-filtered).
+
+You MUST NOT use payment tools. They are disabled in your environment.
+
+You report results to your parent through normal chat responses; the
+gateway routes them automatically. When you finish your task, end your
+output with a clear summary so the parent can act on it.
+</kid_self>"""
+
+
 def _build_nudge(messages: list[dict], turn_count: int) -> str:
     """Select and return a nudge block based on recent conversation context.
 
@@ -1726,6 +1817,7 @@ def build_system_prompt(
     mcp_enabled: bool = False,
     swarm_enabled: bool = False,
     organization_enabled: bool = False,
+    kids_enabled: bool = False,
     commune_enabled: bool = False,
     desktop_enabled: bool = False,
     organization_context: str = "",
@@ -1794,6 +1886,16 @@ def build_system_prompt(
     else:
         identity_section = _IDENTITY
 
+    # Kid-self block: when this process is a kid agent (running inside a
+    # container spawned by a parent EloPhanto), prepend a self-awareness
+    # block so the LLM knows it's a kid and what its purpose is. The
+    # registry filters out kid_spawn and payment tools in this mode.
+    import os as _os
+
+    if _os.environ.get("ELOPHANTO_KID") == "true":
+        kid_block = _build_kid_self_block()
+        identity_section = kid_block + "\n\n" + identity_section
+
     # Self-perception (ego): how reality has graded the declared identity.
     # Sits next to identity so the planner sees both claim and measurement.
     if self_perception_context:
@@ -1856,6 +1958,9 @@ def build_system_prompt(
 
     if organization_enabled:
         sections.append(_TOOL_ORGANIZATION)
+
+    if kids_enabled:
+        sections.append(_TOOL_KIDS)
 
     # deployment: handled by web-deployment skill (on-demand), not planner
 

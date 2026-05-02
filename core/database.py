@@ -338,6 +338,26 @@ _SCHEMA = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS kid_agents (
+        kid_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        parent_agent_id TEXT NOT NULL DEFAULT 'self',
+        container_id TEXT,
+        runtime TEXT NOT NULL,                          -- 'docker' | 'podman' | 'colima'
+        image TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'starting',        -- starting|running|paused|stopped|failed
+        role TEXT,
+        vault_scope_json TEXT NOT NULL DEFAULT '[]',
+        volume_name TEXT NOT NULL,                      -- docker named volume
+        parent_gateway_url TEXT NOT NULL,
+        purpose TEXT,
+        spawned_at TEXT NOT NULL,
+        last_active TEXT,
+        completed_at TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS swarm_projects (
         name TEXT PRIMARY KEY,
         repo_kind TEXT NOT NULL,         -- 'local' (never github), 'github', 'self-dev'
