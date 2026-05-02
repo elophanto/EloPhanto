@@ -180,6 +180,22 @@ class Vault:
         """List all stored credential keys."""
         return list(self._data.keys())
 
+    def subset(self, keys: list[str]) -> dict[str, Any]:
+        """Return a plaintext dict containing only the requested keys.
+
+        Used to scope secrets when handing them to a sandboxed child
+        (kid agents, organization specialists). The caller passes an
+        explicit allowlist; missing keys are silently omitted (not an
+        error) so callers can request a generous list without crashing
+        when a key isn't set yet.
+
+        Empty list returns an empty dict — caller-friendly default-deny.
+        Never logs values.
+        """
+        if not keys:
+            return {}
+        return {k: self._data[k] for k in keys if k in self._data}
+
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------

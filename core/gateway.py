@@ -92,6 +92,13 @@ class Gateway:
         # Map session_id → set of client_ids subscribed to that session
         self._session_clients: dict[str, set[str]] = {}
 
+        # Optional kid manager hook — set externally by Agent.initialize()
+        # when kids are enabled. Intercepts inbound chat from
+        # channel="kid-agent" so kid responses don't pollute the parent's
+        # main conversation; instead they go to a per-kid queue that
+        # KidManager.exec() awaits.
+        self._kid_manager: Any = None
+
         # Recovery handler — pure Python, no LLM
         router = getattr(agent, "_router", None)
         config = getattr(agent, "_config", None)
@@ -613,6 +620,19 @@ class Gateway:
 
     async def _handle_chat(self, client: ClientConnection, msg: GatewayMessage) -> None:
         """Handle a chat message — route to agent with session isolation."""
+        # Kid agents: inbound chat from a kid container goes to the kid
+        # manager's per-kid queue, NOT to the parent's agent loop. This
+        # keeps kid responses out of the parent's conversation history;
+        # KidManager.exec() awaits the queue and returns the kid's output
+        # to whatever called it (the kid_exec tool).
+        kid_channel = (msg.channel or client.channel or "") == "kid-agent"
+        if kid_channel and self._kid_manager is not None:
+            try:
+                await self._kid_manager.handle_kid_message(msg)
+            except Exception as e:
+                logger.debug("kid_manager.handle_kid_message failed: %s", e)
+            return
+
         # In recovery mode, block chat (LLM is unavailable) and show help
         if self._recovery and self._recovery.recovery_mode:
             session_id = msg.session_id or client.session_id or ""

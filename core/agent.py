@@ -501,6 +501,7 @@ class Agent:
         self._organization_manager: Any = (
             None  # OrganizationManager, set during initialize
         )
+        self._kid_manager: Any = None  # KidManager, set during initialize
         self._parent_adapter: Any = None  # ParentChannelAdapter, set during initialize
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._heartbeat_engine: Any = None  # HeartbeatEngine, set during initialize
@@ -1004,6 +1005,37 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Organization system setup failed: {e}")
 
+        # Initialize kid agents (sandboxed children in containers).
+        # Independent of organization — different lifetime + isolation model.
+        if self._config.kids.enabled:
+            try:
+                from core.kid_manager import KidManager
+
+                gateway_url = f"ws://host.docker.internal:{self._config.gateway.port}"
+                self._kid_manager = KidManager(
+                    db=self._db,
+                    config=self._config.kids,
+                    gateway=self._gateway,
+                    vault=self._vault,
+                    parent_gateway_url=gateway_url,
+                )
+                await self._kid_manager.start()
+                self._inject_kid_deps()
+                # Hook the gateway so inbound chat from channel="kid-agent"
+                # routes to the per-kid inbox instead of the parent's
+                # main agent loop.
+                if self._gateway is not None:
+                    self._gateway._kid_manager = self._kid_manager
+                if self._kid_manager.runtime_available:
+                    logger.info(
+                        "Kid system ready (runtime=%s)",
+                        self._kid_manager.runtime_name,
+                    )
+                else:
+                    logger.info("Kid system loaded but no container runtime available")
+            except Exception as e:
+                logger.warning(f"Kid system setup failed: {e}")
+
         # Initialize deployment tools (web hosting + database)
         if self._config.deployment.enabled:
             self._inject_deployment_deps()
@@ -1253,6 +1285,11 @@ class Agent:
                 await self._organization_manager.shutdown()
             except Exception as e:
                 logger.debug("Organization manager shutdown error: %s", e)
+        if self._kid_manager:
+            try:
+                await self._kid_manager.stop()
+            except Exception as e:
+                logger.debug("Kid manager shutdown error: %s", e)
         if self._parent_adapter:
             try:
                 await self._parent_adapter.stop()
@@ -1531,6 +1568,20 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._swarm_manager:
                 tool._swarm_manager = self._swarm_manager
+
+    def _inject_kid_deps(self) -> None:
+        """Inject KidManager into kid tools."""
+        kid_tools = (
+            "kid_spawn",
+            "kid_exec",
+            "kid_list",
+            "kid_status",
+            "kid_destroy",
+        )
+        for tool_name in kid_tools:
+            tool = self._registry.get(tool_name)
+            if tool and self._kid_manager:
+                tool._kid_manager = self._kid_manager
 
     def _inject_organization_deps(self) -> None:
         """Inject OrganizationManager into organization tools."""
@@ -1953,6 +2004,7 @@ class Agent:
             mcp_enabled=bool(self._mcp_manager and self._mcp_manager.connected_servers),
             swarm_enabled=self._config.swarm.enabled,
             organization_enabled=self._config.organization.enabled,
+            kids_enabled=self._config.kids.enabled,
             commune_enabled=self._config.commune.enabled,
             desktop_enabled=self._config.desktop.enabled,
             organization_context=_org_ctx,

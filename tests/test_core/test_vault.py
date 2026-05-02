@@ -76,3 +76,28 @@ class TestVault:
 
         vault3 = Vault.unlock(tmp_path, "new-pw")
         assert vault3.list_keys() == []
+
+    def test_subset_returns_only_requested_keys(self, tmp_path: Path) -> None:
+        vault = Vault.create(tmp_path, "pw")
+        vault.set("openrouter", "or-key")
+        vault.set("github", "gh-token")
+        vault.set("payment", "stripe-secret")
+        vault.set("twitter", "tw-token")
+
+        scoped = vault.subset(["openrouter", "github"])
+        assert scoped == {"openrouter": "or-key", "github": "gh-token"}
+        # Sensitive keys not in the allowlist must NOT leak
+        assert "payment" not in scoped
+        assert "twitter" not in scoped
+
+    def test_subset_empty_list_returns_empty_dict(self, tmp_path: Path) -> None:
+        vault = Vault.create(tmp_path, "pw")
+        vault.set("openrouter", "or-key")
+        assert vault.subset([]) == {}
+
+    def test_subset_silent_on_missing_keys(self, tmp_path: Path) -> None:
+        """Generous allowlists must not crash when a key isn't set."""
+        vault = Vault.create(tmp_path, "pw")
+        vault.set("openrouter", "or-key")
+        scoped = vault.subset(["openrouter", "github", "nonexistent"])
+        assert scoped == {"openrouter": "or-key"}

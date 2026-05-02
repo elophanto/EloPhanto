@@ -57,9 +57,12 @@ class CheckResult:
 
     @property
     def icon(self) -> str:
-        return {"ok": "[green]✓[/]", "warn": "[yellow]![/]", "fail": "[red]✗[/]"}[
-            self.status
-        ]
+        return {
+            "ok": "[green]✓[/]",
+            "warn": "[yellow]![/]",
+            "fail": "[red]✗[/]",
+            "skip": "[dim]·[/]",
+        }[self.status]
 
 
 def _check_python() -> CheckResult:
@@ -113,6 +116,118 @@ def _check_ffmpeg() -> CheckResult:
             "brew install ffmpeg",
         )
     return CheckResult("ffmpeg (pump.fun livestream)", "ok", "installed")
+
+
+def _check_container_runtime() -> CheckResult:
+    """Container runtime check for kid-agents. Warn-by-default — kids
+    are optional, so missing runtime is not a startup blocker.
+
+    Refuses spawn at the tool level if runtime is missing; the message
+    here just helps users get unstuck before they try."""
+    found: list[str] = []
+    for name in ("docker", "podman", "colima"):
+        if shutil.which(name):
+            found.append(name)
+    if not found:
+        import platform as _plat
+
+        sysname = _plat.system().lower()
+        if sysname == "darwin":
+            fix = (
+                "macOS: brew install colima docker && colima start "
+                "(CLI-only, no GUI license needed)"
+            )
+        elif sysname == "linux":
+            fix = "Linux: curl -fsSL https://get.docker.com | sh"
+        else:
+            fix = (
+                "Install Docker Desktop from docker.com, run it once, "
+                "then re-run elophanto doctor."
+            )
+        return CheckResult(
+            "container runtime (kid agents)",
+            "warn",
+            "no docker/podman/colima found — kid_spawn will refuse",
+            fix,
+        )
+    return CheckResult(
+        "container runtime (kid agents)",
+        "ok",
+        f"available: {', '.join(found)}",
+    )
+
+
+def _check_kid_image(project_root: Path) -> CheckResult:
+    """Check whether the elophanto-kid image is present and roughly fresh.
+
+    'Fresh' = image was built after the most recent change in core/.
+    Warns if missing or older than the codebase. Skipped silently when
+    no container runtime is present (the runtime check already covered it).
+    """
+    docker_bin = shutil.which("docker") or shutil.which("podman")
+    if not docker_bin:
+        return CheckResult(
+            "kid image (elophanto-kid:latest)",
+            "skip",
+            "no container runtime — see container runtime check",
+        )
+    import subprocess as _sp
+
+    try:
+        out = _sp.run(
+            [
+                docker_bin,
+                "image",
+                "inspect",
+                "elophanto-kid:latest",
+                "--format",
+                "{{.Created}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (_sp.TimeoutExpired, OSError):
+        return CheckResult(
+            "kid image (elophanto-kid:latest)",
+            "warn",
+            "could not inspect image (runtime not responding)",
+        )
+    if out.returncode != 0:
+        return CheckResult(
+            "kid image (elophanto-kid:latest)",
+            "warn",
+            "image not built — kid_spawn will refuse",
+            "Run: elophanto kid build",
+        )
+    image_created = out.stdout.strip()
+    # Compare to most recent mtime in core/ — if code is newer, image is stale.
+    core_dir = project_root / "core"
+    if core_dir.exists():
+        try:
+            from datetime import datetime as _dt
+
+            newest_code_mtime = max(p.stat().st_mtime for p in core_dir.rglob("*.py"))
+            # Parse Docker's RFC3339-like timestamp ("2026-05-01T12:00:00.123456789Z")
+            ts = image_created.replace("Z", "+00:00")[:32]
+            try:
+                image_dt = _dt.fromisoformat(ts).timestamp()
+            except ValueError:
+                image_dt = 0.0
+            if image_dt and newest_code_mtime > image_dt + 60:
+                return CheckResult(
+                    "kid image (elophanto-kid:latest)",
+                    "warn",
+                    "image is older than core/ — rebuild for latest code",
+                    "Run: elophanto kid build",
+                )
+        except OSError:
+            pass
+    return CheckResult(
+        "kid image (elophanto-kid:latest)",
+        "ok",
+        f"present (created {image_created[:19]})",
+    )
 
 
 def _config_path(project_root: Path) -> Path:
@@ -391,6 +506,8 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_vault(project_root))
     rows.append(_check_workspace(project_root))
     rows.append(_check_bootstrap(project_root))
+    rows.append(_check_container_runtime())
+    rows.append(_check_kid_image(project_root))
     return rows
 
 

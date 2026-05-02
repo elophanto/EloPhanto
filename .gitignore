@@ -117,3 +117,7 @@ skills-lock.json
 # EXAMPLES
 
 _EXAMPLE_/
+
+# Working plan documents (transient — delete after implementation)
+KID_AGENTS_PLAN.md
+*_PLAN.md

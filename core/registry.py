@@ -413,6 +413,19 @@ class ToolRegistry:
 
         self.register(PlanAutoplanTool())
 
+        # Kid agent tools — sandboxed children in containers.
+        from tools.kid.destroy_tool import KidDestroyTool
+        from tools.kid.exec_tool import KidExecTool
+        from tools.kid.list_tool import KidListTool
+        from tools.kid.spawn_tool import KidSpawnTool
+        from tools.kid.status_tool import KidStatusTool
+
+        self.register(KidSpawnTool())
+        self.register(KidExecTool())
+        self.register(KidListTool())
+        self.register(KidStatusTool())
+        self.register(KidDestroyTool())
+
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
 
@@ -442,6 +455,12 @@ class ToolRegistry:
         }
 
         _DEFERRED_TOOLS = {
+            # Kid agent tools (sandboxed children)
+            "kid_spawn",
+            "kid_exec",
+            "kid_list",
+            "kid_status",
+            "kid_destroy",
             # Payment tools
             "wallet_status",
             "wallet_export",
@@ -540,3 +559,36 @@ class ToolRegistry:
                 _t._tier_override = ToolTier.CORE
             elif _name in _DEFERRED_TOOLS or _name.startswith("desktop_"):
                 _t._tier_override = ToolTier.DEFERRED
+
+        # ── Kid-environment restrictions ───────────────────────────
+        # When this process is a kid agent (running inside a container
+        # spawned by a parent EloPhanto), strip out tools that the kid
+        # MUST NOT have access to:
+        #   - kid_*: depth=1; kids do not spawn their own kids.
+        #   - payment_*, wallet_*, polymarket_*: kids never move money.
+        # Enforcement at the registry level is the strongest gate; the
+        # planner prompt's <kid_self> block is the secondary explanation.
+        import os as _os
+
+        if _os.environ.get("ELOPHANTO_KID") == "true":
+            _kid_disallowed_prefixes = (
+                "kid_",
+                "payment_",
+                "wallet_",
+                "polymarket_",
+            )
+            _to_remove = [
+                n
+                for n in list(self._tools.keys())
+                if n.startswith(_kid_disallowed_prefixes)
+            ]
+            for n in _to_remove:
+                self.unregister(n)
+            if _to_remove:
+                import logging as _logging
+
+                _logging.getLogger(__name__).info(
+                    "Kid-environment: removed %d disallowed tools (%s)",
+                    len(_to_remove),
+                    ", ".join(_to_remove[:6]) + ("..." if len(_to_remove) > 6 else ""),
+                )
