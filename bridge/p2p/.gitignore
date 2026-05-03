@@ -1,0 +1,4 @@
+# Build output — built per-platform from source by setup.sh
+elophanto-p2pd
+p2p
+*.test

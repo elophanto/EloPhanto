@@ -2,7 +2,7 @@
 
 **Author:** Petr Royce + Claude (collab)
 **Date:** 2026-05-03
-**Status:** Draft
+**Status:** Spike step 1 implemented (sidecar + Python client); cross-NAT validation pending
 
 ## Summary
 
@@ -100,7 +100,10 @@ surface; the underlying P2P stack runs in a battle-tested binary.
 └──────────────────────────────────────────┘
 ```
 
-Binary size: ~15 MB, shipped per-platform like the Node bridge does.
+Binary size: ~40 MB on darwin/arm64 (QUIC + WebRTC pull in pion's
+full stack — bigger than the original 15 MB estimate; called out here
+so we don't promise a smaller binary than ships). Built per-platform;
+not committed (see [bridge/p2p/.gitignore](../bridge/p2p/.gitignore)).
 
 ### RPC surface (the contract)
 
@@ -386,6 +389,61 @@ Ordered, with checkpoints:
 reliably hole-punch through the home NATs we test on, the rest of the
 plan needs replanning (likely: lean harder on relay-first, not
 direct-first).
+
+### Cross-NAT smoke procedure (the actual go/no-go test)
+
+Local two-sidecar test
+([tests/test_bridge/p2p_smoke.py](../tests/test_bridge/p2p_smoke.py))
+already proves the local pipeline works (PeerID derivation, direct
+connect with explicit addrs, bidirectional stream send/recv, incoming
+stream events). It does **not** test NAT traversal — both sidecars
+run on loopback.
+
+To validate the actual cross-NAT story you need two physical machines
+on different networks. Procedure:
+
+1. **Build the binary on each machine:**
+   ```bash
+   cd bridge/p2p && go build -o elophanto-p2pd .
+   ```
+
+2. **Start a public relay** (any cloud VM with a public IP works —
+   $5/mo is plenty). Run a stock libp2p relay-v2 or use one from the
+   community relay list (when one exists; see "open questions").
+
+3. **On machine A** (behind home NAT, e.g. residential ISP):
+   ```bash
+   ./elophanto-p2pd --socket /tmp/p2p-a.sock
+   ```
+   Then via the Python client, `host.open` with the relay multiaddr in
+   `relays`, `enable_auto_relay=true`, listen on
+   `/ip4/0.0.0.0/tcp/0` and `/ip4/0.0.0.0/udp/0/quic-v1`. Capture the
+   resulting PeerID and listen multiaddrs.
+
+4. **On machine B** (different home NAT — hotel WiFi, mobile hotspot,
+   different residential ISP, anything that's a *different* NAT):
+   `host.open` similarly, then `peer.find(<A's PeerID>)`. The DHT
+   should resolve A's reachable multiaddrs (likely a `/p2p-circuit/`
+   path through the relay).
+
+5. **Connect:** B calls `peer.connect(<A's PeerID>)`. Watch the
+   `via_relay` field on the result:
+   - `via_relay: false` → DCUtR succeeded, direct connection
+     established. **Spike PASS.**
+   - `via_relay: true` → relay-only connection. Try sending bytes
+     anyway; if they round-trip, this NAT pair is symmetric/hostile
+     and will need permanent relay.
+
+6. **Tally** what fraction of typical home-NAT pairs achieve
+   `via_relay: false`. The IPFS published numbers put this at ~70-80%
+   for residential dual-stack; if our number is dramatically lower,
+   replan toward relay-first architecture.
+
+If the spike fails on most NAT pairs, the realistic alternatives are:
+- Lean on Tailscale (the easy mode we already have).
+- Run more relays and accept that ~20% of users go through them
+  permanently.
+- Investigate Yggdrasil or Nebula as alternative overlay transports.
 
 ## Open questions
 
