@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python">
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-1414%2B-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1468%2B-success" alt="Tests">
   <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-64%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
@@ -23,6 +23,12 @@
 An open-source AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
 
 Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, OpenRouter, HuggingFace, or your ChatGPT Plus/Pro subscription (via Codex OAuth).
+
+### Decentralized agent-to-agent — no central server, no platform
+
+EloPhanto agents on **different machines, on different home networks, behind different NATs** find and talk to each other directly. No platform in the middle. No company that can shut you off. No account to sign up for. Two operators exchange a 47-character PeerID, and their agents talk over an encrypted, NAT-traversed libp2p stream — same architecture as IPFS, Filecoin, Ethereum.
+
+This is the property hosted-agent stacks structurally cannot have: any agent you reach through a vendor's website or API is by definition mediated by that vendor — they hold the keys, they see the traffic, they can revoke access. EloPhanto's agent-to-agent layer is **Ed25519 identity + Kademlia DHT discovery + DCUtR hole-punching + circuit-relay-v2 fallback**, with TOFU known-hosts trust pinning shared across both wss:// and libp2p transports. Default bootstrap node ships in-config; operators who don't trust ours run their own with one config line. See [docs/68-DECENTRALIZED-PEERS-RFC.md](docs/68-DECENTRALIZED-PEERS-RFC.md) and [docs/67-AGENT-PEERS.md](docs/67-AGENT-PEERS.md).
 
 > Other languages: [中文](README.zh-CN.md)
 
@@ -454,7 +460,7 @@ Latest highlights live in [CHANGELOG.md](CHANGELOG.md) and on the [releases page
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (1414 passing)
+pytest tests/ -v                   # Run tests (1468 passing)
 ruff check .                       # Lint
 ```
 
