@@ -234,7 +234,13 @@ async def compress_messages(
     middle_text_parts = []
     for msg in middle:
         role = msg.get("role", "unknown")
-        content = msg.get("content", "")
+        # `.get("content", "")` returns None — not "" — when content is
+        # explicitly None, which is the standard shape for assistant
+        # messages with tool_calls (OpenAI + Anthropic both emit
+        # {role: assistant, content: None, tool_calls: [...]}). Default
+        # to "" *after* the lookup so the `+=` below can't blow up on
+        # None when we append the [called: ...] suffix.
+        content = msg.get("content") or ""
         if isinstance(content, list):
             # Multimodal — extract text parts only
             content = " ".join(
@@ -245,7 +251,7 @@ async def compress_messages(
         if msg.get("tool_calls"):
             calls = msg["tool_calls"]
             call_names = [tc.get("function", {}).get("name", "?") for tc in calls]
-            content += f" [called: {', '.join(call_names)}]"
+            content = f"{content} [called: {', '.join(call_names)}]"
         if content:
             middle_text_parts.append(f"[{role}]: {content[:2000]}")
 
