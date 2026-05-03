@@ -66,6 +66,14 @@ class ClientConnection:
     # IDENTIFY so each handshake uses a fresh nonce.
     pending_challenge: str = ""
 
+    # Connect-time anchors used to enforce verified-peers mode: we
+    # remember when the client connected (so the grace window can be
+    # measured) and whether it came in over loopback (loopback is
+    # always exempt from peer verification — it's the user's own
+    # CLI/Web/VSCode adapter on the same machine).
+    connected_at_monotonic: float = 0.0
+    is_loopback: bool = False
+
 
 class Gateway:
     """WebSocket control plane for EloPhanto."""
@@ -81,6 +89,10 @@ class Gateway:
         session_timeout_hours: int = 24,
         unified_sessions: bool = True,
         authority_config: Any | None = None,
+        tls_cert: str = "",
+        tls_key: str = "",
+        require_verified_peers: bool = False,
+        verify_grace_seconds: int = 15,
     ) -> None:
         self._agent = agent
         self._sessions = session_manager
@@ -90,6 +102,10 @@ class Gateway:
         self._max_sessions = max_sessions
         self._session_timeout_hours = session_timeout_hours
         self._unified_sessions = unified_sessions
+        self._tls_cert = tls_cert
+        self._tls_key = tls_key
+        self._require_verified_peers = require_verified_peers
+        self._verify_grace_seconds = verify_grace_seconds
         self._authority_config = authority_config  # AuthorityConfig | None
 
         self._clients: dict[str, ClientConnection] = {}
@@ -141,7 +157,25 @@ class Gateway:
 
     @property
     def url(self) -> str:
-        return f"ws://{self._host}:{self._port}"
+        scheme = "wss" if self._tls_enabled() else "ws"
+        return f"{scheme}://{self._host}:{self._port}"
+
+    def _tls_enabled(self) -> bool:
+        return bool(self._tls_cert and self._tls_key)
+
+    def _build_ssl_context(self) -> Any:
+        """Construct an SSLContext from configured cert/key paths.
+
+        Returns None if TLS is not configured. Raised exceptions
+        propagate so the gateway fails loudly on bad cert paths
+        rather than silently falling back to plaintext."""
+        if not self._tls_enabled():
+            return None
+        import ssl
+
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=self._tls_cert, keyfile=self._tls_key)
+        return ctx
 
     @property
     def is_running(self) -> bool:
@@ -459,6 +493,7 @@ class Gateway:
             logger.error("websockets package not installed. Run: uv add websockets")
             raise
 
+        ssl_ctx = self._build_ssl_context()
         self._server = await websockets.serve(
             self._handle_connection,
             self._host,
@@ -469,8 +504,14 @@ class Gateway:
             # extended periods, causing default 20s pings to time out.
             ping_interval=60,
             ping_timeout=120,
+            ssl=ssl_ctx,
         )
-        logger.info("Gateway started on %s", self.url)
+        logger.info(
+            "Gateway started on %s (tls=%s, require_verified_peers=%s)",
+            self.url,
+            "on" if ssl_ctx else "off",
+            self._require_verified_peers,
+        )
 
         # Start periodic health monitoring for auto-recovery
         if self._recovery:
@@ -583,6 +624,20 @@ class Gateway:
         client_id = str(uuid.uuid4())
         client = ClientConnection(client_id=client_id, websocket=websocket)
 
+        # Mark connect time + loopback status. Loopback connections are
+        # always exempt from verified-peers enforcement — they're the
+        # user's own CLI/Web/VSCode adapters running on the same machine,
+        # and asking them to speak IDENTIFY would gain nothing.
+        import time as _time
+
+        client.connected_at_monotonic = _time.monotonic()
+        try:
+            remote = websocket.remote_address
+            host = remote[0] if remote else ""
+            client.is_loopback = host in ("127.0.0.1", "::1", "localhost")
+        except Exception:
+            client.is_loopback = False
+
         # Issue an IDENTIFY challenge if agent identity is wired. Peers
         # speaking the protocol will sign exactly this nonce and send it
         # back in their first IDENTIFY message; legacy peers ignore the
@@ -597,7 +652,11 @@ class Gateway:
             client.pending_challenge = challenge_b64
 
         self._clients[client_id] = client
-        logger.info("Client connected: %s", client_id[:8])
+        logger.info(
+            "Client connected: %s (loopback=%s)",
+            client_id[:8],
+            client.is_loopback,
+        )
 
         try:
             # Send ready status. The optional `identify_challenge` lets
@@ -661,8 +720,47 @@ class Gateway:
                 error_message(f"Unknown message type: {msg.type}").to_json()
             )
 
+    def _peer_verification_check(self, client: ClientConnection) -> tuple[bool, str]:
+        """Decide whether a client may send sensitive messages (CHAT,
+        COMMAND, etc.) given the current verified-peers policy.
+
+        Returns ``(allowed, reason)``. The order matters:
+            1. Policy off → always allow.
+            2. Loopback → always allow (local UI bypass).
+            3. peer_verified → allow.
+            4. Inside grace window → allow (let the IDENTIFY round-trip
+               complete; otherwise legitimate peers race the handshake).
+            5. Otherwise → deny, with a clear reason.
+        """
+        if not self._require_verified_peers:
+            return True, ""
+        if client.is_loopback:
+            return True, ""
+        if client.peer_verified:
+            return True, ""
+        import time as _time
+
+        elapsed = _time.monotonic() - (client.connected_at_monotonic or 0.0)
+        if elapsed < self._verify_grace_seconds:
+            return True, ""
+        return False, (
+            "verified-peers mode is enabled and this client has not "
+            "completed the IDENTIFY handshake within "
+            f"{self._verify_grace_seconds}s of connecting"
+        )
+
     async def _handle_chat(self, client: ClientConnection, msg: GatewayMessage) -> None:
         """Handle a chat message — route to agent with session isolation."""
+        # Verified-peers gate. Loopback clients (local CLI/Web/VSCode)
+        # are always exempt. Non-loopback unverified peers are refused
+        # if the gateway is configured for require_verified_peers.
+        allowed, reason = self._peer_verification_check(client)
+        if not allowed:
+            await client.websocket.send(
+                error_message(f"chat refused: {reason}", client.session_id).to_json()
+            )
+            return
+
         # Kid agents: inbound chat from a kid container goes to the kid
         # manager's per-kid queue, NOT to the parent's agent loop. This
         # keeps kid responses out of the parent's conversation history;
@@ -986,6 +1084,15 @@ class Gateway:
         self, client: ClientConnection, msg: GatewayMessage
     ) -> None:
         """Handle slash commands — including recovery commands (no LLM)."""
+        # Verified-peers gate. Same policy as _handle_chat: loopback
+        # exempt, peer_verified or grace-window required for non-loopback.
+        allowed, reason = self._peer_verification_check(client)
+        if not allowed:
+            await client.websocket.send(
+                error_message(f"command refused: {reason}", client.session_id).to_json()
+            )
+            return
+
         command = msg.data.get("command", "")
         session_id = msg.session_id or client.session_id
         user_id = msg.user_id or client.user_id

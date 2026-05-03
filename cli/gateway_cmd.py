@@ -202,6 +202,10 @@ async def _run_gateway(
         session_timeout_hours=cfg.gateway.session_timeout_hours,
         unified_sessions=cfg.gateway.unified_sessions,
         authority_config=cfg.authority,
+        tls_cert=cfg.gateway.tls_cert,
+        tls_key=cfg.gateway.tls_key,
+        require_verified_peers=cfg.gateway.require_verified_peers,
+        verify_grace_seconds=cfg.gateway.verify_grace_seconds,
     )
 
     await gateway.start()

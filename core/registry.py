@@ -429,6 +429,7 @@ class ToolRegistry:
         # Agent identity / trust ledger — agent-to-agent peer auth.
         from tools.agent_identity.connect_tool import AgentConnectTool
         from tools.agent_identity.disconnect_tool import AgentDisconnectTool
+        from tools.agent_identity.discover_tool import AgentDiscoverTool
         from tools.agent_identity.list_tool import AgentTrustListTool
         from tools.agent_identity.message_tool import AgentMessageTool
         from tools.agent_identity.peers_tool import AgentPeersTool
@@ -442,6 +443,7 @@ class ToolRegistry:
         self.register(AgentMessageTool())
         self.register(AgentDisconnectTool())
         self.register(AgentPeersTool())
+        self.register(AgentDiscoverTool())
 
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
@@ -491,6 +493,7 @@ class ToolRegistry:
             "agent_message",
             "agent_disconnect",
             "agent_peers",
+            "agent_discover",
             # Payment tools
             "wallet_status",
             "wallet_export",
@@ -614,6 +617,7 @@ class ToolRegistry:
                 "agent_message",
                 "agent_disconnect",
                 "agent_peers",
+                "agent_discover",
             )
             _to_remove = [
                 n
