@@ -35,9 +35,24 @@ import (
 )
 
 func main() {
-	var socketPath string
-	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path to listen on")
+	var (
+		socketPath string
+		mode       string
+		keyPath    string
+		listenStr  string
+	)
+	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path to listen on (mode=agent only)")
+	flag.StringVar(&mode, "mode", "agent", "operating mode: 'agent' (JSON-RPC sidecar) or 'relay' (public bootstrap+relay)")
+	flag.StringVar(&keyPath, "key", "/var/lib/elophanto-relay/identity.key", "path to Ed25519 private key (mode=relay only — created if missing)")
+	flag.StringVar(&listenStr, "listen", "/ip4/0.0.0.0/tcp/4001,/ip4/0.0.0.0/udp/4001/quic-v1,/ip6/::/tcp/4001,/ip6/::/udp/4001/quic-v1", "comma-separated multiaddrs to listen on (mode=relay only)")
 	flag.Parse()
+
+	if mode == "relay" {
+		// Public bootstrap+relay — no JSON-RPC, just runs forever.
+		// See relay.go for the implementation.
+		runRelay(keyPath, listenStr)
+		return
+	}
 
 	// Pre-clean the socket file — listen() fails if it already exists.
 	// Operators occasionally hard-kill the daemon and leave a stale

@@ -279,6 +279,59 @@ def _check_tailscale() -> CheckResult:
     )
 
 
+def _check_p2p_bootstrap_diversity(project_root: Path) -> CheckResult:
+    """Warn when the operator's effective bootstrap list is ONLY the
+    EloPhanto-operated defaults.
+
+    Architecturally, defaults are a soft single point of failure: if
+    the EloPhanto org's relay box dies, peers using only defaults can't
+    cold-start. The remedy is plural seeds — operator runs their own,
+    or trusts community-run alternatives. This check just makes the
+    state explicit so an operator who *meant* to be self-reliant
+    notices they aren't yet."""
+    from core.config import DEFAULT_BOOTSTRAP_NODES, load_config
+
+    try:
+        cfg = load_config(project_root / "config.yaml")
+    except Exception:
+        return CheckResult(
+            "p2p bootstrap diversity",
+            "skip",
+            "config not parseable — check config.yaml",
+        )
+    if not cfg.peers.enabled:
+        return CheckResult(
+            "p2p bootstrap diversity",
+            "skip",
+            "peers.enabled=false — bootstrap list not in use",
+        )
+    effective = cfg.peers.effective_bootstrap_nodes()
+    if not effective:
+        return CheckResult(
+            "p2p bootstrap diversity",
+            "warn",
+            "bootstrap list is empty — peers cannot find each other by PeerID",
+            "Add a bootstrap multiaddr to peers.bootstrap_nodes, or set "
+            "peers.use_default_bootstraps: true to use the EloPhanto-operated default.",
+        )
+    operator_only = [b for b in effective if b not in DEFAULT_BOOTSTRAP_NODES]
+    if not operator_only:
+        return CheckResult(
+            "p2p bootstrap diversity",
+            "warn",
+            f"using only EloPhanto-operated defaults ({len(effective)} entries) — "
+            "soft single point of failure",
+            "Add at least one operator-controlled bootstrap to peers.bootstrap_nodes "
+            "(or peers.use_default_bootstraps: false + your own list) to be truly "
+            "decentralized. See docs/68-DECENTRALIZED-PEERS-RFC.md.",
+        )
+    return CheckResult(
+        "p2p bootstrap diversity",
+        "ok",
+        f"{len(effective)} bootstraps, {len(operator_only)} operator-controlled",
+    )
+
+
 def _check_p2p_sidecar(project_root: Path) -> CheckResult:
     """libp2p sidecar binary check.
 
@@ -691,6 +744,7 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_gateway_security(project_root))
     rows.append(_check_tailscale())
     rows.append(_check_p2p_sidecar(project_root))
+    rows.append(_check_p2p_bootstrap_diversity(project_root))
     return rows
 
 

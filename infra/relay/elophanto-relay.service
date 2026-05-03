@@ -1,0 +1,46 @@
+[Unit]
+Description=EloPhanto libp2p relay + bootstrap node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Dedicated user — no shell, no home, no privileges. The relay only
+# needs to read its key file and bind ports >1024, neither requires
+# root. Created by install.sh on first run.
+User=elophanto
+Group=elophanto
+
+# Persistent identity. systemd-tmpfiles or install.sh ensures the
+# directory exists with mode 0700 owned by elophanto:elophanto so the
+# 0600 key file inside is unreadable to anyone else.
+ExecStart=/usr/local/bin/elophanto-p2pd \
+    --mode=relay \
+    --key=/var/lib/elophanto-relay/identity.key \
+    --listen=/ip4/0.0.0.0/tcp/4001,/ip4/0.0.0.0/udp/4001/quic-v1,/ip6/::/tcp/4001,/ip6/::/udp/4001/quic-v1
+
+# Restart on any non-zero exit, but throttle so a wedged binary doesn't
+# burn CPU in a tight respawn loop. systemd-default backoff is fine.
+Restart=on-failure
+RestartSec=5s
+
+# Hardening — small, safe surface. The relay opens TCP/UDP 4001 and
+# reads /var/lib/elophanto-relay; nothing else needs filesystem access.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/elophanto-relay
+# CAP_NET_BIND_SERVICE not needed — port 4001 is unprivileged.
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Memory ceiling — libp2p relay should sit under 200 MB even with
+# many connections; 512 MB gives plenty of headroom and OOM-kills a
+# leaking binary instead of taking down the box.
+MemoryMax=512M
+# File descriptor ceiling — each peer connection eats fd's. 65k is
+# plenty for a small community relay.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
