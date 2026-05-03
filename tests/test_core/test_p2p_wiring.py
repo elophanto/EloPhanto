@@ -31,6 +31,42 @@ class TestPeersConfig:
         assert cfg.peers.bootstrap_nodes == []
         assert cfg.peers.relay_nodes == []
         assert cfg.peers.enable_auto_relay is True
+        # use_default_bootstraps defaults True so operators get a working
+        # cold-start out of the box; explicit list overrides via
+        # bootstrap_nodes are merged with defaults via
+        # effective_bootstrap_nodes().
+        assert cfg.peers.use_default_bootstraps is True
+
+    def test_effective_bootstrap_nodes_merge(self) -> None:
+        """effective_bootstrap_nodes merges operator entries (first)
+        with DEFAULT_BOOTSTRAP_NODES (fallback), deduped."""
+        from core.config import DEFAULT_BOOTSTRAP_NODES, PeersConfig
+
+        # Default-only.
+        cfg = PeersConfig()
+        assert cfg.effective_bootstrap_nodes() == DEFAULT_BOOTSTRAP_NODES
+
+        # Operator + defaults.
+        custom = "/ip4/192.0.2.1/tcp/4001/p2p/12D3KooWMy"
+        cfg = PeersConfig(bootstrap_nodes=[custom])
+        merged = cfg.effective_bootstrap_nodes()
+        assert merged[0] == custom
+        for default in DEFAULT_BOOTSTRAP_NODES:
+            assert default in merged
+
+        # Default disabled — operator only.
+        cfg = PeersConfig(bootstrap_nodes=[custom], use_default_bootstraps=False)
+        assert cfg.effective_bootstrap_nodes() == [custom]
+
+        # Empty list with defaults disabled — empty (not a default fallback).
+        cfg = PeersConfig(use_default_bootstraps=False)
+        assert cfg.effective_bootstrap_nodes() == []
+
+        # Dedup — operator listing the same multiaddr as default doesn't double it.
+        if DEFAULT_BOOTSTRAP_NODES:
+            cfg = PeersConfig(bootstrap_nodes=[DEFAULT_BOOTSTRAP_NODES[0]])
+            merged = cfg.effective_bootstrap_nodes()
+            assert merged.count(DEFAULT_BOOTSTRAP_NODES[0]) == 1
 
     def test_yaml_parser_round_trip(self, tmp_path) -> None:
         cfg_path = tmp_path / "config.yaml"
@@ -202,6 +238,54 @@ class TestDoctorP2PCheck:
         result = _check_p2p_sidecar(tmp_path)
         assert result.status == "skip"
         assert "disabled" in result.detail
+
+    def test_diversity_warns_when_only_defaults(self, tmp_path) -> None:
+        cfg_path = tmp_path / "config.yaml"
+        # peers.enabled with no bootstrap_nodes -> effective list is
+        # exactly DEFAULT_BOOTSTRAP_NODES, which the diversity check
+        # treats as a soft single point of failure.
+        cfg_path.write_text("peers:\n  enabled: true\n", encoding="utf-8")
+        from cli.doctor_cmd import _check_p2p_bootstrap_diversity
+
+        result = _check_p2p_bootstrap_diversity(tmp_path)
+        assert result.status == "warn"
+        assert "single point of failure" in result.detail
+        assert "peers.bootstrap_nodes" in (result.fix or "")
+
+    def test_diversity_ok_with_operator_bootstrap(self, tmp_path) -> None:
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            "peers:\n"
+            "  enabled: true\n"
+            "  bootstrap_nodes:\n"
+            "    - /ip4/198.51.100.1/tcp/4001/p2p/12D3KooWMy\n",
+            encoding="utf-8",
+        )
+        from cli.doctor_cmd import _check_p2p_bootstrap_diversity
+
+        result = _check_p2p_bootstrap_diversity(tmp_path)
+        assert result.status == "ok"
+        assert "operator-controlled" in result.detail
+
+    def test_diversity_warns_when_empty(self, tmp_path) -> None:
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            "peers:\n" "  enabled: true\n" "  use_default_bootstraps: false\n",
+            encoding="utf-8",
+        )
+        from cli.doctor_cmd import _check_p2p_bootstrap_diversity
+
+        result = _check_p2p_bootstrap_diversity(tmp_path)
+        assert result.status == "warn"
+        assert "empty" in result.detail
+
+    def test_diversity_skipped_when_peers_disabled(self, tmp_path) -> None:
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text("peers:\n  enabled: false\n", encoding="utf-8")
+        from cli.doctor_cmd import _check_p2p_bootstrap_diversity
+
+        result = _check_p2p_bootstrap_diversity(tmp_path)
+        assert result.status == "skip"
 
     def test_warns_when_enabled_but_binary_missing(self, tmp_path, monkeypatch) -> None:
         cfg_path = tmp_path / "config.yaml"

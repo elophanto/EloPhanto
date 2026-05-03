@@ -1085,7 +1085,13 @@ class Agent:
                     self._p2p_peer_id, listen_addrs = await self._p2p_sidecar.host_open(
                         private_key_hex=self._agent_identity.private_key_seed_hex(),
                         listen_addrs=cfg.listen_addrs or None,
-                        bootstrap=cfg.bootstrap_nodes,
+                        # Merges DEFAULT_BOOTSTRAP_NODES (when
+                        # use_default_bootstraps=True) with the
+                        # operator's list. Plural seeds is the whole
+                        # architectural point — operators who don't
+                        # trust the EloPhanto-operated default flip
+                        # use_default_bootstraps off.
+                        bootstrap=cfg.effective_bootstrap_nodes(),
                         relays=cfg.relay_nodes,
                         enable_auto_relay=cfg.enable_auto_relay,
                     )

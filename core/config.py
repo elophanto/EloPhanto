@@ -240,11 +240,23 @@ class PeersConfig:
     # discovery — without at least one reachable bootstrap, the local
     # host can still be dialled by explicit multiaddr but won't find
     # peers by PeerID. Plural and swappable on purpose; users who don't
-    # trust the default list (when one exists) point at their own.
+    # trust the default list point at their own.
+    #
+    # Default = the EloPhanto-operated relay node(s). Soft
+    # centralization — same shape as Bitcoin DNS seeds or IPFS
+    # bootstrap. Operators who want zero trust in EloPhanto-the-org
+    # can override or add their own with `use_default_bootstraps:
+    # false` + their own `bootstrap_nodes` list.
     #
     # Format: full p2p multiaddrs, e.g.
-    #   "/dnsaddr/bootstrap-1.elophanto.community/p2p/12D3KooW..."
+    #   "/ip4/.../tcp/.../p2p/12D3KooW..."
     bootstrap_nodes: list[str] = field(default_factory=list)
+
+    # When True (default), prepend DEFAULT_BOOTSTRAP_NODES to any
+    # bootstrap_nodes the operator configured. Set False to use ONLY
+    # the operator's list — for users running their own bootstrap
+    # infrastructure who don't want any third-party seeds.
+    use_default_bootstraps: bool = True
 
     # Static circuit-relay-v2 nodes. Used by peers that AutoNAT decides
     # are not publicly reachable, as a fallback when DCUtR can't punch
@@ -262,6 +274,38 @@ class PeersConfig:
     # $PATH lookup. Set explicitly when packaging the agent for
     # distribution.
     sidecar_binary: str = ""
+
+    def effective_bootstrap_nodes(self) -> list[str]:
+        """Return the bootstrap list the sidecar should actually use.
+
+        Combines DEFAULT_BOOTSTRAP_NODES (when use_default_bootstraps)
+        with operator-supplied bootstrap_nodes. Operator entries come
+        first so operator preferences win on ties; defaults are the
+        fallback. Deduped but order-preserving."""
+        merged: list[str] = []
+        for ma in list(self.bootstrap_nodes) + (
+            DEFAULT_BOOTSTRAP_NODES if self.use_default_bootstraps else []
+        ):
+            if ma not in merged:
+                merged.append(ma)
+        return merged
+
+
+# Default bootstrap node(s) the EloPhanto agent ships with. Updated
+# whenever the EloPhanto-operated relay rotates identity or moves.
+# The doctor check `_check_p2p_bootstrap_diversity` warns operators
+# when their effective bootstrap list is ONLY these defaults — that
+# means they're trusting EloPhanto-the-org as a single point of
+# failure, which is the architectural opposite of "decentralized."
+DEFAULT_BOOTSTRAP_NODES: list[str] = [
+    # EloPhanto relay #1 — Hetzner Hillsboro, OR (US-West).
+    # PeerID is the public half of the Ed25519 key in
+    # /var/lib/elophanto-relay/identity.key on the relay box; stable
+    # across restarts. Both TCP and QUIC listed so peers pick the
+    # transport that punches their NAT best.
+    "/ip4/5.78.129.186/tcp/4001/p2p/12D3KooWFtwhjbSJ1Gk3Mv1CpE86z7Dm35ZKEcQbG1icCXWZju9w",
+    "/ip4/5.78.129.186/udp/4001/quic-v1/p2p/12D3KooWFtwhjbSJ1Gk3Mv1CpE86z7Dm35ZKEcQbG1icCXWZju9w",
+]
 
 
 @dataclass
@@ -1217,6 +1261,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         enabled=peers_raw.get("enabled", False),
         listen_addrs=list(peers_raw.get("listen_addrs") or []),
         bootstrap_nodes=list(peers_raw.get("bootstrap_nodes") or []),
+        use_default_bootstraps=peers_raw.get("use_default_bootstraps", True),
         relay_nodes=list(peers_raw.get("relay_nodes") or []),
         enable_auto_relay=peers_raw.get("enable_auto_relay", True),
         sidecar_binary=peers_raw.get("sidecar_binary", ""),
