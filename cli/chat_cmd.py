@@ -721,6 +721,10 @@ async def _chat_gateway(cfg: Any) -> None:
         max_sessions=cfg.gateway.max_sessions,
         unified_sessions=cfg.gateway.unified_sessions,
         authority_config=cfg.authority,
+        tls_cert=cfg.gateway.tls_cert,
+        tls_key=cfg.gateway.tls_key,
+        require_verified_peers=cfg.gateway.require_verified_peers,
+        verify_grace_seconds=cfg.gateway.verify_grace_seconds,
     )
     await gateway.start()
     agent._gateway = gateway  # Enable scheduled task notifications

@@ -187,6 +187,27 @@ class GatewayConfig:
     session_timeout_hours: int = 24
     unified_sessions: bool = True  # All channels share one conversation
 
+    # ── TLS (cross-machine peer connections) ─────────────────────────
+    # When both `tls_cert` and `tls_key` are set, the gateway listens
+    # with wss:// instead of ws://. Strongly recommended when binding
+    # beyond loopback. Self-signed certs work; for peers to trust them
+    # without warnings, use a CA-signed cert (Let's Encrypt via Caddy
+    # is the easy path) or run inside Tailscale (which encrypts at the
+    # WireGuard layer regardless).
+    tls_cert: str = ""  # path to PEM cert chain
+    tls_key: str = ""  # path to PEM private key
+
+    # ── Peer identity enforcement ────────────────────────────────────
+    # When True, the gateway refuses CHAT/COMMAND from clients that
+    # haven't completed the IDENTIFY handshake within `verify_grace_seconds`
+    # of connecting. Loopback connections (127.0.0.1, ::1) are always
+    # exempt — your local CLI/Web/VSCode adapters don't need to speak
+    # IDENTIFY because they're already on your machine. Critical for
+    # any setup that binds beyond loopback: flips the security model
+    # from "URL+token = trusted" to "verified-identity-only."
+    require_verified_peers: bool = False
+    verify_grace_seconds: int = 15
+
 
 @dataclass
 class HubConfig:
@@ -1128,6 +1149,10 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         max_sessions=gw_raw.get("max_sessions", 50),
         session_timeout_hours=gw_raw.get("session_timeout_hours", 24),
         unified_sessions=gw_raw.get("unified_sessions", True),
+        tls_cert=gw_raw.get("tls_cert", ""),
+        tls_key=gw_raw.get("tls_key", ""),
+        require_verified_peers=gw_raw.get("require_verified_peers", False),
+        verify_grace_seconds=gw_raw.get("verify_grace_seconds", 15),
     )
 
     # Parse hub section

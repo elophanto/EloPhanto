@@ -198,6 +198,87 @@ def _check_agent_identity() -> CheckResult:
     )
 
 
+def _check_gateway_security(project_root: Path) -> CheckResult:
+    """Surface the gateway's network exposure + verified-peers mode.
+
+    Three states matter:
+      - bound to loopback (127.0.0.1) → safe by default
+      - bound beyond loopback WITHOUT verified_peers + WITHOUT TLS →
+        warn loudly: any client with the URL+token can chat in plaintext
+      - bound beyond loopback WITH verified_peers AND/OR TLS → ok
+    """
+    try:
+        from core.config import load_config
+    except Exception as e:
+        return CheckResult("gateway security", "warn", f"config load failed: {e}")
+    cfg_path = _config_path(project_root)
+    if not cfg_path.exists():
+        return CheckResult(
+            "gateway security",
+            "warn",
+            "config.yaml not found — run elophanto init",
+        )
+    try:
+        cfg = load_config(str(cfg_path))
+    except Exception as e:
+        return CheckResult("gateway security", "warn", f"config parse failed: {e}")
+
+    gw = cfg.gateway
+    is_loopback = gw.host in ("127.0.0.1", "::1", "localhost")
+    has_tls = bool(gw.tls_cert and gw.tls_key)
+    has_verified = bool(gw.require_verified_peers)
+
+    if is_loopback:
+        return CheckResult(
+            "gateway security",
+            "ok",
+            f"bound to loopback ({gw.host}) — local-only, safe by default",
+        )
+    if has_verified and has_tls:
+        return CheckResult(
+            "gateway security",
+            "ok",
+            f"bound to {gw.host} with TLS + verified-peers — peer-to-peer hardened",
+        )
+    if has_verified:
+        return CheckResult(
+            "gateway security",
+            "warn",
+            f"bound to {gw.host} with verified-peers but NO TLS — handshake bytes travel plaintext",
+            "Set gateway.tls_cert + gateway.tls_key in config.yaml (or run inside Tailscale, which encrypts at WireGuard layer).",
+        )
+    if has_tls:
+        return CheckResult(
+            "gateway security",
+            "warn",
+            f"bound to {gw.host} with TLS but verified-peers OFF — anyone with URL+token can connect",
+            "Set gateway.require_verified_peers: true in config.yaml.",
+        )
+    return CheckResult(
+        "gateway security",
+        "warn",
+        f"bound to {gw.host} WITHOUT TLS or verified-peers — exposed and trust-by-token only",
+        "Set gateway.tls_cert + gateway.tls_key AND gateway.require_verified_peers: true. For cross-machine, run agents inside Tailscale.",
+    )
+
+
+def _check_tailscale() -> CheckResult:
+    """Tailscale CLI presence — required only if you want
+    agent_discover. Warn-by-default."""
+    if shutil.which("tailscale"):
+        return CheckResult(
+            "tailscale (peer discovery)",
+            "ok",
+            "available — `agent_discover` will find peers on your tailnet",
+        )
+    return CheckResult(
+        "tailscale (peer discovery)",
+        "warn",
+        "not installed — agent_discover returns no peers without it",
+        "Install Tailscale (https://tailscale.com/download), join your tailnet, and re-run.",
+    )
+
+
 def _check_kid_image(project_root: Path) -> CheckResult:
     """Check whether the elophanto-kid image is present and roughly fresh.
 
@@ -550,6 +631,8 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_container_runtime())
     rows.append(_check_kid_image(project_root))
     rows.append(_check_agent_identity())
+    rows.append(_check_gateway_security(project_root))
+    rows.append(_check_tailscale())
     return rows
 
 
