@@ -1111,11 +1111,10 @@ class Agent:
                         # Route through the same run() entry point used
                         # by every other channel adapter. peer_id is
                         # opaque to run(); the response content is what
-                        # we write back to the wire.
-                        result = await self.run(
-                            content,
-                            authority=None,  # default OWNER for now
-                        )
+                        # we write back to the wire. Authority defaults
+                        # to OWNER inside run() — fine for v1; a future
+                        # slice can downgrade to GUEST for libp2p peers.
+                        result = await self.run(content)
                         return getattr(result, "content", "") or ""
 
                     self._p2p_listener = IncomingStreamListener(
