@@ -82,6 +82,26 @@ class AgentIdentityKey:
         )
         return base64.b64encode(raw).decode("ascii")
 
+    def private_key_seed_hex(self) -> str:
+        """Raw 32-byte Ed25519 seed as hex.
+
+        Used by the libp2p sidecar — go-libp2p's PeerID is derived
+        deterministically from the matching public key, so handing over
+        this same seed means our IDENTIFY identity AND our libp2p PeerID
+        come from one keypair. Same agent, same identity across
+        transports.
+
+        SECURITY: this exposes the raw private key material. Only pass
+        it to processes we own (the sidecar over a 0600 Unix socket) —
+        never log it, never commit it, never transmit over the network.
+        """
+        raw = self.private_key.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        return raw.hex()
+
 
 # ---------------------------------------------------------------------------
 # Static helpers — verify someone else's signature

@@ -432,6 +432,7 @@ class ToolRegistry:
         from tools.agent_identity.discover_tool import AgentDiscoverTool
         from tools.agent_identity.list_tool import AgentTrustListTool
         from tools.agent_identity.message_tool import AgentMessageTool
+        from tools.agent_identity.p2p_status_tool import AgentP2PStatusTool
         from tools.agent_identity.peers_tool import AgentPeersTool
         from tools.agent_identity.remove_tool import AgentTrustRemoveTool
         from tools.agent_identity.set_tool import AgentTrustSetTool
@@ -444,6 +445,7 @@ class ToolRegistry:
         self.register(AgentDisconnectTool())
         self.register(AgentPeersTool())
         self.register(AgentDiscoverTool())
+        self.register(AgentP2PStatusTool())
 
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
@@ -494,6 +496,7 @@ class ToolRegistry:
             "agent_disconnect",
             "agent_peers",
             "agent_discover",
+            "agent_p2p_status",
             # Payment tools
             "wallet_status",
             "wallet_export",
@@ -618,6 +621,7 @@ class ToolRegistry:
                 "agent_disconnect",
                 "agent_peers",
                 "agent_discover",
+                "agent_p2p_status",
             )
             _to_remove = [
                 n

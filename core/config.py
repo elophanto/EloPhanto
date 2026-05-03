@@ -210,6 +210,61 @@ class GatewayConfig:
 
 
 @dataclass
+class PeersConfig:
+    """Decentralized peer connections via libp2p sidecar.
+
+    Separate from GatewayConfig because it's a different transport:
+    the gateway listens for inbound channel adapters (CLI, Telegram,
+    etc.); the peers layer is for agent-to-agent talk across the
+    internet without Tailscale or a central directory.
+
+    Disabled by default. The sidecar binary is opt-in — enabling this
+    flag triggers `setup.sh` (or `agent_p2p_status` first call) to
+    build `bridge/p2p/elophanto-p2pd` if missing.
+
+    Architecture: see [docs/68-DECENTRALIZED-PEERS-RFC.md].
+    """
+
+    # Master switch. False -> sidecar never spawned, agent_discover
+    # falls back to Tailscale-only.
+    enabled: bool = False
+
+    # Multiaddrs the sidecar listens on. Empty = default
+    # (TCP + QUIC on random ports, all interfaces). For a publicly
+    # reachable host with port forwarding, pin a fixed port:
+    #   - "/ip4/0.0.0.0/tcp/4001"
+    #   - "/ip4/0.0.0.0/udp/4001/quic-v1"
+    listen_addrs: list[str] = field(default_factory=list)
+
+    # Bootstrap nodes to seed the DHT. Required for cold-start peer
+    # discovery — without at least one reachable bootstrap, the local
+    # host can still be dialled by explicit multiaddr but won't find
+    # peers by PeerID. Plural and swappable on purpose; users who don't
+    # trust the default list (when one exists) point at their own.
+    #
+    # Format: full p2p multiaddrs, e.g.
+    #   "/dnsaddr/bootstrap-1.elophanto.community/p2p/12D3KooW..."
+    bootstrap_nodes: list[str] = field(default_factory=list)
+
+    # Static circuit-relay-v2 nodes. Used by peers that AutoNAT decides
+    # are not publicly reachable, as a fallback when DCUtR can't punch
+    # through (~20% of home NATs are this hostile). Empty + AutoRelay
+    # on means the sidecar discovers relays via DHT instead.
+    relay_nodes: list[str] = field(default_factory=list)
+
+    # Let libp2p discover relay nodes via the DHT when none are pinned.
+    # Default on — without it, peers behind symmetric NAT have no path
+    # to be reached at all.
+    enable_auto_relay: bool = True
+
+    # Override path to the sidecar binary. Empty = autodiscover via
+    # ELOPHANTO_P2PD env var, then bridge/p2p/elophanto-p2pd, then
+    # $PATH lookup. Set explicitly when packaging the agent for
+    # distribution.
+    sidecar_binary: str = ""
+
+
+@dataclass
 class HubConfig:
     """EloPhantoHub skill registry configuration."""
 
@@ -729,6 +784,7 @@ class Config:
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
+    peers: PeersConfig = field(default_factory=PeersConfig)
     hub: HubConfig = field(default_factory=HubConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     slack: SlackConfig = field(default_factory=SlackConfig)
@@ -1153,6 +1209,17 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         tls_key=gw_raw.get("tls_key", ""),
         require_verified_peers=gw_raw.get("require_verified_peers", False),
         verify_grace_seconds=gw_raw.get("verify_grace_seconds", 15),
+    )
+
+    # Parse peers section (libp2p sidecar; optional, off by default)
+    peers_raw = raw.get("peers", {})
+    peers_config = PeersConfig(
+        enabled=peers_raw.get("enabled", False),
+        listen_addrs=list(peers_raw.get("listen_addrs") or []),
+        bootstrap_nodes=list(peers_raw.get("bootstrap_nodes") or []),
+        relay_nodes=list(peers_raw.get("relay_nodes") or []),
+        enable_auto_relay=peers_raw.get("enable_auto_relay", True),
+        sidecar_binary=peers_raw.get("sidecar_binary", ""),
     )
 
     # Parse hub section
@@ -1586,6 +1653,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         scheduler=scheduler_config,
         telegram=telegram_config,
         gateway=gateway_config,
+        peers=peers_config,
         hub=hub_config,
         discord=discord_config,
         slack=slack_config,
