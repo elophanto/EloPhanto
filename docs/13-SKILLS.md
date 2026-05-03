@@ -48,11 +48,55 @@ Step-by-step best practices...
 ## Examples
 Good and bad examples...
 
+## Verify
+Optional. Machine-actionable post-conditions (one per bullet) the agent
+must evaluate before reporting the task complete. See "Verify gate"
+below.
+
 ## Notes
 Additional context...
 ```
 
-The `Description` and `Triggers` sections are parsed automatically by the SkillManager. The rest is read by the agent when the skill is activated.
+The `Description`, `Triggers`, and `Verify` sections are parsed automatically by the SkillManager. The rest is read by the agent when the skill is activated.
+
+## Verify gate
+
+A skill can declare post-conditions in a `## Verify` section. Each
+bulleted (or numbered) item is one observable check. Example from
+`api-testing`:
+
+```markdown
+## Verify
+
+- Test suite was actually executed (output captured), not just written
+- Every endpoint in the discovered inventory has at least one assertion
+- Authentication/authorization paths are explicitly tested, not assumed
+- Failing tests fail loudly — no silent skips or `xfail` without justification
+- Performance assertions specify a numeric threshold (e.g. p95 < 200ms), not vague language
+```
+
+When a skill is auto-loaded **and** the match is high-confidence
+(skill matcher score ≥ 6 — i.e. the user's intent strongly references
+the skill, not an incidental keyword), the agent's system prompt gets
+a `<verification_required>` block instructing the model to evaluate
+each check by id and emit a `Verification: PASS / FAIL / UNKNOWN`
+section in the final response. Failure means repair-and-recheck, not
+"done."
+
+The score gate is intentionally tighter than skill auto-load. Auto-load
+remains permissive (better wrong skill than none); the verify gate
+suppresses spurious checks on weak matches (e.g. "check the weather"
+incidentally grazing `smart-contract-audit` at score 5).
+
+168/168 non-template skills ship with a `## Verify` section: 4
+hand-tuned reference implementations (`api-testing`,
+`product-launch`, `evidence-collection`, `_template`) and 164
+category-templated by an auto-seed pass (Solana/DeFi, marketing,
+frontend/UI, accessibility, testing/QA, debugging, deployment,
+research/writing, native/mobile/XR, agent infra, project/strategy,
+experimentation, sales/support, language engineering, video/streaming,
+Next.js, alphascala). Hand-tune individual skills as the gate surfaces
+real problems.
 
 ## How Skills Work
 
