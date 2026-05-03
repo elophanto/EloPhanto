@@ -112,3 +112,12 @@ Other deliverables include:
 - **Cost Reduction**: Lower total operation cost per user by > 40% through intelligent routing
 - **Uptime Stability**: Achieve 99.99% workflow completion rate despite individual API outages
 - **Evolution Velocity**: Enable the software to test and adopt a newly released foundational model against production data within 1 hour of the model's release, entirely autonomously
+
+## Verify
+
+- Hypothesis is stated in 'if X then Y because Z' form before the experiment runs
+- Sample size, duration, and primary metric are committed to in writing before reading any results
+- Control and treatment are specified concretely (config diff, feature flag, audience filter), not described abstractly
+- The experiment record stores raw outcome data, not just the conclusion, so it can be re-analyzed later
+- Results report effect size and a confidence interval (or equivalent uncertainty), not only a point estimate
+- A 'no decision' or 'inconclusive' branch is allowed in the analysis plan; the agent does not force a winner

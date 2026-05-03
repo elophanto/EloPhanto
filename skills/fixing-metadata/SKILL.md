@@ -130,3 +130,11 @@ Reference these guidelines when:
 - verify social cards on a real URL, not localhost
 - prefer stable, boring metadata over clever or dynamic
 - keep diffs minimal and scoped to metadata only
+
+## Verify
+
+- Title, description, OG image, canonical URL, and favicon were each inspected on the live page (view-source or DOM), not just edited in source
+- Title length is within the 50-60 char window and description within 140-160 chars; final counts are recorded
+- OG and Twitter card previews were validated with a real fetcher (e.g., opengraph.xyz, cards-dev) and screenshots/links attached
+- Structured data (JSON-LD) validates against schema.org; the validator output or zero-error report is attached
+- Sitemap and robots directives were checked so the page is actually indexable (or intentionally noindex)

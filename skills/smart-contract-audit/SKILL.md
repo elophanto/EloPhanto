@@ -234,3 +234,12 @@ Every completed audit (paid or unpaid) goes in `learned/audits/{date}-{protocol}
 with: scope, hours, findings count by severity, fee, did the protocol fix
 the issues, did anything later get exploited that this audit missed.
 Honest track record is the marketing.
+
+## Verify
+
+- A real RPC/SDK call was issued (mainnet, devnet, or local validator) and the response payload is captured in the transcript, not just paraphrased
+- Every transaction was simulated (`simulateTransaction` or equivalent) before any signing/sending step; simulation logs are attached
+- For any signed/sent transaction, the resulting signature is recorded and confirmed on chain (status returned by `getSignatureStatuses` or an explorer URL)
+- Slippage, priority-fee, and compute-unit limits were set explicitly with concrete numeric values, not left to library defaults
+- Account addresses, mints, and program IDs used in the run match the documented smart-contract-audit addresses for the targeted cluster (no mainnet/devnet mix-up)
+- Failure path was exercised at least once (insufficient balance, stale oracle, expired blockhash, etc.) and the agent's error handling produced a human-readable message

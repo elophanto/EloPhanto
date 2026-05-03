@@ -142,3 +142,12 @@ gdpr_compliance:
 - Policy compliance achieves 95%+ employee adherence with effective training
 - Audit results show zero critical findings with continuous improvement
 - Compliance culture scores exceed 4.5/5 in employee awareness surveys
+
+## Verify
+
+- The outbound message was actually sent (timestamp + recipient + channel) or the response was posted to the user (ticket ID), not held in a draft
+- The recipient/segment matches the criteria in the legal-compliance guide; mis-targeted contacts are excluded with a reason
+- Personalization references at least one verifiable fact about the recipient (role, recent event, prior message), not a generic token
+- Compliance constraints relevant to the channel (CAN-SPAM, GDPR, region opt-in, NDA, disclosure) were checked off explicitly
+- A follow-up cadence and stop-condition is set, so silent recipients are not pinged indefinitely
+- Outcome (reply, booked meeting, resolved/closed) is logged in the system of record, not only in chat

@@ -148,6 +148,15 @@ Hard gate at day 14 from phase 2 start:
   Ship the one feature the landing page promised.
 - "I want to launch on Friday" → push back. PH/IH launch days matter.
 
+## Verify
+
+- The deliverable for this phase exists as a concrete artifact (doc, ticket, board, repo) and its location is shared, not described
+- Each commitment has an owner name, a due date, and a definition-of-done that someone other than the author could check
+- Risks are listed with likelihood/impact and a named mitigation, not as a generic 'risks: TBD' bullet
+- Dependencies on other teams/vendors/agents are explicit; an ack from each dependency is recorded or marked 'pending'
+- Success criteria for the next phase are numeric or otherwise objectively testable
+- A rollback / kill-switch / 'we will stop if X' criterion is written down before work starts
+
 ## Anti-patterns to flag
 
 - **The polish trap:** rewriting the landing page for the 4th time instead

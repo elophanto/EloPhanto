@@ -173,6 +173,16 @@ Most sites see a massive traffic drop after launch day. To retain:
 - `deploy_website` — Deploy landing page
 - `replicate_generate` — Create thumbnails/screenshots
 
+## Verify
+
+- Pre-launch checklist completed: every item in "Pre-Launch Checklist" was actually checked, not assumed (cite which were validated and how)
+- Each platform launch lists a real submitted URL (Product Hunt page, HN item id, Reddit post link) — not just "submitted"
+- Launch-day engagement is logged: at least the maker comment was posted and the first round of replies sent within the launch window
+- Email capture is wired to a real list / endpoint that received at least one test entry — not just a form on the page
+- Server / CDN headroom was checked against the platform's expected traffic (HN ~50k, Reddit up to 500k) before going live
+- Analytics fired at least one event during the launch window (not just installed and untouched)
+- Post-launch follow-up plan is scheduled (re-engagement email, "just shipped" cadence) — not left as intent
+
 ### Philosophy (from levelsio)
 
 > "The most elementary mistake people still make is not sharing their ideas. No, people won't steal your idea if they like it. And even if they do, they probably can't execute it as well as you. Ideas are a dime a dozen. Everything is about how you execute."

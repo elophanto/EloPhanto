@@ -138,3 +138,12 @@ description: Expert app store marketing specialist focused on ASO, conversion ra
 - App store conversion rates improve by 25% or more through optimization
 - User ratings improve to 4.5+ stars with increased review volume
 - International market expansion delivers successful localization results
+
+## Verify
+
+- The actual channel was reached (post URL, message ID, or platform-side confirmation captured), not just a draft saved locally
+- Targeting parameters (subreddit, hashtag, audience, time zone) match what the app-store-optimization guide prescribes for the chosen platform
+- Copy was checked against the platform's character/format limits before posting; the final character count is recorded
+- Engagement plan for the first 1-2 hours after posting is written down with specific actions, not 'monitor and reply'
+- At least one platform-specific anti-pattern from the skill (e.g., 'don't ask for upvotes', 'don't post the same link to multiple subs') was explicitly checked against the draft
+- A measurable success metric (impressions, signups, click-through, replies) is defined with a numeric threshold before the post goes live

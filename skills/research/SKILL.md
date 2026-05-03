@@ -180,6 +180,15 @@ knowledge_write:
 - **Don't present search engine snippets as facts** — navigate to the actual page and read the full content
 - **Don't ignore dates** — information from 2020 may be outdated in 2026; check recency
 
+## Verify
+
+- Every non-trivial claim in the output is paired with a source link, file path, or query result, not stated as a bare assertion
+- Sources span at least 2-3 independent origins; single-source conclusions are flagged as such
+- Counter-evidence or limitations are explicitly listed, not omitted to make the narrative tidier
+- Numbers in the deliverable carry units, time windows, and an as-of date (e.g., '$1.2M ARR as of 2026-04-30')
+- Direct quotes are verbatim and cite their location; paraphrases are marked as such
+- Out-of-date or unreachable sources are noted in the bibliography rather than silently dropped
+
 ## Notes
 
 The knowledge base (knowledge_search / knowledge_write) is your institutional

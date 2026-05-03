@@ -1970,9 +1970,11 @@ class Agent:
         available_skills = self._skill_manager.format_available_skills(goal)
 
         # Auto-inject top matched skill content so weaker models don't skip skill_read
-        matched_skills = self._skill_manager.match_skills(goal, max_results=1)
-        if matched_skills:
-            top_skill = matched_skills[0]
+        matched_scored = self._skill_manager.match_skills_with_scores(
+            goal, max_results=1
+        )
+        if matched_scored:
+            top_score, top_skill = matched_scored[0]
             skill_content = self._skill_manager.read_skill(top_skill.name)
             if skill_content:
                 available_skills += (
@@ -1980,6 +1982,30 @@ class Agent:
                     f"{skill_content}\n"
                     f"</auto_loaded_skill>"
                 )
+                # Verification gate: only inject when the match is
+                # high-confidence. The matcher is permissive for auto-load
+                # (better wrong skill than none), but forcing a
+                # Verification block on a weak match (e.g. "check the
+                # weather" matching smart-contract-audit on the word
+                # "check", score=5) is pure noise. Real intent matches
+                # score 15-40+; threshold 6 cleanly separates them.
+                _VERIFY_MIN_SCORE = 6
+                if top_skill.verify_checks and top_score >= _VERIFY_MIN_SCORE:
+                    checks_xml = "\n".join(
+                        f"  <check id='{i + 1}'>{c}</check>"
+                        for i, c in enumerate(top_skill.verify_checks)
+                    )
+                    available_skills += (
+                        f"\n<verification_required skill='{top_skill.name}'>\n"
+                        "Before reporting this task complete, evaluate each "
+                        "check below. If ANY check fails or you cannot "
+                        "confirm it passes, you MUST repair the work and "
+                        "re-evaluate — do not claim success. In your final "
+                        "response, include a brief 'Verification:' section "
+                        "stating PASS / FAIL / UNKNOWN for each check by id.\n"
+                        f"{checks_xml}\n"
+                        "</verification_required>"
+                    )
 
         # --- Authority: resolve and filter tools ---
         from core.authority import (

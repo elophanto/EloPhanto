@@ -218,6 +218,15 @@ Run: `npx vitest` (watch mode) or `npx vitest run` (single pass)
 - **Large bundle size** — check with `npx bundlesize` or build analyzer
 - **Sync I/O in async context** — use `fs/promises`, not `fs.readFileSync`
 
+## Verify
+
+- The code was actually executed (or type-checked / linted as appropriate) and the command output is captured
+- Dependencies and runtime versions used are pinned and recorded (e.g., requirements.txt, package.json + lockfile, .nvmrc)
+- Errors or warnings emitted by the run are addressed or explicitly accepted with a reason
+- New external I/O (network, filesystem, DB) has timeouts and error handling, not silent failure
+- Tests for the change were run and the pass/fail count is in the transcript
+- Secrets and credentials are read from env/secret store, not hard-coded, and `.env` files are not committed
+
 ## Notes
 
 For Next.js/React-specific patterns, read the `react-best-practices` and

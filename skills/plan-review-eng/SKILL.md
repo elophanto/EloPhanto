@@ -104,3 +104,12 @@ the tool expects. When called interactively, narrative is fine.
 - Re-litigate scope (CEO review's job — escalate instead).
 - Critique UI/UX (design review's job).
 - Write code or implement.
+
+## Verify
+
+- The deliverable for this phase exists as a concrete artifact (doc, ticket, board, repo) and its location is shared, not described
+- Each commitment has an owner name, a due date, and a definition-of-done that someone other than the author could check
+- Risks are listed with likelihood/impact and a named mitigation, not as a generic 'risks: TBD' bullet
+- Dependencies on other teams/vendors/agents are explicit; an ack from each dependency is recorded or marked 'pending'
+- Success criteria for the next phase are numeric or otherwise objectively testable
+- A rollback / kill-switch / 'we will stop if X' criterion is written down before work starts

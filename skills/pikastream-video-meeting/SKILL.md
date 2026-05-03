@@ -137,3 +137,11 @@ Tell the user you're in. Say `leave` to leave. Don't mention session IDs.
 python $SKILL_DIR/scripts/pikastreaming_videomeeting.py leave \
   --session-id <id from join output>
 ```
+
+## Verify
+
+- A real session/room was created via the API and its ID/URL is captured, not mocked
+- At least one participant join/leave event was observed in logs or webhook payloads
+- Audio and video tracks were confirmed flowing (track stats, bytes-sent > 0), not assumed from connection state
+- Recording / transcript / chat features used were verified to land in storage with a retrievable URL or ID
+- Network failure was simulated or considered: reconnection / fallback behavior is documented

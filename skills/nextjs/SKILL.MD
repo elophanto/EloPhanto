@@ -96,3 +96,12 @@ Other notable behavior changes:
 - Deprecated: `middleware.ts` filename (prefer `proxy.ts`); `next/legacy/image`; `images.domains` (prefer `images.remotePatterns`); `revalidateTag(tag)` single-arg form.
 - `proxy.ts` note: `proxy` runs on `nodejs` only; Edge runtime is not supported in `proxy`. Keep `middleware.ts` if you must stay on Edge.
 - Config rename example: `skipMiddlewareUrlNormalize` → `skipProxyUrlNormalize`.
+
+## Verify
+
+- The Next.js version targeted is named explicitly (e.g., 'Next 16') and the change does not silently rely on features from a different major
+- `next build` (or the project's equivalent) was run and completed without errors; the build output / route table is captured
+- Server components vs client components were chosen deliberately for each new file; the choice is justified in a comment or PR note
+- `next dev` was loaded and the touched routes were rendered without console warnings or hydration mismatches
+- Caching/revalidation behavior (fetch options, `revalidate`, `dynamic`) is set explicitly on new data fetches, not left to defaults
+- Type-check and lint (`tsc --noEmit`, `next lint`) pass on the changed files; output is in the transcript

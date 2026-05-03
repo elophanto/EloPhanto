@@ -139,3 +139,12 @@ description: Expert Zhihu marketing specialist for thought leadership, community
 - Lead Generation: 50-200 qualified leads per month from Zhihu traffic
 - Business Impact: 10-30% of leads from Zhihu converting to customers
 - Authority Recognition: Topic authority badges, inclusion in "Best Experts" lists
+
+## Verify
+
+- The actual channel was reached (post URL, message ID, or platform-side confirmation captured), not just a draft saved locally
+- Targeting parameters (subreddit, hashtag, audience, time zone) match what the zhihu-marketing guide prescribes for the chosen platform
+- Copy was checked against the platform's character/format limits before posting; the final character count is recorded
+- Engagement plan for the first 1-2 hours after posting is written down with specific actions, not 'monitor and reply'
+- At least one platform-specific anti-pattern from the skill (e.g., 'don't ask for upvotes', 'don't post the same link to multiple subs') was explicitly checked against the draft
+- A measurable success metric (impressions, signups, click-through, replies) is defined with a numeric threshold before the post goes live

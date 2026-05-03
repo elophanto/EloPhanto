@@ -177,3 +177,12 @@ resource "aws_cloudwatch_metric_alarm" "high_cpu" {
 - Infrastructure uptime exceeds 99.9% availability
 - Security scan pass rate achieves 100% for critical issues
 - Cost optimization delivers 20% reduction year-over-year
+
+## Verify
+
+- Root cause is stated in one sentence and is supported by a concrete artifact (stack trace, log line, diff, profiler output)
+- The reproducer is minimal and runs locally; the exact command and observed output are captured
+- The fix was verified by re-running the reproducer and showing the previously-failing output now passes
+- A regression test (or monitoring/alert) was added so the same bug is caught automatically next time
+- Adjacent code paths that share the same failure mode were checked, not just the reported symptom
+- If the fix touches security, performance, or data integrity, the trade-off is named and quantified

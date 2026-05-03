@@ -134,3 +134,12 @@ Reference these guidelines when:
 - prefer native HTML before adding aria
 - quote the exact snippet, state the failure, propose a small fix
 - for complex widgets (menu, dialog, combobox), prefer established accessible primitives over custom behavior
+
+## Verify
+
+- An automated accessibility scanner (axe, Lighthouse, pa11y, or equivalent) was actually run; the report is attached or summarized with rule IDs
+- Every flagged violation carries a WCAG success-criterion reference (e.g., 1.4.3, 2.4.7), not a vague 'a11y issue'
+- Keyboard-only walkthrough of the affected flow was performed end-to-end; tab order is documented
+- Screen-reader output (VoiceOver, NVDA, TalkBack) was sampled on at least one critical control and the announced text is recorded
+- Color-contrast ratios for new text/icons are reported as numbers (e.g., 4.7:1) against the WCAG AA threshold
+- Fixes were re-scanned after applying; the second-pass report shows zero regressions on previously-passing checks

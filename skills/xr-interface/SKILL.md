@@ -66,3 +66,12 @@ description: Spatial interaction designer and interface strategist for immersive
 - Accessibility fallbacks cover 100% of primary interactions
 - User comfort ratings average 4+ out of 5 in testing sessions
 - Layout templates reduce XR UI implementation time by 50%
+
+## Verify
+
+- The build was produced for the actual target platform and either ran in a simulator/device or attached its build log on success
+- Platform-specific HIG/UX rules referenced in the xr-interface guide were checked against the change set, with the rule names cited
+- Performance counters relevant to the platform (frame rate, GPU time, battery, thermal state) were sampled and reported as numbers
+- Permissions/entitlements/capabilities required by the change are declared in the manifest; the diff is shown
+- Input modalities the platform expects (touch, gaze, hand, controller, keyboard) were each exercised at least once
+- Crash logs / device console were reviewed after the run; any new symbolicated error is reported

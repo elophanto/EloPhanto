@@ -242,3 +242,12 @@ class EasterEggManager {
 - User satisfaction scores improve due to delightful experience enhancements
 - Social sharing increases as users share whimsical brand experiences
 - Task completion rates maintain or improve despite added personality elements
+
+## Verify
+
+- The change was rendered in a browser/simulator and a screenshot or DOM snapshot was captured, not just code-reviewed
+- Layout was checked at the breakpoints the whimsy-design guide calls out (mobile + desktop minimum); evidence of each is attached
+- Color, typography, and spacing values used come from the project's design tokens / theme, not hard-coded ad-hoc values
+- Keyboard navigation and focus order were exercised on every interactive element introduced
+- Reduced-motion / dark-mode (when supported) variants were verified, not assumed to inherit
+- No console errors or hydration warnings were emitted during the verification render

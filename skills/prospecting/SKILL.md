@@ -137,3 +137,12 @@ When running autonomously via heartbeat, follow this cycle:
 - **Never send outreach without evaluating first** — Always score before contacting
 - **Don't overload the pipeline** — If 20+ prospects are in outreach_sent, focus on follow-up instead of new discovery
 - **Respect opt-outs** — If someone says "not interested", mark as rejected, never contact again
+
+## Verify
+
+- The outbound message was actually sent (timestamp + recipient + channel) or the response was posted to the user (ticket ID), not held in a draft
+- The recipient/segment matches the criteria in the prospecting guide; mis-targeted contacts are excluded with a reason
+- Personalization references at least one verifiable fact about the recipient (role, recent event, prior message), not a generic token
+- Compliance constraints relevant to the channel (CAN-SPAM, GDPR, region opt-in, NDA, disclosure) were checked off explicitly
+- A follow-up cadence and stop-condition is set, so silent recipients are not pinged indefinitely
+- Outcome (reply, booked meeting, resolved/closed) is logged in the system of record, not only in chat

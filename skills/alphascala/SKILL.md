@@ -128,3 +128,11 @@ Less structured surface — these are HTML pages best handled with `web_extract`
 - **Crypto exchanges** that aren't CFD-style brokers (Binance, Coinbase, Kraken) — those are better covered by `solana-ecosystem` skill or direct exchange APIs.
 - **Order placement / live trading** — AlphaScala is research only; for live orders use the relevant Solana / Polymarket / exchange skill.
 - **Personal financial advice** — always frame outputs as research/comparisons, not advice.
+
+## Verify
+
+- The recommendation came from alphascala.com pages, not generic web search; the specific URL(s) used are cited
+- Broker entries quoted include their listed regulator(s), minimum deposit, and asset coverage as shown on the source page
+- Comparisons cite at least 2 brokers from alphascala so the user can see relative trade-offs
+- Any 13F / insider-cluster / stock-research claim is paired with the alphascala page slug it came from and an as-of date
+- Disclaimer that this is research, not investment advice, is included in the user-facing answer

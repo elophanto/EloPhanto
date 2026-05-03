@@ -152,3 +152,12 @@ Use `knowledge_write` to persist all architecture docs, sprint results, and stak
 | Brand consistency | 95%+ adherence |
 | Spec compliance | 100% |
 | Load handling | 10x current traffic |
+
+## Verify
+
+- The deploy command was actually run and the build/log output (or deploy URL) is captured
+- The deployed URL was opened and returned a 2xx; key routes were sampled, not just the index
+- Environment variables required by the app are present in the target environment; missing-var failures were ruled out
+- A rollback plan (previous deployment ID, git SHA, or one-line revert command) is documented before promoting to production
+- Health/observability check (logs, error tracker, status page) was inspected post-deploy; baseline error rate is recorded
+- DNS / domain / SSL configuration was confirmed, not assumed to carry over from previous deploys
