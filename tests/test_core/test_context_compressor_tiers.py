@@ -234,3 +234,70 @@ class TestFixOrphanedToolCalls:
         assert (
             stranded == []
         ), "Emergency trim left an orphaned tool result — Codex would 400"
+
+
+class TestCompressMessagesNoneContent:
+    """Regression: compress_messages crashed with
+    `unsupported operand type(s) for +=: 'NoneType' and 'str'` when an
+    assistant message in the middle had `content: None` + `tool_calls`,
+    which is the standard shape OpenAI/Anthropic emit. The Tier-2
+    summarization pass would then fall through to Tier-3 emergency trim
+    (worse outcome — drops history wholesale), and on big contexts the
+    final prompt was still oversized → context_length_exceeded on Codex
+    and 413 on HuggingFace. Both bugs in one trace."""
+
+    import pytest
+
+    @pytest.mark.asyncio
+    async def test_assistant_with_tool_calls_none_content_does_not_crash(self) -> None:
+        from core.context_compressor import compress_messages
+
+        # Force compression by claiming a tiny context window. Need
+        # enough messages to leave a non-empty middle slice after
+        # keep_first/keep_last protection.
+        msgs: list[dict] = [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "ok"},
+            # The bug pattern: content=None + tool_calls. Real LLMs
+            # emit this exact shape.
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "shell_execute", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "done"},
+            {"role": "assistant", "content": "next?"},
+            {"role": "user", "content": "yes"},
+            {"role": "assistant", "content": "k"},
+            {"role": "user", "content": "more"},
+            {"role": "assistant", "content": "fin"},
+        ]
+
+        # Stub router — returns whatever summary string. The point is
+        # to reach the call without crashing.
+        class StubRouter:
+            async def complete(self, **kwargs):
+                class R:
+                    content = "summary"
+
+                return R()
+
+        # Should not raise. The exact return shape doesn't matter for
+        # the regression — we only assert no exception.
+        out = await compress_messages(
+            msgs,
+            router=StubRouter(),
+            context_window=100,  # force compression
+            threshold_pct=1,
+            keep_first=1,
+            keep_last=1,
+        )
+        # If we got a result back, the compactor didn't crash. Bug
+        # surfaced as `TypeError` before the fix.
+        assert isinstance(out, list)
