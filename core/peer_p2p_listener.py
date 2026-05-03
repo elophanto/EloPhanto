@@ -58,9 +58,18 @@ class IncomingStreamListener:
         self,
         sidecar: Any,
         chat_handler: Callable[[str, str, str], Awaitable[str]],
+        *,
+        trust_ledger: Any = None,
     ) -> None:
         self._sidecar = sidecar
         self._handler = chat_handler
+        # Optional. When set, every incoming peer is TOFU-pinned (or
+        # refused if blocked) BEFORE the chat handler runs. The pubkey
+        # is derived deterministically from the libp2p PeerID, so the
+        # same agent connecting via wss:// or libp2p shares one trust
+        # entry. Listener works without it (no pinning), useful for
+        # tests or operators who haven't enabled the identity layer.
+        self._trust_ledger = trust_ledger
         self._task: asyncio.Task | None = None
         # Per-stream worker tasks so multiple peers can talk to us
         # concurrently. Tracked so shutdown can cancel them cleanly.
@@ -133,6 +142,15 @@ class IncomingStreamListener:
         chat by looping this method until a close frame arrives.
         """
         try:
+            # TOFU pin (or refusal) BEFORE we read the message. Even
+            # though noise transport already authenticated the peer's
+            # PeerID via the handshake, recording the pin gives the
+            # operator a single trust ledger across both transports
+            # — and lets them block a peer that misbehaves over libp2p
+            # the same way they would over wss://.
+            if not await self._tofu_check_or_refuse(peer_id, stream_id):
+                return
+
             frame = await self._read_framed(stream_id)
             if frame is None:
                 # EOF or zero-length close-frame — nothing to do.
@@ -179,6 +197,70 @@ class IncomingStreamListener:
         except Exception as e:
             # One bad stream must not crash the whole pump.
             logger.warning("p2p stream %s handler crashed: %s", stream_id, e)
+
+    async def _tofu_check_or_refuse(self, peer_id: str, stream_id: str) -> bool:
+        """Run the trust check for an incoming peer. Returns True when
+        the stream should proceed, False when we should silently drop
+        it (peer is blocked, key conflict, or pubkey couldn't be
+        derived from the PeerID).
+
+        No ledger configured? Skip the check entirely — connection
+        proceeds with no pinning. Useful in tests and for operators
+        who haven't enabled the identity layer yet."""
+        if self._trust_ledger is None or not peer_id:
+            return True
+        try:
+            from core.agent_identity import derive_agent_id_from_public_key
+            from core.peer_p2p_identity import (
+                PeerIDDecodeError,
+                peer_id_to_ed25519_pubkey_b64,
+            )
+            from core.trust_ledger import TrustConflict
+
+            try:
+                pubkey_b64 = peer_id_to_ed25519_pubkey_b64(peer_id)
+            except PeerIDDecodeError as e:
+                # Non-Ed25519 peer or malformed PeerID. Don't refuse —
+                # we still authenticated them via noise. Just skip the
+                # ledger pin so we don't write garbage entries.
+                logger.warning("p2p stream %s: skipping TOFU pin (%s)", stream_id, e)
+                return True
+
+            agent_id = derive_agent_id_from_public_key(pubkey_b64)
+            try:
+                entry = await self._trust_ledger.record_handshake(
+                    agent_id=agent_id, public_key=pubkey_b64
+                )
+            except TrustConflict as e:
+                # Same agent_id, different pubkey — looks like key
+                # rotation or impersonation. Refuse the connection.
+                # The owner can run agent_trust_set --rotate to allow
+                # the new key after confirming out of band.
+                logger.warning(
+                    "p2p stream %s refused: trust conflict for %s — "
+                    "stored=%s claimed=%s. Use agent_trust_set --rotate "
+                    "after confirming out of band.",
+                    stream_id,
+                    e.agent_id,
+                    e.seen_public_key,
+                    e.claimed_public_key,
+                )
+                return False
+
+            if entry.is_blocked:
+                logger.warning(
+                    "p2p stream %s refused: peer %s is blocked",
+                    stream_id,
+                    agent_id,
+                )
+                return False
+            return True
+        except Exception as e:
+            # Any unexpected ledger error — log and let the connection
+            # proceed unpinned. Refusing on a ledger bug would lock the
+            # operator out of their own agents.
+            logger.warning("p2p stream %s TOFU check errored: %s", stream_id, e)
+            return True
 
     async def _read_framed(self, stream_id: str) -> bytes | None:
         """Read one length-prefixed frame. Returns None on EOF or

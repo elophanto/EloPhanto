@@ -1115,6 +1115,11 @@ class Agent:
                     self._p2p_listener = IncomingStreamListener(
                         sidecar=self._p2p_sidecar,
                         chat_handler=_p2p_chat_handler,
+                        # Share the trust ledger with the wss:// path so
+                        # peers connecting via either transport land in
+                        # one ledger entry. Decoded from PeerID locally
+                        # — no extra round trip.
+                        trust_ledger=self._trust_ledger,
                     )
                     self._p2p_listener.start()
 
@@ -1750,7 +1755,9 @@ class Agent:
 
         Called after the sidecar finishes host.open so tools report
         against a live host. Also injects into agent_discover so
-        method='p2p' lookups work."""
+        method='p2p' lookups work, and hands the trust ledger to the
+        connect tool so outbound libp2p sessions share the same TOFU
+        pinning as wss:// sessions."""
         for tool_name in (
             "agent_p2p_status",
             "agent_p2p_connect",
@@ -1765,6 +1772,8 @@ class Agent:
                 # this with peers" hints; harmless to set on others.
                 if hasattr(tool, "_p2p_peer_id"):
                     tool._p2p_peer_id = self._p2p_peer_id
+                if hasattr(tool, "_trust_ledger") and self._trust_ledger is not None:
+                    tool._trust_ledger = self._trust_ledger
 
     def _inject_organization_deps(self) -> None:
         """Inject OrganizationManager into organization tools."""
