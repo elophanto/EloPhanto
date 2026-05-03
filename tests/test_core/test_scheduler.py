@@ -219,14 +219,10 @@ class TestTaskScheduler:
         """stop_all_running cancels every in-flight task."""
         import asyncio
 
-        started_count = 0
-        all_started = asyncio.Event()
+        started = asyncio.Semaphore(0)
 
         async def slow_executor(goal: str):
-            nonlocal started_count
-            started_count += 1
-            if started_count >= 2:
-                all_started.set()
+            started.release()
             await asyncio.sleep(60)
             return type("Result", (), {"content": "done", "steps_taken": 1})()
 
@@ -238,10 +234,13 @@ class TestTaskScheduler:
             name="B", task_goal="B", cron_expression="0 0 * * *"
         )
 
-        # Start two executions and wait until both executors are actually running
+        # Start two executions and wait until both executors are actually running.
+        # Semaphore + acquire-twice avoids the race where both tasks bump a shared
+        # counter non-atomically; on slow CI the event could be missed.
         t1 = asyncio.create_task(scheduler._execute_schedule(entry1.id))
         t2 = asyncio.create_task(scheduler._execute_schedule(entry2.id))
-        await asyncio.wait_for(all_started.wait(), timeout=5)
+        await asyncio.wait_for(started.acquire(), timeout=15)
+        await asyncio.wait_for(started.acquire(), timeout=15)
 
         count = await scheduler.stop_all_running()
         assert count == 2
