@@ -522,6 +522,7 @@ class Agent:
         # the open sidecar without respawning.
         self._p2p_sidecar: Any = None  # core.peer_p2p.P2PSidecar
         self._p2p_peer_id: str = ""
+        self._p2p_listener: Any = None  # core.peer_p2p_listener.IncomingStreamListener
         self._parent_adapter: Any = None  # ParentChannelAdapter, set during initialize
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._heartbeat_engine: Any = None  # HeartbeatEngine, set during initialize
@@ -1089,6 +1090,34 @@ class Agent:
                         enable_auto_relay=cfg.enable_auto_relay,
                     )
                     self._inject_p2p_deps()
+
+                    # Start the incoming-stream listener — when a remote
+                    # peer opens an /elophanto/1.0.0 stream to us, this
+                    # routes the framed chat envelope through the agent's
+                    # main run() loop and writes the reply back. Without
+                    # it, peers can connect outbound from us but nobody
+                    # else can talk to us.
+                    from core.peer_p2p_listener import IncomingStreamListener
+
+                    async def _p2p_chat_handler(
+                        content: str, peer_id: str, stream_id: str
+                    ) -> str:
+                        # Route through the same run() entry point used
+                        # by every other channel adapter. peer_id is
+                        # opaque to run(); the response content is what
+                        # we write back to the wire.
+                        result = await self.run(
+                            content,
+                            authority=None,  # default OWNER for now
+                        )
+                        return getattr(result, "content", "") or ""
+
+                    self._p2p_listener = IncomingStreamListener(
+                        sidecar=self._p2p_sidecar,
+                        chat_handler=_p2p_chat_handler,
+                    )
+                    self._p2p_listener.start()
+
                     logger.info(
                         "P2P sidecar ready: PeerID=%s, listening on %s",
                         self._p2p_peer_id,
@@ -1339,6 +1368,11 @@ class Agent:
 
     async def shutdown(self) -> None:
         """Clean up all subsystems gracefully."""
+        if self._p2p_listener:
+            try:
+                await self._p2p_listener.stop()
+            except Exception as e:
+                logger.debug("P2P listener shutdown error: %s", e)
         if self._p2p_sidecar:
             try:
                 await self._p2p_sidecar.stop()
@@ -1712,13 +1746,25 @@ class Agent:
                 tool._peer_manager = self._peer_manager
 
     def _inject_p2p_deps(self) -> None:
-        """Inject the P2PSidecar handle into agent_p2p_status. Called
-        after the sidecar finishes host.open so the tool reports
-        status against a live host."""
-        tool = self._registry.get("agent_p2p_status")
-        if tool is not None:
-            tool._p2p_sidecar = self._p2p_sidecar
-            tool._p2p_peer_id = self._p2p_peer_id
+        """Inject the P2PSidecar handle into every P2P-aware tool.
+
+        Called after the sidecar finishes host.open so tools report
+        against a live host. Also injects into agent_discover so
+        method='p2p' lookups work."""
+        for tool_name in (
+            "agent_p2p_status",
+            "agent_p2p_connect",
+            "agent_p2p_message",
+            "agent_p2p_disconnect",
+            "agent_discover",
+        ):
+            tool = self._registry.get(tool_name)
+            if tool is not None:
+                tool._p2p_sidecar = self._p2p_sidecar
+                # Only the status tool tracks our own PeerID for "share
+                # this with peers" hints; harmless to set on others.
+                if hasattr(tool, "_p2p_peer_id"):
+                    tool._p2p_peer_id = self._p2p_peer_id
 
     def _inject_organization_deps(self) -> None:
         """Inject OrganizationManager into organization tools."""
