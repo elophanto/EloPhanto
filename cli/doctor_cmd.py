@@ -279,6 +279,63 @@ def _check_tailscale() -> CheckResult:
     )
 
 
+def _check_p2p_sidecar(project_root: Path) -> CheckResult:
+    """libp2p sidecar binary check.
+
+    Three states:
+      - ok     -> peers.enabled true AND binary present + executable
+      - warn   -> peers.enabled true but binary missing (with build hint)
+      - skip   -> peers.enabled false (decentralized peers opt-out)
+    """
+    from core.config import load_config
+    from core.peer_p2p import find_sidecar_binary
+
+    try:
+        cfg = load_config(project_root / "config.yaml")
+    except Exception:
+        return CheckResult(
+            "p2p sidecar (decentralized peers)",
+            "skip",
+            "config not parseable — check config.yaml",
+        )
+    if not cfg.peers.enabled:
+        return CheckResult(
+            "p2p sidecar (decentralized peers)",
+            "skip",
+            "peers.enabled=false — decentralized transport disabled",
+        )
+
+    # Honour an explicit override before falling back to autodiscover.
+    binary: Path | None = None
+    if cfg.peers.sidecar_binary:
+        candidate = Path(cfg.peers.sidecar_binary)
+        if candidate.exists():
+            binary = candidate
+    if binary is None:
+        binary = find_sidecar_binary()
+
+    if binary is None or not binary.exists():
+        return CheckResult(
+            "p2p sidecar (decentralized peers)",
+            "warn",
+            "peers.enabled=true but elophanto-p2pd binary not found",
+            "Build it: `cd bridge/p2p && go build -o elophanto-p2pd .`. "
+            "Requires Go 1.22+. See docs/68-DECENTRALIZED-PEERS-RFC.md.",
+        )
+    if not os.access(binary, os.X_OK):
+        return CheckResult(
+            "p2p sidecar (decentralized peers)",
+            "warn",
+            f"binary at {binary} is not executable",
+            f"chmod +x {binary}",
+        )
+    return CheckResult(
+        "p2p sidecar (decentralized peers)",
+        "ok",
+        f"binary present ({binary.name}) — sidecar will spawn on agent start",
+    )
+
+
 def _check_kid_image(project_root: Path) -> CheckResult:
     """Check whether the elophanto-kid image is present and roughly fresh.
 
@@ -633,6 +690,7 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_agent_identity())
     rows.append(_check_gateway_security(project_root))
     rows.append(_check_tailscale())
+    rows.append(_check_p2p_sidecar(project_root))
     return rows
 
 

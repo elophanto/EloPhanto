@@ -516,6 +516,12 @@ class Agent:
         self._agent_identity: Any = None  # core.agent_identity.AgentIdentityKey
         self._trust_ledger: Any = None  # core.trust_ledger.TrustLedger
         self._peer_manager: Any = None  # core.peer_manager.PeerManager
+        # Decentralized libp2p transport. Optional — only spawned when
+        # config.peers.enabled is True. Holds the PeerID after host_open
+        # so other subsystems (agent_discover, agent_connect) can reuse
+        # the open sidecar without respawning.
+        self._p2p_sidecar: Any = None  # core.peer_p2p.P2PSidecar
+        self._p2p_peer_id: str = ""
         self._parent_adapter: Any = None  # ParentChannelAdapter, set during initialize
         self._autonomous_mind: Any = None  # AutonomousMind, set during initialize
         self._heartbeat_engine: Any = None  # HeartbeatEngine, set during initialize
@@ -1053,6 +1059,51 @@ class Agent:
         except Exception as e:
             logger.warning(f"Agent identity setup failed: {e}")
 
+        # Decentralized libp2p transport (opt-in via config.peers.enabled).
+        # Spawns the Go sidecar, hands it our existing Ed25519 seed so
+        # the libp2p PeerID derives from the same identity, then issues
+        # host.open with the configured bootstrap + relay nodes. Failure
+        # is non-fatal — peers.p2p just stays unavailable.
+        if self._config.peers.enabled and self._agent_identity is not None:
+            try:
+                from core.peer_p2p import P2PSidecar, find_sidecar_binary
+
+                cfg = self._config.peers
+                binary = (
+                    Path(cfg.sidecar_binary) if cfg.sidecar_binary else None
+                ) or find_sidecar_binary()
+                if binary is None or not binary.exists():
+                    logger.warning(
+                        "peers.enabled=true but elophanto-p2pd binary not found; "
+                        "build with `cd bridge/p2p && go build -o elophanto-p2pd .` "
+                        "or set peers.sidecar_binary in config"
+                    )
+                else:
+                    self._p2p_sidecar = P2PSidecar(binary_path=binary)
+                    await self._p2p_sidecar.start()
+                    self._p2p_peer_id, listen_addrs = await self._p2p_sidecar.host_open(
+                        private_key_hex=self._agent_identity.private_key_seed_hex(),
+                        listen_addrs=cfg.listen_addrs or None,
+                        bootstrap=cfg.bootstrap_nodes,
+                        relays=cfg.relay_nodes,
+                        enable_auto_relay=cfg.enable_auto_relay,
+                    )
+                    self._inject_p2p_deps()
+                    logger.info(
+                        "P2P sidecar ready: PeerID=%s, listening on %s",
+                        self._p2p_peer_id,
+                        ", ".join(listen_addrs) if listen_addrs else "(no addrs)",
+                    )
+            except Exception as e:
+                logger.warning("P2P sidecar startup failed: %s", e)
+                # Best-effort cleanup so we don't leak the process.
+                if self._p2p_sidecar is not None:
+                    try:
+                        await self._p2p_sidecar.stop()
+                    except Exception:
+                        pass
+                    self._p2p_sidecar = None
+
         # Initialize kid agents (sandboxed children in containers).
         # Independent of organization — different lifetime + isolation model.
         if self._config.kids.enabled:
@@ -1288,6 +1339,11 @@ class Agent:
 
     async def shutdown(self) -> None:
         """Clean up all subsystems gracefully."""
+        if self._p2p_sidecar:
+            try:
+                await self._p2p_sidecar.stop()
+            except Exception as e:
+                logger.debug("P2P sidecar shutdown error: %s", e)
         if self._mcp_manager:
             try:
                 await self._mcp_manager.shutdown()
@@ -1654,6 +1710,15 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._peer_manager:
                 tool._peer_manager = self._peer_manager
+
+    def _inject_p2p_deps(self) -> None:
+        """Inject the P2PSidecar handle into agent_p2p_status. Called
+        after the sidecar finishes host.open so the tool reports
+        status against a live host."""
+        tool = self._registry.get("agent_p2p_status")
+        if tool is not None:
+            tool._p2p_sidecar = self._p2p_sidecar
+            tool._p2p_peer_id = self._p2p_peer_id
 
     def _inject_organization_deps(self) -> None:
         """Inject OrganizationManager into organization tools."""
