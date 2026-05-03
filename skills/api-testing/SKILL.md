@@ -132,3 +132,11 @@ describe('API Security Testing', () => {
 - API performance consistently meets SLA requirements
 - 90% of API tests automated and integrated into CI/CD
 - Test execution time stays under 15 minutes for full suite
+
+## Verify
+
+- Test suite was actually executed (output captured), not just written
+- Every endpoint in the discovered inventory has at least one assertion
+- Authentication/authorization paths are explicitly tested, not assumed
+- Failing tests fail loudly — no silent skips or `xfail` without justification
+- Performance assertions specify a numeric threshold (e.g. p95 < 200ms), not vague language

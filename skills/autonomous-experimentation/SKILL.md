@@ -174,6 +174,15 @@ This combines 3 hypotheses. If it improves, you don't know which change helped.
 If it regresses, you don't know which change hurt. One change at a time.
 ```
 
+## Verify
+
+- Hypothesis is stated in 'if X then Y because Z' form before the experiment runs
+- Sample size, duration, and primary metric are committed to in writing before reading any results
+- Control and treatment are specified concretely (config diff, feature flag, audience filter), not described abstractly
+- The experiment record stores raw outcome data, not just the conclusion, so it can be re-analyzed later
+- Results report effect size and a confidence interval (or equivalent uncertainty), not only a point estimate
+- A 'no decision' or 'inconclusive' branch is allowed in the analysis plan; the agent does not force a winner
+
 ## Notes
 
 - The experiment journal (`experiments.tsv`) is the ground truth. Always log.

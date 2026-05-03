@@ -166,3 +166,12 @@ Read individual rule files for detailed explanations and code examples:
 - [rules/parameters.md](rules/parameters.md) - Make a video parametrizable by adding a Zod schema
 - [rules/maps.md](rules/maps.md) - Add a map using Mapbox and animate it
 - [rules/voiceover.md](rules/voiceover.md) - Adding AI-generated voiceover to Remotion compositions using ElevenLabs TTS
+
+## Verify
+
+- The code was actually executed (or type-checked / linted as appropriate) and the command output is captured
+- Dependencies and runtime versions used are pinned and recorded (e.g., requirements.txt, package.json + lockfile, .nvmrc)
+- Errors or warnings emitted by the run are addressed or explicitly accepted with a reason
+- New external I/O (network, filesystem, DB) has timeouts and error handling, not silent failure
+- Tests for the change were run and the pass/fail count is in the transcript
+- Secrets and credentials are read from env/secret store, not hard-coded, and `.env` files are not committed

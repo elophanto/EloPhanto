@@ -57,6 +57,15 @@ Once setup is complete the core AgentCash skill (installed by the onboard comman
 
 Deposits accepted as USDC on Base or Solana.
 
+## Verify
+
+- The intended other agent / tool / channel actually received the message; an ack, message ID, or response payload is captured
+- Identity, scopes, and permissions used by the call were the minimum required; over-permissioned tokens are called out
+- Failure handling was exercised: at least one retry/timeout/permission-denied path is shown to behave as designed
+- Hand-off context passed to the next actor is complete enough that the receiver could act without a follow-up question
+- Any state mutated (config, memory, queue, file) is listed with before/after values, not just 'updated'
+- Sensitive material (keys, tokens, PII) was redacted from logs/transcripts shared in the verification evidence
+
 ## Resources
 - Homepage: https://agentcash.dev
 - Onboard / get credits: https://agentcash.dev/onboard

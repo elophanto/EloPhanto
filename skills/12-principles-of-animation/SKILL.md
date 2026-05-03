@@ -260,6 +260,15 @@ After findings, output a summary:
 | `physics-active-state` | 3 | MEDIUM |
 | `easing-entrance-ease-out` | 1 | MEDIUM |
 
+## Verify
+
+- The change was rendered in a browser/simulator and a screenshot or DOM snapshot was captured, not just code-reviewed
+- Layout was checked at the breakpoints the 12-principles-of-animation guide calls out (mobile + desktop minimum); evidence of each is attached
+- Color, typography, and spacing values used come from the project's design tokens / theme, not hard-coded ad-hoc values
+- Keyboard navigation and focus order were exercised on every interactive element introduced
+- Reduced-motion / dark-mode (when supported) variants were verified, not assumed to inherit
+- No console errors or hydration warnings were emitted during the verification render
+
 ## References
 
 - [The Illusion of Life: Disney Animation](https://www.amazon.com/Illusion-Life-Disney-Animation/dp/0786860707)

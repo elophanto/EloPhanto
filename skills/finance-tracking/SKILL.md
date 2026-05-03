@@ -119,3 +119,12 @@ description: Financial planning, budget management, cash flow optimization, and 
 - Cost optimization initiatives deliver 15%+ annual efficiency improvements
 - Investment recommendations achieve 25%+ average ROI with appropriate risk management
 - Financial reporting meets 100% compliance standards with audit-ready documentation
+
+## Verify
+
+- The outbound message was actually sent (timestamp + recipient + channel) or the response was posted to the user (ticket ID), not held in a draft
+- The recipient/segment matches the criteria in the finance-tracking guide; mis-targeted contacts are excluded with a reason
+- Personalization references at least one verifiable fact about the recipient (role, recent event, prior message), not a generic token
+- Compliance constraints relevant to the channel (CAN-SPAM, GDPR, region opt-in, NDA, disclosure) were checked off explicitly
+- A follow-up cadence and stop-condition is set, so silent recipients are not pinged indefinitely
+- Outcome (reply, booked meeting, resolved/closed) is logged in the system of record, not only in chat

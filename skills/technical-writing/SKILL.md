@@ -181,3 +181,12 @@ paths:
 - 100% of public APIs have a reference entry, at least one code example, and error documentation
 - Developer NPS for docs >= 7/10
 - PR review cycle for docs PRs <= 2 days
+
+## Verify
+
+- Every non-trivial claim in the output is paired with a source link, file path, or query result, not stated as a bare assertion
+- Sources span at least 2-3 independent origins; single-source conclusions are flagged as such
+- Counter-evidence or limitations are explicitly listed, not omitted to make the narrative tidier
+- Numbers in the deliverable carry units, time windows, and an as-of date (e.g., '$1.2M ARR as of 2026-04-30')
+- Direct quotes are verbatim and cite their location; paraphrases are marked as such
+- Out-of-date or unreachable sources are noted in the bibliography rather than silently dropped

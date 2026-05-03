@@ -111,3 +111,12 @@ When called interactively, narrative + final revised plan is fine.
 - Auto-approve scope changes that move the trajectory of the
   product without surfacing them — major scope shifts go in the
   pipeline's `escalations[]` so the user sees them.
+
+## Verify
+
+- The deliverable for this phase exists as a concrete artifact (doc, ticket, board, repo) and its location is shared, not described
+- Each commitment has an owner name, a due date, and a definition-of-done that someone other than the author could check
+- Risks are listed with likelihood/impact and a named mitigation, not as a generic 'risks: TBD' bullet
+- Dependencies on other teams/vendors/agents are explicit; an ack from each dependency is recorded or marked 'pending'
+- Success criteria for the next phase are numeric or otherwise objectively testable
+- A rollback / kill-switch / 'we will stop if X' criterion is written down before work starts

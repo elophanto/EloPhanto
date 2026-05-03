@@ -35,6 +35,17 @@ User: [example request]
 Agent: [what NOT to do]
 ```
 
+## Verify
+
+Optional: machine-actionable post-conditions the agent must confirm
+before reporting success. Each bullet becomes a hard check — failure
+means repair-and-recheck, not "done." Write them as concrete,
+verifiable assertions, not vague goals.
+
+- Tests executed and output captured (not just written)
+- Output file exists and is non-empty
+- No errors in the run log
+
 ## Notes
 
 Any additional context, library recommendations, or caveats.

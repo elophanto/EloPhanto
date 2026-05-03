@@ -166,6 +166,7 @@ class Skill:
     author_tier: str = ""  # publisher tier from hub
     warnings: list[str] = field(default_factory=list)
     checksum_verified: bool = False
+    verify_checks: list[str] = field(default_factory=list)
 
     @property
     def location(self) -> str:
@@ -340,6 +341,86 @@ class SkillManager:
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [s for _, s in scored[:max_results]]
+
+    def match_skills_with_scores(
+        self, query: str, max_results: int = 5
+    ) -> list[tuple[int, Skill]]:
+        """Same matching as match_skills but exposes the raw score.
+
+        Used by callers that need to apply a confidence threshold —
+        e.g. the verification-required prompt injection gates on a
+        higher score than the auto-load to avoid forcing checks on
+        weak matches.
+        """
+        ranked = self.match_skills(query, max_results=max_results * 4)
+        out: list[tuple[int, Skill]] = []
+        for skill in ranked:
+            out.append((self._score_skill(query, skill), skill))
+        out.sort(key=lambda x: x[0], reverse=True)
+        return out[:max_results]
+
+    def _score_skill(self, query: str, skill: Skill) -> int:
+        """Re-score a single skill against a query using the same logic
+        as match_skills. Kept private so the rules stay in one place."""
+        query_lower = query.lower()
+        query_words = set(re.findall(r"\w+", query_lower))
+        stop_words = {
+            "a",
+            "an",
+            "the",
+            "me",
+            "my",
+            "i",
+            "is",
+            "it",
+            "to",
+            "for",
+            "of",
+            "in",
+            "on",
+            "and",
+            "or",
+            "do",
+            "be",
+            "this",
+            "that",
+            "with",
+            "from",
+            "can",
+            "you",
+            "your",
+            "we",
+            "our",
+            "how",
+            "what",
+            "make",
+            "build",
+            "create",
+            "please",
+            "help",
+            "want",
+        }
+        keywords = query_words - stop_words
+        score = 0
+        for trigger in skill.triggers:
+            tl = trigger.lower().strip()
+            if tl in query_lower:
+                score += 3
+            elif any(w in keywords for w in tl.split()):
+                score += 2
+        name_words = set(skill.name.lower().replace("-", " ").split())
+        overlap = keywords & name_words
+        score += len(overlap) * 2
+        if not overlap:
+            for nw in name_words:
+                for qw in keywords:
+                    if len(nw) >= 3 and (nw in qw or qw in nw):
+                        score += 1
+                        break
+        if skill.description and keywords:
+            desc_words = set(re.findall(r"\w+", skill.description.lower()))
+            score += len(keywords & desc_words)
+        return score
 
     def format_available_skills(self, query: str = "") -> str:
         """Format skills as an XML block for the system prompt.
@@ -544,6 +625,26 @@ class SkillManager:
                 if line:
                     triggers.append(line)
 
+        # Extract verify checks from the ## Verify section. Each non-empty
+        # bullet ('- ', '* ', '+ ') becomes one post-condition. Numbered
+        # lists are accepted too. Plain prose (non-bullet lines) is
+        # ignored — we want machine-actionable assertions, not commentary.
+        verify_checks: list[str] = []
+        verify_match = re.search(
+            r"##\s*Verify\s*\n+(.*?)(?=\n##|\Z)", content, re.DOTALL | re.IGNORECASE
+        )
+        if verify_match:
+            for line in verify_match.group(1).splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # Bullet or numbered list item
+                m = re.match(r"^(?:[-*+]|\d+[.)])\s+(.*)", stripped)
+                if m:
+                    check = m.group(1).strip().strip('"').strip("'")
+                    if check:
+                        verify_checks.append(check)
+
         # Determine source from metadata.json if present
         source = "local"
         author_tier = ""
@@ -568,4 +669,5 @@ class SkillManager:
             source=source,
             author_tier=author_tier,
             warnings=messages,
+            verify_checks=verify_checks,
         )

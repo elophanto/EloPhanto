@@ -71,3 +71,12 @@ description: Native visionOS spatial computing, SwiftUI volumetric interfaces, a
 - Gesture recognition responds with <50ms latency
 - VoiceOver fully navigable across all spatial UI elements
 - Memory usage stays within visionOS app limits
+
+## Verify
+
+- The build was produced for the actual target platform and either ran in a simulator/device or attached its build log on success
+- Platform-specific HIG/UX rules referenced in the visionos-spatial guide were checked against the change set, with the rule names cited
+- Performance counters relevant to the platform (frame rate, GPU time, battery, thermal state) were sampled and reported as numbers
+- Permissions/entitlements/capabilities required by the change are declared in the manifest; the diff is shown
+- Input modalities the platform expects (touch, gaze, hand, controller, keyboard) were each exercised at least once
+- Crash logs / device console were reviewed after the run; any new symbolicated error is reported

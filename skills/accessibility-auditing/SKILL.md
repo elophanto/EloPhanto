@@ -129,3 +129,12 @@ description: Audit interfaces against WCAG 2.2 standards, test with assistive te
 - Accessibility issues caught during development, not after launch
 - Teams build accessibility knowledge and prevent recurring issues
 - Zero critical or serious accessibility barriers in production releases
+
+## Verify
+
+- An automated accessibility scanner (axe, Lighthouse, pa11y, or equivalent) was actually run; the report is attached or summarized with rule IDs
+- Every flagged violation carries a WCAG success-criterion reference (e.g., 1.4.3, 2.4.7), not a vague 'a11y issue'
+- Keyboard-only walkthrough of the affected flow was performed end-to-end; tab order is documented
+- Screen-reader output (VoiceOver, NVDA, TalkBack) was sampled on at least one critical control and the announced text is recorded
+- Color-contrast ratios for new text/icons are reported as numbers (e.g., 4.7:1) against the WCAG AA threshold
+- Fixes were re-scanned after applying; the second-pass report shows zero regressions on previously-passing checks

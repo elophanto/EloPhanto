@@ -141,3 +141,12 @@ Reference these guidelines when:
 - choose the least expensive rendering work that matches the intent
 - for any non-default choice, state the constraint that justifies it (surface size, duration, or interaction requirement)
 - when reviewing, prefer actionable notes and concrete alternatives over theory
+
+## Verify
+
+- A profiler trace (DevTools Performance, Instruments, Xcode FPS HUD) was captured before and after the fix; both are linked
+- Frame rate is reported as a number on a named device/browser (e.g., '58-60 fps on iPhone 13 Safari') for both before and after
+- The animation was checked under `prefers-reduced-motion`; the reduced variant was visually confirmed
+- GPU-accelerated properties (transform/opacity) are used where possible; layout-thrashing properties were identified and removed
+- Long-task / main-thread-blocking measurements show the regression is gone, not just feels smoother
+- Battery / thermal impact on mobile was at least sanity-checked for animations that loop or run for > 1s

@@ -180,3 +180,12 @@ Environment, Time Constraints, Distractions, Social Context
 - Product decisions are consistently informed by user research data
 - Research findings prevent costly design mistakes and development rework
 - User needs are clearly understood and validated across the organization
+
+## Verify
+
+- The change was rendered in a browser/simulator and a screenshot or DOM snapshot was captured, not just code-reviewed
+- Layout was checked at the breakpoints the ux-research guide calls out (mobile + desktop minimum); evidence of each is attached
+- Color, typography, and spacing values used come from the project's design tokens / theme, not hard-coded ad-hoc values
+- Keyboard navigation and focus order were exercised on every interactive element introduced
+- Reduced-motion / dark-mode (when supported) variants were verified, not assumed to inherit
+- No console errors or hydration warnings were emitted during the verification render

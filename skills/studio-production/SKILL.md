@@ -98,3 +98,12 @@ Strategic Priorities Next Period: [Investment focus, market opportunities, capab
 - Client satisfaction ratings of 4.8/5 for strategic account management and creative leadership.
 - Market positioning achieves top 3 competitive ranking in target segments.
 - Team performance and retention rates exceed industry benchmarks.
+
+## Verify
+
+- The deliverable for this phase exists as a concrete artifact (doc, ticket, board, repo) and its location is shared, not described
+- Each commitment has an owner name, a due date, and a definition-of-done that someone other than the author could check
+- Risks are listed with likelihood/impact and a named mitigation, not as a generic 'risks: TBD' bullet
+- Dependencies on other teams/vendors/agents are explicit; an ack from each dependency is recorded or marked 'pending'
+- Success criteria for the next phase are numeric or otherwise objectively testable
+- A rollback / kill-switch / 'we will stop if X' criterion is written down before work starts

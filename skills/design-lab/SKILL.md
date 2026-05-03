@@ -932,3 +932,12 @@ The plugin supports these optional configurations (via environment or project co
 18. Plugin: Generates `DESIGN_PLAN.md`
 19. Plugin: Creates `DESIGN_MEMORY.md`
 20. Plugin: "Done! See DESIGN_PLAN.md for implementation steps"
+
+## Verify
+
+- The change was rendered in a browser/simulator and a screenshot or DOM snapshot was captured, not just code-reviewed
+- Layout was checked at the breakpoints the design-lab guide calls out (mobile + desktop minimum); evidence of each is attached
+- Color, typography, and spacing values used come from the project's design tokens / theme, not hard-coded ad-hoc values
+- Keyboard navigation and focus order were exercised on every interactive element introduced
+- Reduced-motion / dark-mode (when supported) variants were verified, not assumed to inherit
+- No console errors or hydration warnings were emitted during the verification render

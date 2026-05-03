@@ -361,3 +361,12 @@ Blocks from [ui.shadcn.com/blocks](https://ui.shadcn.com/blocks) by category:
 4. **Typography:** Use CSS variables + `next/font` to load fonts; wire them into `--font-sans` in `globals.css`.
 5. **Extend, don't modify:** Create wrapper components in `components/` — leave `components/ui/` pristine for easy updates.
 6. **LLM usage:** Follow [llms.txt](https://ui.shadcn.com/llms.txt) when generating code; prefer pnpm commands and Sonner over legacy toast.
+
+## Verify
+
+- The change was rendered in a browser/simulator and a screenshot or DOM snapshot was captured, not just code-reviewed
+- Layout was checked at the breakpoints the shadcn guide calls out (mobile + desktop minimum); evidence of each is attached
+- Color, typography, and spacing values used come from the project's design tokens / theme, not hard-coded ad-hoc values
+- Keyboard navigation and focus order were exercised on every interactive element introduced
+- Reduced-motion / dark-mode (when supported) variants were verified, not assumed to inherit
+- No console errors or hydration warnings were emitted during the verification render

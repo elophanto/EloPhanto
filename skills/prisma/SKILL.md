@@ -131,5 +131,11 @@ Schema datasource deprecations:
 - Update Prisma Client instantiation to use a driver adapter (unless using Accelerate).
 - Update workflows: run `pnpm prisma generate` and `pnpm prisma db seed` explicitly.
 
+## Verify
 
-
+- The code was actually executed (or type-checked / linted as appropriate) and the command output is captured
+- Dependencies and runtime versions used are pinned and recorded (e.g., requirements.txt, package.json + lockfile, .nvmrc)
+- Errors or warnings emitted by the run are addressed or explicitly accepted with a reason
+- New external I/O (network, filesystem, DB) has timeouts and error handling, not silent failure
+- Tests for the change were run and the pass/fail count is in the transcript
+- Secrets and credentials are read from env/secret store, not hard-coded, and `.env` files are not committed

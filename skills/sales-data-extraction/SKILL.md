@@ -72,3 +72,12 @@ Monitor designated Excel file directories for new or updated sales reports. Extr
 - < 2% row-level failures on well-formatted reports
 - < 5 second processing time per file
 - Complete audit trail for every import
+
+## Verify
+
+- Every non-trivial claim in the output is paired with a source link, file path, or query result, not stated as a bare assertion
+- Sources span at least 2-3 independent origins; single-source conclusions are flagged as such
+- Counter-evidence or limitations are explicitly listed, not omitted to make the narrative tidier
+- Numbers in the deliverable carry units, time windows, and an as-of date (e.g., '$1.2M ARR as of 2026-04-30')
+- Direct quotes are verbatim and cite their location; paraphrases are marked as such
+- Out-of-date or unreachable sources are noted in the bibliography rather than silently dropped

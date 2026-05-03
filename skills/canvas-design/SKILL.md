@@ -147,3 +147,12 @@ Take a second pass. Go back to the code and refine/polish further to make this a
 ## MULTI-PAGE OPTION
 
 To create additional pages when requested, create more creative pages along the same lines as the design philosophy but distinctly different as well. Bundle those pages in the same .pdf or many .pngs. Treat the first page as just a single page in a whole coffee table book waiting to be filled. Make the next pages unique twists and memories of the original. Have them almost tell a story in a very tasteful way. Exercise full creative freedom.
+
+## Verify
+
+- The change was rendered in a browser/simulator and a screenshot or DOM snapshot was captured, not just code-reviewed
+- Layout was checked at the breakpoints the canvas-design guide calls out (mobile + desktop minimum); evidence of each is attached
+- Color, typography, and spacing values used come from the project's design tokens / theme, not hard-coded ad-hoc values
+- Keyboard navigation and focus order were exercised on every interactive element introduced
+- Reduced-motion / dark-mode (when supported) variants were verified, not assumed to inherit
+- No console errors or hydration warnings were emitted during the verification render

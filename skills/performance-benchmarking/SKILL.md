@@ -126,3 +126,12 @@ export const options = {
 - Performance optimization delivers 25% improvement in key user experience metrics
 - System scalability supports 10x current load without significant degradation
 - Performance monitoring prevents 90% of performance-related incidents
+
+## Verify
+
+- The test suite was actually executed and exit code/output is captured in the transcript, not just authored
+- Pass/fail counts are reported as numbers (e.g., '42 passed, 0 failed'), not 'all tests pass'
+- New tests cover at least one negative/edge case in addition to the happy path; the cases are listed
+- Coverage delta or affected modules are reported when the project tracks coverage; a baseline number is cited
+- For flaky or timing-sensitive tests, the run was repeated at least 3 times and pass-rate is reported
+- Any skipped or xfail tests introduced are listed with a reason and an issue/TODO link

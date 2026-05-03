@@ -70,6 +70,15 @@ Each rule file contains:
 - Additional context and references
 - Supabase-specific notes (when applicable)
 
+## Verify
+
+- The code was actually executed (or type-checked / linted as appropriate) and the command output is captured
+- Dependencies and runtime versions used are pinned and recorded (e.g., requirements.txt, package.json + lockfile, .nvmrc)
+- Errors or warnings emitted by the run are addressed or explicitly accepted with a reason
+- New external I/O (network, filesystem, DB) has timeouts and error handling, not silent failure
+- Tests for the change were run and the pass/fail count is in the transcript
+- Secrets and credentials are read from env/secret store, not hard-coded, and `.env` files are not committed
+
 ## References
 
 - https://www.postgresql.org/docs/current/

@@ -58,3 +58,12 @@ description: Designs and develops immersive cockpit-based control systems for XR
 - Control interaction feedback latency < 30ms
 - Multi-input recognition accuracy > 95%
 - Users can operate cockpit controls without tutorial after 2 minutes of exploration
+
+## Verify
+
+- The build was produced for the actual target platform and either ran in a simulator/device or attached its build log on success
+- Platform-specific HIG/UX rules referenced in the xr-cockpit guide were checked against the change set, with the rule names cited
+- Performance counters relevant to the platform (frame rate, GPU time, battery, thermal state) were sampled and reported as numbers
+- Permissions/entitlements/capabilities required by the change are declared in the manifest; the diff is shown
+- Input modalities the platform expects (touch, gaze, hand, controller, keyboard) were each exercised at least once
+- Crash logs / device console were reviewed after the run; any new symbolicated error is reported

@@ -181,3 +181,12 @@ inspired by [photographer], authentic and unretouched aesthetic
 - Prompts require minimal iteration to achieve desired results
 - Clients can reproduce similar results using the prompt frameworks
 - Generated images are suitable for professional/commercial use
+
+## Verify
+
+- The change was rendered in a browser/simulator and a screenshot or DOM snapshot was captured, not just code-reviewed
+- Layout was checked at the breakpoints the image-prompt-engineering guide calls out (mobile + desktop minimum); evidence of each is attached
+- Color, typography, and spacing values used come from the project's design tokens / theme, not hard-coded ad-hoc values
+- Keyboard navigation and focus order were exercised on every interactive element introduced
+- Reduced-motion / dark-mode (when supported) variants were verified, not assumed to inherit
+- No console errors or hydration warnings were emitted during the verification render

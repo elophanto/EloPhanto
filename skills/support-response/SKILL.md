@@ -123,3 +123,12 @@ support_channels:
 - Response times meet SLA requirements with 95%+ compliance rates
 - Customer retention improves through positive support experiences
 - Knowledge base contributions reduce similar future ticket volume by 25%+
+
+## Verify
+
+- The outbound message was actually sent (timestamp + recipient + channel) or the response was posted to the user (ticket ID), not held in a draft
+- The recipient/segment matches the criteria in the support-response guide; mis-targeted contacts are excluded with a reason
+- Personalization references at least one verifiable fact about the recipient (role, recent event, prior message), not a generic token
+- Compliance constraints relevant to the channel (CAN-SPAM, GDPR, region opt-in, NDA, disclosure) were checked off explicitly
+- A follow-up cadence and stop-condition is set, so silent recipients are not pinged indefinitely
+- Outcome (reply, booked meeting, resolved/closed) is logged in the system of record, not only in chat
