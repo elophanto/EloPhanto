@@ -325,3 +325,175 @@ class TestBuildDigestFromState:
         s.ego_mood = "from-state"
         d = _build_digest_from_state(s, {"mood": "from-seed"})
         assert d.mood == "from-seed"
+
+
+class TestEgoQualifier:
+    """Real production failure: gateway sent ``last_self_critique`` as
+    ego.mood; dashboard truncated it to 14 chars and rendered
+    ``ego 1.00 · I am better at`` — fragment of unsparing critique
+    crammed into the footer. Looked like garbled prose.
+
+    Fix: ego sends structured fields only (coherence, confidence_avg,
+    humbling_count, tasks_since_recompute). Dashboard derives a
+    one-word qualifier client-side via _ego_qualifier."""
+
+    def test_empty_data_returns_green(self) -> None:
+        from cli.dashboard.app import _ego_qualifier
+
+        assert _ego_qualifier({}) == "green"
+
+    def test_all_zeros_returns_green(self) -> None:
+        """First-boot path. No capabilities recorded, no humbling
+        events — the agent hasn't lived enough to have a state yet."""
+        from cli.dashboard.app import _ego_qualifier
+
+        assert (
+            _ego_qualifier(
+                {
+                    "coherence": 0.0,
+                    "confidence_avg": 0.0,
+                    "humbling_count": 0,
+                    "tasks_since_recompute": 0,
+                }
+            )
+            == "green"
+        )
+
+    def test_real_user_data_maps_to_steady(self) -> None:
+        """Verbatim from the user's SQLite: coherence 1.0 (default),
+        mean confidence 0.73, no humbling, 23 tasks since recompute.
+        Two under the stale threshold (25) — should read as steady,
+        not settled (because 0.73 < 0.80 floor for settled)."""
+        from cli.dashboard.app import _ego_qualifier
+
+        result = _ego_qualifier(
+            {
+                "coherence": 1.0,
+                "confidence_avg": 0.73,
+                "confidence_min": 0.55,
+                "confidence_max": 0.95,
+                "humbling_count": 0,
+                "tasks_since_recompute": 23,
+            }
+        )
+        assert result == "steady"
+
+    def test_stale_fires_at_25_tasks(self) -> None:
+        from cli.dashboard.app import _ego_qualifier
+
+        # 24 → still steady (under threshold)
+        assert (
+            _ego_qualifier(
+                {
+                    "coherence": 1.0,
+                    "confidence_avg": 0.85,
+                    "humbling_count": 0,
+                    "tasks_since_recompute": 24,
+                }
+            )
+            != "stale"
+        )
+        # 25 → stale
+        assert (
+            _ego_qualifier(
+                {
+                    "coherence": 1.0,
+                    "confidence_avg": 0.85,
+                    "humbling_count": 0,
+                    "tasks_since_recompute": 25,
+                }
+            )
+            == "stale"
+        )
+
+    def test_humbled_when_3_plus_humbling_events(self) -> None:
+        from cli.dashboard.app import _ego_qualifier
+
+        result = _ego_qualifier(
+            {
+                "coherence": 0.7,
+                "confidence_avg": 0.55,
+                "humbling_count": 4,
+                "tasks_since_recompute": 2,
+            }
+        )
+        assert result == "humbled"
+
+    def test_shaken_when_coherence_below_50(self) -> None:
+        from cli.dashboard.app import _ego_qualifier
+
+        result = _ego_qualifier(
+            {
+                "coherence": 0.4,
+                "confidence_avg": 0.6,
+                "humbling_count": 0,
+                "tasks_since_recompute": 5,
+            }
+        )
+        assert result == "shaken"
+
+    def test_questioning_for_mid_coherence(self) -> None:
+        from cli.dashboard.app import _ego_qualifier
+
+        result = _ego_qualifier(
+            {
+                "coherence": 0.65,
+                "confidence_avg": 0.6,
+                "humbling_count": 1,
+                "tasks_since_recompute": 2,
+            }
+        )
+        assert result == "questioning"
+
+    def test_settled_only_when_coherence_high_and_confidence_high(self) -> None:
+        """``settled`` is the rarest label — both numeric thresholds
+        must clear, and no other state can pre-empt it."""
+        from cli.dashboard.app import _ego_qualifier
+
+        assert (
+            _ego_qualifier(
+                {
+                    "coherence": 0.95,
+                    "confidence_avg": 0.85,
+                    "humbling_count": 0,
+                    "tasks_since_recompute": 3,
+                }
+            )
+            == "settled"
+        )
+        # Edge case: coherence 0.95 but confidence avg 0.79 — falls
+        # short of settled, becomes steady.
+        assert (
+            _ego_qualifier(
+                {
+                    "coherence": 0.95,
+                    "confidence_avg": 0.79,
+                    "humbling_count": 0,
+                    "tasks_since_recompute": 3,
+                }
+            )
+            == "steady"
+        )
+
+    def test_no_prose_in_qualifier_output(self) -> None:
+        """Regression: the qualifier must NEVER return prose like the
+        first 14 chars of last_self_critique. The output vocabulary
+        is fixed to a small word set."""
+        from cli.dashboard.app import _ego_qualifier
+
+        valid = {"green", "stale", "humbled", "shaken", "questioning", "steady", "settled"}
+        # Sweep across the parameter space and assert every output is
+        # one of the valid words.
+        for coherence in (0.0, 0.3, 0.5, 0.7, 0.9, 1.0):
+            for conf_avg in (0.0, 0.5, 0.7, 0.85):
+                for humbling in (0, 1, 5):
+                    for tasks_since in (0, 10, 30):
+                        result = _ego_qualifier(
+                            {
+                                "coherence": coherence,
+                                "confidence_avg": conf_avg,
+                                "humbling_count": humbling,
+                                "tasks_since_recompute": tasks_since,
+                            }
+                        )
+                        assert result in valid, f"unexpected qualifier {result!r} for state ({coherence},{conf_avg},{humbling},{tasks_since})"

@@ -1372,24 +1372,69 @@ class Gateway:
             else:
                 dashboard["identity"] = None
 
-            # Ego — coherence score + a one-line self-critique used as
-            # the "mood" in the dashboard footer + digest. Read from
-            # EgoManager (which already stores coherence persistently
-            # in SQLite). Best-effort: a missing/uninitialized ego
-            # subsystem yields no payload, the dashboard then renders
-            # the "ego –" placeholder which is fine.
+            # Ego — structured fields (NOT prose). The dashboard's
+            # footer is one line; cramming `last_self_critique` or
+            # `self_image` into it produces truncated garble. Send the
+            # *evaluative* numbers and let the dashboard derive a
+            # one-word qualifier client-side.
+            #
+            # Why not send mood prose at all:
+            #   - last_self_critique is "the single sharpest thing I'd
+            #     say about myself if I were being unsparing" — not a
+            #     mood, an unsparing critique. Wrong tone for a footer.
+            #   - self_image is 3-5 sentences. Won't fit.
+            #   - proud_of / embarrassed_by / aspiration are
+            #     concept-per-field, not single-line summaries.
+            #
+            # The numeric coherence + capability confidence give the
+            # dashboard everything it needs to render an honest
+            # one-word qualifier ("settled" / "steady" / "questioning"
+            # / "shaken" / "humbled" / "stale").
             ego_mgr = getattr(self._agent, "_ego_manager", None)
             if ego_mgr:
                 try:
                     ego = await ego_mgr.get_ego()
+                    # Confidence stats — used to detect "broadly
+                    # uncertain" (low mean) vs "lopsided" (high range)
+                    # ego states the coherence score alone misses.
+                    confidences: list[float] = []
+                    if isinstance(ego.confidence_json, dict):
+                        confidences = [
+                            float(v)
+                            for v in ego.confidence_json.values()
+                            if isinstance(v, int | float)
+                        ]
+                    elif isinstance(ego.confidence_json, str):
+                        try:
+                            import json as _j
+
+                            parsed = _j.loads(ego.confidence_json)
+                            confidences = [
+                                float(v)
+                                for v in parsed.values()
+                                if isinstance(v, int | float)
+                            ]
+                        except Exception:
+                            pass
+                    confidence_avg = (
+                        sum(confidences) / len(confidences) if confidences else 0.0
+                    )
+                    confidence_min = min(confidences) if confidences else 0.0
+                    confidence_max = max(confidences) if confidences else 0.0
+                    humbling_count = (
+                        len(ego.humbling_events)
+                        if hasattr(ego, "humbling_events")
+                        else 0
+                    )
                     dashboard["ego"] = {
                         "coherence": float(ego.coherence_score),
-                        # Single-line self-critique is the closest thing
-                        # the ego layer has to a "mood" string.
-                        # self_image is multi-sentence prose — too long
-                        # for the footer; we send last_self_critique
-                        # which is bounded to ~500 chars by recompute().
-                        "mood": ego.last_self_critique or "",
+                        "confidence_avg": float(confidence_avg),
+                        "confidence_min": float(confidence_min),
+                        "confidence_max": float(confidence_max),
+                        "humbling_count": int(humbling_count),
+                        "tasks_since_recompute": int(
+                            getattr(ego, "tasks_since_recompute", 0)
+                        ),
                     }
                 except Exception:
                     dashboard["ego"] = None
