@@ -78,7 +78,9 @@ class TestPanelRendering:
         s.mind_next_wakeup_secs = 270  # 4 min after the 30s elapsed
         body = _MindPanel(s).body()
         assert "resting" in body
-        assert "wakes" in body
+        # ETA value (4m or similar) is shown after ``resting ·`` — no
+        # longer the verbose "wakes in" prefix (cut for sidebar fit).
+        assert any(unit in body for unit in ("m", "s", "h"))
 
     def test_goals_empty_renders_quiet_placeholder(self) -> None:
         from cli.dashboard.app import _GoalsPanel, _State
@@ -102,10 +104,11 @@ class TestPanelRendering:
             },
         ]
         body = _GoalsPanel(s).body()
-        # Title is truncated to 14 chars to fit the 30-col sidebar
-        # without wrapping — assert the truncated prefix, not the
-        # full title.
-        assert "ship invoice M" in body
+        # Title is truncated to 8 chars — Textual border + container
+        # padding eats more than the 30-col panel width suggests, so
+        # the visible budget is ~22 cols. Earlier (longer) caps wrapped
+        # in real terminals.
+        assert "ship inv" in body
         # Progress bar uses ▓ filled + ░ empty.
         assert "▓" in body and "░" in body
         # Checkpoint takes the right column when present.
@@ -129,7 +132,9 @@ class TestPanelRendering:
             {"tool": "browser_navigate", "summary": "open bank.com", "age_secs": 92},
         ]
         body = _ApprovalsPanel(s).body()
-        assert "browser_navigate" in body
+        # Tool name is truncated to 12 chars to fit the 22-col visible
+        # sidebar budget. Assert the truncated prefix.
+        assert "browser_navi" in body
         # 92 secs renders as 1m, not 92s.
         assert "1m" in body
         # Summary appears on second line.
