@@ -176,3 +176,60 @@ def _reap_session_leaks():
                     pass
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# _resolve_idle_frame — picks operator-supplied idle.{png,jpg,jpeg,webp}
+# ---------------------------------------------------------------------------
+
+
+class TestResolveIdleFrame:
+    """Bug we hit in production: orchestrator hardcoded `idle.png`,
+    so a user who saved their custom frame as `idle.jpg` got the
+    auto-generated green placeholder instead. ffmpeg sniffs the
+    actual format from bytes regardless of extension, so accepting
+    any of png/jpg/jpeg/webp is the right behaviour."""
+
+    def test_picks_jpg_when_only_jpg_present(self, tmp_path: Path) -> None:
+        from tools.pumpfun.orchestrator import _resolve_idle_frame
+
+        (tmp_path / "livestream_videos").mkdir()
+        (tmp_path / "livestream_videos" / "idle.jpg").write_bytes(b"\xff\xd8jpg")
+        result = _resolve_idle_frame(workspace_dir=tmp_path, mint=_MINT)
+        assert result.name == "idle.jpg"
+        assert result.is_file()
+
+    def test_png_wins_over_jpg_when_both_present(self, tmp_path: Path) -> None:
+        """Order in _IDLE_EXTENSIONS is png first because that's what
+        we generate; if the operator has both an old auto-generated
+        png AND their own jpg, prefer png. They can delete the png to
+        force the jpg path."""
+        from tools.pumpfun.orchestrator import _resolve_idle_frame
+
+        (tmp_path / "livestream_videos").mkdir()
+        (tmp_path / "livestream_videos" / "idle.jpg").write_bytes(b"\xff\xd8jpg")
+        (tmp_path / "livestream_videos" / "idle.png").write_bytes(b"\x89PNGfake")
+        result = _resolve_idle_frame(workspace_dir=tmp_path, mint=_MINT)
+        assert result.name == "idle.png"
+
+    def test_returns_canonical_png_path_when_nothing_present(
+        self, tmp_path: Path
+    ) -> None:
+        """Caller will _generate_idle_png at this path. Must be the
+        .png canonical name so the next call's discovery hits cache."""
+        from tools.pumpfun.orchestrator import _resolve_idle_frame
+
+        result = _resolve_idle_frame(workspace_dir=tmp_path, mint=_MINT)
+        assert result.name == "idle.png"
+        assert result.parent == tmp_path / "livestream_videos"
+        # Function creates the parent dir so the generator can write into it.
+        assert result.parent.is_dir()
+
+    def test_no_workspace_falls_back_to_state_dir(self) -> None:
+        from tools.pumpfun.orchestrator import _resolve_idle_frame
+
+        result = _resolve_idle_frame(workspace_dir=None, mint=_MINT)
+        # mint-prefix-suffixed name to keep multiple mints from
+        # colliding on the same shared state dir.
+        assert _MINT[:16] in result.name
+        assert result.name.endswith(".idle.png")
