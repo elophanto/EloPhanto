@@ -49,6 +49,83 @@ _SGR_MOUSE_RESIDUE_RE = re.compile(r";\d+[Mm]")
 _CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
+def _ego_qualifier(ego_data: dict) -> str:
+    """Derive a one-word ego qualifier from structured ego state.
+
+    The footer / digest needs a single short word that gives the
+    operator an honest sense of where the agent stands. Earlier
+    versions tried to use ``last_self_critique`` directly and got
+    truncated nonsense like ``ego 1.00 · I am better at`` because
+    the critique is by design unsparing prose, not a mood label.
+
+    This function maps the *structured* ego fields onto a small
+    vocabulary that maps to actual states:
+
+      - ``stale`` — ego data hasn't been recomputed in 25+ tasks
+        (the recompute trigger threshold). Coherence may be stale
+        even if numerically high; flag honestly.
+      - ``humbled`` — many recent humbling events (≥3). The agent
+        has hit walls and recorded them.
+      - ``shaken`` — coherence < 0.50. Self-image has drifted from
+        evidence by the ego layer's own measure.
+      - ``questioning`` — coherence 0.50-0.75 OR mean confidence
+        < 0.65. Some self-doubt, no crisis.
+      - ``steady`` — coherence 0.75-0.92, no recent humbling,
+        confidence broadly positive.
+      - ``settled`` — coherence ≥ 0.92, mean confidence ≥ 0.80.
+        Genuine alignment. The default 1.00 with no recompute
+        history shows as ``stale`` not ``settled``.
+      - ``green`` — empty/missing data (first boot, ego layer not
+        yet initialized).
+
+    Returns a single lowercase word, never longer than ~12 chars,
+    safe for the 22-col footer budget.
+    """
+    if not ego_data:
+        return "green"
+    try:
+        coherence = float(ego_data.get("coherence", 0.0))
+    except (TypeError, ValueError):
+        coherence = 0.0
+    try:
+        confidence_avg = float(ego_data.get("confidence_avg", 0.0))
+    except (TypeError, ValueError):
+        confidence_avg = 0.0
+    try:
+        humbling = int(ego_data.get("humbling_count", 0))
+    except (TypeError, ValueError):
+        humbling = 0
+    try:
+        tasks_since = int(ego_data.get("tasks_since_recompute", 0))
+    except (TypeError, ValueError):
+        tasks_since = 0
+
+    # First-boot / no-data path. confidence_avg of 0 means no
+    # capabilities have been recorded yet — the ego layer either
+    # hasn't run or just started.
+    if confidence_avg <= 0.0 and humbling == 0:
+        return "green"
+
+    # Stale check fires before the optimistic "settled" so we don't
+    # paint over default-1.0 ego with confident words.
+    if tasks_since >= 25:
+        return "stale"
+
+    if humbling >= 3:
+        return "humbled"
+
+    if coherence < 0.50:
+        return "shaken"
+
+    if coherence < 0.75 or confidence_avg < 0.65:
+        return "questioning"
+
+    if coherence >= 0.92 and confidence_avg >= 0.80:
+        return "settled"
+
+    return "steady"
+
+
 def _short_tokens(n: int) -> str:
     """Compact token-count display for fixed-width sidebar columns.
 
@@ -1786,16 +1863,18 @@ class EloPhantoDashboard(App):
         # Ego (footer + digest mood). Populated when the agent's
         # identity layer is initialized; absent on first boot before
         # the ego subsystem has computed an initial coherence score.
+        # The qualifier ("steady" / "shaken" / etc.) is *derived* from
+        # structured numbers, not from prose — earlier the gateway
+        # sent last_self_critique here and the footer rendered
+        # "ego 1.00 · I am better at" which is unsparing critique
+        # truncated to 14 chars, NOT a mood. See _ego_qualifier docs.
         ego = data.get("ego", {})
         if ego:
             try:
                 s.ego_coherence = float(ego.get("coherence", 0.0))
             except (TypeError, ValueError):
                 pass
-            mood = ego.get("mood", "") or ego.get("self_critique", "")
-            if isinstance(mood, str) and mood:
-                # First sentence only — the panel footer is one line.
-                s.ego_mood = mood.split(".")[0].strip()[:40]
+            s.ego_mood = _ego_qualifier(ego)
 
         # Goals (sidebar GOALS panel + digest "doing now" auto-derive).
         # Each entry: {title, pct, checkpoint, status}.
