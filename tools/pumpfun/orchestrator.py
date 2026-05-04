@@ -18,6 +18,7 @@ Design:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -354,6 +355,19 @@ def _generate_idle_png(path: Path, mint: str) -> None:
     label = f"EloPhanto · {mint[:6]}…{mint[-4:]}"
     ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
     logo = _find_idle_logo_source()
+    # Atomic write target. ffmpeg writes to <stem>.tmp.<pid>.png,
+    # we rename on success. The supervisor's ffmpeg can race with us
+    # (it starts reading idle.png almost immediately after we return
+    # from this function), and reading a half-written PNG produces
+    # "Invalid PNG signature 0x..." in the supervisor log → ffmpeg
+    # dies → nothing streams. os.replace below makes the publish
+    # atomic so readers see either the OLD file or the FULL new
+    # file, never a partial one.
+    #
+    # The .png suffix is preserved on the tmp file so ffmpeg's
+    # format-from-extension inference works — without it, ffmpeg
+    # bails with "Unable to choose an output format".
+    tmp_path = path.with_name(f"{path.stem}.tmp.{os.getpid()}{path.suffix}")
 
     if logo is not None:
         # Composite: scale the logo down (preserving aspect) to fit
@@ -389,7 +403,7 @@ def _generate_idle_png(path: Path, mint: str) -> None:
             ),
             "-frames:v",
             "1",
-            str(path),
+            str(tmp_path),
         ]
     else:
         # No logo available — plain white card with centered label.
@@ -411,7 +425,7 @@ def _generate_idle_png(path: Path, mint: str) -> None:
             ),
             "-frames:v",
             "1",
-            str(path),
+            str(tmp_path),
         ]
     try:
         subprocess.run(cmd, check=True, capture_output=True)
@@ -431,9 +445,24 @@ def _generate_idle_png(path: Path, mint: str) -> None:
             f"color=c={_IDLE_BG_HEX}:s={_IDLE_FRAME_W}x{_IDLE_FRAME_H}:d=1",
             "-frames:v",
             "1",
-            str(path),
+            str(tmp_path),
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except Exception:
+            # Even the fallback failed — clean up tmp + bail. Nothing
+            # left to do; caller will see a missing target file and
+            # ffmpeg upstream will surface the real error.
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+            raise
+
+    # Atomic publish: rename tmp -> target. os.replace is atomic on
+    # POSIX same-filesystem moves, so a reader (the supervisor's
+    # ffmpeg) either sees the OLD file or the FULL new file — never
+    # a half-written one. This is the fix for the "Invalid PNG
+    # signature 0x802008C00000" race that bricked the stream.
+    os.replace(tmp_path, path)
 
 
 def build_ffmpeg_cmd(

@@ -270,3 +270,48 @@ class TestGenerateIdlePngNoOverwrite:
         assert target.is_file()
         # Sanity-check it's actually a PNG, not an empty or stub file.
         assert target.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+# ---------------------------------------------------------------------------
+# Atomic write — eliminates the write-during-read race
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateIdlePngAtomic:
+    """Real production failure: supervisor's ffmpeg started reading
+    `idle.png` while _generate_idle_png was still writing it. ffmpeg
+    saw garbage bytes mid-file ('Invalid PNG signature 0x802008C00000')
+    → exited rc=255 → nothing streamed. User-visible symptom: 'no
+    image is showing'.
+
+    Fix: write to <stem>.tmp.<pid>.png, then os.replace() to the
+    target. POSIX same-filesystem rename is atomic — readers see
+    either the OLD file or the FULL new file, never partial."""
+
+    def test_no_temp_leftover_after_success(self, tmp_path: Path) -> None:
+        from tools.pumpfun.orchestrator import _generate_idle_png
+
+        target = tmp_path / "idle.png"
+        _generate_idle_png(target, "BwUgJBQffm4HM49WfakeMintForTests")
+        # The atomic publish renames the tmp into place. Anything left
+        # behind is a leak — assert nothing matches the tmp pattern.
+        leftovers = list(tmp_path.glob("idle.tmp.*.png"))
+        assert leftovers == [], f"leaked tmp files: {leftovers}"
+        assert target.is_file()
+        # PNG magic — the tmp -> rename produced a valid file.
+        assert target.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_target_extension_preserved_on_tmp(self, tmp_path: Path) -> None:
+        """ffmpeg infers output format from the file extension. If our
+        tmp file ended in `.tmp.<pid>` (no .png suffix), ffmpeg would
+        bail with 'Unable to choose an output format' — we hit that
+        bug live during the fix. Test by inspecting the function's
+        choice of tmp name via a controlled run."""
+        from tools.pumpfun.orchestrator import _generate_idle_png
+
+        target = tmp_path / "idle.png"
+        # If the tmp path didn't end in .png, the subprocess would
+        # raise CalledProcessError. Successful generation means the
+        # tmp suffix was correct.
+        _generate_idle_png(target, "BwUgJBQffm4HM49WfakeMintForTests")
+        assert target.is_file()
