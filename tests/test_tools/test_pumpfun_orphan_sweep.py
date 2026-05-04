@@ -275,6 +275,12 @@ class TestGenerateIdlePngNoOverwrite:
         # File is byte-identical to what the operator wrote.
         assert target.read_bytes() == sentinel
 
+    @pytest.mark.skipif(
+        not shutil.which("ffmpeg"),
+        reason="ffmpeg not installed (CI runners often miss it); test "
+        "actually shells to ffmpeg to render a placeholder so it's "
+        "meaningless without the binary.",
+    )
     def test_generates_when_target_missing(self, tmp_path: Path) -> None:
         """Sanity: the no-overwrite guard doesn't break the legitimate
         path. When the file genuinely isn't there, generation runs."""
@@ -302,7 +308,17 @@ class TestGenerateIdlePngAtomic:
 
     Fix: write to <stem>.tmp.<pid>.png, then os.replace() to the
     target. POSIX same-filesystem rename is atomic — readers see
-    either the OLD file or the FULL new file, never partial."""
+    either the OLD file or the FULL new file, never partial.
+
+    NOTE: both tests in this class shell to ffmpeg to actually
+    render the placeholder — skipped when ffmpeg isn't installed
+    (some CI runners don't include it). The atomic-write logic
+    being tested only matters when ffmpeg is present anyway."""
+
+    pytestmark = pytest.mark.skipif(
+        not shutil.which("ffmpeg"),
+        reason="ffmpeg not installed (CI runners often miss it).",
+    )
 
     def test_no_temp_leftover_after_success(self, tmp_path: Path) -> None:
         from tools.pumpfun.orchestrator import _generate_idle_png
