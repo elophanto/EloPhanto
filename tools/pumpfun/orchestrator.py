@@ -94,6 +94,61 @@ def _is_alive(pid: int) -> bool:
     return True
 
 
+def _find_orphans_for_mint(mint: str) -> set[int]:
+    """Scan `ps` for any ffmpeg/supervisor processes whose cmdline
+    references this mint's per-mint state files.
+
+    Why this exists: state.json holds at most ONE supervisor PID. When
+    `start` runs twice without an intervening `stop` (agent crash,
+    user error, double-click), the older supervisor's PID is
+    overwritten and becomes an orphan happily pushing video to the
+    same pump.fun WHIP endpoint forever. We hit this in production —
+    found 3 zombies from prior days streaming the same mint at once.
+
+    The match key is the mint prefix that appears in our state-dir
+    filenames (`<state_dir>/<mint[:16]>.*`). Unique enough — no other
+    tool writes there — and matches both the supervisor's --config
+    arg and the ffmpeg child's voice-FIFO arg.
+
+    Best-effort: if `ps` isn't available (sandboxed env), returns
+    empty set rather than crashing the stop path.
+    """
+    if not mint:
+        return set()
+    needle = mint[:16]
+    out: set[int] = set()
+    try:
+        proc = subprocess.run(
+            ["ps", "-axo", "pid=,command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return out
+    if proc.returncode != 0:
+        return out
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line or needle not in line:
+            continue
+        # Defence in depth: only kill processes that look like ours.
+        # Avoid matching a random user-script that happened to grep
+        # for the mint.
+        if (
+            "_ffmpeg_supervisor" not in line
+            and "ffmpeg" not in line.split(None, 1)[1].split()[0]
+        ):
+            continue
+        try:
+            pid = int(line.split(None, 1)[0])
+        except (ValueError, IndexError):
+            continue
+        if _is_alive(pid):
+            out.add(pid)
+    return out
+
+
 def _require_binary(name: str, install_hint: str) -> str:
     path = shutil.which(name)
     if not path:
@@ -185,38 +240,97 @@ def _build_video_filter(caption_file: str) -> str:
     return ",".join(chain)
 
 
+def _find_idle_logo_source() -> Path | None:
+    """Locate the operator's logo for the voice-mode idle frame.
+
+    Search order, first hit wins:
+    1. ``ELOPHANTO_LIVESTREAM_LOGO`` env var (operator override)
+    2. ``misc/logo/livestream_idle.png`` in the repo (bundled asset)
+    3. ``misc/logo/elophanto.jpeg`` (the README banner — fallback)
+
+    Returns None when nothing's there → orchestrator generates the
+    plain text card instead.
+    """
+    env = os.environ.get("ELOPHANTO_LIVESTREAM_LOGO")
+    if env:
+        p = Path(env)
+        if p.is_file():
+            return p
+    repo_root = Path(__file__).resolve().parents[2]
+    for candidate in (
+        repo_root / "misc" / "logo" / "livestream_idle.png",
+        repo_root / "misc" / "logo" / "elophanto.jpeg",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+_IDLE_FRAME_W = 1280
+_IDLE_FRAME_H = 720
+_IDLE_BG_HEX = "white"
+_IDLE_TEXT_HEX = "#1f2937"  # slate-800 — readable on white
+
+
 def _generate_idle_png(path: Path, mint: str) -> None:
-    """Write a tiny 'agent idle' placeholder PNG at ``path``.
+    """Write a 1280×720 'agent idle' placeholder PNG at ``path``.
 
     Used as the video track when voice mode is on and the caller
     didn't supply an image. ffmpeg loops this still frame at low fps
     so almost no bandwidth goes to video and everything goes to the
-    voice audio. We generate it via ffmpeg's lavfi color source so
-    we don't need Pillow as a dep.
+    voice audio. 16:9 because that's what every streaming platform
+    expects for full-screen display.
+
+    Composition:
+      - White 1280×720 canvas
+      - If a logo source is found (see _find_idle_logo_source), it's
+        scaled to fit ~60% of the height and centered above the label
+      - Mint label rendered in slate text below the logo
+
+    All done via ffmpeg's filter graph so we don't need Pillow.
     """
-    color_hex = "#16a34a"  # match the agent UI accent
     label = f"EloPhanto · {mint[:6]}…{mint[-4:]}"
     ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
-    cmd = [
-        ffmpeg,
-        "-y",
-        "-loglevel",
-        "error",
-        "-f",
-        "lavfi",
-        "-i",
-        f"color=c={color_hex}:s=720x720:d=1",
-        "-vf",
-        f"drawtext=text='{label}':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2",
-        "-frames:v",
-        "1",
-        str(path),
-    ]
-    try:
-        subprocess.run(cmd, check=True, capture_output=True)
-    except Exception:
-        # Fallback: solid colour without text. Rare — only if the
-        # libfreetype dep on the ffmpeg build is missing.
+    logo = _find_idle_logo_source()
+
+    if logo is not None:
+        # Composite: scale the logo down (preserving aspect) to fit
+        # ~60% of the canvas height, place it centered with the label
+        # below it. drawtext fontsize 36 + canvas y offset gives the
+        # label breathing room without overlapping the logo.
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            # Background: white 1280x720 still
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={_IDLE_BG_HEX}:s={_IDLE_FRAME_W}x{_IDLE_FRAME_H}:d=1",
+            # Logo input
+            "-i",
+            str(logo),
+            "-filter_complex",
+            (
+                # Scale logo: fit within 60% width × 60% height, preserve aspect.
+                f"[1:v]scale=w={int(_IDLE_FRAME_W * 0.6)}:"
+                f"h={int(_IDLE_FRAME_H * 0.6)}:force_original_aspect_ratio=decrease[logo];"
+                # Overlay logo centered, biased slightly upward to leave room for label.
+                f"[0:v][logo]overlay=x=(W-w)/2:y=(H-h)/2-40[bg];"
+                # Draw label centered, near the bottom.
+                f"[bg]drawtext=text='{label}':"
+                f"fontcolor={_IDLE_TEXT_HEX}:"
+                f"fontsize=36:"
+                f"x=(w-text_w)/2:"
+                f"y=h-h/6"
+            ),
+            "-frames:v",
+            "1",
+            str(path),
+        ]
+    else:
+        # No logo available — plain white card with centered label.
         cmd = [
             ffmpeg,
             "-y",
@@ -225,7 +339,34 @@ def _generate_idle_png(path: Path, mint: str) -> None:
             "-f",
             "lavfi",
             "-i",
-            f"color=c={color_hex}:s=720x720:d=1",
+            f"color=c={_IDLE_BG_HEX}:s={_IDLE_FRAME_W}x{_IDLE_FRAME_H}:d=1",
+            "-vf",
+            (
+                f"drawtext=text='{label}':"
+                f"fontcolor={_IDLE_TEXT_HEX}:"
+                f"fontsize=48:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2"
+            ),
+            "-frames:v",
+            "1",
+            str(path),
+        ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except Exception:
+        # Fallback: solid white frame, no text or logo. Hits when the
+        # ffmpeg build lacks libfreetype (drawtext) or the logo path
+        # exists but is malformed (corrupt PNG, etc.). Better a blank
+        # frame than no stream.
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={_IDLE_BG_HEX}:s={_IDLE_FRAME_W}x{_IDLE_FRAME_H}:d=1",
             "-frames:v",
             "1",
             str(path),
@@ -812,6 +953,37 @@ class LivestreamOrchestrator:
         needed. ``max_iterations`` becomes ``-stream_loop N-1`` (0 maps to
         infinite).
         """
+        # Orphan sweep BEFORE we spawn anything new. state.json holds
+        # at most ONE supervisor PID, so an unclean restart (agent
+        # crash, double-start, lost state) leaves the prior supervisor
+        # alive and pushing to the same WHIP endpoint. If we spawn on
+        # top of that, the second ffmpeg fights the first for the
+        # token and pump.fun shows whichever wins the race. Always
+        # reap before starting — defence in depth complement to the
+        # same sweep on stop.
+        prior_orphans = _find_orphans_for_mint(mint)
+        for pid in prior_orphans:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                continue
+        if prior_orphans:
+            for _ in range(50):
+                if not any(_is_alive(p) for p in prior_orphans):
+                    break
+                time.sleep(0.1)
+            for pid in prior_orphans:
+                if _is_alive(pid):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+            logger.info(
+                "[livestream] reaped %d orphan supervisor(s) for mint %s before start",
+                len(prior_orphans),
+                mint[:16],
+            )
+
         ffmpeg = _require_binary(
             "ffmpeg",
             "Install via 'brew install ffmpeg' or 'apt-get install ffmpeg'.",
@@ -1048,9 +1220,7 @@ class LivestreamOrchestrator:
         return {"status": "started", **state}
 
     def stop_stream(self, mint: str) -> dict[str, Any]:
-        state = self._read_state(mint)
-        if not state:
-            return {"status": "not_running", "mint": mint}
+        state = self._read_state(mint) or {}
 
         # If looping, drop the stop marker first so the supervisor exits
         # at the next iteration boundary instead of getting SIGKILL'd
@@ -1062,30 +1232,45 @@ class LivestreamOrchestrator:
             except OSError:
                 pass
 
-        pids_to_kill: list[int] = []
+        # ── Defensive sweep ──────────────────────────────────────────────
+        # state.json only knows about the most recent (mint, pid) pair.
+        # If the agent crashed mid-stream OR `start` was called twice
+        # without a `stop` between, the older supervisor's PID was
+        # overwritten and is now an orphan happily pushing video to
+        # the same pump.fun WHIP endpoint. Many users hit this — we
+        # found 3 zombies from prior days all pushing to the same
+        # mint at once.
+        #
+        # The fix: in addition to the PIDs from state.json, scan
+        # `ps` for ANY ffmpeg/supervisor process whose cmdline mentions
+        # our per-mint state dir. The mint-prefix in
+        # `<state_dir>/<mint[:16]>.*` is unique enough to be a safe
+        # match key — no other tool writes there.
+        pids_to_kill: set[int] = set()
         for key in ("pid", "voice_pid"):
             v = state.get(key)
             if isinstance(v, int) and v > 0 and _is_alive(v):
-                pids_to_kill.append(v)
+                pids_to_kill.add(v)
+        pids_to_kill.update(_find_orphans_for_mint(mint))
 
-        killed = False
+        killed_pids: list[int] = []
         for pid in pids_to_kill:
             try:
                 os.kill(pid, signal.SIGTERM)
+                killed_pids.append(pid)
             except OSError:
                 continue
         # Wait up to 5s for them all to exit, then SIGKILL the holdouts.
         for _ in range(50):
-            if not any(_is_alive(p) for p in pids_to_kill):
+            if not any(_is_alive(p) for p in killed_pids):
                 break
             time.sleep(0.1)
-        for pid in pids_to_kill:
+        for pid in killed_pids:
             if _is_alive(pid):
                 try:
                     os.kill(pid, signal.SIGKILL)
                 except OSError:
                     pass
-        killed = bool(pids_to_kill)
 
         # Clean up any leftover stop marker + voice FIFO
         if stop_marker_path:
@@ -1109,7 +1294,14 @@ class LivestreamOrchestrator:
                     pass
 
         self._clear_state(mint)
-        return {"status": "stopped", "mint": mint, "killed": killed, "pid": pid}
+        if not killed_pids and not state:
+            return {"status": "not_running", "mint": mint}
+        return {
+            "status": "stopped",
+            "mint": mint,
+            "killed": bool(killed_pids),
+            "killed_pids": killed_pids,
+        }
 
     def status_stream(self, mint: str) -> dict[str, Any]:
         state = self._read_state(mint)
