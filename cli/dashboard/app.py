@@ -1,13 +1,8 @@
 """EloPhanto terminal dashboard — Textual full-screen TUI.
 
-Single-surface design: a unified scrollable transcript carries chat,
-tool calls, scheduled-task firings, and notifications, with a 1-row
-glance-able status bar pinned at the bottom for high-frequency state
-(gateway sessions, budget, permission mode, scheduled/goal/swarm
-counts, autonomous-mind phase). The transcript leads with a digest
-of "what's happening / what wants your attention" so opening the
-dashboard feels like checking in on a creature that's been doing
-things, not starting a new chat from zero.
+Multi-panel dashboard inspired by Hyperspace AGI's terminal design.
+Surfaces all autonomous activity (mind cycles, swarm, scheduler,
+gateway sessions, tool calls) alongside the chat REPL in real time.
 """
 
 from __future__ import annotations
@@ -54,6 +49,22 @@ _SGR_MOUSE_RESIDUE_RE = re.compile(r";\d+[Mm]")
 _CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
+def _short_tokens(n: int) -> str:
+    """Compact token-count display for fixed-width sidebar columns.
+
+    Renders 1234567 → 1.2M, 12345 → 12k, 999 → 999. Picked over
+    Python's locale formatting because we want the result to fit in
+    5 chars max no matter how busy the session got — the panel's
+    tabular alignment depends on it."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 10_000:
+        return f"{n // 1000}k"
+    if n >= 1_000:
+        return f"{n / 1000:.1f}k"
+    return str(n)
+
+
 def _strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences, bare CSI leftovers, and stray
     control characters that can leak into the Input widget when the
@@ -85,7 +96,7 @@ def _strip_ansi(text: str) -> str:
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Input, RichLog, Static
@@ -188,6 +199,27 @@ class _State:
     # GATEWAY panel: list of {channel, user, active}
     sessions: list[dict] = field(default_factory=list)
 
+    # GOALS panel: list of {title, pct, checkpoint, status}
+    # `status` is one of: active | paused | done | blocked.
+    # `pct` is integer 0-100 derived from completed/total checkpoints.
+    goals: list[dict] = field(default_factory=list)
+
+    # APPROVALS panel: list of {tool, summary, age_secs}
+    # Pending owner-approval requests. Drives the "wanted your eyes
+    # on" line in the digest as well as the always-visible APPROVALS
+    # sidebar panel.
+    approvals: list[dict] = field(default_factory=list)
+
+    # Ego footer — coherence + mood are read from the agent's ego
+    # layer. Shown in the sidebar's permanent footer + the digest.
+    ego_coherence: float = 0.0
+    ego_mood: str = ""
+
+    # P2P footer — peers connected via libp2p (if peers.enabled). 0
+    # is the no-op default; positive number means decentralized
+    # transport is up and someone's connected.
+    p2p_peer_count: int = 0
+
     # Event feed (newest last, rendered newest-first)
     events: deque = field(default_factory=lambda: deque(maxlen=50))
 
@@ -222,7 +254,15 @@ class _State:
 
 
 class _SidePanel(Static):
-    """Base sidebar panel — title rule + Rich markup body."""
+    """Base sidebar panel — single-glyph header + Rich markup body.
+
+    Visual language (revised): each panel is a glyph + uppercase name
+    on one line, then 1-3 body rows. No box-drawing rules around the
+    content — whitespace + glyph carry the structure. Sections are
+    separated by a single blank row in the parent container, not by
+    rules inside each panel. Reads as denser-but-cleaner than the
+    prior box-everywhere style.
+    """
 
     DEFAULT_CSS = """
     _SidePanel {
@@ -232,124 +272,141 @@ class _SidePanel(Static):
     }
     """
 
+    # Single-character glyph that visually identifies the panel. Each
+    # subclass overrides. Convention: ◆ for primary state, ◇ for
+    # ambient state, ⚡ for activity, ⏱ for scheduled, ! for needs-
+    # attention. Picked to read as quiet typography rather than emoji.
+    GLYPH = "◆"
+    GLYPH_COLOR = "#7c3aed"  # _MIND violet by default
+
     def __init__(self, title: str, state: _State, **kwargs: Any) -> None:
         super().__init__(markup=True, **kwargs)
         self._title = title
         self._st = state
 
     def _hdr(self) -> str:
-        pad = max(0, 28 - len(self._title))
-        return f"[#b8b2a8]──[/] [{_DIM}]{self._title}[/] [#b8b2a8]{'─' * pad}[/]"
+        return f"[{self.GLYPH_COLOR}]{self.GLYPH}[/] " f"[{_BRIGHT}]{self._title}[/]"
 
     def body(self) -> str:  # noqa: D102
         return ""
 
     def repaint(self) -> None:
-        self.update(f"{self._hdr()}\n{self.body()}")
+        body = self.body()
+        if body:
+            self.update(f"{self._hdr()}\n{body}")
+        else:
+            self.update(self._hdr())
 
 
 class _AgentPanel(_SidePanel):
+    GLYPH = "◆"
+    GLYPH_COLOR = "#7c3aed"
+
     def __init__(self, state: _State) -> None:
         super().__init__("AGENT", state, id="panel-agent")
 
     def body(self) -> str:
         s = self._st
+        # Row 1: live activity. When running a tool, show the tool +
+        # elapsed seconds; otherwise "idle". This is the panel's
+        # signature line — what the agent is actually doing right now.
         if s.current_tool:
             elapsed = int(_time.monotonic() - s.current_tool_start)
-            tool = (
-                f"[{_OK}]●[/] [{_MIND}]{s.current_tool[:22]}[/] [{_DIM}]{elapsed}s[/]"
+            line1 = (
+                f"  [{_OK}]●[/] [{_BRIGHT}]{s.current_tool[:24]}[/]"
+                f" [{_DIM}]{elapsed:>3d}s[/]"
             )
         else:
-            tool = f"[{_DIM}]◆ idle[/]"
+            line1 = f"  [{_DIM}]◇ idle[/]"
 
-        goal = f"  [{_DIM}]goal: {s.current_goal[:26]}[/]" if s.current_goal else ""
-        chk = (
-            f"  [{_DIM}]✓ {s.checkpoints_done} checkpoints[/]"
-            if s.checkpoints_done
-            else ""
-        )
-        tkn = (
-            f"{s.session_tokens // 1000}k"
-            if s.session_tokens >= 1000
-            else str(s.session_tokens)
-        )
-        # Provider/model line
-        if s.last_provider and s.last_model:
-            model_short = s.last_model.split("/")[-1][:20]
-            provider_model = (
-                f"  [{_DIM}]via[/] [{_BRIGHT}]{s.last_provider}/{model_short}[/]"
-            )
+        # Row 2: model — quiet, contextual; only shown when we have
+        # one. Provider+slash dropped from the visible label; the
+        # model name alone is enough. Truncated to 22 chars to keep
+        # the row inside the 30-col sidebar without wrapping.
+        if s.last_model:
+            model_short = s.last_model.split("/")[-1][:22]
+            line2 = f"  [{_DIM}]via[/] [{_BRIGHT}]{model_short}[/]"
         else:
-            provider_model = ""
+            line2 = ""
 
-        stats = (
-            f"  [{_DIM}]turns:[/][{_BRIGHT}]{s.session_turns}[/] "
-            f"[{_DIM}]tokens:[/][{_BRIGHT}]{tkn}[/] "
-            f"[{_DIM}]cost:[/][{_BRIGHT}]${s.session_cost:.2f}[/]"
+        # Row 3: stats. Tabular alignment via fixed-width labels so
+        # the numbers hover at the same x-positions on every repaint.
+        # turns·tokens·cost — the operator's "is this expensive" check.
+        tkn = _short_tokens(s.session_tokens)
+        # Glyph-only labels keep this row inside ~24 visible cols so it
+        # doesn't wrap on a 30-col sidebar. ⊘ turns, ◇ tokens, $ cost —
+        # the visual context is enough; the verbose ``turns/tok/cost``
+        # labels were eating ~10 cols of width for no real signal gain.
+        line3 = (
+            f"  [{_BRIGHT}]{s.session_turns}[/][{_DIM}]t[/]"
+            f"  [{_BRIGHT}]{tkn}[/]"
+            f"  [{_BRIGHT}]${s.session_cost:.2f}[/]"
         )
-        lines = [f"  {tool}"]
-        if provider_model:
-            lines.append(provider_model)
-        if goal:
-            lines.append(goal)
-        if chk:
-            lines.append(chk)
-        lines.append(stats)
-        return "\n".join(lines)
+
+        return "\n".join(line for line in (line1, line2, line3) if line)
 
 
 class _MindPanel(_SidePanel):
+    GLYPH = "◇"
+    GLYPH_COLOR = "#7c3aed"
+
     def __init__(self, state: _State) -> None:
         super().__init__("MIND", state, id="panel-mind")
 
     def body(self) -> str:
         s = self._st
-        state_icons = {
-            "running": f"[{_OK}]●[/]",
-            "sleeping": f"[{_ACCENT}]●[/]",
-            "paused": f"[{_DIM}]◇[/]",
-            "disabled": f"[{_DIM}]○[/]",
-            "unknown": f"[{_DIM}]?[/]",
-        }
-        icon = state_icons.get(s.mind_state, f"[{_DIM}]?[/]")
-        if s.mind_state == "sleeping":
-            eta = s.mind_eta()
-            state_str = f"{icon} [{_DIM}]sleeping · wakes {eta}[/]"
-        elif s.mind_state == "running":
-            state_str = f"{icon} [{_OK}]running[/]"
+        # Mood is the panel's signature line — the autonomous mind's
+        # current state in one phrase. Each state gets a verb ("running",
+        # "pondering", "resting") and a colour that hints at energy
+        # level. "sleeping" reads as restful + ETA-aware, not blocked.
+        if s.mind_state == "running":
+            line1 = f"  [{_OK}]●[/] [{_OK}]running[/]"
+        elif s.mind_state == "sleeping":
+            eta = s.mind_eta() or "?"
+            line1 = (
+                f"  [{_ACCENT}]●[/] [{_DIM}]resting · wakes in[/] "
+                f"[{_BRIGHT}]{eta}[/]"
+            )
         elif s.mind_state == "paused":
-            state_str = f"{icon} [{_DIM}]paused[/]"
+            line1 = f"  [{_DIM}]◇[/] [{_DIM}]paused[/]"
         elif s.mind_state == "disabled":
-            state_str = f"{icon} [{_DIM}]disabled[/]"
+            line1 = f"  [{_DIM}]○[/] [{_DIM}]off[/]"
         else:
-            state_str = f"{icon} [{_DIM}]{s.mind_state}[/]"
+            line1 = f"  [{_DIM}]?[/] [{_DIM}]{s.mind_state}[/]"
 
-        last = (
-            f"  [{_DIM}]last: {s.mind_last_action[:26]}[/]"
-            if s.mind_last_action
-            else ""
+        # Last action — tells the operator what was just thought about.
+        # Only shown when there's something real to say.
+        if s.mind_last_action:
+            line2 = f"  [{_DIM}]last·[/] [{_BRIGHT}]{s.mind_last_action[:28]}[/]"
+        else:
+            line2 = ""
+
+        # Glyph-only labels (matching AGENT row 3): c for cycles, $ for
+        # cost, % for daily budget. Fits inside ~22 visible cols so the
+        # 30-col sidebar doesn't wrap.
+        line3 = (
+            f"  [{_BRIGHT}]{s.mind_cycles_today}[/][{_DIM}]c[/]"
+            f"  [{_BRIGHT}]${s.mind_cost_today:.2f}[/]"
+            f"  [{_DIM}]{s.mind_budget_pct}%[/]"
         )
-        usage = (
-            f"  [{_DIM}]cycles:[/][{_BRIGHT}]{s.mind_cycles_today}[/] "
-            f"[{_DIM}]cost:[/][{_BRIGHT}]${s.mind_cost_today:.2f}[/] "
-            f"[{_DIM}]{s.mind_budget_pct}% daily[/]"
-        )
-        lines = [f"  {state_str}"]
-        if last:
-            lines.append(last)
-        lines.append(usage)
-        return "\n".join(lines)
+
+        return "\n".join(line for line in (line1, line2, line3) if line)
 
 
 class _SwarmPanel(_SidePanel):
+    GLYPH = "⚡"
+    GLYPH_COLOR = "#d97706"  # amber — the "energy" colour for activity
+
     def __init__(self, state: _State) -> None:
         super().__init__("SWARM", state, id="panel-swarm")
 
     def body(self) -> str:
         s = self._st
         if not s.swarm_tasks:
-            return f"  [{_DIM}]no active agents[/]"
+            return f"  [{_DIM}]· · ·[/]"
 
+        # State -> dot. Dot is the leading glyph; running/queued/done/
+        # failed are the four states the orchestrator emits.
         icons = {
             "running": f"[{_OK}]●[/]",
             "queued": f"[{_DIM}]○[/]",
@@ -357,27 +414,32 @@ class _SwarmPanel(_SidePanel):
             "failed": "[red]✗[/]",
         }
         lines = []
-        for task in s.swarm_tasks[-4:]:  # show last 4
+        # Show the last 4 — limited to keep the sidebar from running
+        # off the bottom of the screen on a busy session.
+        for task in s.swarm_tasks[-4:]:
             icon = icons.get(task.get("status", ""), f"[{_DIM}]?[/]")
-            name = task.get("name", "?")[:12]
-            agent = task.get("agent", "")[:8]
-            pct = task.get("pct", 0)
-            filled = int(pct / 100 * 5)
-            bar = f"[{_OK}]{'█' * filled}[/][{_DIM}]{'░' * (5 - filled)}[/]"
+            name = task.get("name", "?")[:14]
+            pct = int(task.get("pct", 0))
+            # Compact 4-cell progress bar — same width as MIND's daily%.
+            filled = min(4, max(0, int(pct / 25)))
+            bar = f"[{_OK}]{'▓' * filled}[/]" f"[{_DIM}]{'░' * (4 - filled)}[/]"
             lines.append(
-                f"  {icon} [{_BRIGHT}]{name:<12}[/] [{_DIM}]{agent:<8}[/] {bar} [{_DIM}]{pct:3d}%[/]"
+                f"  {icon} [{_BRIGHT}]{name:<14}[/] {bar}" f" [{_DIM}]{pct:>3d}%[/]"
             )
         return "\n".join(lines)
 
 
 class _SchedulerPanel(_SidePanel):
+    GLYPH = "⏱"
+    GLYPH_COLOR = "#6d28d9"  # violet — kindred with MIND
+
     def __init__(self, state: _State) -> None:
-        super().__init__("SCHEDULER", state, id="panel-scheduler")
+        super().__init__("SCHEDULED", state, id="panel-scheduler")
 
     def body(self) -> str:
         s = self._st
         if not s.scheduled_tasks:
-            return f"  [{_DIM}]no scheduled tasks[/]"
+            return f"  [{_DIM}]· · ·[/]"
 
         icons = {
             "pending": f"[{_DIM}]○[/]",
@@ -388,22 +450,29 @@ class _SchedulerPanel(_SidePanel):
         lines = []
         for task in s.scheduled_tasks[-4:]:
             icon = icons.get(task.get("status", "pending"), f"[{_DIM}]○[/]")
-            name = task.get("name", "?")[:18]
+            # 16-char cap: 2 indent + 2 icon + 16 name + 1 + 6 right = 27.
+            # Right column is "in 14m" or "HH:MM" — both fit in 6.
+            name = task.get("name", "?")[:16]
             eta = task.get("eta_str", "")
             ts = task.get("ts_str", "")
             right = f"in {eta}" if eta else ts
-            lines.append(f"  {icon} [{_ACCENT}]{name:<18}[/] [{_DIM}]{right}[/]")
+            lines.append(f"  {icon} [{_BRIGHT}]{name:<16}[/] [{_DIM}]{right}[/]")
         return "\n".join(lines)
 
 
 class _GatewayPanel(_SidePanel):
+    GLYPH = "⌁"
+    GLYPH_COLOR = "#16a34a"  # green — the "connections live" colour
+
     def __init__(self, state: _State) -> None:
         super().__init__("GATEWAY", state, id="panel-gateway")
 
     def body(self) -> str:
         s = self._st
+        # Channels row: dot per channel + name. Dedupe by channel name
+        # so two sessions on the same channel collapse to one pill.
         if not s.sessions:
-            channels_str = f"  [{_DIM}]no sessions[/]"
+            line1 = f"  [{_DIM}]· · ·[/]"
         else:
             seen: dict[str, bool] = {}
             for sess in s.sessions:
@@ -412,23 +481,370 @@ class _GatewayPanel(_SidePanel):
             parts = []
             for ch, active in seen.items():
                 dot = f"[{_OK}]●[/]" if active else f"[{_DIM}]○[/]"
-                parts.append(f"{dot} [{_ACCENT}]{ch}[/]")
-            channels_str = "  " + "  ".join(parts)
+                parts.append(f"{dot} [{_BRIGHT}]{ch}[/]")
+            line1 = "  " + "  ".join(parts)
 
+        # Footer row: count + port, tabular-aligned with other panels.
         count = len(s.sessions)
-        port_str = f"  [{_DIM}]{count} sessions · port {s.gateway_port}[/]"
-        return f"{channels_str}\n{port_str}"
+        line2 = (
+            f"  [{_DIM}]sess[/] [{_BRIGHT}]{count:<3d}[/]"
+            f"  [{_DIM}]port[/] [{_BRIGHT}]{s.gateway_port}[/]"
+        )
+        return f"{line1}\n{line2}"
+
+
+class _GoalsPanel(_SidePanel):
+    """Active multi-step goals — title + checkpoint progress.
+
+    Was previously a single line buried in AGENT (`goal: <title>`).
+    Promoted to its own panel because:
+      1. Goals run for days; they belong in ambient state, not the
+         AGENT panel which shows the current LLM call.
+      2. Multiple goals can be active concurrently (a research goal
+         and a build goal in parallel) — single line couldn't show
+         both.
+      3. Checkpoint progress (3/7) is the operator's main "is this
+         making progress" signal; deserves visual prominence.
+    """
+
+    GLYPH = "◆"
+    GLYPH_COLOR = "#16a34a"  # green — the "in motion" colour
+
+    def __init__(self, state: _State) -> None:
+        super().__init__("GOALS", state, id="panel-goals")
+
+    def body(self) -> str:
+        s = self._st
+        if not s.goals:
+            return f"  [{_DIM}]· · ·[/]"
+
+        icons = {
+            "active": f"[{_OK}]●[/]",
+            "paused": f"[{_DIM}]◇[/]",
+            "blocked": f"[{_WARN}]●[/]",
+            "done": f"[{_OK}]✓[/]",
+        }
+        lines = []
+        # Show top 3 — too many goals at once usually means the
+        # operator hasn't pruned, and the panel shouldn't compensate
+        # for that by growing taller and squashing other panels.
+        for goal in s.goals[:3]:
+            icon = icons.get(goal.get("status", "active"), f"[{_DIM}]?[/]")
+            # 14-char title cap fits inside the 30-col sidebar:
+            # 2 indent + 2 icon+space + 14 title + 1 + 4 bar + 1 + 4 tail = 28.
+            title = goal.get("title", "?")[:14]
+            pct = int(goal.get("pct", 0))
+            checkpoint = goal.get("checkpoint", "")
+            filled = min(4, max(0, int(pct / 25)))
+            bar = f"[{_OK}]{'▓' * filled}[/][{_DIM}]{'░' * (4 - filled)}[/]"
+            tail = (
+                f"[{_DIM}]{checkpoint}[/]" if checkpoint else f"[{_DIM}]{pct:>3d}%[/]"
+            )
+            lines.append(f"  {icon} [{_BRIGHT}]{title:<14}[/] {bar} {tail}")
+        return "\n".join(lines)
+
+
+class _ApprovalsPanel(_SidePanel):
+    """Pending owner-approval requests.
+
+    The "wanted your eyes on" surface. Hidden when empty (zero
+    visual weight when the agent has nothing to ask) but loud when
+    there's something pending — coloured amber, age in seconds so
+    the operator can see whether a request has been sitting for
+    minutes vs. seconds.
+    """
+
+    GLYPH = "!"
+    GLYPH_COLOR = "#d97706"  # amber — needs-attention
+
+    def __init__(self, state: _State) -> None:
+        super().__init__("APPROVALS", state, id="panel-approvals")
+
+    def body(self) -> str:
+        s = self._st
+        if not s.approvals:
+            # When there are no approvals, return empty body — the
+            # parent paints just the header. Even better would be to
+            # hide the whole widget; the wiring for that lives in
+            # compose() / repaint_panels.
+            return ""
+
+        lines = []
+        for req in s.approvals[:3]:
+            tool = req.get("tool", "?")[:16]
+            summary = req.get("summary", "")[:28]
+            age_secs = int(req.get("age_secs", 0))
+            # Age displayed in the smallest unit that keeps the text
+            # 4 chars or fewer: 9s, 12s, 1m, 4h.
+            if age_secs < 60:
+                age = f"{age_secs}s"
+            elif age_secs < 3600:
+                age = f"{age_secs // 60}m"
+            else:
+                age = f"{age_secs // 3600}h"
+            lines.append(
+                f"  [{_WARN}]●[/] [{_BRIGHT}]{tool:<16}[/] [{_DIM}]{age:>4}[/]"
+            )
+            if summary:
+                lines.append(f"    [{_DIM}]{summary}[/]")
+        return "\n".join(lines)
+
+
+class _FooterPanel(_SidePanel):
+    """Permanent sidebar footer — ego coherence + peer count.
+
+    Sits at the bottom of the sidebar regardless of how many other
+    panels are mounted above. Two single-line slots that always
+    have a value (ego coherence is bounded [0.05, 0.95]; peer count
+    is 0 when libp2p is off). Reads as a quiet status line, not a
+    panel, so the ── separator is omitted.
+    """
+
+    GLYPH = "·"
+    GLYPH_COLOR = "#78746e"  # dim — footer is ambient state
+
+    def __init__(self, state: _State) -> None:
+        super().__init__("", state, id="panel-footer")
+
+    def _hdr(self) -> str:
+        # Override: the footer doesn't render a header, just the body.
+        # Empty title would still render a leading glyph; suppress it
+        # entirely so the footer reads as a statusline.
+        return ""
+
+    def body(self) -> str:
+        s = self._st
+        ego_str = (
+            f"[{_DIM}]ego[/] [{_BRIGHT}]{s.ego_coherence:.2f}[/]"
+            if s.ego_coherence > 0
+            else f"[{_DIM}]ego –[/]"
+        )
+        if s.ego_mood:
+            ego_str += f" [{_DIM}]· {s.ego_mood[:14]}[/]"
+
+        peers_str = (
+            f"[{_DIM}]peers[/] [{_BRIGHT}]{s.p2p_peer_count}[/]"
+            if s.p2p_peer_count > 0
+            else f"[{_DIM}]peers 0[/]"
+        )
+        return f"  {ego_str}\n  {peers_str}"
+
+
+# ── Digest — "since you were away" opening message ────────────────────────
+
+
+@dataclass
+class _DigestEntry:
+    """One row in the digest. Free-form structure — the renderer
+    decides which sections to include based on which lists have
+    content. Intentionally lightweight; no rich types so callers
+    can populate from arbitrary backend queries without heavy mapping.
+    """
+
+    text: str
+    detail: str = ""
+    glyph: str = "→"
+    color: str = ""  # hex, defaults to bright when empty
+
+
+@dataclass
+class _Digest:
+    """Aggregate of agent activity since the last terminal open.
+
+    Populated by the dashboard from existing data sources (session
+    history, goal store, approval queue, ego layer). All fields
+    optional — empty digest is a valid state, the renderer simply
+    skips empty sections.
+    """
+
+    since_label: str = ""  # "14h" | "yesterday" | "" if first ever open
+    done: list[_DigestEntry] = field(default_factory=list)
+    doing: list[_DigestEntry] = field(default_factory=list)
+    needs_eyes: list[_DigestEntry] = field(default_factory=list)
+    mood: str = ""
+    ego_coherence: float = 0.0
+
+
+def _render_digest(d: _Digest) -> str:
+    """Render the digest as Rich markup for the chat RichLog.
+
+    Sections are skipped when empty so a fresh install (no goals,
+    no history, no approvals) renders as a single greeting line
+    rather than an awkward shell of empty headers.
+
+    Reads cold to a new operator: it tells them what the agent did
+    while they were away, what's running, what needs them, and the
+    mood — in one scrollable block they can read once and forget.
+    """
+    rows: list[str] = []
+
+    # Greeting line — sets the tone. Never absent.
+    if d.since_label:
+        rows.append(
+            f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]"
+            f"  [{_DIM}]· {d.since_label} since you opened me[/]"
+        )
+    else:
+        rows.append(f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]")
+    rows.append("")  # breathing room before sections
+
+    def _section(label: str, entries: list[_DigestEntry], glyph_color: str) -> None:
+        if not entries:
+            return
+        rows.append(f"  [{_DIM}]{label}[/]")
+        for e in entries:
+            color = e.color or _BRIGHT
+            glyph_c = glyph_color or _DIM
+            line = f"    [{glyph_c}]{e.glyph}[/] [{color}]{e.text}[/]"
+            if e.detail:
+                line += f"   [{_DIM}]{e.detail}[/]"
+            rows.append(line)
+        rows.append("")
+
+    _section("Done while you were away", d.done, _OK)
+    _section("Doing now", d.doing, _ACCENT)
+    _section("Wanted your eyes on", d.needs_eyes, _WARN)
+
+    # Mood footer — quiet, single line. Skipped when no signal.
+    if d.mood or d.ego_coherence > 0:
+        bits = []
+        if d.mood:
+            bits.append(f"[{_BRIGHT}]{d.mood}[/]")
+        if d.ego_coherence > 0:
+            bits.append(f"[{_DIM}]ego coherence[/] [{_BRIGHT}]{d.ego_coherence:.2f}[/]")
+        rows.append(f"  [{_DIM}]Mood ·[/]  " + "  ".join(bits))
+        rows.append("")
+
+    # Trailing rule — the digest ends so chat can begin. Reads as
+    # "the page break" between the digest and live conversation.
+    rows.append(f"  [{_DIM}]{'─' * 64}[/]")
+    return "\n".join(rows)
+
+
+def _build_digest_from_state(state: _State, seed: dict) -> _Digest:
+    """Build a `_Digest` from current sidebar state + caller-supplied
+    seed dict. Pure function — no I/O, no time-of-day side-effects.
+
+    `seed` shape (all fields optional):
+        {
+          "since_label": "14h",
+          "done": [{"text": "...", "detail": "...", "glyph": "→"}, ...],
+          "doing": [{"text": "...", "detail": "...", "glyph": "◆"}, ...],
+          "needs_eyes": [{"text": "...", "detail": "...", "glyph": "!"}, ...],
+          "mood": "steady, productive",
+        }
+
+    The launcher (start.sh path) populates `seed` by querying the
+    agent's existing systems (session history, goal store, approval
+    queue, ego layer) before spawning the dashboard. The dashboard
+    itself is data-pure — it doesn't directly query these systems
+    so we don't tangle UI lifecycle with agent state lifecycle.
+
+    When `seed` is empty, the digest derives "doing now" from the
+    current sidebar state (active goals, running swarm tasks,
+    pending approvals) so even without a launcher digest the user
+    sees a useful summary on session start.
+    """
+    digest = _Digest(
+        since_label=seed.get("since_label", ""),
+        mood=seed.get("mood", "") or state.ego_mood,
+        ego_coherence=state.ego_coherence,
+    )
+
+    # Seed-supplied entries take priority. Pass through with light
+    # default-fill so callers can pass minimal dicts without specifying
+    # the glyph/color on every entry.
+    def _coerce(items: list, default_glyph: str) -> list[_DigestEntry]:
+        out = []
+        for it in items or []:
+            if isinstance(it, _DigestEntry):
+                out.append(it)
+                continue
+            out.append(
+                _DigestEntry(
+                    text=str(it.get("text", "")),
+                    detail=str(it.get("detail", "")),
+                    glyph=str(it.get("glyph", default_glyph)),
+                    color=str(it.get("color", "")),
+                )
+            )
+        return out
+
+    digest.done = _coerce(seed.get("done", []), "→")
+    digest.needs_eyes = _coerce(seed.get("needs_eyes", []), "!")
+
+    # Doing-now: prefer caller's explicit list; otherwise auto-derive
+    # from sidebar state. Goals + active swarm tasks make natural
+    # "doing now" entries because they're already structured.
+    if seed.get("doing"):
+        digest.doing = _coerce(seed["doing"], "◆")
+    else:
+        derived: list[_DigestEntry] = []
+        for goal in (state.goals or [])[:3]:
+            title = goal.get("title", "")
+            if not title:
+                continue
+            checkpoint = goal.get("checkpoint", "")
+            pct = int(goal.get("pct", 0))
+            detail = checkpoint if checkpoint else f"{pct}%"
+            derived.append(
+                _DigestEntry(
+                    text=f"goal · {title}",
+                    detail=detail,
+                    glyph="◆",
+                )
+            )
+        for task in (state.swarm_tasks or [])[:2]:
+            if task.get("status") != "running":
+                continue
+            name = task.get("name", "")
+            if not name:
+                continue
+            agent = task.get("agent", "")
+            derived.append(
+                _DigestEntry(
+                    text=f"swarm · {name}",
+                    detail=f"on {agent}" if agent else "",
+                    glyph="⚡",
+                )
+            )
+        digest.doing = derived
+
+    # If no needs-eyes were seeded, derive from active approval queue.
+    if not digest.needs_eyes and state.approvals:
+        for req in state.approvals[:2]:
+            digest.needs_eyes.append(
+                _DigestEntry(
+                    text=f"{req.get('tool', 'tool')} approval pending",
+                    detail=str(req.get("summary", "")),
+                    glyph="!",
+                )
+            )
+
+    return digest
 
 
 # ── Header widget ──────────────────────────────────────────────────────────
 
 
 class _Header(Static):
-    """2-row header bar with budget, mind cycle, providers."""
+    """1-row header — brand · session · budget · mode · providers.
+
+    Was 2 rows (general + providers). Compressed to 1 by:
+      - dropping the verbose ``budget:`` label and showing just the
+        bar + ``$used/$limit``
+      - condensing providers to a row of dots + names (no per-provider
+        latency by default — the doctor command is the right place
+        for that detail)
+      - moving cycle info into the MIND sidebar panel where it belongs
+
+    Reclaims a row of vertical real estate that the chat transcript
+    can use instead.
+    """
 
     DEFAULT_CSS = """
     _Header {
-        height: 2;
+        height: 1;
         padding: 0 1;
         background: #e8e4dc;
         color: #78746e;
@@ -442,131 +858,34 @@ class _Header(Static):
     def repaint(self) -> None:
         s = self._st
         elapsed = s.session_elapsed()
-        budget_bar = s.budget_bar(10)
+        budget_bar = s.budget_bar(8)
         budget_str = f"${s.budget_used:.2f}/${s.budget_limit:.0f}"
-        cycle_str = (
-            f"cycle #{s.mind_cycle} · {s.mind_ts}" if s.mind_cycle else "cycle –"
-        )
 
-        row1 = (
-            f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]  "
-            f"[{_DIM}]{elapsed}[/]  "
-            f"[{_DIM}]budget:[/] {budget_bar} [{_DIM}]{budget_str}[/]  "
-            f"[{_DIM}]{cycle_str}[/]  "
-            f"[{_DIM}]{s.mode}[/]"
-        )
-
-        # Provider row
+        # Compact provider summary: dot per provider, no labels except
+        # name. A red/amber/green dot conveys most of what an operator
+        # needs at a glance; precise latency lives in `elophanto doctor`.
         if s.providers:
             prov_parts = []
-            for name, (status, lat) in s.providers.items():
-                dot = (
-                    f"[{_OK}]●[/]"
-                    if status == "ok"
-                    else f"[{_WARN}]●[/]" if status == "warn" else f"[{_DIM}]○[/]"
-                )
-                lat_str = f"({lat}ms)" if lat and status != "off" else ""
-                prov_parts.append(f"{dot} [{_DIM}]{name}[/] [{_DIM}]{lat_str}[/]")
-            row2 = "  ".join(prov_parts)
+            for name, (status, _lat) in s.providers.items():
+                if status == "ok":
+                    dot = f"[{_OK}]●[/]"
+                elif status == "warn":
+                    dot = f"[{_WARN}]●[/]"
+                else:
+                    dot = f"[{_DIM}]○[/]"
+                prov_parts.append(f"{dot} [{_DIM}]{name}[/]")
+            providers = "  ".join(prov_parts)
         else:
-            row2 = f"[{_DIM}]providers: connecting...[/]"
+            providers = f"[{_DIM}]providers ·[/]"
 
-        self.update(f"{row1}\n{row2}")
-
-
-# ── Status bar ────────────────────────────────────────────────────────────
-
-
-class _StatusBar(Static):
-    """One-row status strip at the very bottom of the screen.
-
-    Replaces the old 30-column sidebar. Packs the high-frequency state
-    that used to live in vertical panels — gateway sessions, budget,
-    permission mode, schedule + goal counts — into a single horizontal
-    row of glance-able tokens.
-
-    The visual grammar:
-      gw●N sess  $X/$Y  mode  N sched  N goals  N swarm   <Tab> menu
-       ↑                                                       ↑
-      gateway dot + session count           hint about deeper views
-
-    Colour signals state without taking extra columns: the gateway dot
-    is green when connected, dim when not; the budget number turns
-    amber past 80% and red past 95%; running swarm/goal counts go
-    accent-coloured when non-zero. Anything zero falls to dim text so
-    it doesn't distract.
-    """
-
-    DEFAULT_CSS = """
-    _StatusBar {
-        height: 1;
-        padding: 0 2;
-        background: #f2f0ea;
-    }
-    """
-
-    def __init__(self, state: _State) -> None:
-        super().__init__(markup=True, id="status-bar")
-        self._st = state
-
-    def repaint(self) -> None:
-        s = self._st
-        # Gateway: green dot + session count when connected, dim ring
-        # when disconnected. Compressed to 6-8 chars from the old
-        # 4-row gateway panel.
-        if s.sessions:
-            active = sum(1 for x in s.sessions if x.get("active"))
-            gw = f"[{_OK}]●[/][{_BRIGHT}]{active}[/][{_DIM}]sess[/]"
-        else:
-            gw = f"[{_DIM}]○ idle[/]"
-
-        # Budget: numeric ratio with the limit, color shifts past 80/95%.
-        used = s.budget_used
-        lim = max(s.budget_limit, 0.01)
-        pct = used / lim * 100
-        budget_color = _OK if pct < 80 else (_WARN if pct < 95 else "red")
-        budget = f"[{_DIM}]$[/][{budget_color}]{used:.2f}[/][{_DIM}]/${lim:.0f}[/]"
-
-        # Mode: the permission gate. ask_always | smart_auto | full_auto.
-        mode = f"[{_DIM}]{s.mode}[/]"
-
-        # Counts — accent only when non-zero. Zero stays dim so the
-        # bar doesn't shout when nothing's happening.
-        sched_n = len(s.scheduled_tasks)
-        goal_active = 1 if s.current_goal else 0
-        swarm_n = sum(1 for t in s.swarm_tasks if t.get("status") == "running")
-
-        def _count(n: int, label: str) -> str:
-            color = _ACCENT if n else _DIM
-            num_color = _BRIGHT if n else _DIM
-            return f"[{num_color}]{n}[/] [{color}]{label}[/]"
-
-        sched = _count(sched_n, "sched")
-        goals = _count(goal_active, "goal")
-        swarm = _count(swarm_n, "swarm")
-
-        # Mind cycle indicator — pulses subtly when the autonomous loop
-        # is doing something. Using ◆ as the brand glyph; dimmed when
-        # idle, accent when active.
-        if s.mind_state == "running":
-            mind = f"[{_MIND}]◆[/] [{_DIM}]thinking[/]"
-        elif s.mind_state == "sleeping":
-            mind = f"[{_DIM}]◆ {s.mind_eta() or 'idle'}[/]"
-        else:
-            mind = f"[{_DIM}]◆ -[/]"
-
-        # Right-side hint for the deeper menu — mirrors what the user
-        # types to access more state. Non-essential, dim, easy to ignore.
-        hint = f"[{_DIM}]<Tab> menu[/]"
-
-        # Compose with two-space separators between tokens. Tabular
-        # density matters here — extra padding between would make the
-        # status bar feel padded-out instead of dense.
-        line = (
-            f"{gw}  {budget}  {mode}  {sched}  {goals}  {swarm}  {mind}"
-            f"        {hint}"
+        row = (
+            f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]   "
+            f"[{_DIM}]{elapsed}[/]   "
+            f"{budget_bar} [{_DIM}]{budget_str}[/]   "
+            f"[{_DIM}]{s.mode}[/]   "
+            f"{providers}"
         )
-        self.update(line)
+        self.update(row)
 
 
 # ── Main app ───────────────────────────────────────────────────────────────
@@ -575,49 +894,69 @@ class _StatusBar(Static):
 class EloPhantoDashboard(App):
     """Full-screen terminal dashboard for EloPhanto."""
 
-    # New layout — full-width transcript with a 1-row status bar at
-    # the very bottom, composer above it. Sidebar/feed split was
-    # replaced by inline events in the transcript, with the high-
-    # frequency state compressed into the status bar. The transcript
-    # is the single source of truth for the user's read; the status
-    # bar is a glance-able summary they can ignore until they need it.
     CSS = """
     Screen {
         layout: vertical;
         background: #f9f8f4;
     }
-    #transcript {
+    #body {
+        layout: horizontal;
         height: 1fr;
-        padding: 1 2 0 2;
+    }
+    #sidebar {
+        width: 30;
+        min-width: 30;
+        border-right: solid #d4cfc5;
+        background: #f2f0ea;
+        overflow-y: auto;
+    }
+    #main-area {
+        layout: vertical;
+        width: 1fr;
+    }
+    #chat {
+        height: 1fr;
+        padding: 0 1;
         background: #f9f8f4;
     }
-    #composer {
+    #feed-header {
+        height: 1;
+        padding: 0 1;
+        background: #f9f8f4;
+        border-top: solid #d4cfc5;
+        color: #78746e;
+    }
+    #events {
+        height: 5;
+        background: #f9f8f4;
+        padding: 0 1;
+    }
+#input-bar {
         height: 3;
         background: #e8e4dc;
         border-top: solid #d4cfc5;
-        padding: 0 2;
+        padding: 0 1;
     }
-    #composer Input {
+    #input-bar Input {
         background: #e8e4dc;
         border: none;
         color: #1c1a16;
         padding: 0 0;
     }
-    #composer Input:focus {
+    #input-bar Input:focus {
         border: none;
     }
-    #composer Input > .input--cursor {
+    #input-bar Input > .input--cursor {
         background: #7c3aed;
         color: #f9f8f4;
     }
-    #composer Input > .input--placeholder {
+    #input-bar Input > .input--placeholder {
         color: #b8b2a8;
     }
-    #status-bar {
-        height: 1;
-        background: #f2f0ea;
+    _SidePanel {
+        height: auto;
+        padding: 0 1 1 1;
         color: #78746e;
-        padding: 0 2;
     }
     """
 
@@ -630,7 +969,12 @@ class EloPhantoDashboard(App):
 
     _connected: reactive[bool] = reactive(False)
 
-    def __init__(self, gateway_url: str = "ws://127.0.0.1:18789") -> None:
+    def __init__(
+        self,
+        gateway_url: str = "ws://127.0.0.1:18789",
+        *,
+        digest_seed: dict | None = None,
+    ) -> None:
         super().__init__()
         self._gw_url = gateway_url
         self._ws: Any = None
@@ -643,32 +987,43 @@ class EloPhantoDashboard(App):
         self._approval_pending: GatewayMessage | None = None
         self._last_response: str = ""
         self._sidebar_visible = True
+        # Optional digest input from the launcher (start.sh / the CLI
+        # entry point) — pre-populated facts the dashboard renders as
+        # the "since you were away" opening message. None / empty dict
+        # = no digest, just a one-line greeting in the digest's place.
+        self._digest_seed: dict = digest_seed or {}
 
     # ── Compose ──────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
-        # Transcript is full-width — chat messages, tool calls, scheduled
-        # events, system notes all share this single scrollable surface.
-        # Tool calls render inline under the user-message that triggered
-        # them, so the read flow follows the agent's actual sequence
-        # instead of requiring the user to glance between panes.
-        transcript = RichLog(
-            id="transcript", highlight=True, markup=True, wrap=True, max_lines=2000
-        )
-        transcript.can_focus = False  # let terminal handle mouse/selection
-        yield transcript
-
-        with Vertical(id="composer"):
+        yield _Header(self._state)
+        with Horizontal(id="body"):
+            with VerticalScroll(id="sidebar"):
+                # Order matters — primary state first, ambient state
+                # second, activity third, infra/gateway last. The
+                # Footer panel anchors the bottom regardless of how
+                # tall the panels above it grow.
+                yield _AgentPanel(self._state)
+                yield _MindPanel(self._state)
+                yield _GoalsPanel(self._state)
+                yield _SwarmPanel(self._state)
+                yield _SchedulerPanel(self._state)
+                yield _ApprovalsPanel(self._state)
+                yield _GatewayPanel(self._state)
+                yield _FooterPanel(self._state)
+            with Vertical(id="main-area"):
+                chat_log = RichLog(id="chat", highlight=True, markup=True, wrap=True)
+                chat_log.can_focus = False  # let terminal handle mouse/selection
+                yield chat_log
+                yield Static("", id="feed-header", markup=True)
+                yield RichLog(
+                    id="events", highlight=True, markup=True, wrap=False, max_lines=50
+                )
+        with Vertical(id="input-bar"):
             yield Input(
                 placeholder="❯ type a message, /help, or exit  ·  Shift+drag to select text",
                 id="input",
             )
-
-        # Status bar lives at the bottom edge — one row, always visible,
-        # color-coded glance-able state. Replaces 30 columns of vertical
-        # sidebar with 1 row of horizontal density. Repaints on each
-        # tick so it stays current without the user looking elsewhere.
-        yield _StatusBar(self._state)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -701,7 +1056,22 @@ class EloPhantoDashboard(App):
     def on_mount(self) -> None:
         self._connect_gateway(self._gw_url)
         self._start_tick()
-        self._render_digest()
+        self.query_one("#feed-header", Static).update(
+            f"[{_DIM}]─── LIVE FEED {'─' * 60}[/]"
+        )
+        # Paint the digest as the FIRST scrollable item in chat. It
+        # scrolls up and out of view as soon as the operator sends
+        # their first message, so it doesn't compete for permanent
+        # screen real estate. _build_digest reads from existing
+        # systems (state + caller-supplied digest_seed) and falls
+        # back to a minimal greeting when there's nothing yet.
+        try:
+            digest = _build_digest_from_state(self._state, self._digest_seed)
+            self.query_one("#chat", RichLog).write(_render_digest(digest))
+        except Exception:
+            # Digest is best-effort eye-candy — never block startup
+            # because of a render glitch. Fall through to chat.
+            pass
         # Focus input immediately
         self.query_one("#input", Input).focus()
         # Disable terminal mouse tracking — we don't react to mouse here
@@ -807,7 +1177,7 @@ class EloPhantoDashboard(App):
                 future.set_exception(RuntimeError(msg.data.get("detail", "error")))
             else:
                 detail = msg.data.get("detail", "unknown error")
-                chat = self.query_one("#transcript", RichLog)
+                chat = self.query_one("#chat", RichLog)
                 chat.write(f"[red]Error:[/] {detail}")
 
     def _on_response(self, msg: GatewayMessage) -> None:
@@ -844,7 +1214,7 @@ class EloPhantoDashboard(App):
 
         if content:
             self._last_response = content
-            chat = self.query_one("#transcript", RichLog)
+            chat = self.query_one("#chat", RichLog)
             chat.write("")
             # Show provider/model in response header
             _model_tag = ""
@@ -876,7 +1246,7 @@ class EloPhantoDashboard(App):
         self._approval_pending = msg
         tool_name = msg.data.get("tool_name", "?")
         description = msg.data.get("description", "")
-        chat = self.query_one("#transcript", RichLog)
+        chat = self.query_one("#chat", RichLog)
         chat.write("")
         chat.write(f"[{_WARN}]⚠ Approval needed[/]  [{_BRIGHT}]{tool_name}[/]")
         chat.write(f"  [{_DIM}]{description}[/]")
@@ -919,7 +1289,7 @@ class EloPhantoDashboard(App):
             self._add_event(
                 f"[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:50]}[/]", tag="AGT"
             )
-            chat = self.query_one("#transcript", RichLog)
+            chat = self.query_one("#chat", RichLog)
             chat.write(f"\n[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:60]}[/]")
             self._repaint_panel("panel-agent")
 
@@ -938,7 +1308,7 @@ class EloPhantoDashboard(App):
             goal = msg.data.get("goal", "")
             self._state.current_goal = ""
             self._state.checkpoints_done = 0
-            chat = self.query_one("#transcript", RichLog)
+            chat = self.query_one("#chat", RichLog)
             chat.write(f"[black on {_OK}] ✔ COMPLETED [/] [{_DIM}]{goal[:60]}[/]\n")
             self._add_event(f"[{_OK}]✔[/] goal completed", tag="AGT")
             self._repaint_panel("panel-agent")
@@ -946,7 +1316,7 @@ class EloPhantoDashboard(App):
         elif event == "goal_failed":
             error = msg.data.get("error", "")
             self._state.current_goal = ""
-            chat = self.query_one("#transcript", RichLog)
+            chat = self.query_one("#chat", RichLog)
             chat.write(f"[white on red] ✖ FAILED [/] [{_DIM}]{error[:80]}[/]\n")
             self._add_event("[red]✖[/] goal failed", tag="AGT")
             self._repaint_panel("panel-agent")
@@ -955,7 +1325,7 @@ class EloPhantoDashboard(App):
             ch = msg.data.get("channel", "?")
             content = msg.data.get("content", "")
             if ch != "cli" and content:
-                chat = self.query_one("#transcript", RichLog)
+                chat = self.query_one("#chat", RichLog)
                 chat.write(f"  [{_DIM}]({ch})[/] [{_BRIGHT}]{content[:200]}[/]")
             self._state.sessions = self._ensure_session(self._state.sessions, ch, True)
             self._repaint_panel("panel-gateway")
@@ -1124,7 +1494,7 @@ class EloPhantoDashboard(App):
                 )
                 self._approval_pending = None
                 verdict = f"[{_OK}]approved[/]" if approved else "[red]denied[/]"
-                chat = self.query_one("#transcript", RichLog)
+                chat = self.query_one("#chat", RichLog)
                 chat.write(f"  {verdict}")
                 self.query_one("#input", Input).placeholder = (
                     "❯ type a message, /help, or exit"
@@ -1146,7 +1516,7 @@ class EloPhantoDashboard(App):
             cmd = parts[0]
             args = parts[1] if len(parts) > 1 else ""
 
-            chat = self.query_one("#transcript", RichLog)
+            chat = self.query_one("#chat", RichLog)
             if cmd == "clear":
                 await self._send_ws(
                     command_message(
@@ -1198,7 +1568,7 @@ class EloPhantoDashboard(App):
             return
 
         # Regular chat message
-        chat = self.query_one("#transcript", RichLog)
+        chat = self.query_one("#chat", RichLog)
         chat.write(f"[#b8b2a8]─[/] [bold {_BRIGHT}]You[/]")
         chat.write(text)
         chat.write("")
@@ -1405,162 +1775,79 @@ class EloPhantoDashboard(App):
         if port:
             s.gateway_port = port
 
+        # Ego (footer + digest mood). Populated when the agent's
+        # identity layer is initialized; absent on first boot before
+        # the ego subsystem has computed an initial coherence score.
+        ego = data.get("ego", {})
+        if ego:
+            try:
+                s.ego_coherence = float(ego.get("coherence", 0.0))
+            except (TypeError, ValueError):
+                pass
+            mood = ego.get("mood", "") or ego.get("self_critique", "")
+            if isinstance(mood, str) and mood:
+                # First sentence only — the panel footer is one line.
+                s.ego_mood = mood.split(".")[0].strip()[:40]
+
+        # Goals (sidebar GOALS panel + digest "doing now" auto-derive).
+        # Each entry: {title, pct, checkpoint, status}.
+        goals = data.get("goals", [])
+        if isinstance(goals, list):
+            s.goals = [g for g in goals if isinstance(g, dict) and g.get("title")]
+
+        # Approvals — pending owner-confirmation requests. Each entry:
+        # {tool, summary, age_secs}.
+        approvals = data.get("approvals", [])
+        if isinstance(approvals, list):
+            s.approvals = [
+                a for a in approvals if isinstance(a, dict) and a.get("tool")
+            ]
+
+        # libp2p peer count for the footer. 0 = decentralized peers
+        # disabled or no peers connected.
+        try:
+            s.p2p_peer_count = int(data.get("p2p_peer_count", 0))
+        except (TypeError, ValueError):
+            pass
+
         self._repaint_all()
 
     def _add_event(self, line: str, tag: str = "   ") -> None:
-        """Push an inline event to the transcript.
-
-        Old behaviour: wrote to a separate '#events' RichLog pane that
-        showed a small ticker independently of the chat. Created a
-        cognitive break — when the agent ran a tool, the user had to
-        glance to a different pane to see what happened.
-
-        New behaviour: events flow into the same '#transcript' as
-        normal chat, with a small grey timestamp + tag prefix so the
-        eye can still skip them. Tool calls and results render as
-        indented rows under the user message that triggered them; the
-        transcript becomes a single readable story instead of a
-        chat-on-the-left, ticker-on-the-right split."""
         ts = _time.strftime("%H:%M:%S")
         entry = f"[{_DIM}]{ts}[/]  [{_ACCENT}]{tag:<3}[/]  {line}"
-        # Keep the deque so any future view that wants the recent-event
-        # history (a /events overlay, a digest "since you were away"
-        # block) can grab it cheaply.
         self._state.events.appendleft(entry)
         try:
-            self.query_one("#transcript", RichLog).write(entry)
+            feed = self.query_one("#events", RichLog)
+            feed.write(entry)
         except Exception:
             pass
-
-    def _render_digest(self) -> None:
-        """Render the home-view digest as the first thing the user sees.
-
-        Designed to make EloPhanto feel like a creature you're checking
-        in on rather than a chat client you're starting fresh. The
-        digest has four bands (any of which can be empty and will
-        gracefully drop):
-
-          1. Doing now — current goal, running swarm tasks, scheduled
-             tasks counts. Pulled from `_State` directly.
-          2. Pending attention — approval requests, stalled questions.
-          3. Recent activity — last few events from `_State.events`,
-             which are populated by the gateway's event stream as
-             the dashboard runs. Empty on first connect (we haven't
-             seen any events yet) and that's fine.
-          4. Hints — what to type to dig deeper.
-
-        Re-rendered on `_repaint_all` so the digest stays current as
-        long as the user hasn't scrolled past it. Once they start
-        chatting, new transcript items push it up and out of view.
-        """
-        s = self._state
-        try:
-            transcript = self.query_one("#transcript", RichLog)
-        except Exception:
-            return
-
-        # ── Header line — brand + session uptime ─────────────────────
-        elapsed = s.session_elapsed()
-        transcript.write(
-            f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]  "
-            f"[{_DIM}]up {elapsed}[/]  "
-            f"[{_DIM}]port {s.gateway_port}[/]"
-        )
-        transcript.write("")
-
-        # ── Doing now ────────────────────────────────────────────────
-        doing_lines: list[str] = []
-        if s.current_goal:
-            chk = s.checkpoints_done
-            doing_lines.append(
-                f"  [{_ACCENT}]◆[/] goal · [{_BRIGHT}]{s.current_goal[:50]}[/]"
-                + (f"  [{_DIM}]· {chk} checkpoints[/]" if chk else "")
-            )
-        for task in s.swarm_tasks:
-            if task.get("status") == "running":
-                name = task.get("name", "")[:35]
-                agent = task.get("agent", "")
-                doing_lines.append(
-                    f"  [{_ACCENT}]⚡[/] swarm · [{_BRIGHT}]{name}[/]  [{_DIM}]({agent})[/]"
-                )
-        if s.scheduled_tasks:
-            n = len(s.scheduled_tasks)
-            next_eta = min(
-                (t.get("eta_secs", 99999) for t in s.scheduled_tasks),
-                default=0,
-            )
-            eta_str = (
-                f"{next_eta // 60}m" if next_eta < 3600 else f"{next_eta // 3600}h"
-            )
-            doing_lines.append(
-                f"  [{_ACCENT}]⏱[/] [{_BRIGHT}]{n}[/] [{_DIM}]scheduled · next in {eta_str}[/]"
-            )
-        if doing_lines:
-            transcript.write(f"[{_DIM}]Doing now[/]")
-            for line in doing_lines:
-                transcript.write(line)
-            transcript.write("")
-
-        # ── Pending attention ────────────────────────────────────────
-        # The dashboard tracks a single live approval via
-        # `_approval_pending`; richer pending-state collation would
-        # need a gateway-side query, deferred to a follow-up.
-        if self._approval_pending is not None:
-            tool_name = (self._approval_pending.data.get("tool") or "")[:30]
-            transcript.write(f"[{_DIM}]Wanted your eyes on[/]")
-            transcript.write(
-                f"  [{_WARN}]![/] approval pending · "
-                f"[{_BRIGHT}]{tool_name}[/]  [{_DIM}](type 'a' to approve, 'd' to deny)[/]"
-            )
-            transcript.write("")
-
-        # ── Recent activity ──────────────────────────────────────────
-        # Populated by the event stream after connect. On a fresh boot
-        # this is empty; on an in-session reconnect (dashboard restart
-        # while gateway keeps running) we'll have real history.
-        if s.events:
-            transcript.write(f"[{_DIM}]Recent activity[/]")
-            for entry in list(s.events)[:5]:
-                transcript.write(f"  {entry}")
-            transcript.write("")
-
-        # ── Idle hint when nothing else surfaced ─────────────────────
-        if not doing_lines and not s.events and self._approval_pending is None:
-            transcript.write(
-                f"[{_DIM}]Idle. Tell me what you want to work on, or just say hi.[/]"
-            )
-            transcript.write("")
-
-        # Visual separator before the chat begins.
-        transcript.write(f"[{_DIM}]{'─' * 60}[/]")
-        transcript.write("")
 
     def _repaint_panel(self, panel_id: str) -> None:
-        """Legacy entry point — used to repaint a sidebar panel by id.
-        The new layout has no sidebar; status-bar refresh is centralised
-        in `_repaint_all`. Kept as a no-op so existing call sites
-        (event handlers across this file) don't need a sweeping
-        refactor for what's effectively a panel rename."""
-        # Most call sites are followed by other state mutations whose
-        # effects show up via the status-bar repaint anyway, so the
-        # no-op is safe.
-        del panel_id
-
-    def _repaint_header(self) -> None:
-        """Legacy entry point — header used to be a 2-row banner at the
-        top of the screen. Now lives compressed in the status bar at
-        the bottom. Routes to _repaint_all so any caller that still
-        wants 'refresh chrome' gets the right thing."""
-        self._repaint_all()
-
-    def _repaint_all(self) -> None:
-        """Refresh the status bar. Called from event handlers whenever
-        state changes that the bar should reflect (budget tick, mode
-        change, session join/leave, schedule fire, etc.)."""
         try:
-            self.query_one("#status-bar", _StatusBar).repaint()
+            panel = self.query_one(f"#{panel_id}", _SidePanel)
+            panel.repaint()
         except Exception:
             pass
+
+    def _repaint_header(self) -> None:
+        try:
+            self.query_one("#header", _Header).repaint()
+        except Exception:
+            pass
+
+    def _repaint_all(self) -> None:
+        self._repaint_header()
+        for pid in (
+            "panel-agent",
+            "panel-mind",
+            "panel-goals",
+            "panel-swarm",
+            "panel-scheduler",
+            "panel-approvals",
+            "panel-gateway",
+            "panel-footer",
+        ):
+            self._repaint_panel(pid)
 
     def _set_swarm_status(self, name: str, status: str, pct: int) -> None:
         for task in self._state.swarm_tasks:
