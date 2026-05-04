@@ -272,6 +272,49 @@ _IDLE_BG_HEX = "white"
 _IDLE_TEXT_HEX = "#1f2937"  # slate-800 — readable on white
 
 
+# Extensions to auto-discover for an operator-supplied idle frame.
+# PNG first because that's what we generate; the rest because
+# everyone who exports a logo gets one of these and shouldn't have
+# to rename. Order matters — first match wins.
+_IDLE_EXTENSIONS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def _resolve_idle_frame(*, workspace_dir: Path | None, mint: str) -> Path:
+    """Pick the static frame for voice-mode video.
+
+    Search order:
+    1. ``<workspace>/livestream_videos/idle.{png,jpg,jpeg,webp}`` —
+       any operator-provided file with a sane extension wins
+    2. ``<workspace>/livestream_videos/idle.png`` — the canonical
+       location for the auto-generated placeholder when nothing
+       operator-provided exists
+    3. ``<state_dir>/<mint[:16]>.idle.png`` — fallback when no
+       workspace is configured
+
+    Returns the path that ffmpeg should be pointed at. Caller
+    generates a placeholder there if the file doesn't exist yet.
+    """
+    if workspace_dir is None:
+        return _state_dir() / f"{mint[:16]}.idle.png"
+
+    target_dir = workspace_dir / "livestream_videos"
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # First-match-wins across extensions. ffmpeg doesn't care what the
+    # extension says; it sniffs the actual bytes. So `idle.jpg`,
+    # `idle.png`, `idle.webp` all work as the static frame regardless
+    # of which one the operator dropped.
+    for ext in _IDLE_EXTENSIONS:
+        candidate = target_dir / f"idle{ext}"
+        if candidate.is_file():
+            return candidate
+
+    # No operator file — return the canonical .png path so the caller
+    # generates a placeholder there (and finds it next time without
+    # regenerating).
+    return target_dir / "idle.png"
+
+
 def _generate_idle_png(path: Path, mint: str) -> None:
     """Write a 1280×720 'agent idle' placeholder PNG at ``path``.
 
@@ -1007,16 +1050,21 @@ class LivestreamOrchestrator:
                 if not image_resolved.is_file():
                     raise LivestreamError(f"Image not found: {image_resolved}")
             else:
-                # Place the auto-generated placeholder where the user's
-                # videos live (next to whatever they'd swap it for) so
-                # it's discoverable and easy to replace. Falls back to
-                # the state dir only when no workspace is configured.
-                if self._workspace_dir is not None:
-                    target_dir = self._workspace_dir / "livestream_videos"
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    image_resolved = target_dir / "idle.png"
-                else:
-                    image_resolved = _state_dir() / f"{mint[:16]}.idle.png"
+                # Auto-pick the user's idle frame from a known location.
+                # Look for ANY of {idle.png, idle.jpg, idle.jpeg, idle.webp}
+                # so the operator can drop whatever format they have
+                # without having to rename. ffmpeg sniffs the format
+                # from bytes regardless of extension. Real bug avoided
+                # here: previously we hardcoded `idle.png`, so a user
+                # who saved `idle.jpg` got the auto-generated green
+                # placeholder instead of their image, with no warning.
+                #
+                # Falls back to the state dir + auto-generated PNG only
+                # when no workspace is configured AND no idle file is
+                # found in the workspace.
+                image_resolved = _resolve_idle_frame(
+                    workspace_dir=self._workspace_dir, mint=mint
+                )
                 if not image_resolved.exists():
                     _generate_idle_png(image_resolved, mint)
             video_path = image_resolved  # placeholder; not actually used as video
