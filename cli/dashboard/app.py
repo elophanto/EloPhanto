@@ -1,8 +1,13 @@
 """EloPhanto terminal dashboard — Textual full-screen TUI.
 
-Multi-panel dashboard inspired by Hyperspace AGI's terminal design.
-Surfaces all autonomous activity (mind cycles, swarm, scheduler,
-gateway sessions, tool calls) alongside the chat REPL in real time.
+Single-surface design: a unified scrollable transcript carries chat,
+tool calls, scheduled-task firings, and notifications, with a 1-row
+glance-able status bar pinned at the bottom for high-frequency state
+(gateway sessions, budget, permission mode, scheduled/goal/swarm
+counts, autonomous-mind phase). The transcript leads with a digest
+of "what's happening / what wants your attention" so opening the
+dashboard feels like checking in on a creature that's been doing
+things, not starting a new chat from zero.
 """
 
 from __future__ import annotations
@@ -80,7 +85,7 @@ def _strip_ansi(text: str) -> str:
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Vertical
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Input, RichLog, Static
@@ -469,75 +474,150 @@ class _Header(Static):
         self.update(f"{row1}\n{row2}")
 
 
+# ── Status bar ────────────────────────────────────────────────────────────
+
+
+class _StatusBar(Static):
+    """One-row status strip at the very bottom of the screen.
+
+    Replaces the old 30-column sidebar. Packs the high-frequency state
+    that used to live in vertical panels — gateway sessions, budget,
+    permission mode, schedule + goal counts — into a single horizontal
+    row of glance-able tokens.
+
+    The visual grammar:
+      gw●N sess  $X/$Y  mode  N sched  N goals  N swarm   <Tab> menu
+       ↑                                                       ↑
+      gateway dot + session count           hint about deeper views
+
+    Colour signals state without taking extra columns: the gateway dot
+    is green when connected, dim when not; the budget number turns
+    amber past 80% and red past 95%; running swarm/goal counts go
+    accent-coloured when non-zero. Anything zero falls to dim text so
+    it doesn't distract.
+    """
+
+    DEFAULT_CSS = """
+    _StatusBar {
+        height: 1;
+        padding: 0 2;
+        background: #f2f0ea;
+    }
+    """
+
+    def __init__(self, state: _State) -> None:
+        super().__init__(markup=True, id="status-bar")
+        self._st = state
+
+    def repaint(self) -> None:
+        s = self._st
+        # Gateway: green dot + session count when connected, dim ring
+        # when disconnected. Compressed to 6-8 chars from the old
+        # 4-row gateway panel.
+        if s.sessions:
+            active = sum(1 for x in s.sessions if x.get("active"))
+            gw = f"[{_OK}]●[/][{_BRIGHT}]{active}[/][{_DIM}]sess[/]"
+        else:
+            gw = f"[{_DIM}]○ idle[/]"
+
+        # Budget: numeric ratio with the limit, color shifts past 80/95%.
+        used = s.budget_used
+        lim = max(s.budget_limit, 0.01)
+        pct = used / lim * 100
+        budget_color = _OK if pct < 80 else (_WARN if pct < 95 else "red")
+        budget = f"[{_DIM}]$[/][{budget_color}]{used:.2f}[/][{_DIM}]/${lim:.0f}[/]"
+
+        # Mode: the permission gate. ask_always | smart_auto | full_auto.
+        mode = f"[{_DIM}]{s.mode}[/]"
+
+        # Counts — accent only when non-zero. Zero stays dim so the
+        # bar doesn't shout when nothing's happening.
+        sched_n = len(s.scheduled_tasks)
+        goal_active = 1 if s.current_goal else 0
+        swarm_n = sum(1 for t in s.swarm_tasks if t.get("status") == "running")
+
+        def _count(n: int, label: str) -> str:
+            color = _ACCENT if n else _DIM
+            num_color = _BRIGHT if n else _DIM
+            return f"[{num_color}]{n}[/] [{color}]{label}[/]"
+
+        sched = _count(sched_n, "sched")
+        goals = _count(goal_active, "goal")
+        swarm = _count(swarm_n, "swarm")
+
+        # Mind cycle indicator — pulses subtly when the autonomous loop
+        # is doing something. Using ◆ as the brand glyph; dimmed when
+        # idle, accent when active.
+        if s.mind_state == "running":
+            mind = f"[{_MIND}]◆[/] [{_DIM}]thinking[/]"
+        elif s.mind_state == "sleeping":
+            mind = f"[{_DIM}]◆ {s.mind_eta() or 'idle'}[/]"
+        else:
+            mind = f"[{_DIM}]◆ -[/]"
+
+        # Right-side hint for the deeper menu — mirrors what the user
+        # types to access more state. Non-essential, dim, easy to ignore.
+        hint = f"[{_DIM}]<Tab> menu[/]"
+
+        # Compose with two-space separators between tokens. Tabular
+        # density matters here — extra padding between would make the
+        # status bar feel padded-out instead of dense.
+        line = (
+            f"{gw}  {budget}  {mode}  {sched}  {goals}  {swarm}  {mind}"
+            f"        {hint}"
+        )
+        self.update(line)
+
+
 # ── Main app ───────────────────────────────────────────────────────────────
 
 
 class EloPhantoDashboard(App):
     """Full-screen terminal dashboard for EloPhanto."""
 
+    # New layout — full-width transcript with a 1-row status bar at
+    # the very bottom, composer above it. Sidebar/feed split was
+    # replaced by inline events in the transcript, with the high-
+    # frequency state compressed into the status bar. The transcript
+    # is the single source of truth for the user's read; the status
+    # bar is a glance-able summary they can ignore until they need it.
     CSS = """
     Screen {
         layout: vertical;
         background: #f9f8f4;
     }
-    #body {
-        layout: horizontal;
+    #transcript {
         height: 1fr;
-    }
-    #sidebar {
-        width: 36;
-        min-width: 36;
-        border-right: solid #d4cfc5;
-        background: #f2f0ea;
-        overflow-y: auto;
-    }
-    #main-area {
-        layout: vertical;
-        width: 1fr;
-    }
-    #chat {
-        height: 1fr;
-        padding: 0 1;
+        padding: 1 2 0 2;
         background: #f9f8f4;
     }
-    #feed-header {
-        height: 1;
-        padding: 0 1;
-        background: #f9f8f4;
-        border-top: solid #d4cfc5;
-        color: #78746e;
-    }
-    #events {
-        height: 5;
-        background: #f9f8f4;
-        padding: 0 1;
-    }
-#input-bar {
+    #composer {
         height: 3;
         background: #e8e4dc;
         border-top: solid #d4cfc5;
-        padding: 0 1;
+        padding: 0 2;
     }
-    #input-bar Input {
+    #composer Input {
         background: #e8e4dc;
         border: none;
         color: #1c1a16;
         padding: 0 0;
     }
-    #input-bar Input:focus {
+    #composer Input:focus {
         border: none;
     }
-    #input-bar Input > .input--cursor {
+    #composer Input > .input--cursor {
         background: #7c3aed;
         color: #f9f8f4;
     }
-    #input-bar Input > .input--placeholder {
+    #composer Input > .input--placeholder {
         color: #b8b2a8;
     }
-    _SidePanel {
-        height: auto;
-        padding: 0 1 1 1;
+    #status-bar {
+        height: 1;
+        background: #f2f0ea;
         color: #78746e;
+        padding: 0 2;
     }
     """
 
@@ -567,27 +647,28 @@ class EloPhantoDashboard(App):
     # ── Compose ──────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
-        yield _Header(self._state)
-        with Horizontal(id="body"):
-            with VerticalScroll(id="sidebar"):
-                yield _AgentPanel(self._state)
-                yield _MindPanel(self._state)
-                yield _SwarmPanel(self._state)
-                yield _SchedulerPanel(self._state)
-                yield _GatewayPanel(self._state)
-            with Vertical(id="main-area"):
-                chat_log = RichLog(id="chat", highlight=True, markup=True, wrap=True)
-                chat_log.can_focus = False  # let terminal handle mouse/selection
-                yield chat_log
-                yield Static("", id="feed-header", markup=True)
-                yield RichLog(
-                    id="events", highlight=True, markup=True, wrap=False, max_lines=50
-                )
-        with Vertical(id="input-bar"):
+        # Transcript is full-width — chat messages, tool calls, scheduled
+        # events, system notes all share this single scrollable surface.
+        # Tool calls render inline under the user-message that triggered
+        # them, so the read flow follows the agent's actual sequence
+        # instead of requiring the user to glance between panes.
+        transcript = RichLog(
+            id="transcript", highlight=True, markup=True, wrap=True, max_lines=2000
+        )
+        transcript.can_focus = False  # let terminal handle mouse/selection
+        yield transcript
+
+        with Vertical(id="composer"):
             yield Input(
                 placeholder="❯ type a message, /help, or exit  ·  Shift+drag to select text",
                 id="input",
             )
+
+        # Status bar lives at the bottom edge — one row, always visible,
+        # color-coded glance-able state. Replaces 30 columns of vertical
+        # sidebar with 1 row of horizontal density. Repaints on each
+        # tick so it stays current without the user looking elsewhere.
+        yield _StatusBar(self._state)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -620,9 +701,7 @@ class EloPhantoDashboard(App):
     def on_mount(self) -> None:
         self._connect_gateway(self._gw_url)
         self._start_tick()
-        self.query_one("#feed-header", Static).update(
-            f"[{_DIM}]─── LIVE FEED {'─' * 60}[/]"
-        )
+        self._render_digest()
         # Focus input immediately
         self.query_one("#input", Input).focus()
         # Disable terminal mouse tracking — we don't react to mouse here
@@ -728,7 +807,7 @@ class EloPhantoDashboard(App):
                 future.set_exception(RuntimeError(msg.data.get("detail", "error")))
             else:
                 detail = msg.data.get("detail", "unknown error")
-                chat = self.query_one("#chat", RichLog)
+                chat = self.query_one("#transcript", RichLog)
                 chat.write(f"[red]Error:[/] {detail}")
 
     def _on_response(self, msg: GatewayMessage) -> None:
@@ -765,7 +844,7 @@ class EloPhantoDashboard(App):
 
         if content:
             self._last_response = content
-            chat = self.query_one("#chat", RichLog)
+            chat = self.query_one("#transcript", RichLog)
             chat.write("")
             # Show provider/model in response header
             _model_tag = ""
@@ -797,7 +876,7 @@ class EloPhantoDashboard(App):
         self._approval_pending = msg
         tool_name = msg.data.get("tool_name", "?")
         description = msg.data.get("description", "")
-        chat = self.query_one("#chat", RichLog)
+        chat = self.query_one("#transcript", RichLog)
         chat.write("")
         chat.write(f"[{_WARN}]⚠ Approval needed[/]  [{_BRIGHT}]{tool_name}[/]")
         chat.write(f"  [{_DIM}]{description}[/]")
@@ -840,7 +919,7 @@ class EloPhantoDashboard(App):
             self._add_event(
                 f"[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:50]}[/]", tag="AGT"
             )
-            chat = self.query_one("#chat", RichLog)
+            chat = self.query_one("#transcript", RichLog)
             chat.write(f"\n[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:60]}[/]")
             self._repaint_panel("panel-agent")
 
@@ -859,7 +938,7 @@ class EloPhantoDashboard(App):
             goal = msg.data.get("goal", "")
             self._state.current_goal = ""
             self._state.checkpoints_done = 0
-            chat = self.query_one("#chat", RichLog)
+            chat = self.query_one("#transcript", RichLog)
             chat.write(f"[black on {_OK}] ✔ COMPLETED [/] [{_DIM}]{goal[:60]}[/]\n")
             self._add_event(f"[{_OK}]✔[/] goal completed", tag="AGT")
             self._repaint_panel("panel-agent")
@@ -867,7 +946,7 @@ class EloPhantoDashboard(App):
         elif event == "goal_failed":
             error = msg.data.get("error", "")
             self._state.current_goal = ""
-            chat = self.query_one("#chat", RichLog)
+            chat = self.query_one("#transcript", RichLog)
             chat.write(f"[white on red] ✖ FAILED [/] [{_DIM}]{error[:80]}[/]\n")
             self._add_event("[red]✖[/] goal failed", tag="AGT")
             self._repaint_panel("panel-agent")
@@ -876,7 +955,7 @@ class EloPhantoDashboard(App):
             ch = msg.data.get("channel", "?")
             content = msg.data.get("content", "")
             if ch != "cli" and content:
-                chat = self.query_one("#chat", RichLog)
+                chat = self.query_one("#transcript", RichLog)
                 chat.write(f"  [{_DIM}]({ch})[/] [{_BRIGHT}]{content[:200]}[/]")
             self._state.sessions = self._ensure_session(self._state.sessions, ch, True)
             self._repaint_panel("panel-gateway")
@@ -1045,7 +1124,7 @@ class EloPhantoDashboard(App):
                 )
                 self._approval_pending = None
                 verdict = f"[{_OK}]approved[/]" if approved else "[red]denied[/]"
-                chat = self.query_one("#chat", RichLog)
+                chat = self.query_one("#transcript", RichLog)
                 chat.write(f"  {verdict}")
                 self.query_one("#input", Input).placeholder = (
                     "❯ type a message, /help, or exit"
@@ -1067,7 +1146,7 @@ class EloPhantoDashboard(App):
             cmd = parts[0]
             args = parts[1] if len(parts) > 1 else ""
 
-            chat = self.query_one("#chat", RichLog)
+            chat = self.query_one("#transcript", RichLog)
             if cmd == "clear":
                 await self._send_ws(
                     command_message(
@@ -1119,7 +1198,7 @@ class EloPhantoDashboard(App):
             return
 
         # Regular chat message
-        chat = self.query_one("#chat", RichLog)
+        chat = self.query_one("#transcript", RichLog)
         chat.write(f"[#b8b2a8]─[/] [bold {_BRIGHT}]You[/]")
         chat.write(text)
         chat.write("")
@@ -1329,38 +1408,159 @@ class EloPhantoDashboard(App):
         self._repaint_all()
 
     def _add_event(self, line: str, tag: str = "   ") -> None:
+        """Push an inline event to the transcript.
+
+        Old behaviour: wrote to a separate '#events' RichLog pane that
+        showed a small ticker independently of the chat. Created a
+        cognitive break — when the agent ran a tool, the user had to
+        glance to a different pane to see what happened.
+
+        New behaviour: events flow into the same '#transcript' as
+        normal chat, with a small grey timestamp + tag prefix so the
+        eye can still skip them. Tool calls and results render as
+        indented rows under the user message that triggered them; the
+        transcript becomes a single readable story instead of a
+        chat-on-the-left, ticker-on-the-right split."""
         ts = _time.strftime("%H:%M:%S")
         entry = f"[{_DIM}]{ts}[/]  [{_ACCENT}]{tag:<3}[/]  {line}"
+        # Keep the deque so any future view that wants the recent-event
+        # history (a /events overlay, a digest "since you were away"
+        # block) can grab it cheaply.
         self._state.events.appendleft(entry)
         try:
-            feed = self.query_one("#events", RichLog)
-            feed.write(entry)
+            self.query_one("#transcript", RichLog).write(entry)
         except Exception:
             pass
+
+    def _render_digest(self) -> None:
+        """Render the home-view digest as the first thing the user sees.
+
+        Designed to make EloPhanto feel like a creature you're checking
+        in on rather than a chat client you're starting fresh. The
+        digest has four bands (any of which can be empty and will
+        gracefully drop):
+
+          1. Doing now — current goal, running swarm tasks, scheduled
+             tasks counts. Pulled from `_State` directly.
+          2. Pending attention — approval requests, stalled questions.
+          3. Recent activity — last few events from `_State.events`,
+             which are populated by the gateway's event stream as
+             the dashboard runs. Empty on first connect (we haven't
+             seen any events yet) and that's fine.
+          4. Hints — what to type to dig deeper.
+
+        Re-rendered on `_repaint_all` so the digest stays current as
+        long as the user hasn't scrolled past it. Once they start
+        chatting, new transcript items push it up and out of view.
+        """
+        s = self._state
+        try:
+            transcript = self.query_one("#transcript", RichLog)
+        except Exception:
+            return
+
+        # ── Header line — brand + session uptime ─────────────────────
+        elapsed = s.session_elapsed()
+        transcript.write(
+            f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]  "
+            f"[{_DIM}]up {elapsed}[/]  "
+            f"[{_DIM}]port {s.gateway_port}[/]"
+        )
+        transcript.write("")
+
+        # ── Doing now ────────────────────────────────────────────────
+        doing_lines: list[str] = []
+        if s.current_goal:
+            chk = s.checkpoints_done
+            doing_lines.append(
+                f"  [{_ACCENT}]◆[/] goal · [{_BRIGHT}]{s.current_goal[:50]}[/]"
+                + (f"  [{_DIM}]· {chk} checkpoints[/]" if chk else "")
+            )
+        for task in s.swarm_tasks:
+            if task.get("status") == "running":
+                name = task.get("name", "")[:35]
+                agent = task.get("agent", "")
+                doing_lines.append(
+                    f"  [{_ACCENT}]⚡[/] swarm · [{_BRIGHT}]{name}[/]  [{_DIM}]({agent})[/]"
+                )
+        if s.scheduled_tasks:
+            n = len(s.scheduled_tasks)
+            next_eta = min(
+                (t.get("eta_secs", 99999) for t in s.scheduled_tasks),
+                default=0,
+            )
+            eta_str = (
+                f"{next_eta // 60}m" if next_eta < 3600 else f"{next_eta // 3600}h"
+            )
+            doing_lines.append(
+                f"  [{_ACCENT}]⏱[/] [{_BRIGHT}]{n}[/] [{_DIM}]scheduled · next in {eta_str}[/]"
+            )
+        if doing_lines:
+            transcript.write(f"[{_DIM}]Doing now[/]")
+            for line in doing_lines:
+                transcript.write(line)
+            transcript.write("")
+
+        # ── Pending attention ────────────────────────────────────────
+        # The dashboard tracks a single live approval via
+        # `_approval_pending`; richer pending-state collation would
+        # need a gateway-side query, deferred to a follow-up.
+        if self._approval_pending is not None:
+            tool_name = (self._approval_pending.data.get("tool") or "")[:30]
+            transcript.write(f"[{_DIM}]Wanted your eyes on[/]")
+            transcript.write(
+                f"  [{_WARN}]![/] approval pending · "
+                f"[{_BRIGHT}]{tool_name}[/]  [{_DIM}](type 'a' to approve, 'd' to deny)[/]"
+            )
+            transcript.write("")
+
+        # ── Recent activity ──────────────────────────────────────────
+        # Populated by the event stream after connect. On a fresh boot
+        # this is empty; on an in-session reconnect (dashboard restart
+        # while gateway keeps running) we'll have real history.
+        if s.events:
+            transcript.write(f"[{_DIM}]Recent activity[/]")
+            for entry in list(s.events)[:5]:
+                transcript.write(f"  {entry}")
+            transcript.write("")
+
+        # ── Idle hint when nothing else surfaced ─────────────────────
+        if not doing_lines and not s.events and self._approval_pending is None:
+            transcript.write(
+                f"[{_DIM}]Idle. Tell me what you want to work on, or just say hi.[/]"
+            )
+            transcript.write("")
+
+        # Visual separator before the chat begins.
+        transcript.write(f"[{_DIM}]{'─' * 60}[/]")
+        transcript.write("")
 
     def _repaint_panel(self, panel_id: str) -> None:
-        try:
-            panel = self.query_one(f"#{panel_id}", _SidePanel)
-            panel.repaint()
-        except Exception:
-            pass
+        """Legacy entry point — used to repaint a sidebar panel by id.
+        The new layout has no sidebar; status-bar refresh is centralised
+        in `_repaint_all`. Kept as a no-op so existing call sites
+        (event handlers across this file) don't need a sweeping
+        refactor for what's effectively a panel rename."""
+        # Most call sites are followed by other state mutations whose
+        # effects show up via the status-bar repaint anyway, so the
+        # no-op is safe.
+        del panel_id
 
     def _repaint_header(self) -> None:
-        try:
-            self.query_one("#header", _Header).repaint()
-        except Exception:
-            pass
+        """Legacy entry point — header used to be a 2-row banner at the
+        top of the screen. Now lives compressed in the status bar at
+        the bottom. Routes to _repaint_all so any caller that still
+        wants 'refresh chrome' gets the right thing."""
+        self._repaint_all()
 
     def _repaint_all(self) -> None:
-        self._repaint_header()
-        for pid in (
-            "panel-agent",
-            "panel-mind",
-            "panel-swarm",
-            "panel-scheduler",
-            "panel-gateway",
-        ):
-            self._repaint_panel(pid)
+        """Refresh the status bar. Called from event handlers whenever
+        state changes that the bar should reflect (budget tick, mode
+        change, session join/leave, schedule fire, etc.)."""
+        try:
+            self.query_one("#status-bar", _StatusBar).repaint()
+        except Exception:
+            pass
 
     def _set_swarm_status(self, name: str, status: str, pct: int) -> None:
         for task in self._state.swarm_tasks:
