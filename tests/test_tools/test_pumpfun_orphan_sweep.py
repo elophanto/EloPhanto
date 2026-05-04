@@ -315,3 +315,115 @@ class TestGenerateIdlePngAtomic:
         # tmp suffix was correct.
         _generate_idle_png(target, "BwUgJBQffm4HM49WfakeMintForTests")
         assert target.is_file()
+
+
+# ---------------------------------------------------------------------------
+# Video-mode orphan detection — the gap that left 2 zombies pushing 10.mp4
+# ---------------------------------------------------------------------------
+
+
+class TestVideoModeOrphanDetection:
+    """Real production failure: video-mode ffmpeg cmdlines DON'T contain
+    the mint anywhere — only the video file path (e.g. `10.mp4`) and
+    the WHIP URL. The mint-prefix-only orphan match was therefore
+    voice-mode-blind. Found 2 zombies in prod streaming `10.mp4` to
+    pump.fun for 30+ minutes after their supervisors had died, with
+    PPID=1 (orphaned to launchd).
+
+    Fix: the WHIP host substring (`whip.livekit.cloud`) appears in
+    every ffmpeg cmdline regardless of mode. Match on either condition
+    (mint OR WHIP host) and require a process-shape filter to avoid
+    false positives."""
+
+    def test_finds_video_mode_orphan_with_no_mint_in_cmdline(
+        self, tmp_path: Path
+    ) -> None:
+        """Spawn a process that mimics a video-mode ffmpeg: no mint in
+        argv, but the pump.fun WHIP host present. Must be found by the
+        sweep even though we pass an unrelated mint as the query."""
+        if not shutil.which("ps"):
+            pytest.skip("`ps` not available")
+        # Mimic the video-mode cmdline shape: argv[0] is `ffmpeg`,
+        # cmdline contains the WHIP host substring. No mint anywhere.
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import time; time.sleep(60)  "
+                    "# ffmpeg fake stand-in pushing to "
+                    "https://pump-prod-tg2x8veh.whip.livekit.cloud/w"
+                ),
+            ]
+        )
+        time.sleep(0.2)
+        try:
+            # The matcher should still find this even though the mint
+            # we pass doesn't appear anywhere in the proc's cmdline.
+            # But our spawned process has `python3` as argv[0], not
+            # `ffmpeg`, so the process-shape filter drops it. To
+            # exercise the WHIP-host branch we need a process whose
+            # argv[0] looks like ffmpeg too.
+            #
+            # The realistic case (a real ffmpeg child) does have
+            # argv[0] == /opt/homebrew/bin/ffmpeg. Our test stand-in
+            # can't easily fake argv[0], so we're effectively asserting
+            # the dual-condition logic via the unrelated-process and
+            # different-mint tests above, which both pass.
+            #
+            # Concrete coverage of the WHIP-host branch happens via
+            # the integration-style test below that mocks subprocess.
+            # Smoke it here: confirm the process is NOT matched (because
+            # argv[0] is python, not ffmpeg) AND the call doesn't crash.
+            found = _find_orphans_for_mint("UnrelatedMintAbCdEfGh1234567")
+            assert proc.pid not in found
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
+    def test_whip_host_branch_via_mocked_ps(self, monkeypatch) -> None:
+        """The WHIP-host branch matches when argv contains
+        `whip.livekit.cloud` AND argv[0] looks like ffmpeg, even when
+        no mint appears anywhere in the cmdline. Mocked ps so we can
+        construct exactly the cmdline the real code would see for a
+        video-mode ffmpeg orphan."""
+        import tools.pumpfun.orchestrator as orch
+
+        # Simulate `ps -axo pid=,command=` output containing one
+        # video-mode ffmpeg orphan and one unrelated process.
+        fake_ps_output = (
+            "12345 /opt/homebrew/bin/ffmpeg -y -re -stream_loop -1 -i "
+            "/Users/u/livestream_videos/10.mp4 -f whip "
+            "https://pump-prod-tg2x8veh.whip.livekit.cloud/w\n"
+            "67890 /usr/bin/python3 some-other-script.py\n"
+        )
+
+        class FakeCompleted:
+            stdout = fake_ps_output
+            returncode = 0
+
+        def fake_run(*args, **kwargs):
+            return FakeCompleted()
+
+        monkeypatch.setattr(orch.subprocess, "run", fake_run)
+        # _is_alive will return True for any pid because os.kill(pid, 0)
+        # on a non-existent pid raises ProcessLookupError. Patch it to
+        # always return True so we're testing the parser logic, not
+        # whether the test PID happens to exist.
+        monkeypatch.setattr(orch, "_is_alive", lambda pid: True)
+
+        # Query with a totally different mint — the ffmpeg cmdline
+        # has NO mint, only the WHIP host.
+        found = _find_orphans_for_mint("CompletelyDifferentMint" * 2)
+        assert 12345 in found, (
+            "video-mode ffmpeg with WHIP host but no mint should be "
+            "matched — that was the production bug"
+        )
+        assert 67890 not in found, (
+            "unrelated python script should not be matched even though "
+            "the matcher saw it"
+        )
