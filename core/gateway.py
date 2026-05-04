@@ -1372,6 +1372,30 @@ class Gateway:
             else:
                 dashboard["identity"] = None
 
+            # Ego — coherence score + a one-line self-critique used as
+            # the "mood" in the dashboard footer + digest. Read from
+            # EgoManager (which already stores coherence persistently
+            # in SQLite). Best-effort: a missing/uninitialized ego
+            # subsystem yields no payload, the dashboard then renders
+            # the "ego –" placeholder which is fine.
+            ego_mgr = getattr(self._agent, "_ego_manager", None)
+            if ego_mgr:
+                try:
+                    ego = await ego_mgr.get_ego()
+                    dashboard["ego"] = {
+                        "coherence": float(ego.coherence_score),
+                        # Single-line self-critique is the closest thing
+                        # the ego layer has to a "mood" string.
+                        # self_image is multi-sentence prose — too long
+                        # for the footer; we send last_self_critique
+                        # which is bounded to ~500 chars by recompute().
+                        "mood": ego.last_self_critique or "",
+                    }
+                except Exception:
+                    dashboard["ego"] = None
+            else:
+                dashboard["ego"] = None
+
             # Mind
             mind = getattr(self._agent, "_autonomous_mind", None)
             if mind:
@@ -1382,13 +1406,19 @@ class Gateway:
             else:
                 dashboard["mind"] = None
 
-            # Goals
+            # Goals — emit BOTH the legacy detailed shape (web
+            # dashboard, /goal_status tool, etc.) AND the compact
+            # shape the new sidebar/digest consumes. Web dashboard
+            # already reads the legacy keys; sidebar reads only the
+            # compact shape. Both layers are stable contracts now.
             goal_mgr = getattr(self._agent, "_goal_manager", None)
             if goal_mgr:
                 try:
                     goals = await goal_mgr.list_goals(limit=10)
                     dashboard["goals"] = [
                         {
+                            # Legacy keys — kept for downstream
+                            # consumers that already read these.
                             "goal_id": g.goal_id,
                             "goal": g.goal[:120],
                             "status": g.status,
@@ -1396,6 +1426,22 @@ class Gateway:
                             "total_checkpoints": g.total_checkpoints,
                             "cost_usd": g.cost_usd,
                             "created_at": g.created_at,
+                            # Compact keys — consumed by sidebar
+                            # GoalsPanel + digest auto-derivation.
+                            # Title is the goal text capped to 60
+                            # chars (sidebar truncates further to 8).
+                            # pct = current/total * 100; rounded to int.
+                            "title": g.goal[:60],
+                            "pct": (
+                                int(g.current_checkpoint / g.total_checkpoints * 100)
+                                if g.total_checkpoints > 0
+                                else 0
+                            ),
+                            "checkpoint": (
+                                f"{g.current_checkpoint}/{g.total_checkpoints}"
+                                if g.total_checkpoints > 0
+                                else ""
+                            ),
                         }
                         for g in goals
                     ]
