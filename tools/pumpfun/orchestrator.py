@@ -324,7 +324,15 @@ def _generate_idle_png(path: Path, mint: str) -> None:
     voice audio. 16:9 because that's what every streaming platform
     expects for full-screen display.
 
-    Composition:
+    NEVER OVERWRITES AN EXISTING FILE. If `path` already exists,
+    returns immediately as a no-op. The operator's image is sacred —
+    even if the resolver upstream gets the path wrong, this final
+    check guarantees we never silently destroy their file. Real bug
+    that motivated this guard: an upstream resolver miss caused this
+    function to be called with the operator's idle.png path, blowing
+    away their image with the auto-generated placeholder.
+
+    Composition (when generating fresh):
       - White 1280×720 canvas
       - If a logo source is found (see _find_idle_logo_source), it's
         scaled to fit ~60% of the height and centered above the label
@@ -332,6 +340,17 @@ def _generate_idle_png(path: Path, mint: str) -> None:
 
     All done via ffmpeg's filter graph so we don't need Pillow.
     """
+    if path.exists():
+        # Hard refusal. Caller is responsible for deciding whether
+        # they actually want regen — if so, they delete the file
+        # first, explicitly. Defence in depth complement to the
+        # resolver-side `is_file()` check.
+        logger.info(
+            "[livestream] _generate_idle_png: refusing to overwrite "
+            "existing file at %s (operator image preserved)",
+            path,
+        )
+        return
     label = f"EloPhanto · {mint[:6]}…{mint[-4:]}"
     ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
     logo = _find_idle_logo_source()

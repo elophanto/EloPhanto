@@ -233,3 +233,40 @@ class TestResolveIdleFrame:
         # colliding on the same shared state dir.
         assert _MINT[:16] in result.name
         assert result.name.endswith(".idle.png")
+
+
+# ---------------------------------------------------------------------------
+# _generate_idle_png — never overwrites an operator file
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateIdlePngNoOverwrite:
+    """Real bug: an upstream resolver miss caused _generate_idle_png to
+    be called with the operator's idle.png path, silently blowing away
+    their image with the auto-generated placeholder. The function now
+    refuses to overwrite ANY existing file at the target path —
+    defence in depth so the operator's image is safe even when
+    upstream is wrong."""
+
+    def test_refuses_to_overwrite_existing_file(self, tmp_path: Path) -> None:
+        from tools.pumpfun.orchestrator import _generate_idle_png
+
+        target = tmp_path / "idle.png"
+        sentinel = b"OPERATOR'S IRREPLACEABLE BYTES - MUST NOT BE TOUCHED"
+        target.write_bytes(sentinel)
+        # Same call site that was previously destructive.
+        _generate_idle_png(target, "BwUgJBQffm4HM49WfakeMintForTests")
+        # File is byte-identical to what the operator wrote.
+        assert target.read_bytes() == sentinel
+
+    def test_generates_when_target_missing(self, tmp_path: Path) -> None:
+        """Sanity: the no-overwrite guard doesn't break the legitimate
+        path. When the file genuinely isn't there, generation runs."""
+        from tools.pumpfun.orchestrator import _generate_idle_png
+
+        target = tmp_path / "idle.png"
+        assert not target.exists()
+        _generate_idle_png(target, "BwUgJBQffm4HM49WfakeMintForTests")
+        assert target.is_file()
+        # Sanity-check it's actually a PNG, not an empty or stub file.
+        assert target.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
