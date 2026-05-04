@@ -1397,25 +1397,17 @@ class Gateway:
                     # Confidence stats — used to detect "broadly
                     # uncertain" (low mean) vs "lopsided" (high range)
                     # ego states the coherence score alone misses.
-                    confidences: list[float] = []
-                    if isinstance(ego.confidence_json, dict):
-                        confidences = [
-                            float(v)
-                            for v in ego.confidence_json.values()
-                            if isinstance(v, int | float)
-                        ]
-                    elif isinstance(ego.confidence_json, str):
-                        try:
-                            import json as _j
-
-                            parsed = _j.loads(ego.confidence_json)
-                            confidences = [
-                                float(v)
-                                for v in parsed.values()
-                                if isinstance(v, int | float)
-                            ]
-                        except Exception:
-                            pass
+                    # Field name is `confidence` (dict on the dataclass)
+                    # — `confidence_json` is the SQL column name only.
+                    # Got this wrong on first pass; the AttributeError
+                    # was being swallowed by the broad except below
+                    # which sent ego=None and rendered footer 'ego –'.
+                    confidence_dict = getattr(ego, "confidence", None) or {}
+                    confidences: list[float] = [
+                        float(v)
+                        for v in confidence_dict.values()
+                        if isinstance(v, int | float)
+                    ]
                     confidence_avg = (
                         sum(confidences) / len(confidences) if confidences else 0.0
                     )
