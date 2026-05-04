@@ -28,6 +28,23 @@ _ANSI_CSI_RE = re.compile(r"\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]")
 #   ``[A`` ``[B`` …  — bare cursor / function keys (mess up the input cursor)
 #   ``[2~``          — bare special key codes
 _BARE_CSI_RE = re.compile(r"(?:\[<?\d*(?:;\d+)*[a-zA-Z~]|<\d+;\d+;\d+[Mm])")
+# Last-resort match: SGR mouse params with BOTH the ESC + `[` + `<`
+# eaten by upstream consumers. Looks like ``5;55;24M`` — at least
+# two numeric groups separated by semicolons, terminated by M or m
+# (mouse press / release in SGR mode). Real user input never contains
+# this shape (chat doesn't have ``35;54;22M`` patterns), so it's safe
+# to strip aggressively. This is the regex that catches the leftover
+# from a real bug observed in the field where the leading framing
+# was fully consumed before the input widget saw the sequence.
+_NAKED_SGR_MOUSE_RE = re.compile(r"\d+(?:;\d+)+[Mm]")
+# Tightest residue catcher — matches ``;<digits>M`` or ``;<digits>m``,
+# the smallest fragment of a chopped SGR sequence still recognisable
+# as one. ``;2M`` in normal English chat is essentially never typed,
+# whereas it's the canonical leftover after the bigger regexes have
+# stripped most of the mouse stream. Restricting to the
+# semicolon-prefixed form means ``price 5M users`` is left alone
+# (the M follows whitespace, not a semicolon).
+_SGR_MOUSE_RESIDUE_RE = re.compile(r";\d+[Mm]")
 # Stand-alone control characters that shouldn't appear in a chat input.
 _CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
@@ -35,9 +52,27 @@ _CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 def _strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences, bare CSI leftovers, and stray
     control characters that can leak into the Input widget when the
-    terminal handles mouse/keys outside Textual."""
+    terminal handles mouse/keys outside Textual.
+
+    Order matters: strip the framed shapes first, then the naked
+    SGR-mouse params. Run the naked-mouse pass repeatedly because
+    a stream of mouse events concatenates into garbage like
+    ``5;55;24M35;54;22;27M5;65;27M`` — once the first match is
+    stripped, the next leftover is now adjacent to the next, and a
+    second pass picks up patterns the first missed."""
     text = _ANSI_CSI_RE.sub("", text)
     text = _BARE_CSI_RE.sub("", text)
+    # Repeated passes — bounded by len(text) // 4 because each match
+    # consumes ≥4 chars (smallest is `1;2M`), so we can't loop more
+    # times than that.
+    for _ in range(max(1, len(text) // 4)):
+        new_text = _NAKED_SGR_MOUSE_RE.sub("", text)
+        if new_text == text:
+            break
+        text = new_text
+    # Final residue pass: `;<digits>M` fragments left after the
+    # multi-group regex chewed through the bulk of a mouse stream.
+    text = _SGR_MOUSE_RESIDUE_RE.sub("", text)
     text = _CTRL_CHARS_RE.sub("", text)
     return text
 
@@ -556,6 +591,32 @@ class EloPhantoDashboard(App):
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
+    def _suppress_mouse_tracking(self) -> None:
+        """Send the full set of "disable mouse tracking" CSI sequences
+        directly to the terminal. Idempotent. Called on mount AND
+        every 500ms after, because Textual re-enables tracking on
+        mount, refocus, paste, etc. — and once tracking is on, every
+        mouse move dumps a chunk of SGR codes that get partially
+        consumed by Textual's renderer and partially leak into the
+        Input widget as visible text (the "5;55;24M..." garbage).
+
+        We can't ask Textual nicely to stop because there's no public
+        API for it; brute-forcing via stdout works because Textual's
+        renderer treats raw escape writes as opaque pass-through."""
+        try:
+            import sys as _sys
+
+            _sys.stdout.write(
+                "\x1b[?1000l"  # X10 mouse tracking off
+                "\x1b[?1002l"  # button-event tracking off
+                "\x1b[?1003l"  # any-event tracking off
+                "\x1b[?1006l"  # SGR extended mode off
+                "\x1b[?1015l"  # urxvt extended mode off
+            )
+            _sys.stdout.flush()
+        except Exception:
+            pass
+
     def on_mount(self) -> None:
         self._connect_gateway(self._gw_url)
         self._start_tick()
@@ -570,19 +631,15 @@ class EloPhantoDashboard(App):
         # twitch fires while focus is elsewhere. Send the disable
         # sequences directly to the terminal; Textual's renderer leaves
         # them alone.
-        try:
-            import sys as _sys
-
-            _sys.stdout.write(
-                "\x1b[?1000l"  # X10 mouse tracking off
-                "\x1b[?1002l"  # button-event tracking off
-                "\x1b[?1003l"  # any-event tracking off
-                "\x1b[?1006l"  # SGR extended mode off
-                "\x1b[?1015l"  # urxvt extended mode off
-            )
-            _sys.stdout.flush()
-        except Exception:
-            pass
+        self._suppress_mouse_tracking()
+        # Textual re-enables mouse tracking whenever certain widgets
+        # mount, refocus, or handle a paste — so a one-shot disable on
+        # mount is not enough. Re-send the disable sequences every
+        # 500ms. Cheap (a few stdout bytes), and bounded — Textual's
+        # tick scheduler stops with the app. This is the load-bearing
+        # fix for "mouse moves keep leaking SGR codes into the input"
+        # that survived multiple reported attempts before this one.
+        self.set_interval(0.5, self._suppress_mouse_tracking)
 
     @work(exclusive=True)
     async def _connect_gateway(self, url: str) -> None:

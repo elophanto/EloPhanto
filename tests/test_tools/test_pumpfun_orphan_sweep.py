@@ -69,7 +69,23 @@ def fake_proc(tmp_path: Path):
 
 
 class TestOrphanFinder:
-    def test_empty_mint_returns_empty(self) -> None:
+    def test_empty_mint_does_not_crash(self, monkeypatch) -> None:
+        """Empty mint disables the mint-prefix match branch but the
+        WHIP-host branch still runs. With no pump.fun ffmpeg processes
+        on the box, the result is empty — but the contract is 'must
+        not crash and must not match unrelated processes', not 'must
+        return empty regardless of system state'.
+
+        Mock subprocess so we don't depend on real ps state."""
+        import tools.pumpfun.orchestrator as orch
+
+        class FakePs:
+            stdout = "12345 /usr/bin/python3 unrelated.py\n"
+            returncode = 0
+
+        monkeypatch.setattr(orch.subprocess, "run", lambda *a, **kw: FakePs())
+        # Empty mint is fine — no mint match attempted, WHIP host
+        # branch sees no pump.fun proc in our fake output.
         assert _find_orphans_for_mint("") == set()
 
     def test_finds_supervisor_with_matching_mint(self, fake_proc) -> None:
