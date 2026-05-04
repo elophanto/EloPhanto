@@ -95,28 +95,42 @@ def _is_alive(pid: int) -> bool:
     return True
 
 
+# Substring unique to pump.fun's LiveKit WHIP ingest. Appears in
+# every ffmpeg cmdline our orchestrator launches (both voice mode
+# and video mode), regardless of whether the mint shows up
+# elsewhere in argv. The previous mint-prefix-only match worked for
+# voice mode (state-dir filenames carried the mint) but missed
+# video-mode orphans entirely — found 2 video-mode zombies in prod
+# pushing 10.mp4 long after the supervisor died.
+_PUMPFUN_WHIP_HOST_SUBSTR = "whip.livekit.cloud"
+
+
 def _find_orphans_for_mint(mint: str) -> set[int]:
     """Scan `ps` for any ffmpeg/supervisor processes whose cmdline
-    references this mint's per-mint state files.
+    looks like one of ours, broad enough to catch both transports.
 
-    Why this exists: state.json holds at most ONE supervisor PID. When
-    `start` runs twice without an intervening `stop` (agent crash,
-    user error, double-click), the older supervisor's PID is
-    overwritten and becomes an orphan happily pushing video to the
-    same pump.fun WHIP endpoint forever. We hit this in production —
-    found 3 zombies from prior days streaming the same mint at once.
+    Two match keys, OR'd:
+      1. Mint prefix in cmdline — voice mode supervisors and ffmpegs
+         carry it via the state-dir paths
+         (``<state_dir>/<mint[:16]>.{config.json,voice.pcm,...}``).
+      2. Pump.fun WHIP host in cmdline — every ffmpeg we launch
+         pushes to this host regardless of mode. Catches video-mode
+         orphans (which carry no mint in argv) AND voice-mode ones.
 
-    The match key is the mint prefix that appears in our state-dir
-    filenames (`<state_dir>/<mint[:16]>.*`). Unique enough — no other
-    tool writes there — and matches both the supervisor's --config
-    arg and the ffmpeg child's voice-FIFO arg.
+    The combined match means we will sometimes kill a
+    pump.fun-streaming ffmpeg for a different mint than the one we
+    were called with. Acceptable: a single host running multiple
+    pump.fun streams concurrently is unusual, and the worst case
+    is a clean restart by the operator.
+
+    Defence in depth: still requires the cmdline to look like
+    ffmpeg or our supervisor, never matches arbitrary processes
+    that happen to mention the host string in passing (a chat log,
+    a curl probe, etc.).
 
     Best-effort: if `ps` isn't available (sandboxed env), returns
     empty set rather than crashing the stop path.
     """
-    if not mint:
-        return set()
-    needle = mint[:16]
     out: set[int] = set()
     try:
         proc = subprocess.run(
@@ -129,18 +143,34 @@ def _find_orphans_for_mint(mint: str) -> set[int]:
         return out
     if proc.returncode != 0:
         return out
+
+    mint_needle = mint[:16] if mint else None
+
     for line in proc.stdout.splitlines():
         line = line.strip()
-        if not line or needle not in line:
+        if not line:
             continue
-        # Defence in depth: only kill processes that look like ours.
-        # Avoid matching a random user-script that happened to grep
-        # for the mint.
-        if (
-            "_ffmpeg_supervisor" not in line
-            and "ffmpeg" not in line.split(None, 1)[1].split()[0]
-        ):
+
+        # Apply at least one match condition.
+        matched = False
+        if mint_needle and mint_needle in line:
+            matched = True
+        elif _PUMPFUN_WHIP_HOST_SUBSTR in line:
+            matched = True
+        if not matched:
             continue
+
+        # Process-shape filter: must look like ffmpeg or our
+        # supervisor — never kill a random user script that happened
+        # to mention the WHIP host or mint in its argv.
+        try:
+            argv0 = line.split(None, 1)[1].split()[0]
+        except IndexError:
+            continue
+        looks_like_ours = "_ffmpeg_supervisor" in line or "ffmpeg" in argv0
+        if not looks_like_ours:
+            continue
+
         try:
             pid = int(line.split(None, 1)[0])
         except (ValueError, IndexError):
