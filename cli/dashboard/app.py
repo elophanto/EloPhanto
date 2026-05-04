@@ -313,7 +313,7 @@ class _AgentPanel(_SidePanel):
         if s.current_tool:
             elapsed = int(_time.monotonic() - s.current_tool_start)
             line1 = (
-                f"  [{_OK}]●[/] [{_BRIGHT}]{s.current_tool[:24]}[/]"
+                f"  [{_OK}]●[/] [{_BRIGHT}]{s.current_tool[:14]}[/]"
                 f" [{_DIM}]{elapsed:>3d}s[/]"
             )
         else:
@@ -363,10 +363,10 @@ class _MindPanel(_SidePanel):
             line1 = f"  [{_OK}]●[/] [{_OK}]running[/]"
         elif s.mind_state == "sleeping":
             eta = s.mind_eta() or "?"
-            line1 = (
-                f"  [{_ACCENT}]●[/] [{_DIM}]resting · wakes in[/] "
-                f"[{_BRIGHT}]{eta}[/]"
-            )
+            # "resting · 4m" — dropped "wakes in" because the colon-
+            # space-eta reads obvious enough. Saves 9 cols on a tight
+            # sidebar.
+            line1 = f"  [{_ACCENT}]●[/] [{_DIM}]resting ·[/] [{_BRIGHT}]{eta}[/]"
         elif s.mind_state == "paused":
             line1 = f"  [{_DIM}]◇[/] [{_DIM}]paused[/]"
         elif s.mind_state == "disabled":
@@ -374,10 +374,12 @@ class _MindPanel(_SidePanel):
         else:
             line1 = f"  [{_DIM}]?[/] [{_DIM}]{s.mind_state}[/]"
 
-        # Last action — tells the operator what was just thought about.
-        # Only shown when there's something real to say.
+        # Last action — what the autonomous mind last did. Truncated
+        # to 18 chars without a "last·" prefix; readers infer "this is
+        # what it just did" from context (it's row 2 of the MIND
+        # panel). Saves 6 cols of label.
         if s.mind_last_action:
-            line2 = f"  [{_DIM}]last·[/] [{_BRIGHT}]{s.mind_last_action[:28]}[/]"
+            line2 = f"  [{_DIM}]›[/] [{_BRIGHT}]{s.mind_last_action[:18]}[/]"
         else:
             line2 = ""
 
@@ -418,13 +420,13 @@ class _SwarmPanel(_SidePanel):
         # off the bottom of the screen on a busy session.
         for task in s.swarm_tasks[-4:]:
             icon = icons.get(task.get("status", ""), f"[{_DIM}]?[/]")
-            name = task.get("name", "?")[:14]
+            # 8-char name cap matches GOALS panel; visual rhyme.
+            name = task.get("name", "?")[:8]
             pct = int(task.get("pct", 0))
-            # Compact 4-cell progress bar — same width as MIND's daily%.
             filled = min(4, max(0, int(pct / 25)))
-            bar = f"[{_OK}]{'▓' * filled}[/]" f"[{_DIM}]{'░' * (4 - filled)}[/]"
+            bar = f"[{_OK}]{'▓' * filled}[/][{_DIM}]{'░' * (4 - filled)}[/]"
             lines.append(
-                f"  {icon} [{_BRIGHT}]{name:<14}[/] {bar}" f" [{_DIM}]{pct:>3d}%[/]"
+                f"  {icon} [{_BRIGHT}]{name:<8}[/] {bar} [{_DIM}]{pct:>3d}%[/]"
             )
         return "\n".join(lines)
 
@@ -450,13 +452,17 @@ class _SchedulerPanel(_SidePanel):
         lines = []
         for task in s.scheduled_tasks[-4:]:
             icon = icons.get(task.get("status", "pending"), f"[{_DIM}]○[/]")
-            # 16-char cap: 2 indent + 2 icon + 16 name + 1 + 6 right = 27.
-            # Right column is "in 14m" or "HH:MM" — both fit in 6.
-            name = task.get("name", "?")[:16]
+            # 12-char name + 6-char right column fits 22:
+            # 2 indent + 2 icon + 12 name + 1 + 5 right = 22.
+            # The 16-char cap from the prior version wrapped because
+            # the visible budget on a 30-col sidebar with Textual's
+            # border + container padding is closer to 22 than 28.
+            name = task.get("name", "?")[:12]
             eta = task.get("eta_str", "")
             ts = task.get("ts_str", "")
-            right = f"in {eta}" if eta else ts
-            lines.append(f"  {icon} [{_BRIGHT}]{name:<16}[/] [{_DIM}]{right}[/]")
+            # Compact "5m" / "1h" preferred over "in 5m" — saves 3 cols.
+            right = eta if eta else ts
+            lines.append(f"  {icon} [{_BRIGHT}]{name:<12}[/] [{_DIM}]{right}[/]")
         return "\n".join(lines)
 
 
@@ -530,9 +536,11 @@ class _GoalsPanel(_SidePanel):
         # for that by growing taller and squashing other panels.
         for goal in s.goals[:3]:
             icon = icons.get(goal.get("status", "active"), f"[{_DIM}]?[/]")
-            # 14-char title cap fits inside the 30-col sidebar:
-            # 2 indent + 2 icon+space + 14 title + 1 + 4 bar + 1 + 4 tail = 28.
-            title = goal.get("title", "?")[:14]
+            # 8-char title cap. Sidebar visual budget after Textual
+            # border + padding is ~22 cols on a 30-col panel:
+            # 2 indent + 2 icon+space + 8 title + 1 + 4 bar + 1 + 4 tail = 22.
+            # Earlier 14-char cap wrapped on real terminals.
+            title = goal.get("title", "?")[:8]
             pct = int(goal.get("pct", 0))
             checkpoint = goal.get("checkpoint", "")
             filled = min(4, max(0, int(pct / 25)))
@@ -540,7 +548,7 @@ class _GoalsPanel(_SidePanel):
             tail = (
                 f"[{_DIM}]{checkpoint}[/]" if checkpoint else f"[{_DIM}]{pct:>3d}%[/]"
             )
-            lines.append(f"  {icon} [{_BRIGHT}]{title:<14}[/] {bar} {tail}")
+            lines.append(f"  {icon} [{_BRIGHT}]{title:<8}[/] {bar} {tail}")
         return "\n".join(lines)
 
 
@@ -571,7 +579,7 @@ class _ApprovalsPanel(_SidePanel):
 
         lines = []
         for req in s.approvals[:3]:
-            tool = req.get("tool", "?")[:16]
+            tool = req.get("tool", "?")[:12]
             summary = req.get("summary", "")[:28]
             age_secs = int(req.get("age_secs", 0))
             # Age displayed in the smallest unit that keeps the text
@@ -583,7 +591,7 @@ class _ApprovalsPanel(_SidePanel):
             else:
                 age = f"{age_secs // 3600}h"
             lines.append(
-                f"  [{_WARN}]●[/] [{_BRIGHT}]{tool:<16}[/] [{_DIM}]{age:>4}[/]"
+                f"  [{_WARN}]●[/] [{_BRIGHT}]{tool:<12}[/] [{_DIM}]{age:>4}[/]"
             )
             if summary:
                 lines.append(f"    [{_DIM}]{summary}[/]")
