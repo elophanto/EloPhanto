@@ -309,6 +309,32 @@ DEFAULT_BOOTSTRAP_NODES: list[str] = [
 
 
 @dataclass
+class JobsConfig:
+    """Paid-job submission from elophanto.com.
+
+    The website verifies on-chain $ELO payment, signs an Ed25519
+    envelope with its signing key, and delivers it to the agent's
+    AgentMail inbox (and/or makes it pullable from /api/jobs/pending).
+
+    The agent's role is narrow: verify the envelope's signature
+    against `signing_pubkey`. If the signature checks out, the website
+    already saw a confirmed payment — re-checking on-chain is the
+    website's threat model, not ours. See JOB-SUBMISSION.md.
+
+    Disabled by default. Enable + set the public key to start
+    accepting jobs. The agent reads the signing pubkey from config
+    (no vault — public keys aren't secrets, and treating them like
+    secrets makes the trust anchor harder to inspect).
+    """
+
+    enabled: bool = False
+    # Ed25519 public key in base64. Matches the website's signing
+    # private key. The website publishes this; we verify against it.
+    # Empty string = jobs feature unconfigured even if enabled=true.
+    signing_pubkey: str = ""
+
+
+@dataclass
 class HubConfig:
     """EloPhantoHub skill registry configuration."""
 
@@ -829,6 +855,7 @@ class Config:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
     peers: PeersConfig = field(default_factory=PeersConfig)
+    jobs: JobsConfig = field(default_factory=JobsConfig)
     hub: HubConfig = field(default_factory=HubConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     slack: SlackConfig = field(default_factory=SlackConfig)
@@ -1267,6 +1294,13 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         sidecar_binary=peers_raw.get("sidecar_binary", ""),
     )
 
+    # Parse jobs section (paid-job submission from elophanto.com)
+    jobs_raw = raw.get("jobs", {})
+    jobs_config = JobsConfig(
+        enabled=jobs_raw.get("enabled", False),
+        signing_pubkey=str(jobs_raw.get("signing_pubkey", "")).strip(),
+    )
+
     # Parse hub section
     hub_raw = raw.get("hub", {})
     hub_config = HubConfig(
@@ -1699,6 +1733,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         telegram=telegram_config,
         gateway=gateway_config,
         peers=peers_config,
+        jobs=jobs_config,
         hub=hub_config,
         discord=discord_config,
         slack=slack_config,

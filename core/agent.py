@@ -790,6 +790,12 @@ class Agent:
         # Inject scheduler into schedule tools
         self._inject_scheduler_deps()
 
+        # Paid jobs from elophanto.com (job_verify, job_record).
+        # Injection is idempotent — config + db are stable; jobs
+        # subsystem also works fine when jobs.enabled is False
+        # (job_verify just returns valid=false with a hint).
+        self._inject_jobs_deps()
+
         # Discover skills and inject into skill tools
         _status("Loading skills")
         self._skill_manager.discover()
@@ -1754,6 +1760,22 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._peer_manager:
                 tool._peer_manager = self._peer_manager
+
+    def _inject_jobs_deps(self) -> None:
+        """Inject JobsConfig into job_verify and the database handle
+        into job_record. Called once at initialize() — config + DB
+        are known at that point and don't change at runtime.
+
+        job_verify needs the JobsConfig (for signing_pubkey + enabled
+        flag) but no DB. job_record is the inverse: needs DB but no
+        config. Keeping the injection split lets each tool stay
+        narrow about what it touches."""
+        verify = self._registry.get("job_verify")
+        if verify is not None:
+            verify._jobs_config = self._config.jobs
+        record = self._registry.get("job_record")
+        if record is not None:
+            record._db = self._db
 
     def _inject_p2p_deps(self) -> None:
         """Inject the P2PSidecar handle into every P2P-aware tool.

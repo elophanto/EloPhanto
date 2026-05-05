@@ -594,6 +594,31 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_affiliate_campaigns_status
         ON affiliate_campaigns(status)
     """,
+    # Paid jobs from elophanto.com — local view of work the agent has
+    # accepted. Dedup primary key on job_id (the website's ULID), so
+    # the same envelope arriving via both email + pull transport
+    # collapses to one row. status moves
+    # seen → accepted → completed/failed; never deletes — audit trail
+    # for "did we run this paid job and what did we say back."
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY,
+        task TEXT NOT NULL,
+        requester_email TEXT NOT NULL DEFAULT '',
+        requester_wallet TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'seen'
+            CHECK (status IN ('seen','accepted','completed','failed')),
+        result TEXT NOT NULL DEFAULT '',
+        issued_at TEXT NOT NULL DEFAULT '',
+        expires_at TEXT NOT NULL DEFAULT '',
+        seen_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_jobs_status_seen_at
+        ON jobs(status, seen_at)
+    """,
 ]
 
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError

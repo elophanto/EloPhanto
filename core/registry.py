@@ -455,6 +455,14 @@ class ToolRegistry:
         self.register(AgentP2PMessageTool())
         self.register(AgentP2PDisconnectTool())
 
+        # Paid jobs from elophanto.com — verify + dedup. Skill-driven
+        # (see skills/job-handling/) rather than always-on poller.
+        from tools.jobs.record_tool import JobRecordTool
+        from tools.jobs.verify_tool import JobVerifyTool
+
+        self.register(JobVerifyTool())
+        self.register(JobRecordTool())
+
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
 
@@ -633,6 +641,10 @@ class ToolRegistry:
                 "agent_peers",
                 "agent_discover",
                 "agent_p2p_",
+                # Paid jobs are owner-authority work; kids must never
+                # accept money on behalf of the parent or write to the
+                # jobs audit table.
+                "job_",
             )
             _to_remove = [
                 n
