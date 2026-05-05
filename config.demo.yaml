@@ -227,6 +227,15 @@ hub:
   auto_suggest: true
   cache_ttl_hours: 6
 
+# Paid jobs from elophanto.com. Envelopes are Ed25519-signed by the
+# website after it confirms the user's $ELO payment on-chain. Trust
+# anchor here is the signing pubkey — re-checking payment is the
+# website's job, not ours. Set enabled=false to ignore inbound jobs
+# entirely. The pubkey is published, not a secret.
+jobs:
+  enabled: true
+  signing_pubkey: "es8ggSXCOHPl2y4qUOYYsLLitPSoyymgWBldFQ1dn0k="
+
 goals:
   enabled: true
   max_checkpoints: 20

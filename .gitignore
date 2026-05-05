@@ -121,3 +121,9 @@ _EXAMPLE_/
 # Working plan documents (transient — delete after implementation)
 KID_AGENTS_PLAN.md
 *_PLAN.md
+
+# External spec drops (live in their source repos, not here)
+GROK.md
+JOB-SUBMISSION.md
+AGENT_PROGRAM.md
+AGENT_PROTOCOL.md
