@@ -1077,8 +1077,10 @@ The numbers below are the evidence; the writing above is how I feel about it.
         # column would have been cleaner but a JSON sidecar is enough and
         # keeps the migration footprint small. Stored as JSON in the
         # confidence_json column under a reserved key '__last_used__' so
-        # one table column carries both maps.
-        confidence_payload = dict(ego.confidence)
+        # one table column carries both maps. Typed as dict[str, Any]
+        # because the sidecar key holds a dict, not a float — mypy would
+        # otherwise reject the heterogeneous assignment.
+        confidence_payload: dict[str, Any] = dict(ego.confidence)
         confidence_payload["__last_used__"] = ego.last_used
         await self._db.execute_insert(
             """UPDATE ego_state

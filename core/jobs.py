@@ -25,6 +25,7 @@ Mirror the website's signing path exactly — see `nacl.signing`.
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -118,7 +119,7 @@ def parse_envelope(wire_text: str) -> tuple[bytes, bytes]:
     try:
         env_bytes = _b64url_decode(parts[0])
         sig_bytes = _b64url_decode(parts[1])
-    except (ValueError, base64.binascii.Error) as e:
+    except (ValueError, binascii.Error) as e:
         raise JobError(f"base64url decode failed: {e}") from e
 
     return env_bytes, sig_bytes
@@ -145,7 +146,7 @@ def verify_signature(
         # URL-safe variant. Padding tolerated either way.
         try:
             raw_key = base64.b64decode(pubkey_b64)
-        except (ValueError, base64.binascii.Error):
+        except (ValueError, binascii.Error):
             raw_key = _b64url_decode(pubkey_b64)
 
         if len(raw_key) != 32:
