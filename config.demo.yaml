@@ -16,7 +16,7 @@ llm:
     openai:
       api_key: "YOUR_OPENAI_KEY"          # https://platform.openai.com/api-keys
       enabled: false
-      default_model: "gpt-5.4"
+      default_model: "gpt-5.5"
       # base_url: "https://api.openai.com/v1"   # only set for proxies / Azure
 
     openrouter:
@@ -58,7 +58,7 @@ llm:
 
   # When messages contain image_url blocks (screenshots), this model is used
   # automatically instead of the normal routing chain.
-  vision_model: "openrouter/x-ai/grok-4.1-fast"   # or google/gemini-3-flash-preview
+  vision_model: "openrouter/x-ai/grok-4.3"   # or google/gemini-3-flash-preview
 
   provider_priority:
     - codex
@@ -77,7 +77,7 @@ llm:
       reasoning_effort: medium            # minimal | low | medium | high
       models:
         codex: "gpt-5.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
         zai: "GLM-5.1"
@@ -89,7 +89,7 @@ llm:
       reasoning_effort: medium
       models:
         codex: "gpt-5.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
         zai: "GLM-5.1"
@@ -101,7 +101,7 @@ llm:
       reasoning_effort: low
       models:
         codex: "gpt-5.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
         zai: "GLM-5.1"
@@ -189,7 +189,7 @@ browser:
   viewport_height: 720
   profile_directory: ""                   # ← e.g. "Profile 1" or "Default"
   profile_refresh_hours: 0                # 0 = never auto-refresh — agent logins (2FA etc.) persist
-  vision_model: "x-ai/grok-4.1-fast"      # OpenRouter model for screenshot analysis
+  vision_model: "x-ai/grok-4.3"      # OpenRouter model for screenshot analysis
 
 # --- Desktop GUI Agent ---
 # Pixel-level desktop control via screenshot + pyautogui.

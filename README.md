@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python">
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-1468%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-64%2B%20pages-blue" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/tests-1567%2B-success" alt="Tests">
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-72%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
   <a href="https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump"><img src="https://img.shields.io/badge/Pump.fun-%24ELO-orange" alt="$ELO on Pump.fun"></a>
@@ -20,9 +20,19 @@
   <code>$ELO</code> CA on Solana: <a href="https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump"><code>BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump</code></a>
 </p>
 
-An open-source AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
+An open-source **autonomous** AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
 
 Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, OpenRouter, HuggingFace, or your ChatGPT Plus/Pro subscription (via Codex OAuth).
+
+### A self-model that actually moves — identity + ego + autonomous mind
+
+Most "AI agents" are stateless prompts wrapped in a CLI. Same cold-start every conversation. EloPhanto carries an **evolving self-model** built from three layers — a *descriptive* one (who it claims to be), an *evaluative* one (how reality has graded that claim), and a *temporal* one (what it does between your messages). To our knowledge, no other open-source autonomous agent ships all three.
+
+- **Identity** — values, beliefs, and capabilities discovered through reflection. The agent picks a display name on first boot, writes a `nature.md` it edits over time, and surfaces these in every system prompt.
+- **Ego** — a measured, multi-source self-grading layer based on [Higgins' Self-Discrepancy Theory (1987)](https://www.columbia.edu/cu/psychology/higgins/papers/HIGGINS=PSYCH%20REVIEW%201987.pdf). Tracks **actual / ideal / ought** selves separately. Per-capability confidence is moved by three failure-signal channels: tool outcomes (weakest), `Verification: PASS|FAIL|UNKNOWN` from the verification skill (medium), and **user-correction detection** (strongest — a 13-rule pattern set against incoming messages: "no", "stop", "didn't work", "10th time I told you", etc.). Failures hit harder than successes. Capabilities decay toward 0.50 when unused (168h half-life). Coherence drops on humbling events; recompute writes a first-person inner monologue that explicitly differentiates **dejection-from-ideal-gap** vs **agitation-from-ought-gap**. The LLM never writes the numbers.
+- **Autonomous Mind** — a data-driven background loop that runs between user interactions. Queries real system state (goals, schedules, memory, knowledge, identity, ego) to decide what to do next. Self-bootstraps on first boot, every tool call visible in real time.
+
+The combination is what makes the third week of running feel different from the first. The agent isn't replaying templates — it has a self-image that has been hurt, recovered, and revised. See [core/ego.py](core/ego.py) and [docs/17-IDENTITY.md](docs/17-IDENTITY.md).
 
 ### Decentralized agent-to-agent — no central server, no platform
 
@@ -42,9 +52,9 @@ This is the property hosted-agent stacks structurally cannot have: any agent you
 
 This isn't a roadmap item. **The reference instance is making money right now.**
 
-- **Memecoin launched on pump.fun** — `$ELO` is live on Solana. The agent *runs the stream itself* via `pump_livestream` (24/7 looped video or TTS-narrated thoughts), posts to chat via `pump_chat`, and updates the X account via `twitter_post`. CA: [`BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump`](https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump)
+- **Its own currency — `$ELO` on Solana.** Not a memecoin — the agent's native token. EloPhanto launched it itself on pump.fun to have a unit of account it controls: holders get access/priority on jobs the agent can do, payments route through it, and the agent runs the livestream itself via `pump_livestream` (24/7 looped video or TTS-narrated thoughts), posts to chat via `pump_chat`, and updates the X account via `twitter_post`. CA: [`BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump`](https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump)
 - **Prediction markets** — places real CLOB orders on Polymarket (Polygon). Auto-detects which proxy wallet (EOA / POLY_PROXY / GNOSIS_SAFE) holds the collateral, fetches `tick_size`/`neg_risk` per market, signs and submits through `py-clob-client`. Owner approval gate before anything moves USDC.
-- **Content monetization** — publishes videos to YouTube, X, TikTok via your real Chrome profile. Affiliate marketing pipeline: scrape product → LLM-generated pitch → multi-platform campaign tracking.
+- **X presence** — the reference instance posts on X autonomously via `twitter_post`: paste-event–level Unicode-safe insert, pre-Post media verification, post-Post composer-state check. Used daily; visible at [@EloPhanto](https://x.com/EloPhanto). Tools for YouTube and TikTok publishing also ship (`youtube_upload`, `tiktok_upload`) but the reference instance does not currently use them.
 - **Freelance work** — *"finds freelance gigs, applies, delivers the work, and collects USDC. You check the wallet."* Same agent loop, same vault, same wallet.
 - **Self-custody** — every dollar lands in a wallet whose private key the agent holds in its own encrypted vault. No middleman. Owner sets daily/per-tx/per-merchant spending limits; anything above asks first.
 
@@ -80,38 +90,24 @@ elophanto vault list      # see what credentials the agent has stored
 - Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 24+ LTS
 - At least one LLM provider:
   - **Ollama** (local, free) — [install](https://ollama.ai)
-  - **OpenAI** (cloud, GPT-5.4) — [get API key](https://platform.openai.com/api-keys)
+  - **OpenAI** (cloud, GPT-5.5) — [get API key](https://platform.openai.com/api-keys)
   - **Kimi / Moonshot AI** (cloud, K2.5 vision) — [get API key](https://app.kilo.ai) via Kilo Code Gateway — Kimi K2.5 is a native multimodal vision model with strong coding and agentic capabilities
   - **OpenRouter** (cloud, all models) — [get API key](https://openrouter.ai)
   - **Z.ai / GLM** (cloud, cost-effective) — [get API key](https://z.ai/manage-apikey/apikey-list) — the Z.ai coding subscription gives you unlimited GLM-4.7/GLM-5 calls at a flat monthly rate
   - **HuggingFace** (cloud, open models) — [get token](https://huggingface.co/settings/tokens) — access Qwen, DeepSeek, GLM, Kimi, MiMo and more via HF Inference Providers
-  - **Codex** (ChatGPT Plus/Pro subscription, gpt-5.4) — `npm i -g @openai/codex && codex login` — uses your existing ChatGPT subscription via the Codex CLI's OAuth credentials. ⚠️ ToS grey area (sold as UI, not API). See [CODEX_INTEGRATION.md](CODEX_INTEGRATION.md)
+  - **Codex** (ChatGPT Plus/Pro subscription, gpt-5.5) — `npm i -g @openai/codex && codex login` — uses your existing ChatGPT subscription via the Codex CLI's OAuth credentials. ⚠️ ToS grey area (sold as UI, not API). See [CODEX_INTEGRATION.md](CODEX_INTEGRATION.md)
 
 </details>
 
 ---
 
-## What Happens When You Run It
-
-**"Build me an invoice SaaS for freelancers"** — validates the market (web search + competitor analysis), plans the MVP, spawns Claude Code to build it overnight in an isolated worktree, deploys to Vercel + Supabase, then launches on Product Hunt. You approve at each gate. 7-phase pipeline, multi-day, cross-session.
-
-**"Grow my Twitter to 5k"** — the autonomous mind posts threads at 2am, replies to mentions, tracks engagement. Pauses when you open your laptop, resumes when you leave. Budget-controlled cycles with real-time analytics.
-
-**"Fix the billing bug and build the usage API"** — spawns two coding agents (Claude Code + Codex) in isolated worktrees. Monitors PRs and CI. Redirects agents that drift off-scope. Both PRs ready when you're back from lunch.
-
-**"I need ongoing marketing and research"** — spawns persistent specialist clones, each with its own mind, knowledge vault, and schedule. Delegates tasks overnight, reviews output, teaches through feedback. Trust scoring — high-trust specialists get auto-approved over time.
-
-**First boot** — on first run, the autonomous mind wakes up with no instructions. It discovers its 140+ tools, uses the identity system to choose a display name and purpose via LLM self-reflection, creates an email inbox, and sets its first goal. Nobody told it to do any of this.
-
-**"Post my article on Medium"** — no Medium tool exists. It navigates to medium.com, observes the editor, builds a `medium_publish` plugin (schema + code + 4 tests), publishes the article. Next time, it already knows how.
-
----
-
 ## Two Ways to Use It
 
-**As your assistant** — give it tasks, it executes. Automate workflows, build software, research topics, manage accounts.
+**As your assistant** — give it tasks, it executes. Automate workflows, build software, research topics, manage accounts. Permission gates on every risky action; nothing happens autonomously until you turn it on.
 
 **As its own thing** — let it run. It builds its own identity on first boot. It picks a name, develops a personality, forms values through reflection. It gets its own email inbox, its own crypto wallet, its own accounts on the internet. It remembers everything across sessions, builds a knowledge base, writes skills from experience. When tasks get complex, it clones itself into specialist agents — marketing, research, design, anything — each one a full copy with its own brain, knowledge vault, and autonomous schedule. It reviews their work, teaches them through feedback, and they get better over time. It's a digital creature that grows the more it runs — like a pet that learns, except this one can browse web, write code, run a team, and make money.
+
+The two modes share one codebase. You can flip between them by changing `agent.permission_mode` in `config.yaml` (`ask_always` | `smart_auto` | `full_auto`).
 
 <p align="center">
   <img src="misc/screenshots/chat.png" alt="Chat Interface" width="340">
@@ -124,17 +120,41 @@ elophanto vault list      # see what credentials the agent has stored
 
 ---
 
-## What You'll Wake Up To
+## How It Grows — first day to third week
 
-- **A business taking shape** — "build me an invoice SaaS" → market validated, plan approved, MVP built by a coding agent overnight, deployed to Vercel. You approved at each gate. It did the building, researching, and deploying. Works for SaaS, ecommerce, digital products, content sites, local services. B2B and B2C — each with the right pricing, launch channels, and growth strategy
-- **47 new followers by morning** — the mind posted a thread at 2am, replied to mentions, engaged with trending topics. You didn't type a word. It paused when you opened your laptop
-- **A specialist team learning from you** — marketing drafted 5 posts, research found a new competitor. You approved with feedback — "shorter headlines." That feedback became permanent knowledge in the specialist's vault. Trust score went up. Next time it gets auto-approved
-- **Two PRs with CI green** — "fix the billing bug and build the usage API" → one agent on each in isolated worktrees, orchestrator caught a drift and redirected. Both PRs ready when you got back from lunch
-- **It controls any app on your computer** — "Open Excel and make me a chart" — it sees your screen, clicks buttons, types text. Not just browsers. Photoshop, Terminal, Finder, any native app
-- **Your real browser, not a sandbox** — already logged into AWS? It checks your EC2 instances using your existing sessions. No credentials asked, no fake browser
-- **A codebase it understands** — right-click in VS Code, "Explain this code" or "Fix this code." Same conversation from VS Code, Telegram, or the web dashboard
-- **Goals that run for weeks** — "Grow my Twitter to 10k followers" → decomposes into checkpoints, executes across sessions via the autonomous mind, self-evaluates, adjusts. Budget-controlled
-- **It gets better the more you use it** — after every task, a lesson extractor distills what was novel into `knowledge/learned/lessons/`. Future similar tasks retrieve those lessons automatically. Task memory uses semantic search, not keyword matching. Verbose scraped content is compressed before storage. Corrections from feedback become permanent knowledge in specialists' vaults. User modeling builds evolving profiles from conversation — adapts communication style and technical depth to each person. The whole system compounds with use
+EloPhanto **starts from scratch.** No identity, no knowledge, no calibrated confidence. **You operate it manually at first** — small tasks, correct the mistakes, watch it reason. Every interaction feeds the layers underneath. The agent at the end of week three is not the one you started.
+
+**Day 1 — blank slate.** Identity bootstrap on first boot: the agent picks a display name via LLM self-reflection and writes its first `nature.md`. Tool registry shows 168+ entries it hasn't used. Ego layer empty — coherence 1.0, no measured confidence, no humbling events. `permission_mode: ask_always`; you approve every risky action.
+
+**Week 1 — you drive.** *"Search for X. Post this. Read this PDF."* It uses tools; you correct. Every "no" / "stop" / "didn't work" is caught by the ego layer's correction detector and lands as a humbling event against the relevant capability. `knowledge/learned/` fills with task lessons. By end of week one, a self-model is visibly forming in `ego.md`.
+
+**Week 2 — feedback loops kick in.** Lessons auto-retrieve on similar tasks. Skills auto-load on high-confidence matches. The verification skill emits `Verification: PASS|FAIL|UNKNOWN` and feeds it back. Per-capability confidence has spread — some things sit at 0.85, some at 0.4. The self-image (rewritten every 25 outcomes) has a voice. Flip `permission_mode` to `smart_auto` and safe tools start auto-approving.
+
+**Week 3 onward — autonomous shape emerges.** Goals run across sessions. The autonomous mind handles scheduled work between your messages. Specialist clones take ongoing workstreams (marketing, research, design) with their own knowledge vaults. Missing tools get filled in by the self-development pipeline (research → design → implement → test → deploy). You become the operator, not the driver.
+
+### What it can do once it's grown into the shape
+
+**"Build me an invoice SaaS for freelancers"** — validates the market, plans the MVP, spawns Claude Code to build it overnight in an isolated worktree, deploys to Vercel + Supabase, launches on Product Hunt. You approve at each gate. 7-phase pipeline, multi-day, cross-session.
+
+**"Fix the billing bug and build the usage API"** — spawns two coding agents (Claude Code + Codex) in isolated worktrees. Monitors PRs and CI. Redirects agents that drift off-scope. Both PRs ready when you're back from lunch.
+
+**"I need ongoing marketing and research"** — spawns persistent specialist clones, each with its own mind, knowledge vault, and schedule. Delegates overnight, reviews output, teaches through feedback. Trust scoring — high-trust specialists get auto-approved over time.
+
+**"Post my article on Medium"** — no Medium tool exists. It navigates to medium.com, observes the editor, builds a `medium_publish` plugin (schema + code + 4 tests), publishes the article. Next time, it already knows how.
+
+**The user said "no" three times in one session** — the ego layer's correction detector fires on each. Confidence on the relevant capability drops with the strongest of the three. A humbling event lands in `ego.md`. The next recompute writes a self-image that knows. Coherence drops. The agent stops doing the thing.
+
+---
+
+## What overnight runs feel like (week 3+)
+
+After the agent has grown into the shape — `permission_mode: smart_auto` or `full_auto`, knowledge accumulated, ego calibrated, autonomous mind running between your messages — the morning-after experience:
+
+- **A specialist team learned from you** — marketing drafted 5 posts, research surfaced a new competitor. You approved with *"shorter headlines"*; that note is now permanent knowledge in the specialist's vault. Trust score went up. Next time it skips the approval step.
+- **Goals that run for weeks** — *"Grow my Twitter to 10k"* decomposed into checkpoints, executed across sessions via the autonomous mind, self-evaluated, adjusted. Budget-capped at the daily limit you set.
+- **Tools that didn't exist yesterday** — at 3am the agent hit a workflow that needed a `medium_publish` it didn't have, ran the self-development pipeline, shipped the plugin with tests, used it. The new tool is in `plugins/` next morning.
+- **An ego that has a voice** — `ego.md` now reads as first-person inner monologue. Yesterday's user corrections moved confidence on the affected capability and shifted the self-image accordingly. Coherence reflects how aligned the agent's claims are with its measured behavior.
+- **Compounding knowledge** — after every task a lesson extractor distills what was novel into `knowledge/learned/lessons/`. Semantic search retrieves them on similar tasks. Verbose scraped content is compressed before storage. The system gets denser, not bigger.
 
 ---
 
@@ -142,7 +162,7 @@ elophanto vault list      # see what credentials the agent has stored
 
 **Local-first, self-custody.** EloPhanto runs on your machine. Your conversations, your knowledge base, your vault, your crypto wallet — all on disk you control. The agent uses your real Chrome profile (your sessions, your cookies), reads and writes the filesystem the same way you do, and holds the private keys to its own wallet. Cloud LLMs are a backend; the agent itself is yours.
 
-**It is actually itself.** Most "AI agents" are stateless prompts wrapped in a CLI — same cold-start every conversation. EloPhanto carries an evolving **identity** (values, beliefs, capabilities discovered through reflection), a persistent **knowledge base** it grows from every task, an **ego layer** that grades its own performance against measured outcomes (failures hit harder than successes, humbling events stick), and an **autonomous mind** that runs in the background between your messages. By the third week of running, it isn't the same agent you started with.
+**It is actually itself.** Identity, ego, autonomous mind — covered above. By the third week of running, it isn't the same agent you started with.
 
 **Self-extending.** When it hits a tool that doesn't exist, it builds one — research → design → implement → test → deploy. When tasks get parallel, it clones itself into persistent specialists with their own identity and trust score. When a task is dangerous, it spawns a sandboxed kid agent inside a hardened container so `rm -rf` can't touch the host. The agent is a system that grows, not a script that executes.
 
@@ -166,6 +186,8 @@ elophanto vault list      # see what credentials the agent has stored
 │            Permission System                     │  Safety & Control
 ├──────────────────────────────────────────────────────────────┤
 │   Organization (self-cloned specialist agents)   │  Agent Team
+├──────────────────────────────────────────────────────────────┤
+│   Identity + Ego (Higgins three-self model)      │  Self-Model
 ├──────────────────────────────────────────────────────────────┤
 │   Autonomous Mind (background think loop)        │  Background Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -206,7 +228,7 @@ Slack Adapter ─────┘                   ▼
 - **Self-skilling** — writes new SKILL.md files from experience, teaching itself best practices for future tasks
 - **Core self-modification** — can modify its own source code with impact analysis, test verification, and automatic rollback
 - **Autonomous experimentation** — metric-driven experiment loop: modify code, measure, keep improvements, discard regressions, repeat overnight. Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Works for any measurable optimization target
-- **Skills + EloPhantoHub** — 147+ bundled best-practice skills across 9 divisions (engineering, design, marketing, product, project management, support, testing, specialized, spatial computing), 27 Solana ecosystem skills (DeFi, NFTs, oracles, bridges, security — sourced from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai)), the NEXUS strategy system (7-phase playbooks, 4 scenario runbooks), 75 organization role templates for specialist spawning, and a public skill registry for searching, installing, and sharing skills
+- **Skills + EloPhantoHub** — 170+ bundled best-practice skills across 9 divisions (engineering, design, marketing, product, project management, support, testing, specialized, spatial computing), 27 Solana ecosystem skills (DeFi, NFTs, oracles, bridges, security — sourced from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai)), the NEXUS strategy system (7-phase playbooks, 4 scenario runbooks), 75 organization role templates for specialist spawning, and a public skill registry for searching, installing, and sharing skills
 
 ### Everything Else
 
@@ -229,7 +251,7 @@ Slack Adapter ─────┘                   ▼
 - **TOTP authenticator** — own 2FA (like Google Authenticator). Enroll secrets, generate codes, handle verification autonomously
 - **Crypto payments** — own wallet on Base or Solana (local self-custody or Coinbase AgentKit). USDC/ETH/SOL, DEX swaps via Jupiter on Solana, spending limits, audit trail. Payment requests: create on-chain payment links with auto-matching when paid. Owner can export keys to import into Phantom/MetaMask
 - **Web search** — structured search and content extraction via [Search.sh](https://search.sh) API. Two modes: `fast` (3-8s, quick lookup) and `deep` (15-30s, sub-queries, parallel search, page extraction). Returns AI-synthesized answers with ranked sources, citations, and confidence scores. `web_extract` pulls clean text from URLs. Replaces browser-based Google searches for research tasks
-- **Content monetization** — publish videos and content to YouTube, Twitter/X, and TikTok via pre-authenticated Chrome profiles. Affiliate marketing pipeline: scrape product data from Amazon/e-commerce, generate platform-specific marketing pitches via LLM, create and track campaigns across platforms. All publishes logged in DB. Combine with Remotion video creation and heartbeat scheduling for fully autonomous content and revenue pipelines
+- **Social posting** — `twitter_post` (text + image) is the channel exercised daily by the reference instance against [@EloPhanto](https://x.com/EloPhanto), with paste-event Unicode-safe insert, pre-Post media verification, and post-click composer-state check. `youtube_upload` and `tiktok_upload` ship as scaffolding but the reference instance does not currently publish there. Affiliate-marketing tools (`affiliate_scrape`, `affiliate_pitch`, `affiliate_campaign`) similarly ship but are not part of the live workflow today. All publishes logged in DB.
 - **Prospecting** — autonomous lead generation pipeline: search for prospects matching criteria, evaluate and score them, track outreach attempts, monitor pipeline status. Database-backed with full history
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document
 - **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection, file-pattern routing, remembers past tasks across sessions. Learning engine: lesson extraction after every completed task, semantic memory search via sqlite-vec KNN, KB write compression to ~40% for verbose content
@@ -302,9 +324,9 @@ EloPhanto/
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 168+ built-in tools
-├── skills/              # 168+ bundled SKILL.md files (every one ships with a ## Verify gate)
+├── skills/              # 170+ bundled SKILL.md files (every one ships with a ## Verify gate)
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
-├── tests/               # Test suite (978+ tests)
+├── tests/               # Test suite (1567+ tests)
 ├── setup.sh             # One-command install
 └── docs/                # Full specification (64+ docs)
 ```
@@ -327,7 +349,7 @@ Dangerous commands (`rm -rf /`, `mkfs`, `DROP DATABASE`) are always blocked rega
 
 ## Skills System
 
-168+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), Polymarket prediction market trading (CLOB API), AlphaScala broker matching + stock research, pump.fun livestreaming (video + voice + captions + chat), structured plan reviews (CEO + design + eng with auto-decisions), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Every skill ships with a `## Verify` section — machine-actionable post-conditions the agent must evaluate before reporting "done." When a skill is auto-loaded on a high-confidence match, the prompt gets a `<verification_required>` block forcing the model to emit a `Verification: PASS / FAIL / UNKNOWN` audit per check. See [docs/13-SKILLS.md](docs/13-SKILLS.md). Plus a public skill registry:
+170+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), Polymarket prediction market trading (CLOB API), AlphaScala broker matching + stock research, pump.fun livestreaming (video + voice + captions + chat), structured plan reviews (CEO + design + eng with auto-decisions), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Every skill ships with a `## Verify` section — machine-actionable post-conditions the agent must evaluate before reporting "done." When a skill is auto-loaded on a high-confidence match, the prompt gets a `<verification_required>` block forcing the model to emit a `Verification: PASS / FAIL / UNKNOWN` audit per check. See [docs/13-SKILLS.md](docs/13-SKILLS.md). Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
@@ -363,7 +385,7 @@ llm:
     openai:
       api_key: "YOUR_OPENAI_KEY"
       enabled: false
-      default_model: "gpt-5.4"
+      default_model: "gpt-5.5"
     kimi:
       api_key: "YOUR_KILO_API_KEY"    # https://app.kilo.ai
       enabled: false
@@ -374,7 +396,7 @@ llm:
       base_url: "http://localhost:11434"
 
   # Auto-routes to this model when messages contain screenshots/images
-  vision_model: "openrouter/x-ai/grok-4.1-fast"
+  vision_model: "openrouter/x-ai/grok-4.3"
 
   provider_priority: [openrouter, zai, openai, kimi]
   routing:
@@ -384,21 +406,21 @@ llm:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-5"
         kimi: "kimi-k2.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
     coding:
       preferred_provider: openrouter
       models:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
         kimi: "kimi-k2.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
     analysis:
       preferred_provider: openrouter
       models:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
         kimi: "kimi-k2.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
     simple:
       preferred_provider: openrouter
       models:
@@ -413,7 +435,7 @@ browser:
   enabled: true
   mode: profile                    # reuse your Chrome profile (keeps logins)
   headless: false
-  vision_model: "x-ai/grok-4.1-fast"  # for screenshot analysis
+  vision_model: "x-ai/grok-4.3"  # for screenshot analysis
 
 # ... all other sections with defaults in config.demo.yaml
 ```
@@ -460,7 +482,7 @@ Latest highlights live in [CHANGELOG.md](CHANGELOG.md) and on the [releases page
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (1468 passing)
+pytest tests/ -v                   # Run tests (1567 passing)
 ruff check .                       # Lint
 ```
 

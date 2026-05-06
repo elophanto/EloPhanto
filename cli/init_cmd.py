@@ -409,8 +409,8 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
     console.print()
 
     # --- OpenAI ---
-    console.print("[bold]OpenAI[/bold] (GPT-5.4, o3, o1 — direct from OpenAI)")
-    console.print("  [dim]Models: gpt-5.4, gpt-4.1, o3, o1[/dim]")
+    console.print("[bold]OpenAI[/bold] (GPT-5.5, o3, o1 — direct from OpenAI)")
+    console.print("  [dim]Models: gpt-5.5, gpt-4.1, o3, o1[/dim]")
     current_oai_key = (
         config.get("llm", {}).get("providers", {}).get("openai", {}).get("api_key", "")
     )
@@ -433,7 +433,7 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
             config.get("llm", {})
             .get("providers", {})
             .get("openai", {})
-            .get("default_model", "gpt-5.4")
+            .get("default_model", "gpt-5.5")
         )
         oai_default = Prompt.ask(
             "  Default OpenAI model",

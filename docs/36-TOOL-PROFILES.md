@@ -122,12 +122,12 @@ llm:
       preferred_provider: openai
       tool_profile: coding          # profile for this task type
       models:
-        openai: gpt-5.4
+        openai: gpt-5.5
     planning:
       preferred_provider: openai
       tool_profile: full
       models:
-        openai: gpt-5.4
+        openai: gpt-5.5
 
   providers:
     openai:

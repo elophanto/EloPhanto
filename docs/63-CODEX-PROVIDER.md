@@ -1,7 +1,7 @@
 # 63 — Codex Subscription Provider
 
 > Use your ChatGPT Plus/Pro subscription as EloPhanto's LLM backend.
-> Default model: **gpt-5.4**.
+> Default model: **gpt-5.5**.
 
 **Status:** Complete
 **Priority:** P2 — Alternative LLM provider
@@ -37,7 +37,7 @@ codex login   # opens browser → OAuth → writes ~/.codex/auth.json
 ### 2. Enable the provider
 
 Codex auto-detects on startup — if `~/.codex/auth.json` exists with
-`auth_mode: chatgpt`, the provider auto-enables with `gpt-5.4` as the
+`auth_mode: chatgpt`, the provider auto-enables with `gpt-5.5` as the
 default model.
 
 To enable explicitly in `config.yaml`:
@@ -48,7 +48,7 @@ llm:
     codex:
       enabled: true
       base_url: "https://chatgpt.com/backend-api/codex"
-      default_model: "gpt-5.4"
+      default_model: "gpt-5.5"
 ```
 
 To route specific tasks to Codex:
@@ -60,7 +60,7 @@ llm:
       preferred_provider: codex
       reasoning_effort: high
       models:
-        codex: gpt-5.4
+        codex: gpt-5.5
 ```
 
 ---
@@ -69,8 +69,8 @@ llm:
 
 | Model | Context | Notes |
 |---|---|---|
-| `gpt-5.4` | ~1M tokens | Top model, multimodal, **default** |
-| `gpt-5.4-mini` | ~272K | Cheaper variant |
+| `gpt-5.5` | ~1M tokens | Top model, multimodal, **default** |
+| `gpt-5.5-mini` | ~272K | Cheaper variant |
 | `gpt-5.3-codex` | | Previous Codex default |
 | `gpt-5.3-codex-spark` | | Reasoning-only, free tier |
 | `gpt-5.2-codex` | | |
@@ -92,7 +92,7 @@ different ranges). Examples:
 
 | Model | Clamping |
 |---|---|
-| `gpt-5.4`, `gpt-5.4-mini` | `minimal` → `low` |
+| `gpt-5.5`, `gpt-5.5-mini` | `minimal` → `low` |
 | `gpt-5.1-codex-mini` | `high`/`xhigh` → `medium` |
 | `gpt-5.1`, `gpt-5.1-codex` | `xhigh` → `high` |
 
