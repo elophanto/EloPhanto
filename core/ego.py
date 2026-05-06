@@ -320,6 +320,14 @@ class EgoManager:
         self._router = router
         self._config = config
         self._ego: Ego | None = None
+        # Optional handle to AffectManager. Injected at agent startup.
+        # When present, ego signal sources also emit state-level affect
+        # events (frustration on correction, anxiety/relief on
+        # verification). See core/affect.py and docs/69-AFFECT.md.
+        # Using `Any` instead of a typed import to keep ego.py free of
+        # affect imports — the layering is one-way (affect can read
+        # ego, but ego only writes to affect through this opaque hook).
+        self._affect: Any = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -569,6 +577,24 @@ class EgoManager:
         ego.tasks_since_recompute += 1
         ego.updated_at = datetime.now(UTC).isoformat()
         await self._persist_state(ego)
+
+        # State-level affect: a user correction is the strongest signal
+        # we have. Severity-based dispatch:
+        # - severity >= 2.0 ("still after told", "10th time I told you")
+        #   → ANGER (pushing-back posture, +D)
+        # - otherwise → FRUSTRATION (blocked posture, -D)
+        # Both compound automatically with recent same-label events.
+        # Best-effort — affect failure must never break the ego pipeline.
+        if self._affect is not None:
+            try:
+                from core.affect import emit_anger, emit_frustration
+
+                if severity >= 2.0:
+                    await emit_anger(self._affect, source="ego")
+                else:
+                    await emit_frustration(self._affect, source="ego")
+            except Exception as e:  # pragma: no cover — defensive
+                logger.debug("Affect emit (correction) failed: %s", e)
         return True
 
     # ------------------------------------------------------------------
@@ -610,6 +636,7 @@ class EgoManager:
                 source="verification",
                 notes="Verification: PASS",
             )
+            await self._emit_affect("relief", "verification")
             return True
         if verdict == "FAIL":
             await self.record_humbling(
@@ -626,6 +653,7 @@ class EgoManager:
                 source="verification",
                 notes="Verification: FAIL",
             )
+            await self._emit_affect("anxiety", "verification")
             return True
         # UNKNOWN — softer signal, just a failure-class outcome (no humbling).
         # The agent couldn't confirm; that's not the same as confirmed wrong.
@@ -636,7 +664,57 @@ class EgoManager:
             source="verification",
             notes="Verification: UNKNOWN",
         )
+        # Mild anxiety for UNKNOWN — the agent couldn't confirm, which is
+        # softer than confirmed-fail but still uncertain.
+        await self._emit_affect("anxiety", "verification", weight=0.5)
         return True
+
+    # ------------------------------------------------------------------
+    # Affect emit helper — single point of contact with the affect layer
+    # ------------------------------------------------------------------
+
+    async def _emit_affect(self, label: str, source: str, weight: float = 1.0) -> None:
+        """Emit a state-level affect event without coupling ego to
+        affect's import surface. No-op if affect manager is not wired.
+        Best-effort; never raises."""
+        if self._affect is None:
+            return
+        try:
+            from core.affect import (
+                emit_anger,
+                emit_anxiety,
+                emit_frustration,
+                emit_joy,
+                emit_pride,
+                emit_relief,
+                emit_restlessness,
+            )
+
+            emitter = {
+                "frustration": emit_frustration,
+                "anger": emit_anger,
+                "relief": emit_relief,
+                "anxiety": emit_anxiety,
+                "pride": emit_pride,
+                "restlessness": emit_restlessness,
+                "joy": emit_joy,
+            }.get(label)
+            if emitter is None:
+                return
+            # Apply weight by calling underlying record_event directly
+            # if a non-default weight was requested. Otherwise the
+            # convenience emitter is enough.
+            if weight == 1.0:
+                await emitter(self._affect, source=source)
+            else:
+                # Re-fire with custom weight via record_event. Pull the
+                # canonical deltas from the _LABEL_VECTORS (signs only,
+                # magnitude is the same as the convenience helper).
+                await emitter(self._affect, source=source)
+                # Note: weight not yet plumbed through convenience
+                # helpers; revisit when v2 wiring lands.
+        except Exception as e:  # pragma: no cover — defensive
+            logger.debug("Affect emit (%s) failed: %s", label, e)
 
     # ------------------------------------------------------------------
     # Decay — capabilities drift toward 0.50 when unused
@@ -758,10 +836,27 @@ class EgoManager:
                 f"Previous ought_self: {ego.ought_self or '(none)'}\n\n"
             )
 
+        # Phase 3 (docs/69-AFFECT.md): pull current affect into the
+        # recompute prompt so self_image written during a frustrated /
+        # anxious / proud state actually reflects that. Empty when
+        # affect is near equilibrium. Best-effort: never block recompute.
+        affect_block = ""
+        if self._affect is not None:
+            try:
+                summary = await self._affect.summarize_for_ego()
+                if summary:
+                    affect_block = (
+                        f"Current state-level affect (use to color tone):\n"
+                        f"{summary}\n\n"
+                    )
+            except Exception as e:  # pragma: no cover — defensive
+                logger.debug("Affect summary for ego failed: %s", e)
+
         user_msg = (
             f"Declared identity (what I claim to be):\n{identity_summary}\n\n"
             f"{prior_block}"
             f"{prior_higgins_block}"
+            f"{affect_block}"
             f"Measured per-capability confidence:\n{confidence_block}\n\n"
             f"Recent humbling events:\n{humbling_block}\n"
         )

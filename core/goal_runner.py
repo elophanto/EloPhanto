@@ -335,6 +335,19 @@ class GoalRunner:
                 goal.goal_id, checkpoint.order, summary
             )
 
+            # Affect: a checkpoint hit is a real win. Fire pride —
+            # high-pleasure / high-arousal / high-dominance — best-effort.
+            # See docs/69-AFFECT.md. The agent's tone on the next response
+            # should reflect that something just landed.
+            affect_mgr = getattr(self._agent, "_affect_manager", None)
+            if affect_mgr is not None:
+                try:
+                    from core.affect import emit_pride
+
+                    await emit_pride(affect_mgr, source="goal")
+                except Exception as e:  # pragma: no cover — defensive
+                    logger.debug("Affect emit (pride) failed: %s", e)
+
             # Update context summary for next checkpoint
             goal_refreshed = await self._gm.get_goal(goal.goal_id)
             if goal_refreshed:

@@ -499,6 +499,7 @@ class Agent:
         self._goal_manager: Any = None  # GoalManager, set during initialize
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._ego_manager: Any = None  # EgoManager, set during initialize
+        self._affect_manager: Any = None  # AffectManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
         self._email_config: Any = None  # EmailConfig, set during initialize
         self._email_monitor: Any = None  # EmailMonitor, set during initialize
@@ -940,6 +941,30 @@ class Agent:
                 logger.info("Ego system ready")
             except Exception as e:
                 logger.warning(f"Ego system setup failed: {e}")
+
+            # Affect — state-level emotion, sister to ego (trait-level).
+            # Decays toward zero on the order of minutes-to-hours; colors
+            # tone of the next response without changing capability.
+            # See docs/69-AFFECT.md.
+            try:
+                from core.affect import AffectManager
+
+                self._affect_manager = AffectManager(
+                    db=self._db, config=self._config.identity
+                )
+                await self._affect_manager.load_or_create()
+                # One-way wire: ego writes to affect, never the reverse.
+                if self._ego_manager is not None:
+                    self._ego_manager._affect = self._affect_manager
+                # Executor fires mild anxiety on tool failures.
+                if self._executor is not None:
+                    self._executor._affect_manager = self._affect_manager
+                # Router applies affect-based temperature bias.
+                if self._router is not None:
+                    self._router._affect_manager = self._affect_manager
+                logger.info("Affect system ready")
+            except Exception as e:
+                logger.warning(f"Affect system setup failed: {e}")
 
         # Initialize user modeling
         if self._config.identity.enabled:
@@ -2104,6 +2129,33 @@ class Agent:
                 self_perception_context = (
                     await self._ego_manager.build_self_perception_context()
                 )
+        except Exception:
+            pass
+
+        # Affect (state-level emotion). Returns "" when state is near
+        # equilibrium so neutral sessions don't pay tokens. Appended
+        # alongside self_perception so the model sees both the trait-
+        # level (ego) and state-level (affect) self-model.
+        # Phase 4: when affect.allow_self_pause is enabled in config
+        # AND the affect state is past the pause gate, the affect
+        # block's guidance changes to permit a gentle "I'm stretched"
+        # mention. Default config keeps this off — pure tone influence.
+        affect_context = ""
+        try:
+            if self._affect_manager:
+                allow_pause = bool(
+                    getattr(self._config, "affect", None)
+                    and self._config.affect.allow_self_pause
+                )
+                affect_context = await self._affect_manager.build_affect_context(
+                    allow_pause_note=allow_pause
+                )
+                if affect_context:
+                    self_perception_context = (
+                        (self_perception_context + "\n" + affect_context)
+                        if self_perception_context
+                        else affect_context
+                    )
         except Exception:
             pass
 

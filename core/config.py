@@ -335,6 +335,26 @@ class JobsConfig:
 
 
 @dataclass
+class AffectConfig:
+    """State-level affect (Phase 1 + Phase 4 controls).
+
+    See docs/69-AFFECT.md. Phase 1-3 features (event recording,
+    decay, system-prompt block, temperature bias, ego coupling) are
+    on by default once the affect system is initialized — they're
+    pure-tone influence with no behavior gating.
+
+    Phase 4 self-pause is the only operator-gated feature. Default
+    OFF because an emotional agent that refuses tasks is bad UX.
+    Operators who want it flip `allow_self_pause: true` and accept
+    that the agent may suggest breaks or autonomously pause goals
+    when its affect crosses the pause threshold.
+    """
+
+    enabled: bool = True
+    allow_self_pause: bool = False
+
+
+@dataclass
 class HubConfig:
     """EloPhantoHub skill registry configuration."""
 
@@ -486,6 +506,9 @@ class IdentityConfig:
     first_awakening: bool = True
     nature_file: str = "knowledge/self/nature.md"
     ego_file: str = "knowledge/self/ego.md"
+    # State-level affect mirror — see docs/69-AFFECT.md. Lives next to
+    # nature/ego so all three self-model documents are colocated.
+    affect_file: str = "knowledge/self/affect.md"
 
 
 @dataclass
@@ -856,6 +879,7 @@ class Config:
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
     peers: PeersConfig = field(default_factory=PeersConfig)
     jobs: JobsConfig = field(default_factory=JobsConfig)
+    affect: AffectConfig = field(default_factory=AffectConfig)
     hub: HubConfig = field(default_factory=HubConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     slack: SlackConfig = field(default_factory=SlackConfig)
@@ -1301,6 +1325,12 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         signing_pubkey=str(jobs_raw.get("signing_pubkey", "")).strip(),
     )
 
+    affect_raw = raw.get("affect", {})
+    affect_config = AffectConfig(
+        enabled=affect_raw.get("enabled", True),
+        allow_self_pause=affect_raw.get("allow_self_pause", False),
+    )
+
     # Parse hub section
     hub_raw = raw.get("hub", {})
     hub_config = HubConfig(
@@ -1389,6 +1419,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         first_awakening=identity_raw.get("first_awakening", True),
         nature_file=identity_raw.get("nature_file", "knowledge/self/nature.md"),
         ego_file=identity_raw.get("ego_file", "knowledge/self/ego.md"),
+        affect_file=identity_raw.get("affect_file", "knowledge/self/affect.md"),
     )
 
     # Parse learner section
@@ -1734,6 +1765,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         gateway=gateway_config,
         peers=peers_config,
         jobs=jobs_config,
+        affect=affect_config,
         hub=hub_config,
         discord=discord_config,
         slack=slack_config,

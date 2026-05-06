@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import click
 
+from cli.affect_cmd import affect_cmd
 from cli.bootstrap_cmd import bootstrap_cmd
 from cli.chat_cmd import chat_cmd
 from cli.daemon_cmd import daemon_cmd
@@ -43,6 +44,7 @@ cli.add_command(mcp_cmd, "mcp")
 cli.add_command(kid_cmd, "kid")
 cli.add_command(daemon_cmd, "daemon")
 cli.add_command(update_cmd, "update")
+cli.add_command(affect_cmd, "affect")
 
 
 if __name__ == "__main__":

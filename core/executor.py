@@ -109,6 +109,12 @@ class Executor:
         self._on_tool_executed: (
             Callable[[str, dict[str, Any], str | None], None] | None
         ) = None
+        # Affect handle — set by Agent.initialize() when affect is up.
+        # Fire mild anxiety on tool-execution exceptions and on
+        # ToolResult.success=False outcomes. See docs/69-AFFECT.md.
+        # Typed `Any` to keep executor.py free of affect imports —
+        # layering is one-way (executor writes to affect, never reads).
+        self._affect_manager: Any = None
 
         perms = _load_permissions(config.project_root)
         self._tool_overrides: dict[str, str] = perms.get("tool_overrides", {}) or {}
@@ -220,6 +226,16 @@ class Executor:
                     self._on_tool_executed(tool_name, params, None)
                 except Exception:
                     pass
+            # Affect: a clean exception didn't fire, but the tool may
+            # have returned success=False. Treat that as mild anxiety —
+            # softer than an exception, but still a failure signal that
+            # should color the next response.
+            if (
+                self._affect_manager is not None
+                and result is not None
+                and getattr(result, "success", True) is False
+            ):
+                await self._fire_affect_safe("anxiety", "executor")
             return ExecutionResult(
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
@@ -232,11 +248,27 @@ class Executor:
                     self._on_tool_executed(tool_name, params, str(e))
                 except Exception:
                     pass
+            # Affect: an unhandled exception is the strongest tool-side
+            # failure signal. Fire anxiety at full weight.
+            if self._affect_manager is not None:
+                await self._fire_affect_safe("anxiety", "executor")
             return ExecutionResult(
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
                 error=f"Tool execution failed: {e}",
             )
+
+    async def _fire_affect_safe(self, label: str, source: str) -> None:
+        """Best-effort affect emission. Never raises — affect failure
+        must not break tool execution. Handles the import indirection so
+        executor.py stays free of affect imports at module top level."""
+        try:
+            from core.affect import emit_anxiety
+
+            if label == "anxiety":
+                await emit_anxiety(self._affect_manager, source=source)
+        except Exception as e:  # pragma: no cover — defensive
+            logger.debug("Affect emit (%s) from executor failed: %s", label, e)
 
     def _check_permission(
         self,

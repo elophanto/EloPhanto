@@ -397,13 +397,35 @@ class AutonomousMind:
             while not self._stop_requested:
                 # Sleep until next wakeup (or event/resume trigger)
                 self._wakeup_event.clear()
+                slept_full_duration = False
+                slept_seconds = self._next_wakeup_sec
                 try:
                     await asyncio.wait_for(
                         self._wakeup_event.wait(),
                         timeout=self._next_wakeup_sec,
                     )
                 except TimeoutError:
-                    pass  # Normal wakeup
+                    # Normal wakeup — slept the full duration with no
+                    # external event waking us up.
+                    slept_full_duration = True
+
+                # Affect: if we slept >= 2h with no external event, the
+                # agent is in deep idle. Fire restlessness so the next
+                # action has some activation behind it. See
+                # docs/69-AFFECT.md. Best-effort; never block the loop.
+                if (
+                    slept_full_duration
+                    and slept_seconds >= 7200.0
+                    and not self._stop_requested
+                ):
+                    affect_mgr = getattr(self._agent, "_affect_manager", None)
+                    if affect_mgr is not None:
+                        try:
+                            from core.affect import emit_restlessness
+
+                            await emit_restlessness(affect_mgr, source="mind")
+                        except Exception as e:  # pragma: no cover — defensive
+                            logger.debug("Affect emit (restlessness) failed: %s", e)
 
                 if self._stop_requested:
                     break

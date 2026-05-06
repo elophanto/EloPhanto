@@ -262,6 +262,36 @@ _SCHEMA = [
         created_at TEXT NOT NULL
     )
     """,
+    # Affect (state-level emotion) — PAD substrate, OCC labels on top.
+    # See docs/69-AFFECT.md for full design rationale. Distinct from ego:
+    # ego is trait-level (rewritten every 25 outcomes); affect is state-
+    # level (changes by the minute) and decays toward zero.
+    """
+    CREATE TABLE IF NOT EXISTS affect_state (
+        id TEXT PRIMARY KEY DEFAULT 'self',
+        pleasure REAL NOT NULL DEFAULT 0.0,
+        arousal REAL NOT NULL DEFAULT 0.0,
+        dominance REAL NOT NULL DEFAULT 0.0,
+        last_decay_at TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS affect_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT NOT NULL,
+        source TEXT NOT NULL,
+        pleasure_delta REAL NOT NULL,
+        arousal_delta REAL NOT NULL,
+        dominance_delta REAL NOT NULL,
+        halflife_seconds REAL NOT NULL DEFAULT 300.0,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_affect_events_created
+        ON affect_events(created_at)
+    """,
     """
     CREATE TABLE IF NOT EXISTS payment_audit (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -52,9 +52,6 @@ _EFFORT_CLAMP: dict[str, dict[str, str]] = {
     # gpt-5.5 family rejects "minimal" (only accepts none/low/medium/high/xhigh)
     "gpt-5.5": {"minimal": "low"},
     "gpt-5.5-mini": {"minimal": "low"},
-    "gpt-5.5-codex": {"minimal": "low"},
-    "gpt-5.5": {"minimal": "low"},
-    "gpt-5.5-mini": {"minimal": "low"},
     "gpt-5.3-codex": {"minimal": "low"},
     "gpt-5.2-codex": {"minimal": "low"},
     "gpt-5.1-codex-mini": {
@@ -71,10 +68,8 @@ _EFFORT_CLAMP: dict[str, dict[str, str]] = {
 # but we still track token usage for observability. Values from platform
 # API pricing as a proxy.
 _COSTS = {
-    # gpt-5.5 pricing not yet published; using gpt-5.5 rates as a proxy
-    "gpt-5.5": {"input": 0.003, "output": 0.015},
-    "gpt-5.5-mini": {"input": 0.0008, "output": 0.004},
-    "gpt-5.5-codex": {"input": 0.002, "output": 0.010},
+    # gpt-5.5 pricing approximate — ChatGPT subscription is flat-rate but
+    # we track token usage for observability.
     "gpt-5.5": {"input": 0.003, "output": 0.015},
     "gpt-5.5-mini": {"input": 0.0008, "output": 0.004},
     "gpt-5.3-codex": {"input": 0.002, "output": 0.010},
