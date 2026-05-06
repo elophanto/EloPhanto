@@ -361,5 +361,192 @@ class TestEgoVoiceFields:
         assert "## Who I am right now" in text
         assert "## What I'm proud of" in text
         assert "## What bothers me" in text
-        assert "## What I want to be" in text
+        assert "## What I'm pulled toward" in text
         assert "I shipped the pumpfun stream" in text
+
+
+class TestFailureSignalPipeline:
+    """Tier-1 fix: ego must move on user corrections, verification fails,
+    and time-based decay — not just on hardcoded `success=True` outcomes.
+
+    Before this fix, the production code recorded 1,136 outcomes with
+    1,136 successes and 0 failures, leaving coherence stuck at 1.00 and
+    confidence climbing to 0.95 for every active capability. These tests
+    prove the failure-signal channels are wired up.
+    """
+
+    def _voice_router(self) -> AsyncMock:
+        r = AsyncMock()
+        r.complete = AsyncMock(
+            return_value=FakeLLMResponse(
+                content=json.dumps(
+                    {
+                        "ideal_self": "I want to be steady.",
+                        "ought_self": "I owe users a clean exit.",
+                        "self_image": "I notice I keep getting cut off.",
+                        "proud_of": "I keep retrying.",
+                        "embarrassed_by": "User said no.",
+                        "aspiration": "Listen the first time.",
+                        "self_critique": "I don't update fast enough.",
+                    }
+                )
+            )
+        )
+        return r
+
+    @pytest.mark.asyncio
+    async def test_correction_detector_fires_on_no(self, db: Database) -> None:
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        await mgr.load_or_create()
+        await mgr.record_outcome("twitter_post", success=True)
+        # Confidence climbed slightly above the default. Confirm before correction.
+        ego_before = await mgr.get_ego()
+        prior_conf = ego_before.confidence["twitter_post"]
+        assert prior_conf > _CONF_DEFAULT
+
+        fired = await mgr.record_correction("no, that's wrong")
+        assert fired is True
+        ego_after = await mgr.get_ego()
+        # Confidence dropped.
+        assert ego_after.confidence["twitter_post"] < prior_conf
+        # Coherence dropped.
+        assert ego_after.coherence_score < 1.0
+        # Humbling event was recorded.
+        assert len(ego_after.humbling_events) == 1
+        assert "user correction" in ego_after.humbling_events[0].actual
+
+    @pytest.mark.asyncio
+    async def test_correction_detector_ignores_affirmations(self, db: Database) -> None:
+        """`"thanks, no problem"` should NOT trigger a humbling event."""
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        await mgr.load_or_create()
+        await mgr.record_outcome("twitter_post", success=True)
+        for affirm in ["thanks!", "perfect", "yes, exactly", "no problem"]:
+            fired = await mgr.record_correction(affirm)
+            assert fired is False, f"should not fire on: {affirm!r}"
+
+    @pytest.mark.asyncio
+    async def test_repeat_correction_hits_harder(self, db: Database) -> None:
+        """`10th time I told you` should hit confidence harder than `no`."""
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        await mgr.load_or_create()
+        await mgr.record_outcome("scheduler", success=True)
+        soft = mgr.detect_correction("no")
+        loud = mgr.detect_correction("10th time i told you to stop")
+        assert soft is not None
+        assert loud is not None
+        assert loud[1] > soft[1]
+
+    @pytest.mark.asyncio
+    async def test_verification_fail_records_humbling(self, db: Database) -> None:
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        await mgr.load_or_create()
+        await mgr.record_outcome("file_write", success=True)
+        prior = (await mgr.get_ego()).confidence["file_write"]
+        fired = await mgr.record_verification(
+            agent_response="Did the thing.\n\nVerification: FAIL",
+            capability="file_write",
+            task_goal="write file",
+        )
+        assert fired is True
+        ego = await mgr.get_ego()
+        assert len(ego.humbling_events) == 1
+        assert ego.confidence["file_write"] < prior
+
+    @pytest.mark.asyncio
+    async def test_verification_unknown_records_failure_no_humbling(
+        self, db: Database
+    ) -> None:
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        await mgr.load_or_create()
+        await mgr.record_outcome("web_search", success=True)
+        await mgr.record_verification(
+            agent_response="Tried.\n\nVerification: UNKNOWN",
+            capability="web_search",
+        )
+        ego = await mgr.get_ego()
+        # No humbling event for UNKNOWN — couldn't confirm ≠ confirmed wrong.
+        assert len(ego.humbling_events) == 0
+        # But the outcome was recorded as failure-class.
+        rows = await db.execute(
+            "SELECT success, source FROM ego_outcomes WHERE capability='web_search'"
+        )
+        assert any(r["success"] == 0 and r["source"] == "verification" for r in rows)
+
+    @pytest.mark.asyncio
+    async def test_decay_drifts_unused_capabilities_toward_default(
+        self, db: Database
+    ) -> None:
+        """A capability sitting at high confidence with no recent use
+        should drift toward 0.50 when decay runs."""
+        from datetime import UTC, datetime, timedelta
+
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        ego = await mgr.load_or_create()
+        # Pump up confidence on one capability.
+        for _ in range(20):
+            await mgr.record_outcome("rare_thing", success=True)
+        ego = await mgr.get_ego()
+        peak = ego.confidence["rare_thing"]
+        assert peak > 0.85  # confirmed climbed
+
+        # Backdate the last_used and last_decay so decay actually fires.
+        long_ago = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+        ego.last_used["rare_thing"] = long_ago
+        ego.last_decay_at = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        moved = mgr._apply_decay(ego)
+        assert moved >= 1
+        # Should have drifted toward 0.50, but not all the way (one month
+        # is ~4.3 half-lives at 168h half-life — retains ~5% of the gap).
+        assert ego.confidence["rare_thing"] < peak
+        assert ego.confidence["rare_thing"] >= _CONF_DEFAULT  # didn't overshoot
+
+    @pytest.mark.asyncio
+    async def test_decay_is_rate_limited(self, db: Database) -> None:
+        """Calling decay twice in quick succession should be a no-op
+        the second time — the recompute interval gates it."""
+        from datetime import UTC, datetime, timedelta
+
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        ego = await mgr.load_or_create()
+        await mgr.record_outcome("a", success=True)
+        ego.last_used["a"] = (datetime.now(UTC) - timedelta(days=14)).isoformat()
+        # load_or_create stamps last_decay_at = now, which would gate the
+        # first call. Backdate it past the rate-limit window to let the
+        # first sweep run, then verify the second is the no-op.
+        ego.last_decay_at = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        first = mgr._apply_decay(ego)
+        second = mgr._apply_decay(ego)
+        assert first >= 1
+        assert second == 0  # rate-limited
+
+    @pytest.mark.asyncio
+    async def test_correction_attaches_to_last_capability(self, db: Database) -> None:
+        """A correction with no explicit capability should attach to the
+        most recently used one."""
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        await mgr.load_or_create()
+        await mgr.record_outcome("twitter_post", success=True)
+        await mgr.record_correction("that didn't work")
+        ego = await mgr.get_ego()
+        assert ego.humbling_events[-1].capability == "twitter_post"
+
+    @pytest.mark.asyncio
+    async def test_correction_severity_scales_with_phrase(self, db: Database) -> None:
+        """A 'this is the 10th time' message should detect with higher
+        severity than a casual 'no'."""
+        mgr = EgoManager(db=db, router=AsyncMock(), config=None)
+        await mgr.load_or_create()
+        sigs = []
+        for msg in [
+            "no",
+            "this is the 10th time i told you",
+            "you forgot something",
+            "didn't work",
+        ]:
+            res = mgr.detect_correction(msg)
+            assert res is not None
+            sigs.append(res[1])
+        # 10th-time should be the loudest; "no" should be the quietest.
+        assert max(sigs) >= 2.0
+        assert min(sigs) <= 1.0

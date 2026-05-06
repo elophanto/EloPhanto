@@ -2035,6 +2035,14 @@ class Agent:
         self._router.cost_tracker.reset_task()
         self._working_memory.clear()
 
+        # Ego: scan the incoming user message for correction phrases against
+        # the previous turn's last_capability. Fire-and-forget — the agent's
+        # actual task work is the main path; this just feeds the failure
+        # signal pipeline that was previously wired only to tests.
+        # See core/ego.py for the pattern set; correction = strongest signal.
+        if self._ego_manager:
+            asyncio.create_task(self._record_ego_correction(goal))
+
         tool_calls_made: list[str] = []
         step = 0
         hard_limit = max_steps_override or self._config.max_steps or 500
@@ -2628,6 +2636,19 @@ class Agent:
                             goal=goal,
                             tools_used=list(set(tool_calls_made)),
                             success=True,
+                        )
+                    )
+                    # Verification hook: scan the agent's final response
+                    # for `Verification: PASS|FAIL|UNKNOWN` blocks emitted
+                    # by the verification skill. PASS reinforces, FAIL
+                    # records a humbling event, UNKNOWN drops a soft-fail.
+                    # Without this, the verification skill's output had no
+                    # path back into the ego layer.
+                    asyncio.create_task(
+                        self._record_ego_verification(
+                            response_text=final_content,
+                            tools_used=list(set(tool_calls_made)),
+                            goal=goal,
                         )
                     )
 
@@ -3483,6 +3504,43 @@ User message:
             await self._ego_manager.maybe_recompute(identity_summary)
         except Exception as e:
             logger.debug("Ego outcome recording failed: %s", e)
+
+    async def _record_ego_correction(self, user_message: str) -> None:
+        """Run the user-correction detector against the incoming message.
+
+        Fire-and-forget; never raises. The detector is pattern-based (no
+        LLM call) so this is cheap. Attribution defaults to whatever
+        capability the agent used in the previous turn — corrections
+        almost always reference the immediately preceding action.
+        """
+        if not self._ego_manager:
+            return
+        try:
+            await self._ego_manager.record_correction(user_message=user_message)
+        except Exception as e:
+            logger.debug("Ego correction detection failed: %s", e)
+
+    async def _record_ego_verification(
+        self, response_text: str, tools_used: list[str], goal: str
+    ) -> None:
+        """Scan the agent's final response for a Verification block and
+        feed the verdict (PASS/FAIL/UNKNOWN) into the ego layer.
+
+        FAIL → humbling event + failure outcome (strong signal).
+        UNKNOWN → soft-fail outcome (the agent couldn't confirm).
+        PASS → a verification-grade success outcome.
+        """
+        if not self._ego_manager:
+            return
+        try:
+            capability = _capability_from_tools(tools_used) or ""
+            await self._ego_manager.record_verification(
+                agent_response=response_text,
+                capability=capability,
+                task_goal=goal,
+            )
+        except Exception as e:
+            logger.debug("Ego verification scan failed: %s", e)
 
     async def _detect_and_store_directive(self, user_message: str) -> None:
         """Classify whether user_message contains a directive and persist it.
