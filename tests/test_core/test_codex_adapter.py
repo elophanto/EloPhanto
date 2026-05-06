@@ -61,7 +61,7 @@ def _make_config(codex_enabled: bool = True) -> Config:
         providers["codex"] = ProviderConfig(
             enabled=True,
             base_url="https://chatgpt.com/backend-api/codex",
-            default_model="gpt-5.4",
+            default_model="gpt-5.5",
         )
     return Config(llm=LLMConfig(providers=providers))
 
@@ -107,10 +107,10 @@ class TestJWTHelpers:
 
 class TestEffortClamp:
     def test_gpt54_minimal_clamps_to_low(self) -> None:
-        assert _clamp_effort("gpt-5.4", "minimal") == "low"
+        assert _clamp_effort("gpt-5.5", "minimal") == "low"
 
     def test_gpt54_high_passthrough(self) -> None:
-        assert _clamp_effort("gpt-5.4", "high") == "high"
+        assert _clamp_effort("gpt-5.5", "high") == "high"
 
     def test_gpt51_codex_mini_clamps_high(self) -> None:
         assert _clamp_effort("gpt-5.1-codex-mini", "high") == "medium"
@@ -125,7 +125,7 @@ class TestEffortClamp:
         assert _clamp_effort("unknown-model", "medium") == "medium"
 
     def test_empty_effort_passthrough(self) -> None:
-        assert _clamp_effort("gpt-5.4", "") == ""
+        assert _clamp_effort("gpt-5.5", "") == ""
 
 
 class TestCodexAdapterInit:

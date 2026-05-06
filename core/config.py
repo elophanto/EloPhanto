@@ -1030,7 +1030,7 @@ def _apply_env_overrides(config: Config) -> None:
                     config.llm.providers["codex"] = ProviderConfig(
                         enabled=True,
                         base_url=_PROVIDER_DEFAULTS["codex"]["base_url"],
-                        default_model="gpt-5.4",
+                        default_model="gpt-5.5",
                     )
                 else:
                     config.llm.providers["codex"].enabled = True

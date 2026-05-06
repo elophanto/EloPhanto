@@ -10,19 +10,19 @@ The routing layer is built on `litellm` for OpenRouter, OpenAI, and Ollama, with
 
 ### OpenAI
 
-Direct access to OpenAI's models (GPT-5.4, o3, o1) via the official API.
+Direct access to OpenAI's models (GPT-5.5, o3, o1) via the official API.
 
 - **Pros**: Access to latest GPT models, strong tool use and reasoning, reliable infrastructure
 - **Cons**: Costs money per token, requires internet, data leaves the machine
 - **Setup**: User provides an OpenAI API key during initial setup
-- **Default model**: `gpt-5.4`
+- **Default model**: `gpt-5.5`
 - **Base URL**: `https://api.openai.com/v1` (default, configurable for Azure or proxies)
 
 #### Available OpenAI Models
 
 | Model ID | Name | Best For |
 |---|---|---|
-| `gpt-5.4` | GPT-5.4 | Latest generation, general purpose (recommended) |
+| `gpt-5.5` | GPT-5.5 | Latest generation, general purpose (recommended) |
 | `gpt-4.1` | GPT-4.1 | Previous generation, general purpose |
 | `o3` | o3 | Advanced reasoning tasks |
 | `o1` | o1 | Complex reasoning and analysis |
@@ -123,7 +123,7 @@ Recommended order (matches `config.demo.yaml`):
 
 1. **OpenRouter** — access to all frontier models via a single key. Primary provider for all task types with `hunter-alpha` as the recommended model
 2. **Z.ai/GLM** — excellent coding quality/cost ratio with the Coding Plan (unlimited GLM-4.7/GLM-5 at flat monthly rate). Fallback for all tasks
-3. **OpenAI** — direct access to GPT-5.4. Enable if you need OpenAI-specific features
+3. **OpenAI** — direct access to GPT-5.5. Enable if you need OpenAI-specific features
 4. **Kimi** — native multimodal vision model via Kilo Gateway. Enable for vision-heavy workloads
 5. **Ollama** — local, free, private. Useful for embeddings and offline use
 
@@ -262,7 +262,7 @@ llm:
     openai:
       api_key: "YOUR_OPENAI_KEY"
       enabled: false
-      default_model: "gpt-5.4"
+      default_model: "gpt-5.5"
     kimi:
       api_key: "YOUR_KILO_API_KEY"
       enabled: false
@@ -273,7 +273,7 @@ llm:
       enabled: true
 
   # Auto-routes to vision model when messages contain image_url blocks
-  vision_model: "openrouter/x-ai/grok-4.1-fast"
+  vision_model: "openrouter/x-ai/grok-4.3"
 
   provider_priority:
     - openrouter
@@ -289,7 +289,7 @@ llm:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-5"
         kimi: "kimi-k2.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
         ollama: "nomic-embed-text:latest"
     coding:
       preferred_provider: openrouter
@@ -298,7 +298,7 @@ llm:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
         kimi: "kimi-k2.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
         ollama: "nomic-embed-text:latest"
     analysis:
       preferred_provider: openrouter
@@ -307,7 +307,7 @@ llm:
         openrouter: "openrouter/hunter-alpha"
         zai: "glm-4.7"
         kimi: "kimi-k2.5"
-        openai: "gpt-5.4"
+        openai: "gpt-5.5"
         ollama: "nomic-embed-text:latest"
     simple:
       preferred_provider: openrouter
@@ -329,7 +329,7 @@ When any message in the conversation history contains an `image_url` content blo
 
 ```yaml
 llm:
-  vision_model: "openrouter/x-ai/grok-4.1-fast"   # recommended
+  vision_model: "openrouter/x-ai/grok-4.3"   # recommended
   # vision_model: "openrouter/google/gemini-2.0-flash-001"  # alternative
 ```
 

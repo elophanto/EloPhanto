@@ -27,7 +27,7 @@ For ToS-clean programmatic access, get a separate API key at
 ## What you get
 
 A **multimodal** chat backend that accepts text and images, runs reasoning
-models (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, etc.) with configurable
+models (`gpt-5.5`, `gpt-5.5-mini`, `gpt-5.3-codex`, etc.) with configurable
 thinking effort, and is billed against your existing ChatGPT subscription
 rather than the platform API.
 
@@ -153,7 +153,7 @@ This is **NOT** the chat/completions schema. Critical differences:
 
 ```json
 {
-  "model": "gpt-5.4",
+  "model": "gpt-5.5",
   "instructions": "You are a helpful assistant.",
   "input": [
     {
@@ -217,7 +217,7 @@ extracted from openclaw). Apply client-side before sending:
 
 | Model | Clamping rule |
 |---|---|
-| `gpt-5.4`, `gpt-5.4-mini` | accepts all; `minimal` → `low` |
+| `gpt-5.5`, `gpt-5.5-mini` | accepts all; `minimal` → `low` |
 | `gpt-5.3-codex`, `gpt-5.2-codex` | accepts all; `minimal` → `low` |
 | `gpt-5.1-codex-mini` | high/xhigh → `high`, others → `medium` |
 | `gpt-5.1`, `gpt-5.1-codex` | `xhigh` → `high` |
@@ -257,8 +257,8 @@ what's actually allowed for your subscription — try and see.
 
 | Slug | Notes |
 |---|---|
-| `gpt-5.4` | Top model, ~1M context, multimodal |
-| `gpt-5.4-mini` | Cheaper variant, ~272K context |
+| `gpt-5.5` | Top model, ~1M context, multimodal |
+| `gpt-5.5-mini` | Cheaper variant, ~272K context |
 | `gpt-5.3-codex` | Previous Codex default |
 | `gpt-5.3-codex-spark` | Reasoning-only, free tier |
 | `gpt-5.2-codex` | |
@@ -276,7 +276,7 @@ what's actually allowed for your subscription — try and see.
 | `400 Unsupported parameter: max_tokens` | `max_tokens` in payload | Remove it |
 | `401 Unauthorized` | Expired / rotated access token | Refresh and retry once |
 | `403 Forbidden` | `chatgpt-account-id` missing or wrong | Re-extract from JWT |
-| `404` on the model | Model not enabled for your plan tier | Try `gpt-5.3-codex` instead of `gpt-5.4` |
+| `404` on the model | Model not enabled for your plan tier | Try `gpt-5.3-codex` instead of `gpt-5.5` |
 | Stream never produces deltas | Often a model that returned only via `response.output[]` | Use the safety-net extractor |
 
 ---
@@ -321,7 +321,7 @@ def _account_id_from_jwt(token: str) -> str:
 
 
 class CodexClient:
-    def __init__(self, model: str = "gpt-5.4", reasoning_effort: str = "medium"):
+    def __init__(self, model: str = "gpt-5.5", reasoning_effort: str = "medium"):
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.auth_path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "auth.json"
@@ -490,7 +490,7 @@ class CodexClient:
 
 # Usage
 async def main():
-    client = CodexClient(model="gpt-5.4", reasoning_effort="medium")
+    client = CodexClient(model="gpt-5.5", reasoning_effort="medium")
     try:
         out = await client.chat([
             {"role": "system", "content": "You are concise."},
@@ -520,7 +520,7 @@ if __name__ == "__main__":
    the official CLI sends). Other values may or may not work.
 6. **Image input works** via `input_image` content parts on user messages,
    even though the openclaw reference (where we pulled the wire format from)
-   only documented text. Tested working on `gpt-5.4`.
+   only documented text. Tested working on `gpt-5.5`.
 7. **Token rotation**: refresh responses sometimes include a new
    `refresh_token`. Persist it back to `auth.json` or you'll lose the chain.
 8. **5-min cache miss**: the access token's JWT exp is short. Check `exp`

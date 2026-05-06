@@ -53,8 +53,8 @@ _EFFORT_CLAMP: dict[str, dict[str, str]] = {
     "gpt-5.5": {"minimal": "low"},
     "gpt-5.5-mini": {"minimal": "low"},
     "gpt-5.5-codex": {"minimal": "low"},
-    "gpt-5.4": {"minimal": "low"},
-    "gpt-5.4-mini": {"minimal": "low"},
+    "gpt-5.5": {"minimal": "low"},
+    "gpt-5.5-mini": {"minimal": "low"},
     "gpt-5.3-codex": {"minimal": "low"},
     "gpt-5.2-codex": {"minimal": "low"},
     "gpt-5.1-codex-mini": {
@@ -71,12 +71,12 @@ _EFFORT_CLAMP: dict[str, dict[str, str]] = {
 # but we still track token usage for observability. Values from platform
 # API pricing as a proxy.
 _COSTS = {
-    # gpt-5.5 pricing not yet published; using gpt-5.4 rates as a proxy
+    # gpt-5.5 pricing not yet published; using gpt-5.5 rates as a proxy
     "gpt-5.5": {"input": 0.003, "output": 0.015},
     "gpt-5.5-mini": {"input": 0.0008, "output": 0.004},
     "gpt-5.5-codex": {"input": 0.002, "output": 0.010},
-    "gpt-5.4": {"input": 0.003, "output": 0.015},
-    "gpt-5.4-mini": {"input": 0.0008, "output": 0.004},
+    "gpt-5.5": {"input": 0.003, "output": 0.015},
+    "gpt-5.5-mini": {"input": 0.0008, "output": 0.004},
     "gpt-5.3-codex": {"input": 0.002, "output": 0.010},
     "gpt-5.2-codex": {"input": 0.002, "output": 0.010},
     "gpt-5.1-codex-max": {"input": 0.002, "output": 0.010},
@@ -149,7 +149,7 @@ class CodexAdapter:
         else:
             self._auth_path = Path.home() / ".codex" / "auth.json"
 
-        self._default_model = codex_cfg.default_model or "gpt-5.4"
+        self._default_model = codex_cfg.default_model or "gpt-5.5"
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0))
         self._auth: dict[str, Any] = {}
         self._load_auth()

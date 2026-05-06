@@ -82,7 +82,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 60 | [Action Queue](60-ACTION-QUEUE.md) | Serialized task execution, priority preemption, scheduler pause/resume, browser concurrency fix |
 | 61 | [Video Meeting](61-VIDEO-MEETING.md) | Join Google Meet/Zoom as AI avatar via PikaStream — voice cloning, context-aware conversation, auto-billing |
 | 62 | [Agent OS](62-AGENT-OS.md) | Agent Protocol v1.0, distribution profiles, SDK roadmap, contributor governance, agent mesh vision |
-| 63 | [Codex Provider](63-CODEX-PROVIDER.md) | ChatGPT Plus/Pro subscription as LLM backend (gpt-5.4) via Codex OAuth — Responses API, streaming, reasoning effort |
+| 63 | [Codex Provider](63-CODEX-PROVIDER.md) | ChatGPT Plus/Pro subscription as LLM backend (gpt-5.5) via Codex OAuth — Responses API, streaming, reasoning effort |
 | 64 | [Polymarket](64-POLYMARKET.md) | Official Polymarket skill — prediction market trading on Polygon (CLOB API, orderbook, GTC/GTD/FOK/FAK orders, WebSocket, CTF, gasless) |
 | 65 | [Pump.fun Livestream](65-PUMPFUN-LIVESTREAM.md) | End-to-end pump.fun streaming from chat — WHIP/RTMP via LiveKit, voice mode (TTS via FIFO), on-stream captions, livechat Socket.IO, ffmpeg supervisor with IPv6 failover |
 | 66 | [Kid Agents](66-KID-AGENTS.md) | Sandboxed child EloPhanto in hardened Docker containers — `--cap-drop=ALL`, read-only rootfs, non-root uid 10001, no host bind-mounts (named volume only), default-empty vault scope, sync request/response via gateway hook |

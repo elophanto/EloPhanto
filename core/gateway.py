@@ -2160,7 +2160,7 @@ class Gateway:
                 # Auto-set default_model if not already set
                 _PROVIDER_DEFAULT_MODELS = {
                     "openrouter": "openrouter/hunter-alpha",
-                    "openai": "gpt-5.4",
+                    "openai": "gpt-5.5",
                     "zai": "glm-4.7",
                     "kimi": "kimi-k2.5",
                 }
@@ -2235,7 +2235,7 @@ class Gateway:
 
             _AUTO_DEFAULT_MODELS = {
                 "openrouter": "openrouter/hunter-alpha",
-                "openai": "gpt-5.4",
+                "openai": "gpt-5.5",
                 "zai": "glm-4.7",
                 "kimi": "kimi-k2.5",
             }
