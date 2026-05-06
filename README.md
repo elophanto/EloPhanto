@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python">
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-1567%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-72%2B%20pages-blue" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/tests-1607%2B-success" alt="Tests">
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-73%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
   <a href="https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump"><img src="https://img.shields.io/badge/Pump.fun-%24ELO-orange" alt="$ELO on Pump.fun"></a>
@@ -24,15 +24,16 @@ An open-source **autonomous** AI agent that builds businesses, grows audiences, 
 
 Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, OpenRouter, HuggingFace, or your ChatGPT Plus/Pro subscription (via Codex OAuth).
 
-### A self-model that actually moves — identity + ego + autonomous mind
+### A self-model that actually moves — identity + ego + affect + autonomous mind
 
-Most "AI agents" are stateless prompts wrapped in a CLI. Same cold-start every conversation. EloPhanto carries an **evolving self-model** built from three layers — a *descriptive* one (who it claims to be), an *evaluative* one (how reality has graded that claim), and a *temporal* one (what it does between your messages). To our knowledge, no other open-source autonomous agent ships all three.
+Most "AI agents" are stateless prompts wrapped in a CLI. Same cold-start every conversation. EloPhanto carries an **evolving self-model** built from four layers — a *descriptive* one (who it claims to be), an *evaluative* one (how reality has graded that claim), a *state-level* one (what it's feeling right now), and a *temporal* one (what it does between your messages). To our knowledge, no other open-source autonomous agent ships all four.
 
 - **Identity** — values, beliefs, and capabilities discovered through reflection. The agent picks a display name on first boot, writes a `nature.md` it edits over time, and surfaces these in every system prompt.
 - **Ego** — a measured, multi-source self-grading layer based on [Higgins' Self-Discrepancy Theory (1987)](https://www.columbia.edu/cu/psychology/higgins/papers/HIGGINS=PSYCH%20REVIEW%201987.pdf). Tracks **actual / ideal / ought** selves separately. Per-capability confidence is moved by three failure-signal channels: tool outcomes (weakest), `Verification: PASS|FAIL|UNKNOWN` from the verification skill (medium), and **user-correction detection** (strongest — a 13-rule pattern set against incoming messages: "no", "stop", "didn't work", "10th time I told you", etc.). Failures hit harder than successes. Capabilities decay toward 0.50 when unused (168h half-life). Coherence drops on humbling events; recompute writes a first-person inner monologue that explicitly differentiates **dejection-from-ideal-gap** vs **agitation-from-ought-gap**. The LLM never writes the numbers.
-- **Autonomous Mind** — a data-driven background loop that runs between user interactions. Queries real system state (goals, schedules, memory, knowledge, identity, ego) to decide what to do next. Self-bootstraps on first boot, every tool call visible in real time.
+- **Affect** — state-level emotion based on [Mehrabian's PAD model (1980)](https://en.wikipedia.org/wiki/PAD_emotional_state_model) substrate plus [OCC (1988)](https://en.wikipedia.org/wiki/Ortony,_Clore,_and_Collins_model) appraisal labels. Three continuous channels (Pleasure, Arousal, Dominance) decay toward zero on the order of minutes-to-hours. Events fire from existing surfaces — corrections → frustration (or anger on high-severity repeats), tool failures → anxiety, verification PASS → relief, checkpoint hits → pride, long idle → restlessness. Repeat events compound (3 corrections in 5 min hit harder than 3 spread across a day). Affect biases router temperature ±0.2, colors the system-prompt tone block, and feeds back into ego recompute so trait-level self-image reflects state-level feeling. **Sister to ego, different timescale**: ego is who I've become; affect is who I am right now. See [docs/69-AFFECT.md](docs/69-AFFECT.md) and [core/affect.py](core/affect.py).
+- **Autonomous Mind** — a data-driven background loop that runs between your messages. Queries real system state (goals, schedules, memory, knowledge, identity, ego, affect) to decide what to do next. Self-bootstraps on first boot, every tool call visible in real time.
 
-The combination is what makes the third week of running feel different from the first. The agent isn't replaying templates — it has a self-image that has been hurt, recovered, and revised. See [core/ego.py](core/ego.py) and [docs/17-IDENTITY.md](docs/17-IDENTITY.md).
+The combination is what makes the third week of running feel different from the first. The agent isn't replaying templates — it has a self-image that has been hurt, recovered, and revised, and a felt state that changes by the minute. See [core/ego.py](core/ego.py), [core/affect.py](core/affect.py), and [docs/17-IDENTITY.md](docs/17-IDENTITY.md).
 
 ### Decentralized agent-to-agent — no central server, no platform
 
@@ -189,6 +190,8 @@ After the agent has grown into the shape — `permission_mode: smart_auto` or `f
 ├──────────────────────────────────────────────────────────────┤
 │   Identity + Ego (Higgins three-self model)      │  Self-Model
 ├──────────────────────────────────────────────────────────────┤
+│   Affect (PAD substrate + OCC labels, decays)    │  State-Level Emotion
+├──────────────────────────────────────────────────────────────┤
 │   Autonomous Mind (background think loop)        │  Background Brain
 ├──────────────────────────────────────────────────────────────┤
 │   RLM (Recursive Language Models + ContextStore)   │  Recursive Cognition
@@ -254,6 +257,7 @@ Slack Adapter ─────┘                   ▼
 - **Social posting** — `twitter_post` (text + image) is the channel exercised daily by the reference instance against [@EloPhanto](https://x.com/EloPhanto), with paste-event Unicode-safe insert, pre-Post media verification, and post-click composer-state check. `youtube_upload` and `tiktok_upload` ship as scaffolding but the reference instance does not currently publish there. Affiliate-marketing tools (`affiliate_scrape`, `affiliate_pitch`, `affiliate_campaign`) similarly ship but are not part of the live workflow today. All publishes logged in DB.
 - **Prospecting** — autonomous lead generation pipeline: search for prospects matching criteria, evaluate and score them, track outreach attempts, monitor pipeline status. Database-backed with full history
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document
+- **State-level affect** — PAD (Pleasure/Arousal/Dominance) substrate with OCC labels (joy, pride, relief, frustration, anger, anxiety, dejection, restlessness, unease, equanimity). Decays per channel (P=30min, A=10min, D=2h). Wired into ego (corrections fire frustration; high-severity repeats fire anger), executor (tool failures → anxiety), goal runner (checkpoints → pride), autonomous mind (long idle → restlessness), router (±0.2 temperature bias). Renders to `affect.md` and an `<affect>` system-prompt block (skipped when near equilibrium so neutral sessions don't pay tokens). Inspect with `elophanto affect status` / `elophanto affect simulate <scenario>`. See [docs/69-AFFECT.md](docs/69-AFFECT.md)
 - **Knowledge & memory** — persistent markdown knowledge with semantic search via embeddings, drift detection, file-pattern routing, remembers past tasks across sessions. Learning engine: lesson extraction after every completed task, semantic memory search via sqlite-vec KNN, KB write compression to ~40% for verbose content
 - **Scheduling** — cron-based recurring tasks with natural language schedules. Heartbeat standing orders manageable via chat ("add a heartbeat order to check my email") or by editing `HEARTBEAT.md` directly
 - **Encrypted vault** — secure credential storage with PBKDF2 key derivation
@@ -326,9 +330,9 @@ EloPhanto/
 ├── tools/               # 168+ built-in tools
 ├── skills/              # 170+ bundled SKILL.md files (every one ships with a ## Verify gate)
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
-├── tests/               # Test suite (1567+ tests)
+├── tests/               # Test suite (1607+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (64+ docs)
+└── docs/                # Full specification (73+ docs)
 ```
 
 </details>
@@ -460,6 +464,9 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 ./start.sh skills list         # List available skills
 ./start.sh skills hub search Q # Search EloPhantoHub
 ./start.sh mcp list            # List MCP servers
+elophanto affect status        # Inspect current PAD state, label, recent events
+elophanto affect simulate <s>  # Smoke-test affect trajectory (frustration | anger |
+                               # escalation | burst | win | fail-recover | mixed)
 ./start.sh rollback            # Revert a self-modification
 ./start.sh --daemon            # Install + start as background daemon
 ./start.sh --stop-daemon       # Stop and remove the daemon
@@ -482,7 +489,7 @@ Latest highlights live in [CHANGELOG.md](CHANGELOG.md) and on the [releases page
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (1567 passing)
+pytest tests/ -v                   # Run tests (1607 passing)
 ruff check .                       # Lint
 ```
 

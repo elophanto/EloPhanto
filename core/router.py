@@ -135,6 +135,11 @@ class LLMRouter:
         self._codex_adapter: Any = None
         # Provider transparency tracker (Gap 5)
         self._provider_tracker = ProviderTracker()
+        # Affect handle (Phase 2). When wired, temperature on every call
+        # is biased by current affect state via AffectManager.
+        # temperature_modifier(). Capped to ±0.2 in core/affect.py. Set
+        # by Agent.initialize() once affect is up.
+        self._affect_manager: Any = None
 
     @property
     def cost_tracker(self) -> CostTracker:
@@ -323,6 +328,28 @@ class LLMRouter:
                 f"Budget exceeded. Daily: ${self._cost_tracker.daily_total:.2f}, "
                 f"Task: ${self._cost_tracker.task_total:.2f}"
             )
+
+        # Affect-based temperature bias (Phase 2 from docs/69-AFFECT.md).
+        # Frustrated/anxious states pull temperature down (more
+        # conservative outputs); joyful/restless states push it up
+        # (more exploration). Capped ±0.2 by AffectManager. Best-effort:
+        # affect failure must not break routing.
+        if self._affect_manager is not None:
+            try:
+                delta = await self._affect_manager.temperature_modifier()
+                if delta != 0.0:
+                    biased = max(0.0, min(1.5, temperature + delta))
+                    if abs(biased - temperature) >= 0.01:
+                        logger.info(
+                            "[router] affect bias applied: temp %.2f → %.2f "
+                            "(Δ=%+.2f)",
+                            temperature,
+                            biased,
+                            delta,
+                        )
+                    temperature = biased
+            except Exception as e:  # pragma: no cover — defensive
+                logger.debug("Affect temperature bias failed: %s", e)
 
         # Auto-route to vision model when messages contain image_url blocks
         # and no explicit override was given.

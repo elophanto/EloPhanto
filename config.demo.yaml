@@ -236,6 +236,20 @@ jobs:
   enabled: true
   signing_pubkey: "es8ggSXCOHPl2y4qUOYYsLLitPSoyymgWBldFQ1dn0k="
 
+# State-level affect (Mehrabian PAD substrate + OCC labels). Phases 1-3
+# are on by default once enabled — they're pure tone influence with no
+# behavior gating. See docs/69-AFFECT.md.
+#
+# allow_self_pause is the only operator-gated behavior. When true, an
+# agent in a high-magnitude negative state (frustration / anxiety /
+# dejection past the pause-magnitude gate) can mention being stretched
+# at the end of a response. Default OFF — bad UX is an emotional agent
+# that refuses tasks. Operators who want it accept that the agent may
+# nudge them to pause when its affect crosses the threshold.
+affect:
+  enabled: true
+  allow_self_pause: false
+
 goals:
   enabled: true
   max_checkpoints: 20
