@@ -642,6 +642,19 @@ _MIGRATIONS = [
     "ALTER TABLE ego_state ADD COLUMN embarrassed_by TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE ego_state ADD COLUMN aspiration TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE ego_state ADD COLUMN prior_self_image TEXT NOT NULL DEFAULT ''",
+    # Ego v3 — Higgins three-self model (actual/ideal/ought) + last-capability
+    # tracking so user corrections can attribute humbling to a specific tool.
+    # ought_self / ideal_self are derived from declared identity each recompute;
+    # storing them on ego_state lets the markdown render the gap explicitly.
+    "ALTER TABLE ego_state ADD COLUMN ought_self TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE ego_state ADD COLUMN ideal_self TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE ego_state ADD COLUMN last_capability TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE ego_state ADD COLUMN last_decay_at TEXT NOT NULL DEFAULT ''",
+    # Ego v3 — outcomes get a "source" column so we can distinguish
+    # tool-completion vs verification-fail vs user-correction. Old rows
+    # are 'tool' by default.
+    "ALTER TABLE ego_outcomes ADD COLUMN source TEXT NOT NULL DEFAULT 'tool'",
+    "ALTER TABLE ego_humbling_events ADD COLUMN source TEXT NOT NULL DEFAULT 'system'",
 ]
 
 
