@@ -144,10 +144,184 @@ neg_risk = next(mk for mk in m if mk["clobTokenIds"] and token_id in mk["clobTok
 The `options` parameter is **keyword-only in newer SDK versions** —
 passing it positionally raises `TypeError`. Always use `options=`.
 
-### 6. Safety rails
+### 6. **MANDATORY** pre-trade risk gate (do this BEFORE every place_order)
+
+The agent's live trade history showed serial losses from buying mid-probability markets with no edge measurement and no exits. Two tools enforce the constraints; **both must pass before placing an entry order**.
+
+**Step A — drawdown circuit breaker.** Before opening ANY new position:
+
+```python
+breaker = polymarket_circuit_breaker(
+    peak_equity=<rolling 30-day high USD>,
+    current_equity=<current portfolio USD>,
+)
+if breaker["paused"]:
+    # Drawdown threshold (default 20%) breached. Do NOT open new
+    # positions. Closing existing ones stays allowed. Wait for
+    # equity to recover or operator override.
+    raise SystemExit(breaker["reason"])
+```
+
+**Step B — pre-trade gate.** For each candidate market:
+
+```python
+gate = polymarket_pre_trade(
+    llm_prob=<your estimated probability of YES>,
+    market_price=<current YES price from orderbook>,
+    confidence=<your self-reported confidence 0-1>,
+    market_tags=<list of Polymarket parent-event tag slugs>,
+    market_title=<market question text>,
+)
+if not gate["allow_trade"]:
+    # blockers will list reasons: edge too small, sports tag,
+    # title-phrase blocklist hit, etc. Skip this market.
+    continue
+
+stop_levels = gate["stop_loss"]
+# stop_levels["stop_loss_price"] and ["take_profit_price"] are the
+# companion limit orders you MUST place immediately on entry fill.
+```
+
+**Step C — place the entry order, THEN immediately place the companion stop-loss + take-profit limits.**
+
+```python
+# 1. Entry order at market or your chosen limit
+entry_resp = client.create_and_post_order(OrderArgs(
+    token_id=token_id,
+    price=entry_price,
+    size=size,
+    side=BUY if gate["edge"]["side"] == "YES" else SELL,
+))
+
+# 2. Stop-loss limit (sell-side for a BUY entry, buy-side for SELL)
+client.create_and_post_order(OrderArgs(
+    token_id=token_id,
+    price=stop_levels["stop_loss_price"],
+    size=size,
+    side=SELL if gate["edge"]["side"] == "YES" else BUY,
+))
+
+# 3. Take-profit limit
+client.create_and_post_order(OrderArgs(
+    token_id=token_id,
+    price=stop_levels["take_profit_price"],
+    size=size,
+    side=SELL if gate["edge"]["side"] == "YES" else BUY,
+))
+```
+
+**Why this is non-negotiable:** the gate's edge filter blocks trades where your "insight" is already priced in (paying spread for nothing). The skip-tag filter excludes sports / entertainment / awards markets — pure noise that LLM bets have no edge against sharps. The stop-loss + take-profit pair caps downside on every position so single losing positions can't dominate P&L. The circuit breaker stops you from tilt-trading after a bad week.
+
+Tunable via `polymarket:` section in `config.yaml` (edge thresholds, stop pcts, drawdown threshold, skip-tag overrides). See `core/polymarket_engine.py` for the math.
+
+### 7. **MANDATORY** precision quantization (do this BEFORE every create_and_post_order)
+
+Polymarket rejects orders whose `price × size` (USDC notional) has more than 2 decimals. Live trade history showed **6 of 8 failed orders** hit this exact rule:
+
+> *"invalid amounts, the market buy orders maker amount supports a max accuracy of 2 decimals, taker amount a max of 5 decimals"*
+
+Concrete examples that were silently rejected:
+
+| desired price × size  | computed notional | result |
+|---|---|---|
+| `0.35 × 42.85` | `14.9975` USDC | rejected (4 decimals) |
+| `0.95 × 10.5` | `9.975` USDC | rejected (3 decimals) |
+| `0.28 × 517.2413` | `144.83...` USDC | rejected (many decimals) |
+
+Use `polymarket_quantize_order` to snap onto the precision grid before every order:
+
+```python
+quantized = polymarket_quantize_order(
+    price=0.35,
+    desired_size=42.85,
+    side="BUY",
+)
+# quantized -> {price: 0.35, size: 42.82857, notional_usdc: 14.99, side: "BUY",
+#               rationale: "desired notional 14.9975 → snapped 14.99 USDC ..."}
+
+# Then place with the SNAPPED size:
+client.create_and_post_order(OrderArgs(
+    token_id=token_id,
+    price=quantized["price"],
+    size=quantized["size"],
+    side=BUY,
+))
+```
+
+The tool always rounds DOWN — your position is never larger than what you asked for; it's at most a fraction of a share smaller. Combined with the pre-trade gate (§6) and the strategy scorer (§8), this closes the precision-error loss leak.
+
+### 8. Safe-compounder strategy (NO-side baseline)
+
+The pre-trade gate (§6) is mandatory but neutral — it checks any trade your strategy proposes. The directional LLM bot you've been running tends to find low-edge mid-probability bets that bleed P&L. Add the safe-compounder as a structurally-favored sister strategy that runs in parallel.
+
+**The insight:** trade NO on markets where the lowest NO ask is already > $0.80 (high-probability NO wins), the time-decay-amplified NO probability beats the live ask by ≥ 3%, and Kelly sizing returns a positive fraction. Place the maker order 1¢ inside the lowest NO ask — sit on the book and earn rebates instead of paying taker fees.
+
+```python
+candidate = polymarket_safe_compounder(
+    yes_last_price=0.05,         # YES is trading at 5¢ → strong NO signal
+    lowest_no_ask=0.92,          # NO ask at 92¢ — high-confidence NO wins
+    volume=350.0,                # 24h USDC volume on this market
+    days_to_expiry=12.0,         # Resolves in ~12 days
+    portfolio_value=500.0,       # Total Polymarket portfolio in USDC
+)
+
+if not candidate["qualifies"]:
+    # rationale lists which constraint failed (low volume, no edge,
+    # sub-half-day expiry, off-band price, etc.). Skip this market.
+    continue
+
+# Then run the universal pre-trade gate as well:
+gate = polymarket_pre_trade(
+    llm_prob=candidate["estimated_no_prob"],
+    market_price=candidate["suggested_limit_price"],
+    confidence=0.75,             # safe-compounder is structurally high-confidence
+    market_tags=market_tags,
+    market_title=market_title,
+)
+if not gate["allow_trade"]:
+    continue
+
+# Snap size to precision grid:
+quantized = polymarket_quantize_order(
+    price=candidate["suggested_limit_price"],
+    desired_size=candidate["suggested_size_usdc"] / candidate["suggested_limit_price"],
+    side="BUY",  # buying NO tokens = BUY on the NO token side
+)
+
+# Place the maker limit order on the NO token at lowest_no_ask - 1¢
+client.create_and_post_order(OrderArgs(
+    token_id=no_token_id,
+    price=quantized["price"],
+    size=quantized["size"],
+    side=BUY,
+))
+# Then immediately place stop-loss + take-profit per §6 (Step C).
+```
+
+This is **not a magic profit machine.** It's a baseline strategy with lower variance than directional betting and a structural edge from maker fees + high-certainty markets. Use as a sister to your LLM directional bot — different risk profile, different cadence, both running in parallel via the resource-typed scheduler.
+
+Defaults from `core/polymarket_engine.py` (operator-tunable in future via PolymarketConfig if you need): `min_no_ask=0.80`, `min_edge=0.03`, `min_volume=$10`, `days_to_expiry=[0.5, 60]`, `max_position_pct=10%` (half-Kelly capped), `maker_offset=$0.01`.
+
+### 9. Performance inspection (operator-side, optional for the agent)
+
+Operator inspects trade history with:
+
+```bash
+elophanto polymarket performance              # all-time + 30d + 7d side-by-side
+elophanto polymarket performance --window 7d  # last week only
+elophanto polymarket performance --positions  # add per-position tables
+elophanto polymarket performance --failures-only  # just the error breakdown
+```
+
+Output leads with **net P&L assuming open positions resolve at zero** (the conservative honest read), then breaks out realized vs. unrealized so the operator can mark specific positions to market if any are still worth something.
+
+The same data is exposed to the agent via `polymarket_performance` for ad-hoc reads when explicitly asked ("how am I doing on Polymarket?"). It is **not** required for every trade — the universal risk gates (§6, §7) already enforce the constraints; calling the analyzer before each order risks token cost without behavior change.
+
+### 10. Other safety rails
 - **Always confirm with the owner before placing real-money orders.** Treat trade execution as `DESTRUCTIVE` permission level — surface the order params (token, side, price, size, USDC cost) and wait for explicit approval.
 - Read-only operations (orderbook, market data, positions) need no approval.
 - Polymarket trades USDC.e on Polygon. Make sure the funder wallet has USDC.e and a small amount of POL for gas (only if `signature_type=0`; gasless via Gnosis Safe doesn't need POL).
+- **`not enough balance / allowance` failures** — 2 of 8 historical failures hit this. Two causes: (a) wallet/proxy mismatch — re-run §3a `Auto-detect which signature_type holds the collateral` and use whichever sig_type actually holds the funds; (b) USDC allowance never set on the Polymarket contracts — operator runs `python scripts/set_allowances.py` once per wallet (script ships in `py-clob-client` examples).
 - Never log or echo `polymarket_private_key`.
 
 ---

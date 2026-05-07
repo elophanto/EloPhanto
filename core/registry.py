@@ -463,6 +463,29 @@ class ToolRegistry:
         self.register(JobVerifyTool())
         self.register(JobRecordTool())
 
+        # Polymarket risk gates — edge filter, skip-tag, stop-loss,
+        # drawdown circuit breaker. SAFE pure-decision tools the
+        # py-clob-client skill calls before placing any order.
+        from tools.polymarket.circuit_breaker_tool import (
+            PolymarketCircuitBreakerTool,
+        )
+        from tools.polymarket.mark_to_market_tool import (
+            PolymarketMarkToMarketTool,
+        )
+        from tools.polymarket.performance_tool import PolymarketPerformanceTool
+        from tools.polymarket.pre_trade_tool import PolymarketPreTradeTool
+        from tools.polymarket.quantize_tool import PolymarketQuantizeOrderTool
+        from tools.polymarket.safe_compounder_tool import (
+            PolymarketSafeCompounderTool,
+        )
+
+        self.register(PolymarketPreTradeTool())
+        self.register(PolymarketCircuitBreakerTool())
+        self.register(PolymarketQuantizeOrderTool())
+        self.register(PolymarketSafeCompounderTool())
+        self.register(PolymarketPerformanceTool())
+        self.register(PolymarketMarkToMarketTool())
+
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
 

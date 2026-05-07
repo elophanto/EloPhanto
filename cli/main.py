@@ -16,6 +16,7 @@ from cli.gateway_cmd import gateway_cmd
 from cli.init_cmd import init_cmd
 from cli.kid_cmd import kid_cmd
 from cli.mcp_cmd import mcp_cmd
+from cli.polymarket_cmd import polymarket_cmd
 from cli.rollback_cmd import rollback_cmd
 from cli.schedule_cmd import schedule_cmd
 from cli.skills_cmd import skills_cmd
@@ -45,6 +46,7 @@ cli.add_command(kid_cmd, "kid")
 cli.add_command(daemon_cmd, "daemon")
 cli.add_command(update_cmd, "update")
 cli.add_command(affect_cmd, "affect")
+cli.add_command(polymarket_cmd, "polymarket")
 
 
 if __name__ == "__main__":

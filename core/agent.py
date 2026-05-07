@@ -1815,6 +1815,30 @@ class Agent:
         if record is not None:
             record._db = self._db
 
+        # Polymarket risk gates — both pre-trade and circuit-breaker
+        # take the same PolymarketConfig (edge thresholds, stop-loss
+        # pcts, drawdown threshold, skip-tag overrides). Same call
+        # site as jobs because both are stateless config injections.
+        pre_trade = self._registry.get("polymarket_pre_trade")
+        if pre_trade is not None:
+            pre_trade._polymarket_config = self._config.polymarket
+        breaker = self._registry.get("polymarket_circuit_breaker")
+        if breaker is not None:
+            breaker._polymarket_config = self._config.polymarket
+        # Performance tool reads the polynode-trading.db directly. Needs
+        # config (for trading_db_path override) AND workspace (for the
+        # default polynode path inside agent.workspace).
+        perf = self._registry.get("polymarket_performance")
+        if perf is not None:
+            perf._polymarket_config = self._config.polymarket
+            perf._workspace = Path(self._config.workspace).expanduser()
+        # Mark-to-market reader reads the same DB plus does live HTTP
+        # to the public CLOB for current bids — same injection shape.
+        mtm = self._registry.get("polymarket_mark_to_market")
+        if mtm is not None:
+            mtm._polymarket_config = self._config.polymarket
+            mtm._workspace = Path(self._config.workspace).expanduser()
+
     def _inject_p2p_deps(self) -> None:
         """Inject the P2PSidecar handle into every P2P-aware tool.
 

@@ -378,6 +378,54 @@ class AffectConfig:
 
 
 @dataclass
+class PolymarketConfig:
+    """Polymarket trading risk controls.
+
+    Defaults mirror the constraints in zostaff/poly-trading-bot, tuned
+    for an agent that previously had ZERO risk gates between LLM
+    "confidence" and the place_order call. Easier to start tight and
+    loosen on measured evidence than the reverse.
+
+    See ``core/polymarket_engine.py`` for the math, and
+    ``docs/64-POLYMARKET.md`` + ``docs/71-POLYMARKET-RISK.md`` for the
+    rationale.
+    """
+
+    enabled: bool = True
+
+    # Edge filter. Trade only when |LLM-estimated prob - market price|
+    # exceeds the threshold for the LLM's self-reported confidence band.
+    min_edge: float = 0.04
+    high_confidence_edge: float = 0.03  # if confidence >= high_confidence_cutoff
+    medium_confidence_edge: float = 0.05
+    low_confidence_edge: float = 0.08  # if confidence < low_confidence_cutoff
+    high_confidence_cutoff: float = 0.70
+    low_confidence_cutoff: float = 0.40
+
+    # Stop-loss / take-profit. Companion limit orders placed against
+    # every entry. Pcts of entry_price.
+    stop_loss_pct: float = 0.07
+    take_profit_pct: float = 0.20
+
+    # Drawdown circuit breaker. Block NEW entries when the portfolio
+    # is down this much from its peak in the lookback window. Closing
+    # existing positions stays allowed.
+    drawdown_pause_pct: float = 0.20
+
+    # Override the default skip-tag list (see core/polymarket_engine.py
+    # DEFAULT_SKIP_TAG_SLUGS). Empty list = use defaults.
+    skip_tag_slugs: list[str] = field(default_factory=list)
+    skip_title_phrases: list[str] = field(default_factory=list)
+
+    # Path to the polynode trading SQLite (the order history). Lives in
+    # the operator workspace by default; the polymarket_performance
+    # analyzer reads from it. Empty string falls back to the default
+    # workspace path at <agent.workspace>/data/polymarket/polynode-
+    # trading.db.
+    trading_db_path: str = ""
+
+
+@dataclass
 class HubConfig:
     """EloPhantoHub skill registry configuration."""
 
@@ -903,6 +951,7 @@ class Config:
     peers: PeersConfig = field(default_factory=PeersConfig)
     jobs: JobsConfig = field(default_factory=JobsConfig)
     affect: AffectConfig = field(default_factory=AffectConfig)
+    polymarket: PolymarketConfig = field(default_factory=PolymarketConfig)
     hub: HubConfig = field(default_factory=HubConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     slack: SlackConfig = field(default_factory=SlackConfig)
@@ -1359,6 +1408,27 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         allow_self_pause=affect_raw.get("allow_self_pause", False),
     )
 
+    polymarket_raw = raw.get("polymarket", {})
+    polymarket_config = PolymarketConfig(
+        enabled=polymarket_raw.get("enabled", True),
+        min_edge=float(polymarket_raw.get("min_edge", 0.04)),
+        high_confidence_edge=float(polymarket_raw.get("high_confidence_edge", 0.03)),
+        medium_confidence_edge=float(
+            polymarket_raw.get("medium_confidence_edge", 0.05)
+        ),
+        low_confidence_edge=float(polymarket_raw.get("low_confidence_edge", 0.08)),
+        high_confidence_cutoff=float(
+            polymarket_raw.get("high_confidence_cutoff", 0.70)
+        ),
+        low_confidence_cutoff=float(polymarket_raw.get("low_confidence_cutoff", 0.40)),
+        stop_loss_pct=float(polymarket_raw.get("stop_loss_pct", 0.07)),
+        take_profit_pct=float(polymarket_raw.get("take_profit_pct", 0.20)),
+        drawdown_pause_pct=float(polymarket_raw.get("drawdown_pause_pct", 0.20)),
+        skip_tag_slugs=list(polymarket_raw.get("skip_tag_slugs", []) or []),
+        skip_title_phrases=list(polymarket_raw.get("skip_title_phrases", []) or []),
+        trading_db_path=str(polymarket_raw.get("trading_db_path", "")).strip(),
+    )
+
     # Parse hub section
     hub_raw = raw.get("hub", {})
     hub_config = HubConfig(
@@ -1794,6 +1864,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         peers=peers_config,
         jobs=jobs_config,
         affect=affect_config,
+        polymarket=polymarket_config,
         hub=hub_config,
         discord=discord_config,
         slack=slack_config,
