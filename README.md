@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python">
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-1607%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-73%2B%20pages-blue" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/tests-1624%2B-success" alt="Tests">
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-74%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
   <a href="https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump"><img src="https://img.shields.io/badge/Pump.fun-%24ELO-orange" alt="$ELO on Pump.fun"></a>
@@ -167,7 +167,9 @@ After the agent has grown into the shape — `permission_mode: smart_auto` or `f
 
 **Self-extending.** When it hits a tool that doesn't exist, it builds one — research → design → implement → test → deploy. When tasks get parallel, it clones itself into persistent specialists with their own identity and trust score. When a task is dangerous, it spawns a sandboxed kid agent inside a hardened container so `rm -rf` can't touch the host. The agent is a system that grows, not a script that executes.
 
-**Where it doesn't fit.** If you want a hosted assistant you don't operate yourself — Claude.ai, ChatGPT, Manus — this isn't it. EloPhanto is for the operator, not the consumer.
+**Also a great advanced chat agent.** You can absolutely run EloPhanto as a smarter local replacement for Claude.ai or ChatGPT — multi-provider model routing, full filesystem and shell access, real Chrome with your logged-in sessions, persistent knowledge across conversations, ego that learns your corrections. The two modes (assistant / autonomous) share one codebase; flip `agent.permission_mode` and you have a chat agent that does what you tell it.
+
+**Where it doesn't fit.** It's not a hosted product. Claude.ai, ChatGPT, Manus run on someone else's machines, with their tools, their guardrails, their billing, their access controls. EloPhanto runs on yours. If you want zero-setup and someone else's compute, those are the right tools. If you want full control and self-custody, this is.
 
 ---
 
@@ -330,9 +332,9 @@ EloPhanto/
 ├── tools/               # 168+ built-in tools
 ├── skills/              # 170+ bundled SKILL.md files (every one ships with a ## Verify gate)
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
-├── tests/               # Test suite (1607+ tests)
+├── tests/               # Test suite (1624+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (73+ docs)
+└── docs/                # Full specification (74+ docs)
 ```
 
 </details>
@@ -467,6 +469,8 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 elophanto affect status        # Inspect current PAD state, label, recent events
 elophanto affect simulate <s>  # Smoke-test affect trajectory (frustration | anger |
                                # escalation | burst | win | fail-recover | mixed)
+elophanto schedule status      # Resource-typed concurrency report — config, schedule
+                               # grouping by inferred resource, oversubscription warnings
 ./start.sh rollback            # Revert a self-modification
 ./start.sh --daemon            # Install + start as background daemon
 ./start.sh --stop-daemon       # Stop and remove the daemon
@@ -489,7 +493,7 @@ Latest highlights live in [CHANGELOG.md](CHANGELOG.md) and on the [releases page
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (1607 passing)
+pytest tests/ -v                   # Run tests (1624 passing)
 ruff check .                       # Lint
 ```
 

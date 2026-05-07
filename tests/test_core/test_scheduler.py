@@ -198,7 +198,7 @@ class TestTaskScheduler:
         )
 
         # Manually start an execution and wait until the executor is actually running
-        task = asyncio.create_task(scheduler._execute_schedule(entry.id))
+        task = asyncio.create_task(scheduler._run_one(entry.id))
         await asyncio.wait_for(started.wait(), timeout=5)
 
         # Stop it
@@ -237,8 +237,8 @@ class TestTaskScheduler:
         # Start two executions and wait until both executors are actually running.
         # Semaphore + acquire-twice avoids the race where both tasks bump a shared
         # counter non-atomically; on slow CI the event could be missed.
-        t1 = asyncio.create_task(scheduler._execute_schedule(entry1.id))
-        t2 = asyncio.create_task(scheduler._execute_schedule(entry2.id))
+        t1 = asyncio.create_task(scheduler._run_one(entry1.id))
+        t2 = asyncio.create_task(scheduler._run_one(entry2.id))
         await asyncio.wait_for(started.acquire(), timeout=15)
         await asyncio.wait_for(started.acquire(), timeout=15)
 
@@ -271,7 +271,7 @@ class TestTaskScheduler:
             name="Slow", task_goal="Slow", cron_expression="0 0 * * *"
         )
 
-        task = asyncio.create_task(scheduler._execute_schedule(entry.id))
+        task = asyncio.create_task(scheduler._run_one(entry.id))
         await asyncio.wait_for(started.wait(), timeout=5)
 
         await scheduler.delete_schedule(entry.id)

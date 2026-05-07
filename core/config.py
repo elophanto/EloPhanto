@@ -167,10 +167,33 @@ class DesktopConfig:
 
 @dataclass
 class SchedulerConfig:
-    """Background scheduling configuration."""
+    """Background scheduling configuration.
+
+    The scheduler used to gate concurrency on a single boolean
+    (``_is_executing``) and DROP cron firings that arrived while a
+    task was running. Resource-typed semaphores via
+    :class:`core.task_resources.TaskResourceManager` replace that:
+    non-overlapping tasks (e.g. a Polymarket-API scan and a
+    knowledge-search summary) run truly in parallel; only tasks
+    that share a resource (browser, desktop, vault writes) serialize.
+
+    ``max_concurrent_tasks`` is the global parallelism ceiling;
+    ``llm_burst`` further caps concurrent LLM-heavy work to keep
+    provider rate limits and budget burn predictable; ``queue_depth_cap``
+    bounds the wait queue so a runaway cron doesn't spiral.
+    """
 
     enabled: bool = False
-    max_concurrent_tasks: int = 1
+    # Global parallelism ceiling. Default 3 — empirically right for an
+    # operator-run agent with a single browser. Bumped from the historical
+    # default of 1 (which forced serial execution and dropped fires).
+    max_concurrent_tasks: int = 3
+    # Per-resource caps for soft contention. Browser/desktop/vault are
+    # always 1 (genuine single-instance contention).
+    llm_burst_capacity: int = 4
+    # Queue cap. Cron firings beyond this are logged + dropped — would
+    # only happen if a 30-min task perpetually ran longer than 30 min.
+    queue_depth_cap: int = 50
     default_max_retries: int = 3
     task_timeout_seconds: int = 600
 
@@ -1264,7 +1287,12 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
     scheduler_raw = raw.get("scheduler", {})
     scheduler_config = SchedulerConfig(
         enabled=scheduler_raw.get("enabled", False),
-        max_concurrent_tasks=scheduler_raw.get("max_concurrent_tasks", 1),
+        # Default bumped from 1 → 3 alongside the resource-typed
+        # concurrency rewrite. Operators with the old default of 1 still
+        # get the new safer queue (no dropped fires) but no parallelism.
+        max_concurrent_tasks=scheduler_raw.get("max_concurrent_tasks", 3),
+        llm_burst_capacity=scheduler_raw.get("llm_burst_capacity", 4),
+        queue_depth_cap=scheduler_raw.get("queue_depth_cap", 50),
         default_max_retries=scheduler_raw.get("default_max_retries", 3),
         task_timeout_seconds=scheduler_raw.get("task_timeout_seconds", 600),
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import click
 from rich.console import Console
@@ -21,7 +22,12 @@ console = Console()
 def schedule_cmd(config_path: str | None, action: str, schedule_id: str | None) -> None:
     """Manage scheduled tasks.
 
-    Actions: list, enable <id>, disable <id>, delete <id>, history <id>
+    Actions: list, status, enable <id>, disable <id>, delete <id>, history <id>
+
+    `status` prints the resource-typed concurrency config and groups
+    enabled schedules by inferred resource set, so you can see when
+    too many schedules will contend for the same resource (e.g.
+    "5 schedules need browser → they'll serialize").
     """
     asyncio.run(_schedule_action(config_path, action, schedule_id))
 
@@ -38,6 +44,10 @@ async def _schedule_action(
 
     db = Database(db_path)
     await db.initialize()
+
+    if action == "status":
+        await _status_report(db, config)
+        return
 
     if action == "list":
         rows = await db.execute("SELECT * FROM scheduled_tasks ORDER BY created_at")
@@ -119,7 +129,84 @@ async def _schedule_action(
             console.print(f"[red]Schedule {schedule_id} deleted.[/red]")
     else:
         console.print(
-            "[red]Usage: elophanto schedule [list|enable|disable|delete|history] [id][/red]"
+            "[red]Usage: elophanto schedule [list|status|enable|disable|delete|history] [id][/red]"
         )
 
     await db.close()
+
+
+async def _status_report(db: Database, config: Any) -> None:
+    """Print resource-typed concurrency config + per-resource schedule
+    grouping. Live queue depth requires a running daemon and lives in
+    the dashboard / log stream — this is the static report."""
+    from rich.panel import Panel
+
+    from core.task_resources import infer_resources
+
+    sched = config.scheduler
+    cap_panel = (
+        f"[bold]max_concurrent_tasks[/bold]   {sched.max_concurrent_tasks}\n"
+        f"[bold]llm_burst_capacity[/bold]    {sched.llm_burst_capacity}\n"
+        f"[bold]queue_depth_cap[/bold]        {sched.queue_depth_cap}\n"
+        f"[bold]task_timeout_seconds[/bold]   {sched.task_timeout_seconds}\n"
+        f"[bold]default_max_retries[/bold]    {sched.default_max_retries}"
+    )
+    console.print(Panel(cap_panel, title="Scheduler concurrency config"))
+
+    rows = await db.execute(
+        "SELECT id, name, cron_expression, task_goal, enabled "
+        "FROM scheduled_tasks ORDER BY created_at"
+    )
+    enabled_rows = [r for r in rows if r["enabled"]]
+    if not enabled_rows:
+        console.print("[dim]No enabled schedules.[/dim]")
+        return
+
+    # Group by inferred-resource fingerprint (sorted tuple of resource
+    # values), so the operator sees at a glance which schedules will
+    # contend for the same locks.
+    by_resource: dict[tuple[str, ...], list[Any]] = {}
+    for row in enabled_rows:
+        resources = infer_resources(row["task_goal"] or "")
+        key = tuple(sorted(r.value for r in resources))
+        by_resource.setdefault(key, []).append(row)
+
+    table = Table(title="Enabled schedules grouped by inferred resources")
+    table.add_column("Resources", style="cyan")
+    table.add_column("Count", justify="right")
+    table.add_column("Schedules", style="dim")
+    for resources_key, group in sorted(by_resource.items(), key=lambda kv: -len(kv[1])):
+        names = ", ".join(r["name"] for r in group)
+        table.add_row(", ".join(resources_key), str(len(group)), names)
+    console.print(table)
+
+    # Surface oversubscription warnings — multiple schedules contending
+    # for a hard-1-capacity resource will serialize through the queue.
+    warnings: list[str] = []
+    browser_count = sum(
+        1 for k, group in by_resource.items() if "browser" in k for _ in group
+    )
+    desktop_count = sum(
+        1 for k, group in by_resource.items() if "desktop" in k for _ in group
+    )
+    if browser_count > 1:
+        warnings.append(
+            f"[yellow]⚠[/yellow]  {browser_count} schedules need the browser "
+            f"(capacity 1). They will serialize."
+        )
+    if desktop_count > 1:
+        warnings.append(
+            f"[yellow]⚠[/yellow]  {desktop_count} schedules need the desktop "
+            f"(capacity 1). They will serialize."
+        )
+    llm_count = len(enabled_rows)
+    if llm_count > sched.llm_burst_capacity:
+        warnings.append(
+            f"[yellow]⚠[/yellow]  {llm_count} enabled schedules vs "
+            f"llm_burst_capacity={sched.llm_burst_capacity}. Some LLM "
+            f"work will queue."
+        )
+    if warnings:
+        console.print()
+        for w in warnings:
+            console.print(w)
