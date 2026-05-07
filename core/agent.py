@@ -778,11 +778,24 @@ class Agent:
             _status("Starting scheduler")
             try:
                 from core.scheduler import TaskScheduler
+                from core.task_resources import TaskResourceManager
 
+                # Resource-typed concurrency. Browser/desktop/vault are
+                # always 1 (single-instance contention); llm_burst caps
+                # concurrent LLM-heavy tasks against rate limits + budget;
+                # default-bucket is the global parallelism ceiling for
+                # tasks whose resources can't be inferred. See
+                # docs/02-ARCHITECTURE.md scheduler section.
+                resource_manager = TaskResourceManager.from_defaults(
+                    global_concurrency=self._config.scheduler.max_concurrent_tasks,
+                    llm_burst=self._config.scheduler.llm_burst_capacity,
+                )
                 self._scheduler = TaskScheduler(
                     db=self._db,
                     task_executor=self._execute_scheduled_task,
                     result_notifier=self._notify_scheduled_result,
+                    resource_manager=resource_manager,
+                    queue_depth_cap=self._config.scheduler.queue_depth_cap,
                 )
                 await self._scheduler.start()
             except Exception as e:

@@ -209,7 +209,13 @@ desktop:
 
 scheduler:
   enabled: true
-  max_concurrent_tasks: 1
+  # Resource-typed concurrency (2026-05-07). Tasks declare what they
+  # touch (browser/desktop/vault_write/llm_burst); non-overlapping
+  # tasks run in parallel, contending tasks queue. See
+  # docs/02-ARCHITECTURE.md scheduler section for the full picture.
+  max_concurrent_tasks: 3       # global parallelism cap (was 1)
+  llm_burst_capacity: 4         # cap on concurrent LLM-heavy tasks
+  queue_depth_cap: 50           # bounded wait queue; overflows logged
   default_max_retries: 3
   task_timeout_seconds: 600
 

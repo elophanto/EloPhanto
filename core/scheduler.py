@@ -20,6 +20,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
 from core.database import Database
+from core.task_resources import TaskResource, TaskResourceManager, infer_resources
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,27 @@ class ScheduleRunResult:
 
 
 class TaskScheduler:
-    """Manages scheduled task execution using APScheduler."""
+    """Manages scheduled task execution using APScheduler.
+
+    Concurrency model (2026-05-07 rewrite):
+      * Cron firings are NEVER dropped — they enqueue.
+      * Per-task dedup: if the same schedule_id is already running OR
+        already queued, the new fire is skipped + logged. This is what
+        prevents a 30-min task that takes 35 min from spiraling into
+        a queue full of duplicate fires.
+      * A single worker loop pops from the queue and dispatches via
+        :class:`TaskResourceManager`. The manager owns the resource
+        contention (browser/desktop/vault are 1, LLM-burst is N,
+        default-bucket is the global parallelism cap).
+      * Tasks that share no resources run truly in parallel. The
+        Polymarket-via-API scan + the X reply via browser only
+        serialize on the BROWSER semaphore — and only if both
+        actually need the browser.
+
+    See `core/task_resources.py` for the resource manager and
+    `infer_resources()` heuristic that maps task goal text →
+    resource set.
+    """
 
     def __init__(
         self,
@@ -63,6 +84,9 @@ class TaskScheduler:
         result_notifier: (
             Callable[[str, str, str], Coroutine[Any, Any, None]] | None
         ) = None,
+        *,
+        resource_manager: TaskResourceManager | None = None,
+        queue_depth_cap: int = 50,
     ) -> None:
         self._db = db
         self._task_executor = task_executor
@@ -71,7 +95,15 @@ class TaskScheduler:
         self._active_jobs: dict[str, str] = {}
         self._running_tasks: dict[str, asyncio.Task[Any]] = {}
         self._paused: bool = False
-        self._is_executing: bool = False
+        # Resource-typed concurrency. Default capacities mirror what the
+        # operator gets from config (browser/desktop/vault=1, llm_burst=4,
+        # global=3) so tests and standalone use without config Just Work.
+        self._resources = resource_manager or TaskResourceManager.from_defaults()
+        # Queue: (schedule_id,) tuples. We keep the dedup set in sync.
+        self._queue: asyncio.Queue[str] = asyncio.Queue(maxsize=queue_depth_cap)
+        self._queued_ids: set[str] = set()
+        self._queue_lock = asyncio.Lock()
+        self._worker_task: asyncio.Task[Any] | None = None
 
     @property
     def is_running(self) -> bool:
@@ -83,9 +115,26 @@ class TaskScheduler:
         """True if paused due to user interaction."""
         return self._paused
 
+    @property
+    def resources(self) -> TaskResourceManager:
+        """Read-only handle to the resource manager (for doctor/UI)."""
+        return self._resources
+
+    def queue_status(self) -> dict[str, Any]:
+        """Snapshot for `elophanto doctor`. Returns queue depth, set
+        of queued ids (small — bounded by queue_depth_cap), running
+        count, and per-resource state."""
+        return {
+            "queue_depth": self._queue.qsize(),
+            "queued_ids": sorted(self._queued_ids),
+            "running": len(self._running_tasks),
+            "paused": self._paused,
+            "resources": self._resources.status_dict(),
+        }
+
     def notify_user_interaction(self) -> None:
         """Pause scheduled execution — user task takes priority."""
-        if self._is_executing and not self._paused:
+        if self._resources.is_busy() and not self._paused:
             self._paused = True
             logger.info("User interaction — pausing scheduler")
 
@@ -101,6 +150,11 @@ class TaskScheduler:
         for schedule in schedules:
             if schedule.enabled:
                 self._add_job(schedule)
+        # Worker loop pops from the queue and dispatches via the
+        # resource manager. Started before APScheduler so a fast first
+        # cron fire can never beat it to the queue.
+        if self._worker_task is None:
+            self._worker_task = asyncio.create_task(self._worker_loop())
         self._scheduler.start()
         logger.info(f"Scheduler started with {len(schedules)} schedule(s)")
 
@@ -108,6 +162,13 @@ class TaskScheduler:
         """Gracefully stop the scheduler."""
         if self._scheduler.running:
             self._scheduler.shutdown(wait=False)
+        if self._worker_task is not None and not self._worker_task.done():
+            self._worker_task.cancel()
+            try:
+                await self._worker_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._worker_task = None
 
     async def create_schedule(
         self,
@@ -212,8 +273,13 @@ class TaskScheduler:
         return entry
 
     async def _execute_once(self, schedule_id: str) -> None:
-        """Execute a one-time task and then clean it up."""
-        await self._execute_schedule(schedule_id)
+        """Execute a one-time task and then clean it up.
+
+        Goes through ``_run_one`` (which acquires resources) so a one-
+        shot task is subject to the same concurrency rules as recurring
+        ones — no special path that bypasses the browser semaphore.
+        """
+        await self._run_one(schedule_id)
         try:
             await self.delete_schedule(schedule_id)
         except Exception:
@@ -346,7 +412,7 @@ class TaskScheduler:
         trigger = CronTrigger.from_crontab(schedule.cron_expression)
         job_id = f"schedule_{schedule.id}"
         self._scheduler.add_job(
-            self._execute_schedule,
+            self._enqueue_for_execution,
             trigger=trigger,
             args=[schedule.id],
             id=job_id,
@@ -354,9 +420,83 @@ class TaskScheduler:
         )
         self._active_jobs[schedule.id] = job_id
 
-    async def _execute_schedule(self, schedule_id: str) -> None:
-        """Execute a scheduled task through the agent loop."""
-        # Skip if paused by user interaction
+    async def _enqueue_for_execution(self, schedule_id: str) -> None:
+        """Cron-trigger handler: push the fire onto the run queue.
+
+        Replaces the old "drop on the floor when busy" behavior.
+        Per-task dedup: if the same schedule_id is already running OR
+        already queued, the new fire is logged + skipped — prevents a
+        slow task that always exceeds its cron interval from spiraling
+        into a queue full of duplicate fires for itself.
+
+        If the queue is full (queue_depth_cap), the fire is logged and
+        skipped. That only happens when the entire pipeline is jammed,
+        which is itself a real failure worth surfacing.
+        """
+        if self._paused:
+            logger.info("Scheduler paused — skipping enqueue of %s", schedule_id)
+            return
+
+        async with self._queue_lock:
+            if schedule_id in self._running_tasks:
+                logger.info(
+                    "Scheduled task %s still running from previous fire — "
+                    "skipping new fire to avoid duplicate work",
+                    schedule_id,
+                )
+                return
+            if schedule_id in self._queued_ids:
+                logger.info(
+                    "Scheduled task %s already queued — skipping duplicate fire",
+                    schedule_id,
+                )
+                return
+            try:
+                self._queue.put_nowait(schedule_id)
+            except asyncio.QueueFull:
+                logger.warning(
+                    "Scheduler queue full (depth=%d) — dropping fire for %s. "
+                    "This indicates the scheduler can't keep up; consider "
+                    "raising max_concurrent_tasks or auditing slow tasks.",
+                    self._queue.qsize(),
+                    schedule_id,
+                )
+                return
+            self._queued_ids.add(schedule_id)
+            # INFO so an operator tailing logs can see queue activity.
+            # The scheduler is the kind of thing where opaque is bad.
+            logger.info(
+                "Scheduler: enqueued %s (queue depth %d)",
+                schedule_id,
+                self._queue.qsize(),
+            )
+
+    async def _worker_loop(self) -> None:
+        """Pop schedules from the queue and dispatch them through the
+        resource manager. One worker is enough — concurrency lives
+        inside `_run_one` via `asyncio.create_task` so the worker can
+        keep popping while previous tasks are still acquiring their
+        resources or running.
+        """
+        while True:
+            try:
+                schedule_id = await self._queue.get()
+            except asyncio.CancelledError:
+                return
+            async with self._queue_lock:
+                self._queued_ids.discard(schedule_id)
+            # Don't await — fire and forget so the worker keeps popping.
+            # _run_one itself blocks on resource acquisition so this is
+            # where parallelism actually happens.
+            asyncio.create_task(self._run_one(schedule_id))
+
+    async def _run_one(self, schedule_id: str) -> None:
+        """Run one scheduled task through the resource manager.
+
+        Acquires the resources inferred from the task goal, executes,
+        releases. The execution body is the same as the old
+        ``_execute_schedule`` — only the entry path changed.
+        """
         if self._paused:
             logger.info("Scheduler paused — skipping execution of %s", schedule_id)
             return
@@ -365,6 +505,25 @@ class TaskScheduler:
         if not schedule or not schedule.enabled:
             return
 
+        # Infer resources from task goal text. Conservative — when in
+        # doubt, declare BROWSER. See core/task_resources.py.
+        resources: list[TaskResource] = infer_resources(schedule.task_goal)
+        logger.debug(
+            "Schedule %s requesting resources: %s",
+            schedule_id,
+            [r.value for r in resources],
+        )
+
+        async with self._resources.acquire(resources):
+            await self._execute_schedule_body(schedule_id, schedule)
+
+    async def _execute_schedule_body(
+        self, schedule_id: str, schedule: ScheduleEntry
+    ) -> None:
+        """The actual run-the-task body. Unchanged from the old
+        ``_execute_schedule`` implementation; only the calling path
+        moved (cron → enqueue → worker → resource-acquire → here).
+        """
         now = datetime.now(UTC).isoformat()
 
         # Record run start
@@ -374,7 +533,6 @@ class TaskScheduler:
             (schedule_id, now),
         )
 
-        self._is_executing = True
         # Wrap executor in a tracked task so we can cancel it on delete/disable
         executor_task: asyncio.Task[Any] = asyncio.create_task(
             self._task_executor(schedule.task_goal)
@@ -468,7 +626,6 @@ class TaskScheduler:
                     await self.disable_schedule(schedule_id)
         finally:
             self._running_tasks.pop(schedule_id, None)
-            self._is_executing = False
 
     async def _load_from_db(self) -> list[ScheduleEntry]:
         """Load all schedules from the database."""
