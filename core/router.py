@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC
 from typing import Any
@@ -55,7 +56,12 @@ class CostTracker:
 
     daily_total: float = 0.0
     task_total: float = 0.0
-    calls: list[dict[str, Any]] = field(default_factory=list)
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    # Bounded ring of recent calls. The per-call list grew unboundedly
+    # before 2026-05-08 — multi-hour sessions accumulated tens of MB and
+    # CPU walked the full list on every status refresh.
+    calls: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=1000))
     _pending_records: list[dict[str, Any]] = field(default_factory=list)
 
     def record(
@@ -69,6 +75,8 @@ class CostTracker:
     ) -> None:
         self.daily_total += cost
         self.task_total += cost
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
         record = {
             "provider": provider,
             "model": model,

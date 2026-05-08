@@ -695,7 +695,18 @@ class Database:
         self._db_path = Path(db_path)
         self._conn: sqlite3.Connection | None = None
         self._vec_available: bool = False
-        self._write_lock = threading.Lock()
+        # Connection-level lock. The Python sqlite3 Connection is opened
+        # with check_same_thread=False (see _init_sync) so it can be
+        # used from the asyncio.to_thread pool, but SQLite's Python
+        # wrapper does NOT serialize concurrent calls — that's our job.
+        # Pre-2026-05-08 this lock only wrapped writes; reads were
+        # serialized incidentally by the scheduler running everything
+        # one-task-at-a-time. The 2026-05-07 resource-typed concurrency
+        # rewrite enabled parallel _run_one tasks, all of which call
+        # self._db.execute() from different to_thread workers — race
+        # condition surfaced as `sqlite3.InterfaceError: bad parameter
+        # or other API misuse`. Lock now wraps every connection touch.
+        self._conn_lock = threading.Lock()
 
     @property
     def vec_available(self) -> bool:
@@ -796,7 +807,7 @@ class Database:
 
         def _create() -> None:
             assert self._conn is not None
-            with self._write_lock:
+            with self._conn_lock:
                 # Check if table already exists with correct dimensions
                 try:
                     row = self._conn.execute(
@@ -835,7 +846,7 @@ class Database:
 
         def _create() -> None:
             assert self._conn is not None
-            with self._write_lock:
+            with self._conn_lock:
                 try:
                     row = self._conn.execute(
                         "SELECT COUNT(*) as cnt FROM document_chunks_vec"
@@ -873,7 +884,7 @@ class Database:
 
         def _create() -> None:
             assert self._conn is not None
-            with self._write_lock:
+            with self._conn_lock:
                 try:
                     row = self._conn.execute(
                         "SELECT COUNT(*) as cnt FROM memory_vec_rowids"
@@ -908,7 +919,7 @@ class Database:
 
         def _insert() -> None:
             assert self._conn is not None
-            with self._write_lock:
+            with self._conn_lock:
                 blob = struct.pack(f"{len(vector)}f", *vector)
                 self._conn.execute(
                     "INSERT OR REPLACE INTO memory_vec(memory_id, embedding) VALUES (?, ?)",
@@ -962,12 +973,19 @@ class Database:
     async def execute(
         self, sql: str, params: tuple[Any, ...] | list[Any] = ()
     ) -> list[sqlite3.Row]:
-        """Execute a query and return all rows."""
+        """Execute a query and return all rows.
+
+        Lock-wrapped — see ``_conn_lock`` docstring. Reads from a
+        sqlite3 Connection opened with ``check_same_thread=False``
+        require explicit serialization or SQLite returns
+        ``InterfaceError: bad parameter or other API misuse``.
+        """
 
         def _exec() -> list[sqlite3.Row]:
             assert self._conn is not None
-            cursor = self._conn.execute(sql, params)
-            return cursor.fetchall()
+            with self._conn_lock:
+                cursor = self._conn.execute(sql, params)
+                return cursor.fetchall()
 
         return await asyncio.to_thread(_exec)
 
@@ -978,7 +996,7 @@ class Database:
 
         def _exec() -> int:
             assert self._conn is not None
-            with self._write_lock:
+            with self._conn_lock:
                 cursor = self._conn.execute(sql, params)
                 self._conn.commit()
                 return cursor.lastrowid or 0
@@ -990,7 +1008,7 @@ class Database:
 
         def _exec() -> None:
             assert self._conn is not None
-            with self._write_lock:
+            with self._conn_lock:
                 self._conn.executemany(sql, params_list)
                 self._conn.commit()
 
@@ -1001,7 +1019,7 @@ class Database:
 
         def _exec() -> None:
             assert self._conn is not None
-            with self._write_lock:
+            with self._conn_lock:
                 self._conn.executescript(sql)
 
         await asyncio.to_thread(_exec)

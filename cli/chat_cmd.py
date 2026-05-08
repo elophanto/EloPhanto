@@ -180,13 +180,8 @@ class SessionStats:
 
     def update_from_tracker(self, cost_tracker: Any) -> None:
         """Pull latest numbers from the router's cost tracker."""
-        total_in = 0
-        total_out = 0
-        for call in cost_tracker.calls:
-            total_in += call.get("input_tokens", 0)
-            total_out += call.get("output_tokens", 0)
-        self.total_input_tokens = total_in
-        self.total_output_tokens = total_out
+        self.total_input_tokens = cost_tracker.total_input_tokens
+        self.total_output_tokens = cost_tracker.total_output_tokens
         self.session_cost = cost_tracker.daily_total
         if cost_tracker.calls:
             last = cost_tracker.calls[-1]
