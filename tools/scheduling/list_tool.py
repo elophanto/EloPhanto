@@ -25,8 +25,11 @@ class ScheduleListTool(BaseTool):
     def description(self) -> str:
         return (
             "List all scheduled tasks with their status, next run time, and "
-            "last result. Can also enable, disable, delete, stop a running "
-            "task, stop all running tasks, or view run history."
+            "last result. Can also enable, disable, delete, update, stop a "
+            "running task, stop all running tasks, or view run history. "
+            "Use 'update' to amend an existing schedule (cron, task_goal, "
+            "name, description, max_retries) without losing the schedule_id "
+            "or run history."
         )
 
     @property
@@ -41,6 +44,7 @@ class ScheduleListTool(BaseTool):
                         "enable",
                         "disable",
                         "delete",
+                        "update",
                         "history",
                         "stop",
                         "stop_all",
@@ -49,16 +53,41 @@ class ScheduleListTool(BaseTool):
                         "Action to perform (default: list). 'stop' cancels an "
                         "in-flight task without disabling. 'stop_all' cancels "
                         "every running task. 'disable' and 'delete' also "
-                        "cancel in-flight execution."
+                        "cancel in-flight execution. 'update' amends fields "
+                        "on an existing schedule in place."
                     ),
                 },
                 "schedule_id": {
                     "type": "string",
-                    "description": "Schedule ID (for enable/disable/delete/history)",
+                    "description": (
+                        "Schedule ID (for enable/disable/delete/update/" "history/stop)"
+                    ),
                 },
                 "limit": {
                     "type": "integer",
                     "description": "Max results for history (default: 10)",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "New name (update only)",
+                },
+                "task_goal": {
+                    "type": "string",
+                    "description": "New task goal text (update only)",
+                },
+                "cron": {
+                    "type": "string",
+                    "description": (
+                        "New cron expression, e.g. '0 9 * * *' (update only)"
+                    ),
+                },
+                "description_text": {
+                    "type": "string",
+                    "description": "New description (update only)",
+                },
+                "max_retries": {
+                    "type": "integer",
+                    "description": "New max_retries (update only)",
                 },
             },
             "required": [],
@@ -136,6 +165,34 @@ class ScheduleListTool(BaseTool):
                     "action": "stop",
                     "schedule_id": schedule_id,
                     "was_running": stopped,
+                },
+            )
+        elif action == "update":
+            try:
+                updated = await self._scheduler.update_schedule(
+                    schedule_id,
+                    name=params.get("name"),
+                    task_goal=params.get("task_goal"),
+                    cron_expression=params.get("cron"),
+                    description=params.get("description_text"),
+                    max_retries=params.get("max_retries"),
+                )
+            except ValueError as e:
+                return ToolResult(success=False, error=str(e))
+            if not updated:
+                return ToolResult(
+                    success=False,
+                    error=f"Schedule {schedule_id} not found",
+                )
+            return ToolResult(
+                success=True,
+                data={
+                    "action": "updated",
+                    "schedule_id": schedule_id,
+                    "name": updated.name,
+                    "cron": updated.cron_expression,
+                    "task_goal": updated.task_goal,
+                    "enabled": updated.enabled,
                 },
             )
 

@@ -165,6 +165,63 @@ class TestTaskScheduler:
         assert s.enabled is True
 
     @pytest.mark.asyncio
+    async def test_update_schedule_changes_fields(
+        self, scheduler: TaskScheduler
+    ) -> None:
+        entry = await scheduler.create_schedule(
+            name="Original",
+            task_goal="old goal",
+            cron_expression="0 9 * * *",
+        )
+        updated = await scheduler.update_schedule(
+            entry.id,
+            name="Renamed",
+            task_goal="new goal",
+            cron_expression="0 10 * * *",
+        )
+        assert updated is not None
+        assert updated.id == entry.id
+        assert updated.name == "Renamed"
+        assert updated.task_goal == "new goal"
+        assert updated.cron_expression == "0 10 * * *"
+
+    @pytest.mark.asyncio
+    async def test_update_schedule_invalid_cron(self, scheduler: TaskScheduler) -> None:
+        entry = await scheduler.create_schedule(
+            name="X", task_goal="g", cron_expression="0 9 * * *"
+        )
+        with pytest.raises(ValueError, match="Invalid cron"):
+            await scheduler.update_schedule(entry.id, cron_expression="not a cron")
+        # Original unchanged
+        s = await scheduler.get_schedule(entry.id)
+        assert s is not None
+        assert s.cron_expression == "0 9 * * *"
+
+    @pytest.mark.asyncio
+    async def test_update_schedule_missing_returns_none(
+        self, scheduler: TaskScheduler
+    ) -> None:
+        result = await scheduler.update_schedule("nope", name="x")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_update_schedule_partial_keeps_other_fields(
+        self, scheduler: TaskScheduler
+    ) -> None:
+        entry = await scheduler.create_schedule(
+            name="Keep",
+            task_goal="keep this goal",
+            cron_expression="0 9 * * *",
+            description="orig desc",
+        )
+        updated = await scheduler.update_schedule(entry.id, name="NewName")
+        assert updated is not None
+        assert updated.name == "NewName"
+        assert updated.task_goal == "keep this goal"
+        assert updated.cron_expression == "0 9 * * *"
+        assert updated.description == "orig desc"
+
+    @pytest.mark.asyncio
     async def test_get_run_history_empty(self, scheduler: TaskScheduler) -> None:
         entry = await scheduler.create_schedule(
             name="NoRuns",
