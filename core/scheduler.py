@@ -313,6 +313,76 @@ class TaskScheduler:
         )
         return True
 
+    async def update_schedule(
+        self,
+        schedule_id: str,
+        name: str | None = None,
+        task_goal: str | None = None,
+        cron_expression: str | None = None,
+        description: str | None = None,
+        max_retries: int | None = None,
+    ) -> ScheduleEntry | None:
+        """Update fields on an existing schedule. Preserves id/history.
+
+        Re-installs the APScheduler job when cron or enabled state changes.
+        Cancels any in-flight run only if the cron expression itself changes
+        (the agent fires this from the daily review and an in-flight task is
+        likely the morning's not-yet-finished work — leave it alone otherwise).
+        """
+        existing = await self.get_schedule(schedule_id)
+        if not existing:
+            return None
+
+        if cron_expression is not None:
+            try:
+                CronTrigger.from_crontab(cron_expression)
+            except ValueError as e:
+                raise ValueError(f"Invalid cron expression: {e}") from e
+
+        fields: list[str] = []
+        values: list[Any] = []
+        if name is not None:
+            fields.append("name = ?")
+            values.append(name)
+        if task_goal is not None:
+            fields.append("task_goal = ?")
+            values.append(task_goal)
+        if cron_expression is not None:
+            fields.append("cron_expression = ?")
+            values.append(cron_expression)
+        if description is not None:
+            fields.append("description = ?")
+            values.append(description)
+        if max_retries is not None:
+            fields.append("max_retries = ?")
+            values.append(max_retries)
+
+        if not fields:
+            return existing
+
+        now = datetime.now(UTC).isoformat()
+        fields.append("updated_at = ?")
+        values.append(now)
+        values.append(schedule_id)
+
+        await self._db.execute_insert(
+            f"UPDATE scheduled_tasks SET {', '.join(fields)} WHERE id = ?",
+            tuple(values),
+        )
+
+        if cron_expression is not None:
+            old_job_id = self._active_jobs.pop(schedule_id, None)
+            if old_job_id:
+                try:
+                    self._scheduler.remove_job(old_job_id)
+                except Exception:
+                    pass
+
+        updated = await self.get_schedule(schedule_id)
+        if updated and updated.enabled and cron_expression is not None:
+            self._add_job(updated)
+        return updated
+
     async def enable_schedule(self, schedule_id: str) -> None:
         """Enable a schedule."""
         now = datetime.now(UTC).isoformat()
