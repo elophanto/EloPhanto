@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -127,3 +128,105 @@ class TestDatabase:
         await db.initialize()
         assert (tmp_path / "nested" / "deep" / "test.db").exists()
         await db.close()
+
+
+class TestThreadSafety:
+    """Pin the connection-level lock fix from 2026-05-08.
+
+    Before the fix, ``execute`` (read path) was unprotected. Pre-2026-05-07
+    nothing exercised concurrent reads because the scheduler ran one task
+    at a time. The resource-typed concurrency rewrite enabled parallel
+    ``_run_one`` tasks → multiple to_thread workers calling
+    ``self._conn.execute(...)`` simultaneously → SQLite error
+    ``bad parameter or other API misuse``. The whole scheduler stopped.
+
+    These tests pin the fix: N parallel reads/writes against one
+    Database instance must complete cleanly with no InterfaceError.
+    """
+
+    @pytest.mark.asyncio
+    async def test_parallel_reads_do_not_race(self, db: Database) -> None:
+        """Fire 50 concurrent execute() calls against the same connection.
+        Pre-fix this raised ``sqlite3.InterfaceError: bad parameter or
+        other API misuse`` after the first few collisions."""
+        # Seed a row to read.
+        await db.execute_insert(
+            "INSERT INTO tasks (id, goal, status, started_at) "
+            "VALUES (?, ?, 'completed', '2026-05-08T00:00:00Z')",
+            ("t1", "test"),
+        )
+
+        async def reader() -> int:
+            rows = await db.execute("SELECT goal FROM tasks WHERE id = ?", ("t1",))
+            return len(rows)
+
+        # 50 parallel reads — way more than the threadpool default.
+        results = await asyncio.gather(*[reader() for _ in range(50)])
+        assert all(r == 1 for r in results)
+
+    @pytest.mark.asyncio
+    async def test_parallel_mixed_reads_and_writes(self, db: Database) -> None:
+        """Realistic scheduler scenario: many parallel _run_one tasks,
+        some reading scheduled_tasks, some writing schedule_runs.
+        Must complete without any task crashing."""
+
+        async def writer(i: int) -> None:
+            await db.execute_insert(
+                "INSERT INTO tasks (id, goal, status, started_at) "
+                "VALUES (?, ?, 'running', '2026-05-08T00:00:00Z')",
+                (f"task-{i}", f"goal-{i}"),
+            )
+
+        async def reader() -> int:
+            rows = await db.execute("SELECT id FROM tasks WHERE status = 'running'")
+            return len(rows)
+
+        # 20 writers + 20 readers, all kicked off concurrently.
+        write_tasks = [writer(i) for i in range(20)]
+        read_tasks = [reader() for _ in range(20)]
+        results = await asyncio.gather(
+            *write_tasks, *read_tasks, return_exceptions=True
+        )
+        # No exceptions — pre-fix at least one would be
+        # sqlite3.InterfaceError.
+        for r in results:
+            assert not isinstance(
+                r, Exception
+            ), f"Concurrent DB access produced an exception: {r!r}"
+
+    @pytest.mark.asyncio
+    async def test_replicates_scheduler_get_schedule_pattern(
+        self, db: Database
+    ) -> None:
+        """Mirrors the exact failure path the scheduler hit on
+        2026-05-07 18:00:00 — six crons fire at the same minute, each
+        spawning a _run_one that immediately runs
+        `SELECT * FROM scheduled_tasks WHERE id = ?`. Six parallel
+        cursors against one connection without serialization →
+        InterfaceError. With the fix, all six complete cleanly."""
+        # Seed several rows.
+        for i in range(6):
+            await db.execute_insert(
+                """INSERT INTO scheduled_tasks
+                     (id, name, cron_expression, task_goal, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    f"sched-{i}",
+                    f"Schedule {i}",
+                    "0 * * * *",
+                    f"goal {i}",
+                    "2026-05-08T00:00:00Z",
+                    "2026-05-08T00:00:00Z",
+                ),
+            )
+
+        async def get_schedule_like(sid: str) -> int:
+            rows = await db.execute(
+                "SELECT * FROM scheduled_tasks WHERE id = ?", (sid,)
+            )
+            return len(rows)
+
+        results = await asyncio.gather(
+            *[get_schedule_like(f"sched-{i}") for i in range(6)]
+        )
+        assert all(r == 1 for r in results)
