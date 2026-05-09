@@ -267,6 +267,12 @@ goals:
   auto_continue: true
 
 # --- MCP (Model Context Protocol) ---
+# Outbound update notifications. The only network call is an
+# unauthenticated GET to api.github.com/repos/elophanto/EloPhanto/releases/latest,
+# cached daily at ~/.elophanto/update_check.json. Set false for offline.
+telemetry:
+  update_check: true
+
 # Connect to external MCP servers — their tools appear alongside built-in tools.
 # Browse servers at https://mcpservers.org/
 # Install SDK first: uv pip install "mcp[cli]"

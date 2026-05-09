@@ -726,6 +726,29 @@ def _check_bootstrap(project_root: Path) -> CheckResult:
 # ──────────────────────────────────────────────────────────────────
 
 
+def _check_update(project_root: Path) -> CheckResult:
+    """One-shot update check. Uses the daily cache if present so doctor
+    doesn't hit GitHub on every invocation."""
+    import asyncio
+
+    from core.update_check import check_for_updates
+
+    try:
+        result = asyncio.run(check_for_updates(enabled=True, project_root=project_root))
+    except Exception as e:
+        return CheckResult("update", "skip", f"check skipped: {e}")
+    if result is None:
+        return CheckResult("update", "skip", "no version info available")
+    if not result.behind:
+        return CheckResult("update", "ok", f"on latest ({result.local})")
+    return CheckResult(
+        "update",
+        "warn",
+        f"{result.local} → {result.latest} available",
+        fix=f"git pull && pip install -e .  ·  {result.release_url}",
+    )
+
+
 def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows: list[CheckResult] = []
     rows.append(_check_python())
@@ -745,6 +768,7 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_tailscale())
     rows.append(_check_p2p_sidecar(project_root))
     rows.append(_check_p2p_bootstrap_diversity(project_root))
+    rows.append(_check_update(project_root))
     return rows
 
 

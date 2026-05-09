@@ -28,6 +28,7 @@ from core import __version__
 from core.agent import Agent
 from core.config import load_config
 from core.log_setup import setup_logging
+from core.update_check import check_for_updates, format_banner
 from core.vault import Vault, VaultError
 
 console = Console()
@@ -514,6 +515,20 @@ class _LiveProgress:
         self._steps_log.append((tool, detail))
 
 
+async def _print_update_banner_if_behind(cfg: Any) -> None:
+    """Best-effort: never block startup on update check failure."""
+    try:
+        result = await check_for_updates(enabled=cfg.telemetry.update_check)
+    except Exception:
+        return
+    if not result or not result.behind:
+        return
+    text = format_banner(result)
+    if text:
+        console.print(f"  [{_C_WARN}]{text}[/]")
+        console.print()
+
+
 def _summarize_params(tool: str, params: dict[str, Any]) -> str:
     """Extract a short human-readable summary from tool params."""
     if tool == "shell_execute":
@@ -870,6 +885,7 @@ async def _chat_gateway(cfg: Any) -> None:
     )
     console.print(welcome)
     console.print()
+    await _print_update_banner_if_behind(cfg)
 
     # Run CLI adapter — race against remote shutdown signal
     cli = CLIAdapter(gateway_url=gw_url)
@@ -966,6 +982,7 @@ async def _chat_loop(config_path: str | None, profile: str = "") -> None:
     )
     console.print(welcome)
     console.print()
+    await _print_update_banner_if_behind(cfg)
 
     loop = asyncio.get_event_loop()
 

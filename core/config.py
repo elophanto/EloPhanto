@@ -617,6 +617,17 @@ class ImapServerConfig:
 
 
 @dataclass
+class TelemetryConfig:
+    """Outbound telemetry / update-check configuration.
+
+    Only ``update_check`` ships today. No metrics are sent to any server;
+    update_check makes a single unauthenticated GET to api.github.com.
+    """
+
+    update_check: bool = True
+
+
+@dataclass
 class RecoveryConfig:
     """Recovery mode configuration."""
 
@@ -963,6 +974,7 @@ class Config:
     payments: PaymentsConfig = field(default_factory=PaymentsConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
+    telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
@@ -1620,6 +1632,12 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         inactivity_timeout_minutes=recovery_raw.get("inactivity_timeout_minutes", 30),
     )
 
+    # Parse telemetry section
+    telemetry_raw = raw.get("telemetry", {}) or {}
+    telemetry_config = TelemetryConfig(
+        update_check=bool(telemetry_raw.get("update_check", True)),
+    )
+
     # Parse MCP section
     mcp_raw = raw.get("mcp", {})
     mcp_servers: dict[str, MCPServerConfig] = {}
@@ -1876,6 +1894,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         payments=payments_config,
         email=email_config,
         recovery=recovery_config,
+        telemetry=telemetry_config,
         mcp=mcp_config,
         self_learning=self_learning_config,
         swarm=swarm_config,
