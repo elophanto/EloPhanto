@@ -110,6 +110,7 @@ class Gateway:
 
         self._clients: dict[str, ClientConnection] = {}
         self._server: Any = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._serve_task: asyncio.Task[None] | None = None
 
         # Pending approval futures: approval_msg_id → asyncio.Future[bool]
@@ -324,6 +325,43 @@ class Gateway:
             "version": version,
         }
 
+    def _schedule_async(self, coro: Any) -> None:
+        """Schedule a coroutine onto the gateway's running loop.
+
+        Used by synchronous webhook handlers that need to fire a
+        background task. Prefers the loop captured at start(); falls
+        back to ``get_running_loop()`` (works when called from inside
+        the loop's thread); silently drops the coroutine if no loop is
+        available (unit tests calling handlers in isolation).
+
+        Replaces ``asyncio.get_event_loop().create_task(...)`` which
+        raised RuntimeError under Python 3.13+ when no loop existed in
+        the current thread.
+        """
+        loop = self._loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No loop and no captured reference. Close the coroutine
+                # so it doesn't emit a "never awaited" warning, then bail.
+                coro.close()
+                return
+        if loop.is_running():
+            try:
+                # Thread-safe scheduling — works whether we're on the loop
+                # thread or another thread (websockets dispatches handlers
+                # on the loop thread, but be defensive).
+                asyncio.run_coroutine_threadsafe(coro, loop)
+                return
+            except RuntimeError:
+                pass
+        # Fall back: create_task within the same thread.
+        try:
+            loop.create_task(coro)
+        except Exception:
+            coro.close()
+
     def _handle_webhook(self, request: Any) -> Any:
         """Route webhook HTTP requests."""
         from websockets.datastructures import Headers
@@ -412,10 +450,10 @@ class Gateway:
             mind.inject_event(f"[WEBHOOK] {event_text}")
 
         # Schedule heartbeat check on next event loop iteration
-        asyncio.get_event_loop().create_task(heartbeat._check_and_execute())
+        self._schedule_async(heartbeat._check_and_execute())
 
         # Broadcast webhook received event
-        asyncio.get_event_loop().create_task(
+        self._schedule_async(
             self.broadcast(
                 event_message(
                     "",
@@ -448,9 +486,7 @@ class Gateway:
         task_goal = task_goal[:2000]
 
         # Schedule the task asynchronously
-        asyncio.get_event_loop().create_task(
-            self._execute_webhook_task(task_goal, payload)
-        )
+        self._schedule_async(self._execute_webhook_task(task_goal, payload))
 
         body = json.dumps({"status": "accepted", "goal": task_goal[:200]}).encode()
         return Response(
@@ -492,6 +528,12 @@ class Gateway:
         except ImportError:
             logger.error("websockets package not installed. Run: uv add websockets")
             raise
+
+        # Capture the running loop so synchronous webhook handlers
+        # (called from the websockets process_request hook) can schedule
+        # background tasks without relying on the deprecated
+        # asyncio.get_event_loop() lookup that raises in Python 3.13+.
+        self._loop = asyncio.get_running_loop()
 
         ssl_ctx = self._build_ssl_context()
         self._server = await websockets.serve(
@@ -1043,7 +1085,7 @@ class Gateway:
         req = approval_request_message(
             session.session_id, tool_name, description, params
         )
-        self._pending_approvals[req.id] = asyncio.get_event_loop().create_future()
+        self._pending_approvals[req.id] = asyncio.get_running_loop().create_future()
 
         # Send to the requesting client and any other clients on this session
         await self.broadcast(req, session_id=session.session_id)
