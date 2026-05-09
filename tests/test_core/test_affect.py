@@ -24,6 +24,7 @@ from core.affect import (
     emit_joy,
     emit_pride,
     emit_relief,
+    emit_satisfaction,
 )
 from core.config import IdentityConfig
 from core.database import Database
@@ -677,3 +678,43 @@ class TestAnger:
         labels = [e.label for e in (await affect.get_state()).recent_events]
         assert "frustration" in labels
         assert "anger" not in labels
+
+
+class TestSatisfactionEmitter:
+    """Pin the common-positive-baseline emitter added 2026-05-09. Three
+    days of prod data showed zero positive events ever fired because
+    pride and joy required rare events. Satisfaction is the everyday
+    win signal; magnitudes are intentionally one-third of pride/joy."""
+
+    @pytest.mark.asyncio
+    async def test_satisfaction_lands_as_positive_pleasure(self, db: Database) -> None:
+        affect = AffectManager(db=db)
+        await affect.load_or_create()
+        await emit_satisfaction(affect, source="task")
+        state = await affect.get_state()
+        assert state.pleasure > 0
+        assert state.dominance > 0
+
+    @pytest.mark.asyncio
+    async def test_satisfaction_smaller_than_pride(self, tmp_path: Path) -> None:
+        """A win at task-completion granularity must not eclipse a real
+        pride-grade event. Otherwise routine completions would flood
+        the channel and the agent would never feel a real triumph."""
+        db1 = Database(tmp_path / "sat.db")
+        await db1.initialize()
+        a1 = AffectManager(db=db1)
+        await a1.load_or_create()
+        await emit_satisfaction(a1, source="task")
+        sat_state = await a1.get_state()
+        await db1.close()
+
+        db2 = Database(tmp_path / "pride.db")
+        await db2.initialize()
+        a2 = AffectManager(db=db2)
+        await a2.load_or_create()
+        await emit_pride(a2, source="goal")
+        pride_state = await a2.get_state()
+        await db2.close()
+
+        assert sat_state.pleasure < pride_state.pleasure
+        assert sat_state.dominance < pride_state.dominance
