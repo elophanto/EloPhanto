@@ -10,7 +10,7 @@ See docs/27-SECURITY-HARDENING.md (Gap 5: Provider Bias and Silent Censorship).
 from __future__ import annotations
 
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -97,7 +97,10 @@ class ProviderTracker:
     """Tracks provider-level metrics for transparency reporting."""
 
     def __init__(self) -> None:
-        self._events: list[ProviderEvent] = []
+        # Bounded ring — only get_recent_events(limit=20) ever reads this,
+        # and flush(db) is never called anywhere. Pre-2026-05-09 the list
+        # grew 1:1 with LLM calls.
+        self._events: deque[ProviderEvent] = deque(maxlen=100)
         self._stats: dict[str, ProviderStats] = defaultdict(ProviderStats)
 
     def record(self, event: ProviderEvent) -> None:
@@ -123,7 +126,8 @@ class ProviderTracker:
 
     def get_recent_events(self, limit: int = 20) -> list[ProviderEvent]:
         """Get the most recent provider events."""
-        return self._events[-limit:]
+        events = list(self._events)
+        return events[-limit:]
 
     async def flush(self, db: Any) -> None:
         """Persist pending events to the llm_usage table.
