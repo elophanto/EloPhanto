@@ -62,7 +62,12 @@ class CostTracker:
     # before 2026-05-08 — multi-hour sessions accumulated tens of MB and
     # CPU walked the full list on every status refresh.
     calls: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=1000))
-    _pending_records: list[dict[str, Any]] = field(default_factory=list)
+    # _pending_records: meant to be drained by flush(db) into llm_usage,
+    # but flush() is never called anywhere. Bounded so the never-flushed
+    # records can't leak. Separate bug: usage stats don't reach the DB.
+    _pending_records: deque[dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=1000)
+    )
 
     def record(
         self,
