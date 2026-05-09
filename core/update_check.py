@@ -204,6 +204,9 @@ async def check_for_updates(
         release_url=url,
         release_title=title,
     )
+    # Preserve last_notified across re-checks so the periodic notifier
+    # doesn't lose its dedup key.
+    prior = _read_cache_raw() or {}
     _write_cache(
         {
             "checked_at": time.time(),
@@ -212,9 +215,40 @@ async def check_for_updates(
             "behind": behind,
             "release_url": url,
             "release_title": title,
+            "last_notified": prior.get("last_notified", ""),
         }
     )
     return result
+
+
+def _read_cache_raw() -> dict | None:
+    """Read the cache file regardless of TTL (for state we want to keep
+    across cache expiries, like ``last_notified``)."""
+    path = _cache_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def mark_notified(version: str) -> None:
+    """Record that the user has been told about ``version`` so the
+    periodic notifier doesn't print the same banner repeatedly."""
+    raw = _read_cache_raw() or {}
+    raw["last_notified"] = version
+    _write_cache(raw)
+
+
+def should_notify(result: UpdateCheckResult | None) -> bool:
+    """True when the result represents a *new* update the user hasn't
+    been told about yet in this install."""
+    if result is None or not result.behind:
+        return False
+    raw = _read_cache_raw() or {}
+    return raw.get("last_notified", "") != result.latest
 
 
 def format_banner(result: UpdateCheckResult) -> str:

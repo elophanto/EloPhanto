@@ -28,7 +28,12 @@ from core import __version__
 from core.agent import Agent
 from core.config import load_config
 from core.log_setup import setup_logging
-from core.update_check import check_for_updates, format_banner
+from core.update_check import (
+    check_for_updates,
+    format_banner,
+    mark_notified,
+    should_notify,
+)
 from core.vault import Vault, VaultError
 
 console = Console()
@@ -527,6 +532,36 @@ async def _print_update_banner_if_behind(cfg: Any) -> None:
     if text:
         console.print(f"  [{_C_WARN}]{text}[/]")
         console.print()
+        mark_notified(result.latest)
+
+
+async def _periodic_update_notifier(
+    cfg: Any, interval_seconds: float = 6 * 60 * 60
+) -> None:
+    """Re-check periodically while the agent is running.
+
+    Prints the banner exactly once per new release: the first time we
+    notice a release the user hasn't already been told about. Survives
+    network failures (returns None → no notification this cycle).
+    """
+    if not cfg.telemetry.update_check:
+        return
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            result = await check_for_updates(enabled=True, use_cache=False)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            continue
+        if should_notify(result):
+            assert result is not None
+            text = format_banner(result)
+            if text:
+                console.print()
+                console.print(f"  [{_C_WARN}]{text}[/]")
+                console.print()
+                mark_notified(result.latest)
 
 
 def _summarize_params(tool: str, params: dict[str, Any]) -> str:
@@ -886,6 +921,7 @@ async def _chat_gateway(cfg: Any) -> None:
     console.print(welcome)
     console.print()
     await _print_update_banner_if_behind(cfg)
+    update_notifier_task = asyncio.create_task(_periodic_update_notifier(cfg))
 
     # Run CLI adapter — race against remote shutdown signal
     cli = CLIAdapter(gateway_url=gw_url)
@@ -903,6 +939,7 @@ async def _chat_gateway(cfg: Any) -> None:
 
     # Shutdown — stop adapters gracefully, then cancel tasks
     console.print(f"\n  [{_C_DIM}]Shutting down...[/]")
+    update_notifier_task.cancel()
     for adapter in adapter_instances:
         try:
             await adapter.stop()
@@ -983,6 +1020,7 @@ async def _chat_loop(config_path: str | None, profile: str = "") -> None:
     console.print(welcome)
     console.print()
     await _print_update_banner_if_behind(cfg)
+    update_notifier_task = asyncio.create_task(_periodic_update_notifier(cfg))
 
     loop = asyncio.get_event_loop()
 
@@ -1132,6 +1170,8 @@ async def _chat_loop(config_path: str | None, profile: str = "") -> None:
             await telegram_adapter.stop()
         except Exception:
             pass
+
+    update_notifier_task.cancel()
 
     # Shut down agent (MCP connections, browser, scheduler, DB)
     try:
