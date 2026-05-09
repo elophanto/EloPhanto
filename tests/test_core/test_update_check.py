@@ -15,6 +15,8 @@ from core.update_check import (
     check_for_updates,
     format_banner,
     get_local_version,
+    mark_notified,
+    should_notify,
 )
 
 
@@ -192,3 +194,70 @@ class TestCheckForUpdates:
             enabled=True, project_root=tmp_path, use_cache=False
         )
         assert result is None
+
+
+class TestNotifyOnce:
+    def test_should_notify_when_behind_and_unseen(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "core.update_check._cache_path", lambda: tmp_path / "c.json"
+        )
+        r = UpdateCheckResult(local="v2026.05.02", latest="v2026.05.07", behind=True)
+        assert should_notify(r) is True
+
+    def test_should_not_notify_when_already_notified(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cache = tmp_path / "c.json"
+        monkeypatch.setattr("core.update_check._cache_path", lambda: cache)
+        mark_notified("v2026.05.07")
+        r = UpdateCheckResult(local="v2026.05.02", latest="v2026.05.07", behind=True)
+        assert should_notify(r) is False
+
+    def test_should_notify_again_when_new_version_arrives(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cache = tmp_path / "c.json"
+        monkeypatch.setattr("core.update_check._cache_path", lambda: cache)
+        mark_notified("v2026.05.07")
+        # A newer release than the one already notified about
+        r = UpdateCheckResult(local="v2026.05.02", latest="v2026.05.09", behind=True)
+        assert should_notify(r) is True
+
+    def test_should_not_notify_when_up_to_date(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "core.update_check._cache_path", lambda: tmp_path / "c.json"
+        )
+        r = UpdateCheckResult(local="v2026.05.09", latest="v2026.05.09", behind=False)
+        assert should_notify(r) is False
+
+    def test_should_not_notify_when_none(self) -> None:
+        assert should_notify(None) is False
+
+    def test_check_preserves_last_notified_across_recheck(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Re-checking must not wipe last_notified — that's the dedup key
+        the periodic notifier relies on."""
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "x"\nversion = "2026.05.02"\n'
+        )
+        cache = tmp_path / "c.json"
+        monkeypatch.setattr("core.update_check._cache_path", lambda: cache)
+        mark_notified("v2026.05.07")
+
+        async def _fake_fetch(timeout: float = 5.0) -> tuple[str, str, str]:
+            return ("v2026.05.07", "https://example/r", "title")
+
+        monkeypatch.setattr("core.update_check.fetch_latest_release", _fake_fetch)
+        await_result = check_for_updates(
+            enabled=True, project_root=tmp_path, use_cache=False
+        )
+        import asyncio as _a
+
+        _a.run(await_result)
+        data = json.loads(cache.read_text())
+        assert data["last_notified"] == "v2026.05.07"
