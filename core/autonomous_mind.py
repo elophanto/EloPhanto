@@ -696,6 +696,7 @@ class AutonomousMind:
                     response = await self._agent.run(
                         prompt,
                         max_steps_override=self._config.max_rounds_per_wakeup,
+                        is_user_input=False,
                     )
             except TimeoutError:
                 logger.warning(
@@ -945,6 +946,7 @@ class AutonomousMind:
                     response = await self._agent.run(
                         prompt,
                         max_steps_override=self._config.max_rounds_per_wakeup,
+                        is_user_input=False,
                     )
             except TimeoutError:
                 logger.warning(

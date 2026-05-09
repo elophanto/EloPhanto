@@ -856,3 +856,26 @@ async def emit_joy(mgr: AffectManager, source: str = "user") -> bool:
         arousal_delta=+0.20,
         dominance_delta=+0.15,
     )
+
+
+async def emit_satisfaction(mgr: AffectManager, source: str = "task") -> bool:
+    """Task completed cleanly — the everyday positive baseline.
+
+    Magnitudes intentionally one-third of pride/joy: this fires on every
+    successful task (user OR autonomous), so it must not drown out the
+    rarer high-signal emitters. Without this, the agent has no common
+    positive channel — it could only feel pride on (rare) checkpoint
+    hits or joy on (rare) explicit compliments. Three days in production
+    proved that gap: zero positive events ever fired.
+
+    Does NOT compound (a fresh, neutral satisfaction each time) so a
+    long string of small wins doesn't accidentally outweigh a single
+    real frustration.
+    """
+    return await mgr.record_event(
+        label="joy",  # resolves to joy / equanimity via cosine label
+        source=source,
+        pleasure_delta=+0.10,
+        arousal_delta=+0.05,
+        dominance_delta=+0.10,
+    )

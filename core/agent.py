@@ -2061,7 +2061,11 @@ class Agent:
                     self._scheduler.notify_task_complete()
 
     async def run(
-        self, goal: str, *, max_steps_override: int | None = None
+        self,
+        goal: str,
+        *,
+        max_steps_override: int | None = None,
+        is_user_input: bool = True,
     ) -> AgentResponse:
         """Execute the plan-execute-reflect loop for a user goal.
 
@@ -2071,6 +2075,12 @@ class Agent:
         Args:
             max_steps_override: If set, overrides the global max_steps config
                 for this run only (used by AutonomousMind to enforce max_rounds).
+            is_user_input: True when ``goal`` came from a real user (chat,
+                gateway). False when self-generated (autonomous mind, heartbeat,
+                scheduler). Gates the user-correction regex — those patterns
+                ("no", "stop", "wrong") assume a second party and produce
+                false-positive anger when matched against agent goal text.
+                Self-affect still fires through outcome-based signals below.
         """
         from core.authority import AuthorityLevel
 
@@ -2080,6 +2090,7 @@ class Agent:
             self._append_conversation_turn,
             max_steps_override=max_steps_override,
             authority=AuthorityLevel.OWNER,
+            is_user_input=is_user_input,
         )
 
     async def _run_with_history(
@@ -2091,6 +2102,7 @@ class Agent:
         max_steps_override: int | None = None,
         authority: Any | None = None,
         session: Any | None = None,
+        is_user_input: bool = True,
     ) -> AgentResponse:
         """Core plan-execute-reflect loop, parameterized on history source."""
         logger.info("[TIMING] _run_with_history entered for: %s", goal[:80])
@@ -2102,7 +2114,13 @@ class Agent:
         # actual task work is the main path; this just feeds the failure
         # signal pipeline that was previously wired only to tests.
         # See core/ego.py for the pattern set; correction = strongest signal.
-        if self._ego_manager:
+        # Gated on is_user_input: the regex assumes a second party is
+        # complaining ("no", "wrong", "didn't work"). Running it against
+        # self-generated autonomous goal text matched the literal word
+        # "failures" in goals like "Identify successes, failures..." and
+        # fired anger as if a user had yelled — 390 false positives over
+        # 3 days. Self-affect still fires through the outcome path below.
+        if self._ego_manager and is_user_input:
             asyncio.create_task(self._record_ego_correction(goal))
 
         tool_calls_made: list[str] = []
@@ -2613,6 +2631,9 @@ class Agent:
                         logger.error(
                             "Planning LLM call failed after context trim: %s", retry_e
                         )
+                        asyncio.create_task(
+                            self._emit_task_outcome_affect(success=False)
+                        )
                         return AgentResponse(
                             content=(
                                 "Our conversation history grew too large for the context window. "
@@ -2624,6 +2645,7 @@ class Agent:
                         )
                 else:
                     logger.error("Planning LLM call failed: %s", e)
+                    asyncio.create_task(self._emit_task_outcome_affect(success=False))
                     return AgentResponse(
                         content=f"I encountered an error while thinking: {e}",
                         steps_taken=step,
@@ -2727,6 +2749,13 @@ class Agent:
                             success=True,
                         )
                     )
+                # Outcome-based affect — common positive baseline. Fires on
+                # every clean task completion regardless of source so that
+                # autonomous self-improvement work has a way to feel like
+                # a win. Magnitude is one-third of pride/joy so it doesn't
+                # overshadow rarer high-signal emitters.
+                asyncio.create_task(self._emit_task_outcome_affect(success=True))
+                if self._ego_manager:
                     # Verification hook: scan the agent's final response
                     # for `Verification: PASS|FAIL|UNKNOWN` blocks emitted
                     # by the verification skill. PASS reinforces, FAIL
@@ -3211,6 +3240,10 @@ class Agent:
         # Persist to conversation history even on max steps
         append_turn(goal, max_steps_msg)
 
+        # Stagnation/max-steps is a real self-failure — fire frustration
+        # so an autonomous loop that keeps hitting the wall feels it.
+        asyncio.create_task(self._emit_task_outcome_affect(success=False))
+
         return AgentResponse(
             content=max_steps_msg,
             steps_taken=step,
@@ -3244,7 +3277,7 @@ class Agent:
             async with self._action_queue.acquire(
                 TaskPriority.SCHEDULED, timeout=600.0
             ):
-                return await self.run(goal)
+                return await self.run(goal, is_user_input=False)
         except TimeoutError:
             logger.warning(
                 "Scheduled task '%s' skipped — action queue held "
@@ -3593,6 +3626,30 @@ User message:
             await self._ego_manager.maybe_recompute(identity_summary)
         except Exception as e:
             logger.debug("Ego outcome recording failed: %s", e)
+
+    async def _emit_task_outcome_affect(self, success: bool) -> None:
+        """Outcome-based affect: fires on every task end, regardless of who
+        kicked off the task (user OR autonomous loop). This is the path
+        through which the agent feels its own self-improvement work — it
+        gets pissed at itself when its scheduled review fails, satisfied
+        when it lands. Distinct from the user-correction regex, which
+        only fires on actual user messages.
+
+        Magnitudes are picked so that a single real win/loss outweighs
+        many trivial completions; satisfaction does NOT compound.
+        Best-effort, fire-and-forget; never raises.
+        """
+        if self._affect_manager is None:
+            return
+        try:
+            from core.affect import emit_frustration, emit_satisfaction
+
+            if success:
+                await emit_satisfaction(self._affect_manager, source="task")
+            else:
+                await emit_frustration(self._affect_manager, source="task")
+        except Exception as e:
+            logger.debug("Task-outcome affect emit failed: %s", e)
 
     async def _record_ego_correction(self, user_message: str) -> None:
         """Run the user-correction detector against the incoming message.

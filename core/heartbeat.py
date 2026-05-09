@@ -246,6 +246,7 @@ class HeartbeatEngine:
                     response = await self._agent.run(
                         prompt,
                         max_steps_override=self._config.max_rounds,
+                        is_user_input=False,
                     )
             except TimeoutError:
                 logger.warning(
