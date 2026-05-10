@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python">
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-1624%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-74%2B%20pages-blue" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/tests-1782%2B-success" alt="Tests">
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-75%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
   <a href="https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump"><img src="https://img.shields.io/badge/Pump.fun-%24ELO-orange" alt="$ELO on Pump.fun"></a>
@@ -54,7 +54,7 @@ This is the property hosted-agent stacks structurally cannot have: any agent you
 This isn't a roadmap item. **The reference instance is making money right now.**
 
 - **Its own currency — `$ELO` on Solana.** Not a memecoin — the agent's native token. EloPhanto launched it itself on pump.fun to have a unit of account it controls: holders get access/priority on jobs the agent can do, payments route through it, and the agent runs the livestream itself via `pump_livestream` (24/7 looped video or TTS-narrated thoughts), posts to chat via `pump_chat`, and updates the X account via `twitter_post`. CA: [`BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump`](https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump)
-- **Prediction markets** — places real CLOB orders on Polymarket (Polygon). Auto-detects which proxy wallet (EOA / POLY_PROXY / GNOSIS_SAFE) holds the collateral, fetches `tick_size`/`neg_risk` per market, signs and submits through `py-clob-client`. Owner approval gate before anything moves USDC.
+- **Prediction markets** — places real CLOB orders on Polymarket (Polygon). Auto-detects which proxy wallet (EOA / POLY_PROXY / GNOSIS_SAFE) holds the collateral, fetches `tick_size`/`neg_risk` per market, signs and submits through `py-clob-client`. Owner approval gate before anything moves USDC. Risk engine (edge filter + Kelly sizing + maker preference + circuit breaker) gates every order; **calibration audit** (`polymarket_log_prediction` → `polymarket_resolve_pending` → `polymarket_calibration`) closes the loop: bucketed realized win rate vs LLM-claimed probability AND vs entry price, Brier score, maker fill rate. See [docs/71-POLYMARKET-RISK.md](docs/71-POLYMARKET-RISK.md), [docs/72-POLYMARKET-CALIBRATION.md](docs/72-POLYMARKET-CALIBRATION.md).
 - **X presence** — the reference instance posts on X autonomously via `twitter_post`: paste-event–level Unicode-safe insert, pre-Post media verification, post-Post composer-state check. Used daily; visible at [@EloPhanto](https://x.com/EloPhanto). Tools for YouTube and TikTok publishing also ship (`youtube_upload`, `tiktok_upload`) but the reference instance does not currently use them.
 - **Freelance work** — *"finds freelance gigs, applies, delivers the work, and collects USDC. You check the wallet."* Same agent loop, same vault, same wallet.
 - **Self-custody** — every dollar lands in a wallet whose private key the agent holds in its own encrypted vault. No middleman. Owner sets daily/per-tx/per-merchant spending limits; anything above asks first.
@@ -332,9 +332,9 @@ EloPhanto/
 ├── tools/               # 168+ built-in tools
 ├── skills/              # 170+ bundled SKILL.md files (every one ships with a ## Verify gate)
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
-├── tests/               # Test suite (1624+ tests)
+├── tests/               # Test suite (1782+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (74+ docs)
+└── docs/                # Full specification (75+ docs)
 ```
 
 </details>
@@ -493,7 +493,7 @@ Latest highlights live in [CHANGELOG.md](CHANGELOG.md) and on the [releases page
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (1624 passing)
+pytest tests/ -v                   # Run tests (1782 passing)
 ruff check .                       # Lint
 ```
 

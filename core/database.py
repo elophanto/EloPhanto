@@ -649,6 +649,44 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_jobs_status_seen_at
         ON jobs(status, seen_at)
     """,
+    # Polymarket calibration audit — links the bot's stated probability
+    # at order time to the eventual market resolution, so we can answer
+    # "when the LLM says 70%, does it actually win 70%?" and "do markets
+    # we entered at $0.40 actually pay 40% of the time?". Independent of
+    # polynode-trading.db (which is the polynode binary's own DB and we
+    # don't co-modify); join by (token_id, created_at) when correlating
+    # with on-chain order_history rows.
+    """
+    CREATE TABLE IF NOT EXISTS polymarket_predictions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        market_slug TEXT NOT NULL DEFAULT '',
+        token_id TEXT NOT NULL,
+        side TEXT NOT NULL
+            CHECK (side IN ('YES','NO')),
+        entry_price REAL NOT NULL,
+        size REAL NOT NULL DEFAULT 0.0,
+        llm_prob REAL NOT NULL,
+        confidence_band TEXT NOT NULL DEFAULT 'medium'
+            CHECK (confidence_band IN ('high','medium','low')),
+        kelly_fraction REAL DEFAULT NULL,
+        order_type TEXT NOT NULL DEFAULT 'GTC',
+        rationale TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        resolved_at TEXT DEFAULT NULL,
+        settle_price REAL DEFAULT NULL,
+        outcome TEXT DEFAULT NULL
+            CHECK (outcome IS NULL OR outcome IN ('WIN','LOSS','PUSH')),
+        realized_pnl REAL DEFAULT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_polymarket_predictions_resolved
+        ON polymarket_predictions(resolved_at)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_polymarket_predictions_token
+        ON polymarket_predictions(token_id)
+    """,
 ]
 
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError
