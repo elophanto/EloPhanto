@@ -434,6 +434,71 @@ class AgentResponse:
     tool_calls_made: list[str] = field(default_factory=list)
 
 
+class _FilteredRegistry:
+    """Read-only registry view that hides specific tool names.
+
+    Used by ``Agent.run_isolated`` so an in-process subagent cannot see
+    or invoke recursive-spawn / long-lived-state tools (delegate, swarm_*,
+    kid_*, org_*, schedule_task, agent_connect/message/disconnect).
+    Delegates everything else to the underlying registry by reference —
+    no copies, no mutation.
+    """
+
+    def __init__(self, inner: Any, excluded: set[str]) -> None:
+        self._inner = inner
+        self._excluded = excluded
+        self._project_root = getattr(inner, "_project_root", None)
+
+    def get(self, name: str) -> Any:
+        if name in self._excluded:
+            return None
+        return self._inner.get(name)
+
+    def get_tools_for_context(
+        self,
+        task_groups: set[str],
+        activated_names: set[str] | None = None,
+    ) -> list[Any]:
+        tools = self._inner.get_tools_for_context(task_groups, activated_names)
+        return [t for t in tools if t.name not in self._excluded]
+
+    def get_core_tools(self) -> list[Any]:
+        return [t for t in self._inner.get_core_tools() if t.name not in self._excluded]
+
+    def get_deferred_catalog(self) -> list[dict[str, str]]:
+        return [
+            entry
+            for entry in self._inner.get_deferred_catalog()
+            if entry["name"] not in self._excluded
+        ]
+
+    def discover_tools(self, query: str) -> list[Any]:
+        return [
+            t for t in self._inner.discover_tools(query) if t.name not in self._excluded
+        ]
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        return [
+            schema
+            for schema in self._inner.list_tools()
+            if schema.get("function", {}).get("name") not in self._excluded
+        ]
+
+    def list_tool_summaries(self) -> list[dict[str, str]]:
+        return [
+            entry
+            for entry in self._inner.list_tool_summaries()
+            if entry["name"] not in self._excluded
+        ]
+
+    def all_tools(self) -> list[Any]:
+        return [t for t in self._inner.all_tools() if t.name not in self._excluded]
+
+    def __getattr__(self, name: str) -> Any:
+        # Fallback for any registry method we didn't explicitly proxy.
+        return getattr(self._inner, name)
+
+
 class Agent:
     """The EloPhanto agent — orchestrates plan-execute-reflect."""
 
@@ -814,6 +879,14 @@ class Agent:
         _status("Loading skills")
         self._skill_manager.discover()
         self._inject_skill_deps()
+
+        # Wire the delegate tool with a back-reference to the agent so it
+        # can call run_isolated. Self-reference is intentional: the tool
+        # spawns sub-tasks of THIS agent (no separate identity), unlike
+        # kid/org/swarm tiers which create new identities or processes.
+        delegate_tool = self._registry.get("delegate")
+        if delegate_tool is not None:
+            delegate_tool._agent = self
 
         # Initialize EloPhantoHub (skill registry)
         if self._config.hub.enabled:
@@ -2101,6 +2174,75 @@ class Agent:
             authority=AuthorityLevel.OWNER,
             is_user_input=is_user_input,
         )
+
+    async def run_isolated(
+        self,
+        goal: str,
+        *,
+        excluded_tool_names: set[str] | None = None,
+        max_steps_override: int | None = None,
+    ) -> AgentResponse:
+        """Run a sub-task with its own conversation history, working
+        memory, activated-tools set, and an optionally filtered registry.
+
+        Used by the in-process delegation tier (``tools/delegate/``).
+        Globally shared state (vault, DB, scheduler, affect, ego, cost
+        tracker, resource semaphores) is intentionally NOT isolated —
+        the subagent is a sub-task of the same agent, not a separate
+        identity. ``is_user_input=False`` so the user-correction regex
+        doesn't pattern-match the parent's delegated goal text.
+
+        Cost rollup: ``CostTracker.task_total`` is preserved across the
+        boundary — the subagent starts fresh at 0 (its own per-task
+        budget check) and on completion its total is added to the
+        parent's. ``daily_total`` accumulates throughout (unified
+        budget). Affect events fire normally — each clean subagent
+        completion lands as ``satisfaction`` in the parent's affect
+        state, exactly as if the parent had done the work itself.
+        """
+        # Save parent state ---------------------------------------------------
+        saved_history = self._conversation_history
+        saved_memory = self._working_memory
+        saved_activated = self._activated_tools
+        saved_registry = self._registry
+        saved_on_step = self._on_step
+        saved_task_total = self._router.cost_tracker.task_total
+
+        # Per-call isolated state --------------------------------------------
+        from core.memory import WorkingMemory
+
+        isolated_history: list[dict[str, Any]] = []
+        isolated_memory = WorkingMemory()
+        # New activated set so the subagent's tool_discover calls don't
+        # leak into the parent's surface.
+        isolated_activated: set[str] = set()
+        if excluded_tool_names:
+            self._registry = _FilteredRegistry(saved_registry, excluded_tool_names)
+        self._conversation_history = isolated_history
+        self._working_memory = isolated_memory
+        self._activated_tools = isolated_activated
+        self._on_step = None  # silence subagent steps from parent's UI
+
+        try:
+            return await self.run(
+                goal,
+                max_steps_override=max_steps_override,
+                is_user_input=False,
+            )
+        finally:
+            subagent_task_total = self._router.cost_tracker.task_total
+            # Restore parent state ------------------------------------------
+            self._conversation_history = saved_history
+            self._working_memory = saved_memory
+            self._activated_tools = saved_activated
+            self._registry = saved_registry
+            self._on_step = saved_on_step
+            # Roll subagent cost up into parent's per-task budget so the
+            # parent's within_budget check after delegation reflects the
+            # full spend.
+            self._router.cost_tracker.task_total = (
+                saved_task_total + subagent_task_total
+            )
 
     async def _run_with_history(
         self,
