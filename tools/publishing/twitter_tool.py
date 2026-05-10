@@ -27,7 +27,14 @@ class TwitterPostTool(BaseTool):
 
     @property
     def group(self) -> str:
-        return "monetization"
+        # 'social' is in the default 'full' profile (DEFAULT_PROFILES in
+        # core/tool_profiles.py), so this tool is visible to the planner
+        # whenever an X/Twitter task lands. Previously 'monetization',
+        # which no profile included → tool surfaced only via explicit
+        # tool_discover, leading the agent to improvise X posts via raw
+        # browser_type_text and hit the multi-block-drop / Unicode bug
+        # this tool exists to avoid. See 2026-05-05 fix in this file.
+        return "social"
 
     @property
     def name(self) -> str:
