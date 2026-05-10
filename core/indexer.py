@@ -9,6 +9,7 @@ Implements the chunking strategy from the spec:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -190,12 +191,24 @@ class KnowledgeIndexer:
         """Check for knowledge docs whose covered source files have changed.
 
         Returns list of {file_path, covers, stale_sources} for each stale doc.
+
+        Glob-walks under ``project_root`` for every doc's ``covers``
+        pattern and stats each match. With 170+ skill files declaring
+        patterns like ``core/**/*.py``, this can scan thousands of paths
+        synchronously — autonomous_mind calls us on every wakeup and we
+        don't want that disk work to starve gateway keepalive pings.
+        The heavy lifting is pushed into a worker thread.
         """
         rows = await self._db.execute(
             "SELECT DISTINCT file_path, covers, file_updated_at "
             "FROM knowledge_chunks WHERE covers != '[]'"
         )
+        return await asyncio.to_thread(self._compute_drift, list(rows), project_root)
 
+    def _compute_drift(
+        self, rows: list[Any], project_root: Path
+    ) -> list[dict[str, Any]]:
+        """Pure synchronous core of check_drift — runs in a worker thread."""
         stale: list[dict[str, Any]] = []
         seen_files: set[str] = set()
 
@@ -216,7 +229,6 @@ class KnowledgeIndexer:
             stale_sources: list[str] = []
 
             for pattern in covers:
-                # Glob-expand the pattern against the project root
                 matched = list(project_root.glob(pattern))
                 for source_path in matched:
                     source_mtime = datetime.fromtimestamp(
