@@ -18,6 +18,7 @@ Examples (LLM-facing JSON):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -211,11 +212,17 @@ class PumpLivestreamTool(BaseTool):
                 self._vault, workspace_dir=self._workspace or None
             )
 
+            # Every orchestrator call below is synchronous — uses
+            # httpx.Client (30s timeout per HTTP) and subprocess.
+            # We wrap each in asyncio.to_thread so a slow pump.fun
+            # endpoint can never starve the gateway's keepalive
+            # ping or freeze the chat REPL. See docs/65-PUMPFUN-LIVESTREAM.md.
             if action == "address":
-                return ToolResult(success=True, data={"wallet": orch.wallet_address()})
+                addr = await asyncio.to_thread(orch.wallet_address)
+                return ToolResult(success=True, data={"wallet": addr})
 
             if action == "login":
-                token = orch.login()
+                token = await asyncio.to_thread(orch.login)
                 return ToolResult(
                     success=True,
                     data={
@@ -227,10 +234,12 @@ class PumpLivestreamTool(BaseTool):
             mint = self._resolve_mint(params)
 
             if action == "status":
-                return ToolResult(success=True, data=orch.status_stream(mint))
+                data = await asyncio.to_thread(orch.status_stream, mint)
+                return ToolResult(success=True, data=data)
 
             if action == "stop":
-                return ToolResult(success=True, data=orch.stop_stream(mint))
+                data = await asyncio.to_thread(orch.stop_stream, mint)
+                return ToolResult(success=True, data=data)
 
             if action == "start":
                 voice = bool(params.get("voice", False))
@@ -250,7 +259,8 @@ class PumpLivestreamTool(BaseTool):
                 image_path = str(params.get("image_path", "") or "")
                 voice_model = str(params.get("voice_model", "") or "tts-1")
                 voice_id = str(params.get("voice_id", "") or "onyx")
-                result = orch.start_stream(
+                result = await asyncio.to_thread(
+                    orch.start_stream,
                     mint,
                     video,
                     fps=fps,

@@ -176,7 +176,14 @@ async def check_for_updates(
     if not enabled:
         return None
 
-    local = get_local_version(project_root)
+    # get_local_version shells out to ``git describe`` (subprocess.run
+    # with a 2s timeout) before the pyproject fallback. Off the event
+    # loop so a slow git or stuck index doesn't block the gateway
+    # keepalive — we're called from a 6h periodic notifier on the same
+    # loop the gateway pings live on.
+    import asyncio as _asyncio
+
+    local = await _asyncio.to_thread(get_local_version, project_root)
     if not local:
         return None
 

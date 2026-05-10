@@ -22,6 +22,7 @@ task system rather than calling this in a tight loop.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -136,9 +137,12 @@ class PumpChatTool(BaseTool):
         try:
             mint = self._resolve_mint(params)
             # Reuse the orchestrator just for auth (login / cached JWT).
+            # get_token may trigger a sync httpx login on cache miss —
+            # off the event loop so a slow pump.fun auth endpoint can't
+            # starve gateway keepalive.
             orch = LivestreamOrchestrator(self._vault)
-            jwt = orch.get_token()
-            username = orch.wallet_address()
+            jwt = await asyncio.to_thread(orch.get_token)
+            username = await asyncio.to_thread(orch.wallet_address)
 
             if action == "say":
                 text = (params.get("text") or "").strip()
