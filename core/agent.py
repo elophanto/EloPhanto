@@ -1920,6 +1920,17 @@ class Agent:
         if mtm is not None:
             mtm._polymarket_config = self._config.polymarket
             mtm._workspace = Path(self._config.workspace).expanduser()
+        # Calibration audit — three tools share the agent's main DB
+        # (polymarket_predictions table lives there, NOT in the polynode
+        # binary's own DB which we don't co-modify).
+        for _name in (
+            "polymarket_log_prediction",
+            "polymarket_resolve_pending",
+            "polymarket_calibration",
+        ):
+            _t = self._registry.get(_name)
+            if _t is not None:
+                _t._db = self._db
 
     def _inject_p2p_deps(self) -> None:
         """Inject the P2PSidecar handle into every P2P-aware tool.

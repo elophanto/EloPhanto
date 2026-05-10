@@ -302,6 +302,47 @@ This is **not a magic profit machine.** It's a baseline strategy with lower vari
 
 Defaults from `core/polymarket_engine.py` (operator-tunable in future via PolymarketConfig if you need): `min_no_ask=0.80`, `min_edge=0.03`, `min_volume=$10`, `days_to_expiry=[0.5, 60]`, `max_position_pct=10%` (half-Kelly capped), `maker_offset=$0.01`.
 
+### 8a. **MANDATORY** calibration audit logging (do this AFTER pre-trade gate, BEFORE create_and_post_order)
+
+The risk gates (§6) tell you whether to trade. The calibration audit tells you whether your trades are *any good* — bucketing realized win rate vs the LLM's stated probability AND vs entry price. Without it, you can't tell if the bot is making money for the right reasons or just lucky.
+
+Three tools, one feedback loop:
+
+1. **`polymarket_log_prediction`** — call EVERY time the pre-trade gate passes, BEFORE you call `client.create_and_post_order`. Pass:
+   - `token_id`, `side` (`YES`/`NO`), `entry_price`, `size`
+   - `llm_prob` — your probability that *YES* wins (always YES-frame; the audit re-frames internally)
+   - `confidence_band` — same value you fed to `polymarket_pre_trade`
+   - `kelly_fraction`, `order_type` (`post-only`/`GTC`/etc.), `market_slug`, one-line `rationale`
+
+2. **`polymarket_resolve_pending`** — fetches Polymarket Gamma API and updates `settle_price` + `outcome` + `realized_pnl` on resolved markets. **Schedule** this at `0 */6 * * *` (every 6h) — markets resolve on weekly cadence, no point checking more often. Operator-side, the agent normally does not invoke it directly.
+
+3. **`polymarket_calibration`** — read the report. Returns:
+   - `n_resolved` + `overall_win_rate` + `brier_score` (lower = better; <0.25 means we beat always-claiming-50%)
+   - `by_claimed_prob` buckets — does our "70% confidence" actually win 70%?
+   - `by_entry_price` buckets — do markets we entered at $0.40 pay 40%? (the chart in the Polymarket Quantitative Trading Framework image)
+   - `by_confidence_band` — high/medium/low band realized stats
+   - `maker_fill_rate` — fraction of post-only orders that actually filled before resolution
+
+If `brier_score > 0.25` over a sample of ≥30 resolved predictions, the bot is anti-correlated with reality — flag to the owner before placing more bets. If a confidence band's realized win rate trails its avg_claimed by >10pp over ≥30 resolved, the band's edge threshold is too lax — operator should bump `polymarket.<band>_confidence_edge` in `config.yaml`.
+
+```python
+# Example: log a prediction right after the gate passes.
+log_result = polymarket_log_prediction(
+    token_id=order_args["token_id"],
+    side=order_args["side"],
+    entry_price=order_args["price"],
+    size=order_args["size"],
+    llm_prob=my_yes_prob,
+    confidence_band=gate_input["confidence_band"],
+    kelly_fraction=gate["sizing"]["kelly_fraction"],
+    order_type=order_args.get("order_type", "GTC"),
+    market_slug=market["slug"],
+    rationale=one_line_thesis,
+)
+# THEN place the actual order.
+client.create_and_post_order(...)
+```
+
 ### 9. Performance inspection (operator-side, optional for the agent)
 
 Operator inspects trade history with:

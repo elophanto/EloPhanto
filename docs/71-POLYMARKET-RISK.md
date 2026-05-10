@@ -2,7 +2,7 @@
 
 **Status:** v1 implementation (2026-05-07).
 **Author:** EloPhanto + Claude (Opus 4.7).
-**Related:** [docs/64-POLYMARKET.md](64-POLYMARKET.md), [skills/web3-polymarket/SKILL.md](../skills/web3-polymarket/SKILL.md), [core/polymarket_engine.py](../core/polymarket_engine.py).
+**Related:** [docs/64-POLYMARKET.md](64-POLYMARKET.md), [docs/72-POLYMARKET-CALIBRATION.md](72-POLYMARKET-CALIBRATION.md), [skills/web3-polymarket/SKILL.md](../skills/web3-polymarket/SKILL.md), [core/polymarket_engine.py](../core/polymarket_engine.py).
 **Reference:** [zostaff/poly-trading-bot](https://github.com/zostaff/poly-trading-bot) — risk-management beats borrowed (with attribution).
 
 ---

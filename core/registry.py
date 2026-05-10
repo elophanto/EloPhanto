@@ -486,8 +486,12 @@ class ToolRegistry:
         # Polymarket risk gates — edge filter, skip-tag, stop-loss,
         # drawdown circuit breaker. SAFE pure-decision tools the
         # py-clob-client skill calls before placing any order.
+        from tools.polymarket.calibration_tool import PolymarketCalibrationTool
         from tools.polymarket.circuit_breaker_tool import (
             PolymarketCircuitBreakerTool,
+        )
+        from tools.polymarket.log_prediction_tool import (
+            PolymarketLogPredictionTool,
         )
         from tools.polymarket.mark_to_market_tool import (
             PolymarketMarkToMarketTool,
@@ -495,6 +499,9 @@ class ToolRegistry:
         from tools.polymarket.performance_tool import PolymarketPerformanceTool
         from tools.polymarket.pre_trade_tool import PolymarketPreTradeTool
         from tools.polymarket.quantize_tool import PolymarketQuantizeOrderTool
+        from tools.polymarket.resolve_pending_tool import (
+            PolymarketResolvePendingTool,
+        )
         from tools.polymarket.safe_compounder_tool import (
             PolymarketSafeCompounderTool,
         )
@@ -505,6 +512,11 @@ class ToolRegistry:
         self.register(PolymarketSafeCompounderTool())
         self.register(PolymarketPerformanceTool())
         self.register(PolymarketMarkToMarketTool())
+        # Calibration audit — log → resolve → report. The "is the LLM
+        # actually calibrated?" loop. See core/polymarket_calibration.py.
+        self.register(PolymarketLogPredictionTool())
+        self.register(PolymarketResolvePendingTool())
+        self.register(PolymarketCalibrationTool())
 
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool
