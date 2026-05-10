@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -27,7 +27,6 @@ from tools.delegate.delegate_tool import (
     DelegateTool,
     _build_excluded_set,
 )
-
 
 # ---------------------------------------------------------------------------
 # _FilteredRegistry — view semantics
