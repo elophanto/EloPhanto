@@ -794,6 +794,28 @@ class Agent:
                         self._config.browser.vision_model
                     )
 
+                # Wire proxy routing — credentials live directly in
+                # config.yaml under the proxy section, same shape as
+                # every other API key (llm.providers.*.api_key etc.).
+                # Browser is the only group that routes through the
+                # proxy in v1 (LLM / API calls stay direct — see
+                # ProxyConfig docstring).
+                proxy_cfg = self._config.proxy
+                if proxy_cfg.enabled and proxy_cfg.host and proxy_cfg.port:
+                    self._browser_manager.proxy_server = proxy_cfg.proxy_url()
+                    self._browser_manager.proxy_username = proxy_cfg.username
+                    self._browser_manager.proxy_password = proxy_cfg.password
+                    self._browser_manager.proxy_bypass = list(proxy_cfg.bypass)
+                    logger.info(
+                        "Browser proxy enabled: %s (creds=%s)",
+                        self._browser_manager.proxy_server,
+                        (
+                            "set"
+                            if proxy_cfg.username and proxy_cfg.password
+                            else "anonymous"
+                        ),
+                    )
+
                 logger.info(
                     "Browser configured (mode=%s) — will launch on first use",
                     self._browser_manager.mode,

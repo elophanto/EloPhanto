@@ -628,6 +628,59 @@ class TelemetryConfig:
 
 
 @dataclass
+class ProxyConfig:
+    """HTTP / SOCKS proxy routing for the agent's browser.
+
+    Routes Chrome / Chromium traffic through a (typically residential)
+    proxy so X / Polymarket front-ends / etc. don't see a datacenter IP.
+    Disabled by default — most operators on a local Mac don't need it.
+    Enable when running on a cloud VM (Hetzner / AWS / GCP) or when
+    `@agent_handle` automation should not be correlated with the
+    operator's home IP.
+
+    Scope: ONLY browser traffic is routed by default. LLM API calls
+    (OpenRouter / Codex / Anthropic), Polymarket CLOB, Gamma, Helius,
+    GitHub etc. stay direct — those are authenticated by API key, not
+    by IP, so routing them through a residential proxy would just burn
+    bandwidth and add latency. The ``apply_to`` list reserves space for
+    finer-grained scoping in Phase 2.
+
+    Credentials live directly in this config — same shape as every
+    other API key in EloPhanto's config.yaml (OpenRouter, Z.ai, Codex,
+    etc.). config.yaml is gitignored by default; if your config sits
+    on a multi-user box, lock it down with ``chmod 600 config.yaml``.
+    """
+
+    enabled: bool = False
+    type: str = "socks5"  # 'socks5' | 'http' | 'https'
+    host: str = ""
+    port: int = 0
+    username: str = ""
+    password: str = ""
+    # Domains to bypass — exact match or suffix match (".example.com").
+    # Loopback and the gateway are always bypassed regardless of this
+    # list so internal RPC keeps working.
+    bypass: list[str] = field(default_factory=list)
+    # Which tool groups route through the proxy. v1 only honours
+    # 'browser' — other groups stay direct even if listed here.
+    # Phase 2 will plumb per-tool routing.
+    apply_to: list[str] = field(default_factory=lambda: ["browser"])
+
+    def proxy_url(self) -> str:
+        """Build the host-and-port URL Chrome expects for --proxy-server.
+
+        Returns ``scheme://host:port`` (no embedded credentials).
+        Chrome's ``--proxy-server`` does NOT accept embedded creds —
+        username/password are sent via Playwright's separate proxy
+        fields at launch time, which trigger Chrome's basic-auth
+        handshake silently when the proxy challenges.
+        """
+        if not self.enabled or not self.host or not self.port:
+            return ""
+        return f"{self.type}://{self.host}:{self.port}"
+
+
+@dataclass
 class RecoveryConfig:
     """Recovery mode configuration."""
 
@@ -975,6 +1028,7 @@ class Config:
     email: EmailConfig = field(default_factory=EmailConfig)
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
+    proxy: ProxyConfig = field(default_factory=ProxyConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
@@ -1638,6 +1692,28 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         update_check=bool(telemetry_raw.get("update_check", True)),
     )
 
+    # Parse proxy section
+    proxy_raw = raw.get("proxy", {}) or {}
+    proxy_bypass = proxy_raw.get("bypass") or []
+    proxy_apply_to = proxy_raw.get("apply_to") or ["browser"]
+    proxy_type = (proxy_raw.get("type") or "socks5").lower()
+    if proxy_type not in ("socks5", "http", "https"):
+        logger.warning(
+            "[config] proxy.type=%r unrecognized; falling back to 'socks5'",
+            proxy_type,
+        )
+        proxy_type = "socks5"
+    proxy_config = ProxyConfig(
+        enabled=bool(proxy_raw.get("enabled", False)),
+        type=proxy_type,
+        host=str(proxy_raw.get("host", "") or ""),
+        port=int(proxy_raw.get("port", 0) or 0),
+        username=str(proxy_raw.get("username") or ""),
+        password=str(proxy_raw.get("password") or ""),
+        bypass=[str(d) for d in proxy_bypass if isinstance(d, str)],
+        apply_to=[str(g) for g in proxy_apply_to if isinstance(g, str)],
+    )
+
     # Parse MCP section
     mcp_raw = raw.get("mcp", {})
     mcp_servers: dict[str, MCPServerConfig] = {}
@@ -1895,6 +1971,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         email=email_config,
         recovery=recovery_config,
         telemetry=telemetry_config,
+        proxy=proxy_config,
         mcp=mcp_config,
         self_learning=self_learning_config,
         swarm=swarm_config,

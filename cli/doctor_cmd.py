@@ -726,6 +726,68 @@ def _check_bootstrap(project_root: Path) -> CheckResult:
 # ──────────────────────────────────────────────────────────────────
 
 
+def _check_proxy(project_root: Path) -> CheckResult:
+    """Verify the configured browser proxy is reachable and reports the
+    apparent egress IP + ASN. Skipped when proxy is disabled."""
+    cfg_path = _config_path(project_root)
+    if not cfg_path.exists():
+        return CheckResult("proxy", "skip", "no config.yaml")
+    try:
+        import yaml as _yaml
+
+        raw = _yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return CheckResult("proxy", "skip", "config.yaml unparseable")
+    proxy_raw = raw.get("proxy") or {}
+    if not proxy_raw.get("enabled"):
+        return CheckResult("proxy", "skip", "proxy disabled (direct egress)")
+    host = proxy_raw.get("host", "")
+    port = proxy_raw.get("port", 0)
+    proxy_type = (proxy_raw.get("type") or "socks5").lower()
+    if not host or not port:
+        return CheckResult("proxy", "fail", "proxy.enabled=true but host/port missing")
+    # Build proxy URL with credentials inline if provided in config.
+    username = (proxy_raw.get("username") or "").strip()
+    password = (proxy_raw.get("password") or "").strip()
+    if username and password:
+        # urllib quoting handles special chars in user/pass.
+        from urllib.parse import quote as _quote
+
+        auth = f"{_quote(username, safe='')}:{_quote(password, safe='')}@"
+        server = f"{proxy_type}://{auth}{host}:{port}"
+        display = f"{proxy_type}://{host}:{port}"
+    else:
+        server = f"{proxy_type}://{host}:{port}"
+        display = server
+    try:
+        import httpx as _httpx
+
+        with _httpx.Client(proxy=server, timeout=8.0) as c:
+            r = c.get("https://ipinfo.io/json")
+        if r.status_code == 200:
+            data = r.json()
+            ip = data.get("ip", "?")
+            org = data.get("org", "?")
+            country = data.get("country", "?")
+            return CheckResult(
+                "proxy",
+                "ok",
+                f"egress {ip} ({org}, {country}) via {display}",
+            )
+        if r.status_code in (407, 401):
+            return CheckResult(
+                "proxy",
+                "warn",
+                f"{display} reachable but rejected creds — check "
+                "proxy.username / proxy.password in config.yaml",
+            )
+        return CheckResult("proxy", "warn", f"{display} returned HTTP {r.status_code}")
+    except Exception as e:
+        return CheckResult(
+            "proxy", "fail", f"{display} not reachable: {type(e).__name__}: {e}"
+        )
+
+
 def _check_update(project_root: Path) -> CheckResult:
     """One-shot update check. Uses the daily cache if present so doctor
     doesn't hit GitHub on every invocation."""
@@ -768,6 +830,7 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_tailscale())
     rows.append(_check_p2p_sidecar(project_root))
     rows.append(_check_p2p_bootstrap_diversity(project_root))
+    rows.append(_check_proxy(project_root))
     rows.append(_check_update(project_root))
     return rows
 

@@ -532,6 +532,14 @@ class BrowserManager:
         self.openrouter_key: str = ""
         self.vision_model: str = ""
 
+        # Proxy routing — set by agent after construction once vault is
+        # available to resolve credentials. Empty server = no proxy.
+        # See core/config.py ProxyConfig and docs/73-PROXY-ROUTING.md.
+        self.proxy_server: str = ""  # e.g. socks5://proxy.iproyal.com:12321
+        self.proxy_username: str = ""
+        self.proxy_password: str = ""
+        self.proxy_bypass: list[str] = []
+
     @classmethod
     def from_config(cls, config: Any) -> BrowserManager:
         """Create from a BrowserConfig dataclass."""
@@ -584,6 +592,17 @@ class BrowserManager:
         if self.openrouter_key:
             config["openrouterKey"] = self.openrouter_key
             config["visionModel"] = self.vision_model or "google/gemini-2.0-flash-001"
+
+        # Pass proxy config so Chrome launches with --proxy-server applied.
+        # Empty server = no proxy (default). LLM API calls, Polymarket
+        # CLOB, Gamma, etc. all stay direct — only Chrome routes through.
+        if self.proxy_server:
+            config["proxy"] = {
+                "server": self.proxy_server,
+                "username": self.proxy_username,
+                "password": self.proxy_password,
+                "bypass": self.proxy_bypass,
+            }
 
         if self._mode == "cdp_ws":
             config["cdpWsEndpoint"] = self._cdp_ws_endpoint
