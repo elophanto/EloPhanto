@@ -273,6 +273,32 @@ goals:
 telemetry:
   update_check: true
 
+# --- Proxy routing (browser only) ---
+# Routes Chrome traffic through a residential / SOCKS / HTTP proxy so
+# automated browser actions don't egress your datacenter or home IP.
+# Disabled by default. Enable when running on a cloud VM (Hetzner / AWS /
+# GCP) or when @your-agent automation should not be correlated with your
+# personal IP. See docs/73-PROXY-ROUTING.md for the full guide including
+# threat model and per-provider setup (IPRoyal, Smartproxy, NetNut).
+#
+# Scope: ONLY browser traffic routes through this proxy in v1. LLM API
+# calls (OpenRouter / Codex / Anthropic), Polymarket CLOB, Gamma, Helius,
+# GitHub — all stay direct (they're authenticated by API key, not IP).
+#
+# Credentials sit directly in this config — same shape as every other
+# API key in EloPhanto (llm.providers.*.api_key, polymarket.*, etc.).
+# config.yaml is in .gitignore by default. On a multi-user box,
+# `chmod 600 config.yaml` to lock it down to your user.
+proxy:
+  enabled: false
+  type: socks5                   # socks5 | http | https
+  host: ""                       # e.g. 86.109.84.59
+  port: 0                        # e.g. 12323
+  username: ""                   # plaintext — IPRoyal/Smartproxy give you these
+  password: ""
+  bypass: []                     # extra domains to skip — loopback + tailnet auto-bypassed
+  apply_to: [browser]            # v1 only honours 'browser'; per-tool routing is Phase 2
+
 # Connect to external MCP servers — their tools appear alongside built-in tools.
 # Browse servers at https://mcpservers.org/
 # Install SDK first: uv pip install "mcp[cli]"

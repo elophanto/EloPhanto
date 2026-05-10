@@ -512,6 +512,15 @@ export interface AwareBrowserConfig {
   profileDirectory?: string;
   viewport?: { width: number; height: number };
   useSystemChrome?: boolean;
+  // Proxy routing (set by Python side from ProxyConfig + vault). When
+  // present, Chrome launches with this proxy applied. server is e.g.
+  // 'socks5://proxy.iproyal.com:12321' or 'http://proxy.host:8080'.
+  proxy?: {
+    server: string;
+    username?: string;
+    password?: string;
+    bypass?: string[];
+  };
 }
 
 /**
@@ -726,12 +735,17 @@ export class AwareBrowserAgent {
       }
       // ignoreDefaultArgs: true strips ALL Playwright defaults.
       // The browser launches exactly like a user opened Chrome — zero automation flags.
+      const proxyOpt = this.buildProxyOption();
+      if (proxyOpt) {
+        console.log(`[Browser] Routing through proxy: ${proxyOpt.server}`);
+      }
       this.context = await chromium.launchPersistentContext(this.config.userDataDir, {
         headless: this.config.headless,
         channel,
         viewport,
         args,
         ignoreDefaultArgs: this.getIgnoredDefaultArgs(),
+        ...(proxyOpt ? { proxy: proxyOpt } : {}),
       });
       await this.applyStealthScripts(this.context);
       this.browser = null;
@@ -743,10 +757,15 @@ export class AwareBrowserAgent {
       if (channel) {
         console.log('[Browser] Using system Chrome (not Playwright Chromium)');
       }
+      const proxyOpt = this.buildProxyOption();
+      if (proxyOpt) {
+        console.log(`[Browser] Routing through proxy: ${proxyOpt.server}`);
+      }
       const browser = await chromium.launch({
         headless: this.config.headless,
         channel, // Use system Chrome
         ignoreDefaultArgs: this.getIgnoredDefaultArgs(),
+        ...(proxyOpt ? { proxy: proxyOpt } : {}),
       });
       this.browser = browser;
       this.context = await browser.newContext({ viewport });
@@ -922,6 +941,30 @@ export class AwareBrowserAgent {
    * Instead, we list only the flags that are NOT present in a normal
    * user-launched Chrome and would trigger bot detection.
    */
+  /**
+   * Build the Playwright proxy option from this.config.proxy. Returns
+   * undefined when no proxy is configured (Chrome launches normally).
+   *
+   * Playwright accepts {server, username, password, bypass} — note
+   * that 'bypass' is a comma-separated string in Playwright, not a
+   * list, so we join here. Always bypass localhost / loopback / the
+   * Tailscale CGNAT range so internal RPC (gateway, MCP, etc.) keeps
+   * working without round-tripping through the residential exit.
+   */
+  private buildProxyOption(): { server: string; username?: string; password?: string; bypass?: string } | undefined {
+    const p = this.config.proxy;
+    if (!p || !p.server) return undefined;
+    const defaultBypass = ['localhost', '127.0.0.1', '::1', '*.local', '100.64.0.0/10'];
+    const userBypass = p.bypass || [];
+    const bypassList = [...defaultBypass, ...userBypass].filter(Boolean);
+    return {
+      server: p.server,
+      ...(p.username ? { username: p.username } : {}),
+      ...(p.password ? { password: p.password } : {}),
+      bypass: bypassList.join(','),
+    };
+  }
+
   private getIgnoredDefaultArgs(): string[] {
     return [
       '--enable-automation',        // shows "controlled by automated test software" banner + sets navigator.webdriver

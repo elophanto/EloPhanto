@@ -28,6 +28,15 @@ interface BrowserConfig {
   visionModel?: string;
   visionMaxTokens?: number;
   visionRetryOnLength?: boolean;
+  // Proxy routing — passed straight through to AwareBrowserAgent which
+  // applies it to Chrome's launch options. See ProxyConfig in
+  // core/config.py for the source-of-truth schema.
+  proxy?: {
+    server: string;
+    username?: string;
+    password?: string;
+    bypass?: string[];
+  };
   visionRetryMaxTokens?: number;
 }
 
@@ -1185,6 +1194,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
     const visionMaxTokens = agent.getConfig<number>('visionMaxTokens');
     const visionRetryOnLength = agent.getConfig<boolean>('visionRetryOnLength');
     const visionRetryMaxTokens = agent.getConfig<number>('visionRetryMaxTokens');
+    const proxy = agent.getConfig<BrowserConfig['proxy']>('proxy');
 
     if (mode) this.config.mode = mode;
     if (headless !== undefined) this.config.headless = headless;
@@ -1200,6 +1210,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
     if (visionMaxTokens !== undefined) this.config.visionMaxTokens = visionMaxTokens;
     if (visionRetryOnLength !== undefined) this.config.visionRetryOnLength = visionRetryOnLength;
     if (visionRetryMaxTokens !== undefined) this.config.visionRetryMaxTokens = visionRetryMaxTokens;
+    if (proxy && proxy.server) this.config.proxy = proxy;
 
     agent.log.info(`Browser plugin v${this.version} loaded (Real Chrome support)`);
 
@@ -1250,6 +1261,9 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
         copyProfile: this.config.copyProfile,
         useSystemChrome: this.config.useSystemChrome ?? true,
         viewport: this.config.viewport,
+        // Proxy routing — passed through from Python's BrowserManager.
+        // BrowserAgent.buildProxyOption() handles the empty case.
+        proxy: this.config.proxy,
       });
 
       await this.browser.initialize();

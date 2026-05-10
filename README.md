@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python">
   <a href="https://github.com/elophanto/EloPhanto/stargazers"><img src="https://img.shields.io/github/stars/elophanto/EloPhanto" alt="Stars"></a>
   <a href="https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-1782%2B-success" alt="Tests">
-  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-75%2B%20pages-blue" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/tests-1799%2B-success" alt="Tests">
+  <a href="https://docs.elophanto.com"><img src="https://img.shields.io/badge/docs-76%2B%20pages-blue" alt="Docs"></a>
   <a href="https://x.com/EloPhanto"><img src="https://img.shields.io/badge/X-%40EloPhanto-black" alt="X"></a>
   <a href="https://agentcommune.com/agent/d31e9ffd-3358-45f8-9d20-56d233477486"><img src="https://img.shields.io/badge/Agent%20Commune-profile-purple" alt="Agent Commune"></a>
   <a href="https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump"><img src="https://img.shields.io/badge/Pump.fun-%24ELO-orange" alt="$ELO on Pump.fun"></a>
@@ -163,6 +163,8 @@ After the agent has grown into the shape — `permission_mode: smart_auto` or `f
 
 **Local-first, self-custody.** EloPhanto runs on your machine. Your conversations, your knowledge base, your vault, your crypto wallet — all on disk you control. The agent uses your real Chrome profile (your sessions, your cookies), reads and writes the filesystem the same way you do, and holds the private keys to its own wallet. Cloud LLMs are a backend; the agent itself is yours.
 
+**Built-in browser-proxy routing.** Drop a residential / SOCKS / HTTP proxy into `config.yaml` and Chrome routes through it automatically — no per-launch flag-juggling, no cookie-shuffling tricks. Cloud-VM operators stop seeing X bounce their login at the form because the IP is a datacenter; local-Mac operators keep their personal IP separate from `@their-agent`'s automated activity. Only the browser routes — LLM API calls and direct API integrations (Polymarket CLOB, Helius, GitHub) stay direct because they authenticate by key, not IP, so routing them through a residential proxy would burn bandwidth for nothing. `elophanto doctor` verifies the route end-to-end and prints the apparent egress IP + ASN. See [docs/73-PROXY-ROUTING.md](docs/73-PROXY-ROUTING.md).
+
 **It is actually itself.** Identity, ego, autonomous mind — covered above. By the third week of running, it isn't the same agent you started with.
 
 **Self-extending.** When it hits a tool that doesn't exist, it builds one — research → design → implement → test → deploy. When tasks get parallel, it clones itself into persistent specialists with their own identity and trust score. When a task is dangerous, it spawns a sandboxed kid agent inside a hardened container so `rm -rf` can't touch the host. The agent is a system that grows, not a script that executes.
@@ -242,6 +244,7 @@ Slack Adapter ─────┘                   ▼
 - **Agent swarm** — orchestrate Claude Code, Codex, Gemini CLI as a coding team. Spawn agents on tasks, monitor PR/CI, redirect mid-task, all through conversation. Each agent gets an isolated git worktree and tmux session. Combined with organization, manage both self-cloned specialists AND external coding agents
 - **Kid agents (sandboxed children)** — spawn disposable child EloPhanto instances inside hardened Docker containers to run dangerous shell commands (`rm -rf`, fork bombs, kernel-touching installs, untrusted packages) without touching the host. `--cap-drop=ALL`, read-only rootfs, non-root uid 10001, no host bind-mounts (named volume only), default-empty vault scope, `outbound-only` network. Distinct from organization specialists — kids are ephemeral and identity-less. Five tools: `kid_spawn`, `kid_exec`, `kid_list`, `kid_status`, `kid_destroy`. See [docs/66-KID-AGENTS.md](docs/66-KID-AGENTS.md)
 - **Browser automation** — real Chrome browser with 49 tools (navigate, click, type, screenshot, extract data, upload files, manage tabs, inspect DOM, read console/network logs). Uses your actual Chrome profile with all cookies and sessions. iframe element extraction with absolute coordinate clicking. Native API detection for CodeMirror, Monaco, and Ace editors
+- **Browser proxy routing** — first-class config-driven proxy support so any EloPhanto install (local or cloud) can route Chrome through a residential / SOCKS / HTTP proxy. X / Polymarket / Cloudflare-protected sites stop seeing a datacenter (or your home) IP and start seeing a regular ISP customer. Same shape as every other API key — `proxy.host`, `proxy.port`, `proxy.username`, `proxy.password` directly in `config.yaml`. Auto-bypasses loopback + Tailscale CGNAT so internal RPC stays direct. **Only the browser routes through it** — LLM API calls, Polymarket CLOB, Helius, GitHub all stay direct (those are authenticated by API key, not IP). `elophanto doctor` does a live GET through the proxy and prints the apparent egress IP + ASN. See [docs/73-PROXY-ROUTING.md](docs/73-PROXY-ROUTING.md) for the threat model and per-provider setup (IPRoyal recommended at $2.04/proxy/30 days unlimited bandwidth)
 - **Desktop GUI control** — pixel-level control of any desktop application via screenshot + pyautogui. Two modes: **local** (control your own machine directly) or **remote** (connect to a VM running the OSWorld HTTP server for sandboxed environments and benchmarks). 9 tools: connect, screenshot, click, type, scroll, drag, cursor, shell, file. Observe-act loop: take screenshot, analyze with vision LLM, execute action, verify. Works with Excel, Photoshop, Finder, Terminal, any native app. Based on [OSWorld](https://github.com/xlang-ai/OSWorld) architecture
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat with multi-conversation history, tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
@@ -332,9 +335,9 @@ EloPhanto/
 ├── tools/               # 168+ built-in tools
 ├── skills/              # 170+ bundled SKILL.md files (every one ships with a ## Verify gate)
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
-├── tests/               # Test suite (1782+ tests)
+├── tests/               # Test suite (1799+ tests)
 ├── setup.sh             # One-command install
-└── docs/                # Full specification (75+ docs)
+└── docs/                # Full specification (76+ docs)
 ```
 
 </details>
@@ -493,7 +496,7 @@ Latest highlights live in [CHANGELOG.md](CHANGELOG.md) and on the [releases page
 ```bash
 ./setup.sh                         # Full setup
 source .venv/bin/activate
-pytest tests/ -v                   # Run tests (1782 passing)
+pytest tests/ -v                   # Run tests (1799 passing)
 ruff check .                       # Lint
 ```
 
