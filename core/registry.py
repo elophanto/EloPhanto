@@ -463,6 +463,13 @@ class ToolRegistry:
         self.register(JobVerifyTool())
         self.register(JobRecordTool())
 
+        # In-process delegation tier — third tier between tool_call and
+        # the heavy spawn tools (swarm_spawn / kid_spawn / org_spawn /
+        # agent_connect). DEFERRED so it's not on the default surface.
+        from tools.delegate.delegate_tool import DelegateTool
+
+        self.register(DelegateTool())
+
         # Solana on-chain reads (Helius). SAFE — read-only RPC + DAS API.
         # Gives the agent treasury awareness, holder analytics, and
         # parsed wallet activity without any custody surface.
@@ -582,7 +589,11 @@ class ToolRegistry:
             # Publishing tools
             "youtube_upload",
             "tiktok_upload",
-            "twitter_post",
+            # twitter_post: NOT deferred. Promoted to PROFILE tier (group
+            # 'social') 2026-05-10 because the LLM was bypassing it and
+            # using raw browser_type_text against X's Lexical composer,
+            # which silently truncated the leading "th" / drops Unicode.
+            # See tools/publishing/twitter_tool.py.
             # Affiliate tools
             "affiliate_scrape",
             "affiliate_pitch",
