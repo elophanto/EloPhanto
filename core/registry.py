@@ -463,6 +463,19 @@ class ToolRegistry:
         self.register(JobVerifyTool())
         self.register(JobRecordTool())
 
+        # Solana on-chain reads (Helius). SAFE — read-only RPC + DAS API.
+        # Gives the agent treasury awareness, holder analytics, and
+        # parsed wallet activity without any custody surface.
+        from tools.solana.balance_tool import SolanaBalanceTool
+        from tools.solana.holders_tool import SolanaTokenHoldersTool
+        from tools.solana.recent_txs_tool import SolanaRecentTxsTool
+        from tools.solana.token_info_tool import SolanaTokenInfoTool
+
+        self.register(SolanaBalanceTool())
+        self.register(SolanaTokenHoldersTool())
+        self.register(SolanaRecentTxsTool())
+        self.register(SolanaTokenInfoTool())
+
         # Polymarket risk gates — edge filter, skip-tag, stop-loss,
         # drawdown circuit breaker. SAFE pure-decision tools the
         # py-clob-client skill calls before placing any order.

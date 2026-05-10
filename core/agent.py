@@ -1584,8 +1584,17 @@ class Agent:
                 tool._context_store = self._context_store
 
     def _inject_vault_deps(self) -> None:
-        """Inject vault into vault and web search tools."""
-        for tool_name in ("vault_lookup", "vault_set", "web_search", "web_extract"):
+        """Inject vault into vault, web search, and Solana read tools."""
+        for tool_name in (
+            "vault_lookup",
+            "vault_set",
+            "web_search",
+            "web_extract",
+            "solana_balance",
+            "solana_token_holders",
+            "solana_recent_txs",
+            "solana_token_info",
+        ):
             tool = self._registry.get(tool_name)
             if tool and self._vault:
                 tool._vault = self._vault
