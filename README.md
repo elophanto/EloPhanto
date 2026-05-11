@@ -142,7 +142,7 @@ The two modes share one codebase. You can flip between them by changing `agent.p
 
 EloPhanto **starts from scratch.** No identity, no knowledge, no calibrated confidence. **You operate it manually at first** — small tasks, correct the mistakes, watch it reason. Every interaction feeds the layers underneath. The agent at the end of week three is not the one you started.
 
-**Day 1 — blank slate.** Identity bootstrap on first boot: the agent picks a display name via LLM self-reflection and writes its first `nature.md`. Tool registry shows 168+ entries it hasn't used. Ego layer empty — coherence 1.0, no measured confidence, no humbling events. `permission_mode: ask_always`; you approve every risky action.
+**Day 1 — blank slate.** Identity bootstrap on first boot: the agent picks a display name via LLM self-reflection and writes its first `nature.md`. Tool registry shows 200+ entries it hasn't used. Ego layer empty — coherence 1.0, no measured confidence, no humbling events. `permission_mode: ask_always`; you approve every risky action.
 
 **Week 1 — you drive.** *"Search for X. Post this. Read this PDF."* It uses tools; you correct. Every "no" / "stop" / "didn't work" is caught by the ego layer's correction detector and lands as a humbling event against the relevant capability. `knowledge/learned/` fills with task lessons. By end of week one, a self-model is visibly forming in `ego.md`.
 
@@ -219,7 +219,7 @@ After the agent has grown into the shape — `permission_mode: smart_auto` or `f
 ├──────────────────────────────────────────────────────────────┤
 │        Self-Development Pipeline                 │  Evolution Engine
 ├──────────────────────────────────────────────────────────────┤
-│   Tool System (168+ built-in + MCP + plugins)     │  Capabilities
+│   Tool System (200+ built-in + MCP + plugins)     │  Capabilities
 ├──────────────────────────────────────────────────────────────┤
 │   Agent Core Loop (plan → execute → reflect)     │  Brain
 ├──────────────────────────────────────────────────────────────┤
@@ -252,7 +252,7 @@ Slack Adapter ─────┘                   ▼
 - **Self-skilling** — writes new SKILL.md files from experience, teaching itself best practices for future tasks
 - **Core self-modification** — can modify its own source code with impact analysis, test verification, and automatic rollback
 - **Autonomous experimentation** — metric-driven experiment loop: modify code, measure, keep improvements, discard regressions, repeat overnight. Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch). Works for any measurable optimization target
-- **Skills + EloPhantoHub** — 170+ bundled best-practice skills across 9 divisions (engineering, design, marketing, product, project management, support, testing, specialized, spatial computing), 27 Solana ecosystem skills (DeFi, NFTs, oracles, bridges, security — sourced from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai)), the NEXUS strategy system (7-phase playbooks, 4 scenario runbooks), 75 organization role templates for specialist spawning, and a public skill registry for searching, installing, and sharing skills
+- **Skills + EloPhantoHub** — 171+ bundled best-practice skills across 9 divisions (engineering, design, marketing, product, project management, support, testing, specialized, spatial computing), 27 Solana ecosystem skills (DeFi, NFTs, oracles, bridges, security — sourced from [awesome-solana-ai](https://github.com/solana-foundation/awesome-solana-ai)), the NEXUS strategy system (7-phase playbooks, 4 scenario runbooks), 75 organization role templates for specialist spawning, and a public skill registry for searching, installing, and sharing skills.
 
 ### Everything Else
 
@@ -292,7 +292,7 @@ Slack Adapter ─────┘                   ▼
 </details>
 
 <details>
-<summary>Built-in tools (168+)</summary>
+<summary>Built-in tools (200+)</summary>
 
 | Category | Tools | Count |
 |----------|-------|-------|
@@ -322,7 +322,11 @@ Slack Adapter ─────┘                   ▼
 | Image Gen | replicate_generate | 1 |
 | Mind | set_next_wakeup, update_scratchpad | 2 |
 | MCP | mcp_manage (list, add, remove, test, install MCP servers) | 1 |
-| Scheduling | schedule_task, schedule_list, heartbeat | 3 |
+| Scheduling | schedule_task (agent-loop OR direct-tool fast path), schedule_list, heartbeat | 3 |
+| Delegate | delegate (in-process subagents for parallel fan-out, between tool_call and swarm/kid spawn tiers) | 1 |
+| Polymarket | polymarket_pre_trade, polymarket_circuit_breaker, polymarket_quantize_order, polymarket_safe_compounder, polymarket_performance, polymarket_mark_to_market, polymarket_log_prediction, polymarket_resolve_pending, polymarket_calibration | 9 |
+| Solana on-chain reads | solana_balance, solana_token_holders, solana_recent_txs, solana_token_info | 4 |
+| Jobs (paid) | job_verify, job_record | 2 |
 
 </details>
 
@@ -349,8 +353,8 @@ EloPhanto/
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
-├── tools/               # 168+ built-in tools
-├── skills/              # 170+ bundled SKILL.md files (every one ships with a ## Verify gate)
+├── tools/               # 200+ built-in tools (MCP servers add more at runtime)
+├── skills/              # 171+ bundled SKILL.md files (every one ships with a ## Verify gate)
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (1799+ tests)
 ├── setup.sh             # One-command install
@@ -375,7 +379,7 @@ Dangerous commands (`rm -rf /`, `mkfs`, `DROP DATABASE`) are always blocked rega
 
 ## Skills System
 
-170+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), Polymarket prediction market trading (CLOB API), AlphaScala broker matching + stock research, pump.fun livestreaming (video + voice + captions + chat), structured plan reviews (CEO + design + eng with auto-decisions), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Every skill ships with a `## Verify` section — machine-actionable post-conditions the agent must evaluate before reporting "done." When a skill is auto-loaded on a high-confidence match, the prompt gets a `<verification_required>` block forcing the model to emit a `Verification: PASS / FAIL / UNKNOWN` audit per check. See [docs/13-SKILLS.md](docs/13-SKILLS.md). Plus a public skill registry:
+171+ bundled skills covering Python, TypeScript, browser automation, Next.js, Supabase, Prisma, shadcn, UI/UX design, video creation (Remotion), Solana development (DeFi, NFTs, oracles, bridges, security), Polymarket prediction market trading (CLOB API + calibration audit), AlphaScala broker matching + stock research, pump.fun livestreaming (video + voice + captions + chat), structured plan reviews (CEO + design + eng with auto-decisions), product launch (Product Hunt, HN, Reddit), press outreach, video meetings (PikaStream), and more. Every skill ships with a `## Verify` section — machine-actionable post-conditions the agent must evaluate before reporting "done." When a skill is auto-loaded on a high-confidence match, the prompt gets a `<verification_required>` block forcing the model to emit a `Verification: PASS / FAIL / UNKNOWN` audit per check. See [docs/13-SKILLS.md](docs/13-SKILLS.md). Plus a public skill registry:
 
 ```bash
 elophanto skills hub search "gmail automation"    # Search EloPhantoHub
