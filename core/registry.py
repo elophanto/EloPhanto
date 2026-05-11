@@ -505,6 +505,9 @@ class ToolRegistry:
         from tools.polymarket.safe_compounder_tool import (
             PolymarketSafeCompounderTool,
         )
+        from tools.polymarket.shadow_candidates_tool import (
+            PolymarketShadowCandidatesTool,
+        )
 
         self.register(PolymarketPreTradeTool())
         self.register(PolymarketCircuitBreakerTool())
@@ -517,6 +520,7 @@ class ToolRegistry:
         self.register(PolymarketLogPredictionTool())
         self.register(PolymarketResolvePendingTool())
         self.register(PolymarketCalibrationTool())
+        self.register(PolymarketShadowCandidatesTool())
 
         # Tool discover meta-tool (always available — tier 0)
         from tools.system.discover_tool import ToolDiscoverTool

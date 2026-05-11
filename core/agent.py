@@ -1950,6 +1950,7 @@ class Agent:
             "polymarket_log_prediction",
             "polymarket_resolve_pending",
             "polymarket_calibration",
+            "polymarket_shadow_candidates",
         ):
             _t = self._registry.get(_name)
             if _t is not None:

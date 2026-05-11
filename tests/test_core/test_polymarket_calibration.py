@@ -14,6 +14,7 @@ Pin the math + tool contracts:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -34,6 +35,9 @@ from tools.polymarket.resolve_pending_tool import (
     PolymarketResolvePendingTool,
     _classify_outcome,
     _compute_realized_pnl,
+)
+from tools.polymarket.shadow_candidates_tool import (
+    PolymarketShadowCandidatesTool,
 )
 
 # ---------------------------------------------------------------------------
@@ -574,6 +578,102 @@ class TestCalibrationTool:
         assert not result.success
 
     @pytest.mark.asyncio
+    async def test_kind_persisted_and_defaults_live(self, db: Database) -> None:
+        # Live default: omitted live flag → kind='live'.
+        tool = PolymarketLogPredictionTool()
+        tool._db = db
+        r = await tool.execute(
+            {
+                "token_id": "0xa",
+                "side": "YES",
+                "entry_price": 0.5,
+                "size": 10,
+                "llm_prob": 0.6,
+                "kelly_fraction": 0.05,
+            }
+        )
+        assert r.success
+        assert r.data["kind"] == "live"
+        # Shadow: live=False → kind='shadow', size optional.
+        r2 = await tool.execute(
+            {
+                "token_id": "0xb",
+                "side": "NO",
+                "entry_price": 0.5,
+                "llm_prob": 0.4,
+                "live": False,
+            }
+        )
+        assert r2.success
+        assert r2.data["kind"] == "shadow"
+        rows = await db.execute(
+            "SELECT token_id, kind FROM polymarket_predictions ORDER BY id"
+        )
+        assert rows[0]["kind"] == "live"
+        assert rows[1]["kind"] == "shadow"
+
+    @pytest.mark.asyncio
+    async def test_calibration_buckets_by_kind(self, db: Database) -> None:
+        # One live win, one shadow loss → by_kind splits them.
+        await db.execute_insert(
+            """INSERT INTO polymarket_predictions
+               (market_slug, token_id, side, entry_price, size, llm_prob,
+                order_type, created_at, resolved_at, settle_price, outcome,
+                kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "live-m",
+                "0xa",
+                "YES",
+                0.4,
+                10,
+                0.6,
+                "GTC",
+                "2026-05-01T00:00:00Z",
+                "2026-05-02T00:00:00Z",
+                1.0,
+                "WIN",
+                "live",
+            ),
+        )
+        await db.execute_insert(
+            """INSERT INTO polymarket_predictions
+               (market_slug, token_id, side, entry_price, size, llm_prob,
+                order_type, created_at, resolved_at, settle_price, outcome,
+                kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "shadow-m",
+                "0xb",
+                "YES",
+                0.4,
+                0,
+                0.6,
+                "GTC",
+                "2026-05-01T00:00:00Z",
+                "2026-05-02T00:00:00Z",
+                0.0,
+                "LOSS",
+                "shadow",
+            ),
+        )
+        tool = PolymarketCalibrationTool()
+        tool._db = db
+        all_r = await tool.execute({})
+        assert all_r.data["n_resolved"] == 2
+        assert all_r.data["by_kind"]["live"]["n_resolved"] == 1
+        assert all_r.data["by_kind"]["live"]["overall_win_rate"] == 1.0
+        assert all_r.data["by_kind"]["shadow"]["n_resolved"] == 1
+        assert all_r.data["by_kind"]["shadow"]["overall_win_rate"] == 0.0
+        # kind filter narrows the main body.
+        only_live = await tool.execute({"kind": "live"})
+        assert only_live.data["n_resolved"] == 1
+        assert only_live.data["overall_win_rate"] == 1.0
+        only_shadow = await tool.execute({"kind": "shadow"})
+        assert only_shadow.data["n_resolved"] == 1
+        assert only_shadow.data["overall_win_rate"] == 0.0
+
+    @pytest.mark.asyncio
     async def test_since_filter(self, db: Database) -> None:
         await db.execute_insert(
             """INSERT INTO polymarket_predictions
@@ -619,3 +719,82 @@ class TestCalibrationTool:
         assert result.success
         assert result.data["n_resolved"] == 1
         assert result.data["overall_win_rate"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Tool: shadow_candidates
+# ---------------------------------------------------------------------------
+
+
+class TestShadowCandidatesTool:
+    @pytest.mark.asyncio
+    async def test_excludes_already_shadowed(self, db: Database) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        # Pre-shadow the "already" market so it should be filtered out.
+        await db.execute_insert(
+            """INSERT INTO polymarket_predictions
+               (market_slug, token_id, side, entry_price, size, llm_prob,
+                created_at, kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "already",
+                "0xa",
+                "YES",
+                0.5,
+                0,
+                0.5,
+                "2026-05-01T00:00:00Z",
+                "shadow",
+            ),
+        )
+
+        end = (datetime.now(UTC) + timedelta(days=3)).isoformat()
+        gamma_resp = [
+            {
+                "slug": "already",
+                "question": "skip me",
+                "endDate": end,
+                "volume24hr": 5000,
+                "outcomePrices": '["0.5", "0.5"]',
+            },
+            {
+                "slug": "fresh-one",
+                "question": "pick me",
+                "endDate": end,
+                "volume24hr": 5000,
+                "outcomePrices": '["0.3", "0.7"]',
+            },
+        ]
+
+        class _R:
+            status_code = 200
+
+            def json(self) -> Any:
+                return gamma_resp
+
+        class _Client:
+            def __init__(self, *a: Any, **k: Any) -> None:
+                pass
+
+            async def __aenter__(self) -> _Client:
+                return self
+
+            async def __aexit__(self, *a: Any) -> None:
+                pass
+
+            async def get(self, *a: Any, **k: Any) -> _R:
+                return _R()
+
+        tool = PolymarketShadowCandidatesTool()
+        tool._db = db
+        with patch(
+            "tools.polymarket.shadow_candidates_tool.httpx.AsyncClient", _Client
+        ):
+            result = await tool.execute({"limit": 10, "min_volume": 0})
+
+        assert result.success
+        slugs = [c["slug"] for c in result.data["candidates"]]
+        assert "already" not in slugs
+        assert "fresh-one" in slugs
+        assert result.data["already_shadowed_count"] == 1

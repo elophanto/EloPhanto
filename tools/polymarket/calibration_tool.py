@@ -86,6 +86,17 @@ class PolymarketCalibrationTool(BaseTool):
                     "type": "number",
                     "description": "Bucket width in [0, 1]. Default 0.10 (10% buckets).",
                 },
+                "kind": {
+                    "type": "string",
+                    "enum": ["live", "shadow", "all"],
+                    "description": (
+                        "Filter predictions by kind. 'live' = real bets "
+                        "only, 'shadow' = paper bets only, 'all' "
+                        "(default) = both, with per-kind breakdown in "
+                        "the report's by_kind field. Use 'live' before "
+                        "making claims about real edge."
+                    ),
+                },
             },
             "required": [],
         }
@@ -105,25 +116,31 @@ class PolymarketCalibrationTool(BaseTool):
             )
 
         since = (params.get("since") or "").strip()
+        kind_filter = (params.get("kind") or "all").lower()
+        if kind_filter not in ("live", "shadow", "all"):
+            kind_filter = "all"
 
         # Resolved predictions for the report's main body.
+        where = ["resolved_at IS NOT NULL"]
+        args: list[Any] = []
         if since:
-            resolved_rows = await self._db.execute(
-                """SELECT side, entry_price, llm_prob, settle_price,
-                          confidence_band, order_type
-                   FROM polymarket_predictions
-                   WHERE resolved_at IS NOT NULL AND created_at >= ?
-                   ORDER BY created_at""",
-                (since,),
-            )
-        else:
-            resolved_rows = await self._db.execute(
-                """SELECT side, entry_price, llm_prob, settle_price,
-                          confidence_band, order_type
-                   FROM polymarket_predictions
-                   WHERE resolved_at IS NOT NULL
-                   ORDER BY created_at"""
-            )
+            where.append("created_at >= ?")
+            args.append(since)
+        if kind_filter != "all":
+            where.append("kind = ?")
+            args.append(kind_filter)
+        sql = (
+            "SELECT side, entry_price, llm_prob, settle_price, "
+            "confidence_band, order_type, kind "
+            "FROM polymarket_predictions WHERE "
+            + " AND ".join(where)
+            + " ORDER BY created_at"
+        )
+        resolved_rows = (
+            await self._db.execute(sql, tuple(args))
+            if args
+            else await self._db.execute(sql)
+        )
 
         resolved: list[ResolvedPrediction] = []
         for r in resolved_rows:
@@ -144,6 +161,7 @@ class PolymarketCalibrationTool(BaseTool):
                     confidence_band=(r["confidence_band"] or "medium").lower(),
                     order_type=(r["order_type"] or "GTC"),
                     filled=True,  # by definition, resolved predictions filled
+                    kind=(r["kind"] or "live"),
                 )
             )
 
