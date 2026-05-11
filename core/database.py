@@ -732,6 +732,13 @@ _MIGRATIONS = [
     # docs/70-SCHEDULER-CONCURRENCY.md (Phase 2 section).
     "ALTER TABLE scheduled_tasks ADD COLUMN direct_tool TEXT",
     "ALTER TABLE scheduled_tasks ADD COLUMN direct_params TEXT",
+    # Shadow predictions for the Polymarket calibration audit. Lets
+    # the agent log a probability estimate WITHOUT placing a real bet,
+    # so calibration data accumulates in days instead of months.
+    # kind='live' (default for old rows) = real position with capital
+    # at risk; kind='shadow' = paper bet for calibration only. Both
+    # get resolved via polymarket_resolve_pending the same way.
+    "ALTER TABLE polymarket_predictions ADD COLUMN kind TEXT NOT NULL DEFAULT 'live'",
 ]
 
 

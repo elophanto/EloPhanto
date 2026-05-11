@@ -114,12 +114,24 @@ class PolymarketLogPredictionTool(BaseTool):
                     "type": "string",
                     "description": "One-line LLM rationale (for audit).",
                 },
+                "live": {
+                    "type": "boolean",
+                    "description": (
+                        "True (default) = real bet with capital at risk. "
+                        "False = SHADOW prediction (paper bet for "
+                        "calibration data — no order placed, just "
+                        "logging your probability estimate to be resolved "
+                        "later via Gamma API). Shadow predictions let "
+                        "calibration accumulate in days instead of months "
+                        "and carry zero financial risk. Used by the "
+                        "shadow-prediction cron loop. See SKILL §8c."
+                    ),
+                },
             },
             "required": [
                 "token_id",
                 "side",
                 "entry_price",
-                "size",
                 "llm_prob",
             ],
         }
@@ -134,9 +146,14 @@ class PolymarketLogPredictionTool(BaseTool):
                 success=False, error=f"side must be YES or NO, got {side!r}"
             )
 
+        # Shadow predictions don't need size (no real bet placed) and
+        # default to 0. Live predictions still require it via the
+        # warning path below.
+        live = bool(params.get("live", True))
+        kind = "live" if live else "shadow"
         try:
             entry_price = float(params["entry_price"])
-            size = float(params["size"])
+            size = float(params.get("size") or 0.0)
             llm_prob = float(params["llm_prob"])
         except (KeyError, TypeError, ValueError) as e:
             return ToolResult(success=False, error=f"bad numeric input: {e}")
@@ -162,12 +179,13 @@ class PolymarketLogPredictionTool(BaseTool):
             except (TypeError, ValueError):
                 kelly_fraction = None
 
-        # Sanity warning: caller passed a non-trivial size but no
-        # Kelly fraction. The calibration audit later can't assess
+        # Sanity warning: LIVE prediction with a non-trivial size but
+        # no Kelly fraction. The calibration audit later can't assess
         # "was my sizing strategy good?" without the kelly_fraction at
-        # entry — that whole dimension goes dead.
+        # entry — that whole dimension goes dead. Shadow predictions
+        # skip this check because they don't represent capital at risk.
         warning: str | None = None
-        if size >= 1.0 and (kelly_fraction is None or kelly_fraction == 0.0):
+        if live and size >= 1.0 and (kelly_fraction is None or kelly_fraction == 0.0):
             warning = (
                 "kelly_fraction missing or zero on a non-trivial size — "
                 "calibration audit won't be able to assess sizing strategy "
@@ -180,8 +198,9 @@ class PolymarketLogPredictionTool(BaseTool):
         row_id = await self._db.execute_insert(
             """INSERT INTO polymarket_predictions
                (market_slug, token_id, side, entry_price, size, llm_prob,
-                confidence_band, kelly_fraction, order_type, rationale, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                confidence_band, kelly_fraction, order_type, rationale,
+                created_at, kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 str(params.get("market_slug") or ""),
                 str(params["token_id"]),
@@ -194,6 +213,7 @@ class PolymarketLogPredictionTool(BaseTool):
                 str(params.get("order_type") or "GTC"),
                 str(params.get("rationale") or "")[:500],
                 now,
+                kind,
             ),
         )
 
@@ -203,6 +223,7 @@ class PolymarketLogPredictionTool(BaseTool):
             "side": side,
             "entry_price": entry_price,
             "llm_prob": llm_prob,
+            "kind": kind,
         }
         if warning:
             data["warning"] = warning

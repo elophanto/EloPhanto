@@ -48,6 +48,10 @@ class ResolvedPrediction:
     confidence_band: str = "medium"
     order_type: str = "GTC"
     filled: bool = True
+    # 'live' (real position) or 'shadow' (paper bet for calibration).
+    # Reports bucket by kind so shadow predictions don't inflate
+    # confidence in live-edge claims.
+    kind: str = "live"
 
 
 def to_winner_perspective(
@@ -187,6 +191,10 @@ class CalibrationReport:
     by_confidence_band: dict[str, CalibrationBucket] = field(default_factory=dict)
     maker_fill_rate: float = 0.0  # filled / placed (post-only orders)
     n_maker_orders: int = 0
+    # Breakdown by prediction kind: 'live' (real money), 'shadow' (paper).
+    # Each value is the same shape as the top-level fields above so
+    # callers can read e.g. report.by_kind["shadow"]["brier_score"].
+    by_kind: dict[str, dict] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -202,6 +210,7 @@ class CalibrationReport:
             },
             "maker_fill_rate": round(self.maker_fill_rate, 4),
             "n_maker_orders": self.n_maker_orders,
+            "by_kind": self.by_kind,
         }
 
 
@@ -267,6 +276,23 @@ def build_report(
 
     brier, _ = brier_score(resolved)
 
+    # Per-kind breakdown: bucket separately so shadow predictions
+    # don't inflate confidence in live-edge claims. Each kind gets
+    # its own n, win rate, Brier — no shared bucketing across kinds.
+    by_kind: dict[str, dict] = {}
+    kinds_present = {p.kind for p in resolved}
+    for kind in sorted(kinds_present):
+        subset = [p for p in resolved if p.kind == kind]
+        if not subset:
+            continue
+        k_wins = sum(1 for p in subset if p.won)
+        k_brier, _ = brier_score(subset)
+        by_kind[kind] = {
+            "n_resolved": len(subset),
+            "overall_win_rate": round(k_wins / len(subset), 4),
+            "brier_score": round(k_brier, 4),
+        }
+
     return CalibrationReport(
         n_resolved=n,
         overall_win_rate=wins / n if n else 0.0,
@@ -276,4 +302,5 @@ def build_report(
         by_confidence_band=by_band,
         maker_fill_rate=fill_rate,
         n_maker_orders=placed_post_only or 0,
+        by_kind=by_kind,
     )

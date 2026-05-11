@@ -370,6 +370,24 @@ log_result = polymarket_log_prediction(
 client.create_and_post_order(...)
 ```
 
+### 8c. Shadow predictions for fast calibration
+
+The blocker on §8a's "skip the trade if `n_resolved < 10`" rule is sample size. Real bets accrue slowly: the gate filters most markets out, and resolution takes days-to-weeks. **Shadow predictions** are paper bets with zero capital at risk — just a logged probability estimate that auto-resolves via Gamma like any other prediction. They grow `n_resolved` in days instead of months without burning bankroll.
+
+Workflow (typically run from a scheduled task):
+
+1. Call `polymarket_shadow_candidates` to list upcoming markets the agent has not already shadow-predicted. Default returns up to 10 markets closing within 14 days with non-trivial volume.
+2. Pick one. Form a probability estimate via your usual research path (news, prior-base-rates, related markets — same process you'd run on a real entry candidate).
+3. Call `polymarket_log_prediction` with **`live=false`**, plus the standard `token_id` / `side` / `entry_price` / `llm_prob` / `market_slug` / `rationale`. `size` is not required for shadows; omit or pass 0. The Kelly warning is suppressed.
+4. Nothing else. `polymarket_resolve_pending` resolves shadow rows identically to live ones — same Gamma fetch, same `settle_price` / `outcome` write-back.
+
+When reading `polymarket_calibration`:
+- Default (`kind="all"`) shows blended stats plus a `by_kind` breakdown so you can spot-check live vs shadow separately.
+- Pass `kind="live"` before making claims about real edge — shadows shouldn't inflate confidence in live-money behavior.
+- Pass `kind="shadow"` to read how the LLM's pure probability estimation is calibrated, independent of the gate's filtering.
+
+Recommended cadence: a `*/30m` or hourly cron with `task_goal` like *"call polymarket_shadow_candidates, pick the highest-conviction market you have an informed view on, log a shadow prediction"*. Caps itself naturally — once the agent has shadowed every interesting upcoming market, candidates returns an empty list until new ones appear.
+
 ### 9. Performance inspection (operator-side, optional for the agent)
 
 Operator inspects trade history with:
