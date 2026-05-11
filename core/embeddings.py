@@ -105,7 +105,7 @@ class OpenRouterEmbedder:
     def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self._api_key}",
-            "HTTP-Referer": "https://github.com/elophanto",
+            "HTTP-Referer": "https://elophanto.com",
             "X-Title": "EloPhanto",
             "Content-Type": "application/json",
         }
