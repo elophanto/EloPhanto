@@ -14,7 +14,7 @@ compatibility: Requires network access to Polymarket APIs (clob.polymarket.com, 
 
 ### 1. Install the Python SDK on first use
 ```bash
-pip install py-clob-client
+pip install py-clob-client-v2     # use the -v2 fork; the legacy `py-clob-client` package returns order_version_mismatch on new orders as of 2026-05-11
 ```
 (Run via `shell_execute`. Not in `pyproject.toml` by default — only installed when this skill is actually used.)
 
@@ -184,6 +184,8 @@ stop_levels = gate["stop_loss"]
 
 **Step C — place the entry order, THEN immediately place the companion stop-loss + take-profit limits.**
 
+⚠️ **Stop-limits on Polymarket are NOT triggered orders** — they're regular limit orders sitting on the book. If your "stop-loss" price crosses the current orderbook (e.g. setting a sell-stop at 0.94 when the highest bid is 0.95), it **executes instantly** at the best bid, immediately closing the position you just opened. Before posting the protective limit, fetch the current top-of-book and verify your stop price is *outside* it (below highest bid for sell-stops, above lowest ask for buy-stops). See the 2026-05-11 retro: agent self-flagged this after accidentally selling 7.49 of a 7.5-share NO position via a stop-limit that crossed the book.
+
 ```python
 # 1. Entry order at market or your chosen limit
 entry_resp = client.create_and_post_order(OrderArgs(
@@ -213,6 +215,32 @@ client.create_and_post_order(OrderArgs(
 **Why this is non-negotiable:** the gate's edge filter blocks trades where your "insight" is already priced in (paying spread for nothing). The skip-tag filter excludes sports / entertainment / awards markets — pure noise that LLM bets have no edge against sharps. The stop-loss + take-profit pair caps downside on every position so single losing positions can't dominate P&L. The circuit breaker stops you from tilt-trading after a bad week.
 
 Tunable via `polymarket:` section in `config.yaml` (edge thresholds, stop pcts, drawdown threshold, skip-tag overrides). See `core/polymarket_engine.py` for the math.
+
+### 6a. **MANDATORY** drawdown halt + owner-ack (built into pre_trade)
+
+Pass `peak_equity` and `current_equity` into `polymarket_pre_trade` on every call. The gate runs the circuit breaker inline: if drawdown ≥ `polymarket.drawdown_pause_pct` (default 20%), `allow_trade` becomes `false` with a `drawdown_halt` blocker. **Closing existing positions stays allowed; only NEW entries are gated.** To re-enable new entries, surface the drawdown to the owner with the exact `drawdown.reason` from the gate's response, get explicit go-ahead, then re-call with `drawdown_acknowledged=true`. Never set the ack flag without that explicit owner conversation in the current session.
+
+### 6b. **MANDATORY** upside-alignment rule (built into pre_trade)
+
+The aggressive mandate is **strong returns with frequent opportunities**. A 95.6¢ → $1.00 grind is a +4.6% gross max — that's capital-preservation, not edge-hunting. Compute max gross upside before every entry:
+
+- **YES side** at price `P`: `upside_pct = (1 - P) / P`
+- **NO side** at price `P` (the YES price on the orderbook): `upside_pct = P / (1 - P)`
+
+Pass `upside_pct` into `polymarket_pre_trade`. The gate refuses (`allow_trade=false`, `upside_misaligned` blocker) when:
+
+- `upside_pct < 0.10` and `capital_preservation_ack` is unset → skip the trade entirely
+- `upside_pct < 0.20` and time-to-resolution > 14 days → low yield AND slow turnover; almost never worth it
+
+The alignment ladder you want to climb:
+
+| Upside | Time to resolve | Verdict |
+|---|---|---|
+| ≥ 20% | any | Aligned with mandate — normal Kelly sizing |
+| 10–20% | < 14 days | Borderline — open small (~3% bankroll), needs n_resolved data to defend |
+| < 10% | any | Capital-preservation only — pass `capital_preservation_ack=true` AND limit position to <2% bankroll, OR skip |
+
+This is the agent's own self-rule, derived from the 2026-05-11 cash-parking-bet retro: *"hunt for clear mispriced near-term event with 20%+ upside, or don't bet."* Encoded here as a permanent gate, not a one-off lesson.
 
 ### 7. **MANDATORY** precision quantization (do this BEFORE every create_and_post_order)
 
@@ -306,24 +334,23 @@ Defaults from `core/polymarket_engine.py` (operator-tunable in future via Polyma
 
 The risk gates (§6) tell you whether to trade. The calibration audit tells you whether your trades are *any good* — bucketing realized win rate vs the LLM's stated probability AND vs entry price. Without it, you can't tell if the bot is making money for the right reasons or just lucky.
 
-Three tools, one feedback loop:
+Three tools, one feedback loop. **All three steps below are mandatory in this exact order before placing any new entry**:
 
-1. **`polymarket_log_prediction`** — call EVERY time the pre-trade gate passes, BEFORE you call `client.create_and_post_order`. Pass:
+**Step 1 — read calibration first.** Call `polymarket_calibration` BEFORE deciding to enter. The report tells you whether the bot's "high confidence" claims have been calibrated by actual resolutions. Skip the trade if any of these are true:
+- `brier_score > 0.25` over `n_resolved ≥ 30` — bot is anti-correlated with reality, flag to owner.
+- `by_confidence_band[band].calibration_gap < -0.10` over n ≥ 30 in that band — that band's edge threshold is too lax. Tighten `polymarket.<band>_confidence_edge` in `config.yaml` before betting more in that band.
+- `n_resolved < 10` — you don't have enough resolved data to defend the strategy. Either keep entries tiny (<2% bankroll) or hold off until the data accumulates.
+
+**Step 2 — call `polymarket_safe_compounder` to compute Kelly fraction**, even when running the directional bot. The Kelly fraction is the sizing strategy's signature; you'll need it threaded into log_prediction so the calibration audit can later answer *"was my sizing any good?"*. If safe_compounder declines the trade entirely, that's a signal — re-examine the thesis.
+
+**Step 3 — call `polymarket_log_prediction`** AFTER the pre-trade gate passes (with drawdown + upside ack as needed from §6a/§6b) and BEFORE `client.create_and_post_order`. Pass:
    - `token_id`, `side` (`YES`/`NO`), `entry_price`, `size`
    - `llm_prob` — your probability that *YES* wins (always YES-frame; the audit re-frames internally)
    - `confidence_band` — same value you fed to `polymarket_pre_trade`
-   - `kelly_fraction`, `order_type` (`post-only`/`GTC`/etc.), `market_slug`, one-line `rationale`
+   - **`kelly_fraction` — the value returned by `polymarket_safe_compounder` in step 2.** The tool warns when this is zero/missing on a non-trivial size; treat that warning as a hard fix-it-now, not an FYI.
+   - `order_type` (`post-only` / `GTC` / `FOK` / etc.), `market_slug`, one-line `rationale`
 
-2. **`polymarket_resolve_pending`** — fetches Polymarket Gamma API and updates `settle_price` + `outcome` + `realized_pnl` on resolved markets. **Schedule** this at `0 */6 * * *` (every 6h) — markets resolve on weekly cadence, no point checking more often. Operator-side, the agent normally does not invoke it directly.
-
-3. **`polymarket_calibration`** — read the report. Returns:
-   - `n_resolved` + `overall_win_rate` + `brier_score` (lower = better; <0.25 means we beat always-claiming-50%)
-   - `by_claimed_prob` buckets — does our "70% confidence" actually win 70%?
-   - `by_entry_price` buckets — do markets we entered at $0.40 pay 40%? (the chart in the Polymarket Quantitative Trading Framework image)
-   - `by_confidence_band` — high/medium/low band realized stats
-   - `maker_fill_rate` — fraction of post-only orders that actually filled before resolution
-
-If `brier_score > 0.25` over a sample of ≥30 resolved predictions, the bot is anti-correlated with reality — flag to the owner before placing more bets. If a confidence band's realized win rate trails its avg_claimed by >10pp over ≥30 resolved, the band's edge threshold is too lax — operator should bump `polymarket.<band>_confidence_edge` in `config.yaml`.
+`polymarket_resolve_pending` fetches Polymarket Gamma API and updates `settle_price` + `outcome` + `realized_pnl` on resolved markets. Schedule it on a cadence that fits your fastest-resolving market type: every 5 min for 15-min crypto Up/Down markets, every hour for hourly news binaries, every 6h for weekly markets. ONE cron at the fastest cadence is fine — the tool's per-slug cache dedupes Gamma calls so checking every 5 min for 100 pending markets is still only 100 unique HTTP requests per run (loose well within Gamma rate limits). Operator-side; agent normally doesn't invoke it directly.
 
 ```python
 # Example: log a prediction right after the gate passes.

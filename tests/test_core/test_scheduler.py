@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -342,3 +344,260 @@ class TestTaskScheduler:
         assert await scheduler.get_schedule(entry.id) is None
         # No longer tracked as running
         assert entry.id not in scheduler._running_tasks
+
+
+class TestDirectTool:
+    """Pin the direct-tool fast path (bypasses agent loop + LLM)."""
+
+    @pytest.fixture
+    async def db(self, tmp_path: Path) -> Database:
+        d = Database(tmp_path / "test.db")
+        await d.initialize()
+        return d
+
+    @pytest.fixture
+    def registry(self) -> Any:
+        """Minimal registry with a SAFE tool and a DESTRUCTIVE tool."""
+        from tools.base import PermissionLevel
+
+        class _SafeTool:
+            name = "safe_probe"
+            permission_level = PermissionLevel.SAFE
+
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            async def execute(self, params: dict) -> Any:
+                self.calls.append(params)
+                from tools.base import ToolResult
+
+                return ToolResult(
+                    success=True, data={"echo": params, "calls_so_far": len(self.calls)}
+                )
+
+        class _DestructiveTool:
+            name = "burn_it_down"
+            permission_level = PermissionLevel.DESTRUCTIVE
+
+            async def execute(self, params: dict) -> Any:  # pragma: no cover
+                raise AssertionError("must not be invoked")
+
+        safe_tool = _SafeTool()
+        destructive_tool = _DestructiveTool()
+        tools = {safe_tool.name: safe_tool, destructive_tool.name: destructive_tool}
+
+        class _Registry:
+            def get(self, name: str) -> Any:
+                return tools.get(name)
+
+        return _Registry()
+
+    @pytest.fixture
+    async def scheduler(self, db: Database, registry: Any) -> TaskScheduler:
+        # Agent-loop executor that should NEVER fire for direct-tool schedules.
+        async def never_called(_goal: str) -> Any:
+            raise AssertionError("agent-loop executor must not run for direct-tool")
+
+        return TaskScheduler(
+            db=db,
+            task_executor=never_called,
+            registry=registry,
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_direct_schedule_persists_tool_and_params(
+        self, scheduler: TaskScheduler
+    ) -> None:
+        entry = await scheduler.create_schedule(
+            name="Resolve Pending",
+            task_goal="",
+            cron_expression="5m",
+            direct_tool="safe_probe",
+            direct_params={"limit": 200},
+        )
+        assert entry.direct_tool == "safe_probe"
+        assert entry.direct_params == '{"limit": 200}'
+        # task_goal gets a trace string when omitted
+        assert "[direct-tool] safe_probe" in entry.task_goal
+
+    @pytest.mark.asyncio
+    async def test_create_refuses_destructive_tool(
+        self, scheduler: TaskScheduler
+    ) -> None:
+        with pytest.raises(ValueError, match="refuses non-SAFE"):
+            await scheduler.create_schedule(
+                name="bad",
+                task_goal="",
+                cron_expression="5m",
+                direct_tool="burn_it_down",
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_refuses_unknown_tool(self, scheduler: TaskScheduler) -> None:
+        with pytest.raises(ValueError, match="Unknown tool"):
+            await scheduler.create_schedule(
+                name="bad",
+                task_goal="",
+                cron_expression="5m",
+                direct_tool="does_not_exist",
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_malformed_json_params(
+        self, scheduler: TaskScheduler
+    ) -> None:
+        with pytest.raises(ValueError, match="not valid JSON"):
+            await scheduler.create_schedule(
+                name="bad",
+                task_goal="",
+                cron_expression="5m",
+                direct_tool="safe_probe",
+                direct_params="{not-json",
+            )
+
+    @pytest.mark.asyncio
+    async def test_direct_tool_executes_and_records(
+        self, scheduler: TaskScheduler, db: Database, registry: Any
+    ) -> None:
+        entry = await scheduler.create_schedule(
+            name="Probe",
+            task_goal="",
+            cron_expression="5m",
+            direct_tool="safe_probe",
+            direct_params={"k": "v"},
+        )
+        # Fire the dispatch path directly — bypasses APScheduler.
+        await scheduler._enqueue_for_execution(entry.id)
+        # _enqueue_for_execution fires _run_direct_tool as a task; await
+        # the task it tracked so the run row settles.
+        in_flight = scheduler._direct_running.get(entry.id)
+        if in_flight is not None:
+            await in_flight
+
+        # SAFE tool was actually invoked
+        tool = registry.get("safe_probe")
+        assert tool.calls == [{"k": "v"}]
+
+        # schedule_runs row recorded as 'completed'
+        runs = await scheduler.get_run_history(entry.id, limit=5)
+        assert len(runs) == 1
+        assert runs[0]["status"] == "completed"
+        # Result is JSON of tool data
+        assert '"echo"' in runs[0]["result"]
+
+    @pytest.mark.asyncio
+    async def test_direct_tool_dedup_skips_duplicate_fire(
+        self, scheduler: TaskScheduler, db: Database, registry: Any
+    ) -> None:
+        """Per-schedule_id dedup: if a previous direct-tool fire is
+        still running, the next fire is skipped (not queued)."""
+        from tools.base import PermissionLevel, ToolResult
+
+        # Replace safe_probe with a slow version we can hold open.
+        gate = asyncio.Event()
+
+        class _SlowTool:
+            name = "safe_probe"
+            permission_level = PermissionLevel.SAFE
+            calls = 0
+
+            async def execute(self, params: dict) -> Any:
+                _SlowTool.calls += 1
+                await gate.wait()
+                return ToolResult(success=True, data={})
+
+        slow = _SlowTool()
+        registry_mock = type(
+            "R",
+            (),
+            {"get": staticmethod(lambda n: slow if n == "safe_probe" else None)},
+        )
+        scheduler._registry = registry_mock
+
+        entry = await scheduler.create_schedule(
+            name="Slow",
+            task_goal="",
+            cron_expression="5m",
+            direct_tool="safe_probe",
+        )
+        # Fire once — starts running, waits on gate
+        await scheduler._enqueue_for_execution(entry.id)
+        # Fire again while first is still running — must be deduped
+        await scheduler._enqueue_for_execution(entry.id)
+        # Release gate, drain
+        gate.set()
+        in_flight = scheduler._direct_running.get(entry.id)
+        if in_flight is not None:
+            await in_flight
+        assert _SlowTool.calls == 1  # second fire was dropped
+
+    @pytest.mark.asyncio
+    async def test_direct_tool_failure_recorded(
+        self, scheduler: TaskScheduler, db: Database
+    ) -> None:
+        """Tool crash → schedule_run status='failed', error captured."""
+        from tools.base import PermissionLevel
+
+        class _Crasher:
+            name = "safe_probe"
+            permission_level = PermissionLevel.SAFE
+
+            async def execute(self, _params: dict) -> Any:
+                raise RuntimeError("boom")
+
+        scheduler._registry = type(
+            "R",
+            (),
+            {"get": staticmethod(lambda n: _Crasher() if n == "safe_probe" else None)},
+        )
+        entry = await scheduler.create_schedule(
+            name="Boom",
+            task_goal="",
+            cron_expression="5m",
+            direct_tool="safe_probe",
+        )
+        await scheduler._enqueue_for_execution(entry.id)
+        in_flight = scheduler._direct_running.get(entry.id)
+        if in_flight is not None:
+            await in_flight
+
+        runs = await scheduler.get_run_history(entry.id, limit=5)
+        assert len(runs) == 1
+        assert runs[0]["status"] == "failed"
+        assert "boom" in (runs[0]["error"] or "")
+
+    @pytest.mark.asyncio
+    async def test_interval_trigger_syntax_accepted(self) -> None:
+        TaskScheduler._validate_trigger("30s")
+        TaskScheduler._validate_trigger("5m")
+        TaskScheduler._validate_trigger("2h")
+        TaskScheduler._validate_trigger("1d")
+        with pytest.raises(ValueError):
+            TaskScheduler._validate_trigger("0s")
+        with pytest.raises(ValueError):
+            TaskScheduler._validate_trigger("garbage")
+
+    @pytest.mark.asyncio
+    async def test_agent_loop_path_unchanged_for_no_direct_tool(
+        self, db: Database
+    ) -> None:
+        """Smoke: schedules without direct_tool still go through
+        the task_executor (agent.run path), unaffected by the new fork."""
+        called = asyncio.Event()
+
+        async def task_exec(_goal: str) -> Any:
+            called.set()
+            return type("R", (), {"content": "ok", "steps_taken": 0})()
+
+        s = TaskScheduler(db=db, task_executor=task_exec)
+        entry = await s.create_schedule(
+            name="Agent Loop", task_goal="do x", cron_expression="0 9 * * *"
+        )
+        assert entry.direct_tool is None
+        # Drive the same code path as a cron fire
+        await s._enqueue_for_execution(entry.id)
+        # Worker is not running in this fixture; drain queue manually
+        if s._queue.qsize() > 0:
+            schedule_id = await s._queue.get()
+            await s._run_one(schedule_id)
+        await asyncio.wait_for(called.wait(), timeout=3)

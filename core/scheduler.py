@@ -18,6 +18,7 @@ from typing import Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from core.database import Database
 from core.task_resources import TaskResource, TaskResourceManager, infer_resources
@@ -27,7 +28,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ScheduleEntry:
-    """A single scheduled task definition."""
+    """A single scheduled task definition.
+
+    Two execution paths:
+    - **Agent-loop path** (default): ``task_goal`` is a natural-language
+      goal; the scheduler hands it to the agent's ``run()`` for a full
+      plan-execute-reflect cycle with LLM calls. Right for anything
+      that needs judgment.
+    - **Direct-tool path** (when ``direct_tool`` is set): the scheduler
+      invokes that registry tool directly with ``direct_params`` as
+      input. Bypasses the LLM and the action queue entirely. Right for
+      mechanical cron jobs (polymarket_resolve_pending, solana_balance,
+      etc.) where there's no decision to make.
+    """
 
     id: str
     name: str
@@ -41,6 +54,8 @@ class ScheduleEntry:
     max_retries: int = 3
     created_at: str = ""
     updated_at: str = ""
+    direct_tool: str | None = None
+    direct_params: str | None = None  # JSON string
 
 
 @dataclass
@@ -87,6 +102,7 @@ class TaskScheduler:
         *,
         resource_manager: TaskResourceManager | None = None,
         queue_depth_cap: int = 50,
+        registry: Any = None,
     ) -> None:
         self._db = db
         self._task_executor = task_executor
@@ -104,6 +120,14 @@ class TaskScheduler:
         self._queued_ids: set[str] = set()
         self._queue_lock = asyncio.Lock()
         self._worker_task: asyncio.Task[Any] | None = None
+        # Registry handle for the direct-tool fast path. Optional —
+        # falls back to "agent-loop only" when not injected (back-compat
+        # with tests + any caller that constructs scheduler without
+        # registry). Agent injects it at startup.
+        self._registry = registry
+        # Direct-tool runs aren't queued (they bypass the action queue
+        # entirely) but we still track them to support cancel-on-delete.
+        self._direct_running: dict[str, asyncio.Task[Any]] = {}
 
     @property
     def is_running(self) -> bool:
@@ -177,13 +201,30 @@ class TaskScheduler:
         cron_expression: str,
         description: str = "",
         max_retries: int = 3,
+        direct_tool: str | None = None,
+        direct_params: dict[str, Any] | str | None = None,
     ) -> ScheduleEntry:
-        """Create a new scheduled task and persist it."""
-        # Validate cron expression
-        try:
-            CronTrigger.from_crontab(cron_expression)
-        except ValueError as e:
-            raise ValueError(f"Invalid cron expression: {e}") from e
+        """Create a new scheduled task and persist it.
+
+        Pass ``direct_tool`` to bypass the agent loop on fire: the
+        scheduler will invoke that registry tool directly with
+        ``direct_params`` as input. ``direct_params`` accepts either a
+        dict (preferred) or a pre-serialised JSON string. The tool
+        must exist in the registry and be SAFE-permission — destructive
+        cron jobs go through the agent loop where the planner can
+        reason about them.
+        """
+        # Validate trigger expression (cron OR interval like "30s"/"5m")
+        self._validate_trigger(cron_expression)
+
+        # Validate direct-tool target if provided
+        params_json: str | None = None
+        if direct_tool is not None:
+            params_json = self._validate_direct_tool(direct_tool, direct_params)
+            # task_goal becomes a readable trace of what fires, used in
+            # logs and the agent-loop notifier. Doesn't drive execution.
+            if not task_goal:
+                task_goal = f"[direct-tool] {direct_tool}({params_json or '{}'})"
 
         schedule_id = str(uuid.uuid4())[:8]
         now = datetime.now(UTC).isoformat()
@@ -198,13 +239,15 @@ class TaskScheduler:
             max_retries=max_retries,
             created_at=now,
             updated_at=now,
+            direct_tool=direct_tool,
+            direct_params=params_json,
         )
 
         await self._db.execute_insert(
             """INSERT INTO scheduled_tasks
                (id, name, description, cron_expression, task_goal, enabled,
-                max_retries, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                max_retries, created_at, updated_at, direct_tool, direct_params)
+               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
             (
                 entry.id,
                 entry.name,
@@ -214,11 +257,77 @@ class TaskScheduler:
                 entry.max_retries,
                 entry.created_at,
                 entry.updated_at,
+                entry.direct_tool,
+                entry.direct_params,
             ),
         )
 
         self._add_job(entry)
         return entry
+
+    @staticmethod
+    def _validate_trigger(expr: str) -> None:
+        """Validate either a 5-field cron OR an interval like '30s'/'5m'/'2h'."""
+        expr = expr.strip()
+        # Interval syntax: '30s', '5m', '2h', '1d' — sub-minute cadence
+        # support. Used for direct-tool fast-path crons that need to
+        # fire more often than 1/min.
+        m = re.fullmatch(r"(\d+)\s*([smhd])", expr)
+        if m:
+            n = int(m.group(1))
+            if n <= 0:
+                raise ValueError(f"Interval must be positive, got '{expr}'")
+            return
+        # Standard 5-field cron
+        try:
+            CronTrigger.from_crontab(expr)
+        except ValueError as e:
+            raise ValueError(f"Invalid cron expression: {e}") from e
+
+    def _validate_direct_tool(
+        self, tool_name: str, params: dict[str, Any] | str | None
+    ) -> str:
+        """Validate the tool exists, is SAFE, and params are JSON-serialisable.
+
+        Returns the params as a JSON string for DB storage.
+        """
+        if self._registry is None:
+            raise ValueError(
+                "direct_tool requires the scheduler to be constructed with "
+                "a registry handle. Construct TaskScheduler(..., registry=registry)."
+            )
+        tool = self._registry.get(tool_name)
+        if tool is None:
+            raise ValueError(f"Unknown tool: {tool_name!r}")
+        # Lazy-import to avoid a hard dep cycle
+        from tools.base import PermissionLevel
+
+        if tool.permission_level != PermissionLevel.SAFE:
+            raise ValueError(
+                f"direct_tool refuses non-SAFE tool {tool_name!r} "
+                f"(permission={tool.permission_level.value}). "
+                "Destructive cron jobs must go through the agent loop so "
+                "the planner can reason about them. Use task_goal instead."
+            )
+        # Normalise params → JSON string
+        if params is None:
+            return "{}"
+        if isinstance(params, str):
+            # Validate parseable JSON
+            try:
+                import json as _json
+
+                _json.loads(params)
+                return params
+            except _json.JSONDecodeError as e:
+                raise ValueError(f"direct_params is not valid JSON: {e}") from e
+        if isinstance(params, dict):
+            import json as _json
+
+            return _json.dumps(params)
+        raise ValueError(
+            f"direct_params must be a dict or JSON string, got {type(params).__name__}"
+        )
 
     async def schedule_once(
         self,
@@ -287,7 +396,7 @@ class TaskScheduler:
 
     async def delete_schedule(self, schedule_id: str) -> bool:
         """Delete a scheduled task. Cancels in-flight execution if running."""
-        # Cancel in-flight task if running
+        # Cancel in-flight agent-loop task if running
         running = self._running_tasks.pop(schedule_id, None)
         if running and not running.done():
             running.cancel()
@@ -296,6 +405,17 @@ class TaskScheduler:
             except (asyncio.CancelledError, Exception):
                 pass
             logger.info("Cancelled running task for schedule %s", schedule_id)
+        # Cancel in-flight direct-tool task if running
+        direct = self._direct_running.pop(schedule_id, None)
+        if direct and not direct.done():
+            direct.cancel()
+            try:
+                await direct
+            except (asyncio.CancelledError, Exception):
+                pass
+            logger.info(
+                "Cancelled in-flight direct-tool task for schedule %s", schedule_id
+            )
 
         job_id = self._active_jobs.pop(schedule_id, None)
         if job_id:
@@ -478,8 +598,25 @@ class TaskScheduler:
         return [dict(row) for row in rows]
 
     def _add_job(self, schedule: ScheduleEntry) -> None:
-        """Add an APScheduler job for a schedule entry."""
-        trigger = CronTrigger.from_crontab(schedule.cron_expression)
+        """Add an APScheduler job for a schedule entry.
+
+        Supports two trigger syntaxes:
+        - 5-field cron string (e.g. ``0 9 * * *``) → CronTrigger
+        - Short interval (e.g. ``30s``, ``5m``, ``2h``, ``1d``) →
+          IntervalTrigger. Sub-minute cadence is only useful for
+          direct-tool schedules (LLM-bearing cron jobs would burn
+          tokens at that rate); the scheduler doesn't enforce that,
+          but the trade-off is documented in SKILL + cron docs.
+        """
+        expr = schedule.cron_expression.strip()
+        m = re.fullmatch(r"(\d+)\s*([smhd])", expr)
+        if m:
+            n = int(m.group(1))
+            unit = m.group(2)
+            kwargs = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}[unit]
+            trigger = IntervalTrigger(**{kwargs: n})
+        else:
+            trigger = CronTrigger.from_crontab(expr)
         job_id = f"schedule_{schedule.id}"
         self._scheduler.add_job(
             self._enqueue_for_execution,
@@ -491,20 +628,39 @@ class TaskScheduler:
         self._active_jobs[schedule.id] = job_id
 
     async def _enqueue_for_execution(self, schedule_id: str) -> None:
-        """Cron-trigger handler: push the fire onto the run queue.
+        """Cron-trigger handler: push the fire onto the run queue OR
+        dispatch direct-tool fast path.
 
-        Replaces the old "drop on the floor when busy" behavior.
-        Per-task dedup: if the same schedule_id is already running OR
-        already queued, the new fire is logged + skipped — prevents a
-        slow task that always exceeds its cron interval from spiraling
-        into a queue full of duplicate fires for itself.
+        For agent-loop schedules: enqueues + worker dispatches +
+        per-schedule_id dedup against running/queued.
 
-        If the queue is full (queue_depth_cap), the fire is logged and
-        skipped. That only happens when the entire pipeline is jammed,
-        which is itself a real failure worth surfacing.
+        For direct-tool schedules (``direct_tool`` is set): bypasses
+        the queue entirely, fires ``_run_direct_tool`` as an
+        ``asyncio.create_task`` so it runs concurrently with everything
+        else on the event loop. Per-schedule_id dedup still applies via
+        ``_direct_running`` so a slow tool can't pile up duplicate fires
+        for itself.
         """
         if self._paused:
             logger.info("Scheduler paused — skipping enqueue of %s", schedule_id)
+            return
+
+        # Direct-tool fast path — skip the queue, skip the agent loop,
+        # skip the action_queue. Pure tool invocation.
+        schedule = await self.get_schedule(schedule_id)
+        if schedule is not None and schedule.direct_tool:
+            if schedule_id in self._direct_running:
+                logger.info(
+                    "Direct-tool schedule %s still running from previous fire "
+                    "— skipping duplicate fire",
+                    schedule_id,
+                )
+                return
+            task = asyncio.create_task(self._run_direct_tool(schedule))
+            self._direct_running[schedule_id] = task
+            task.add_done_callback(
+                lambda _t, sid=schedule_id: self._direct_running.pop(sid, None)
+            )
             return
 
         async with self._queue_lock:
@@ -559,6 +715,119 @@ class TaskScheduler:
             # _run_one itself blocks on resource acquisition so this is
             # where parallelism actually happens.
             asyncio.create_task(self._run_one(schedule_id))
+
+    async def _run_direct_tool(self, schedule: ScheduleEntry) -> None:
+        """Fast-path executor: invoke a registry tool directly.
+
+        No agent loop, no LLM call, no action_queue acquisition. The
+        tool runs as an ``asyncio.create_task`` and contends only with
+        whatever resource semaphores it uses internally (httpx for
+        network, ``Database._conn_lock`` for SQLite, etc.). Records
+        the run in ``schedule_runs`` so observability stays identical
+        to agent-loop schedules.
+
+        Only fires when ``schedule.direct_tool`` is set + tool exists
+        in the registry. If the tool was removed between schedule
+        creation and fire time, marks the run as failed with a clear
+        error message rather than silently dropping.
+        """
+        import json as _json
+
+        schedule_id = schedule.id
+        now = datetime.now(UTC).isoformat()
+        run_id = await self._db.execute_insert(
+            """INSERT INTO schedule_runs (schedule_id, started_at, status)
+               VALUES (?, ?, 'running')""",
+            (schedule_id, now),
+        )
+
+        tool_name = schedule.direct_tool or ""
+        tool = self._registry.get(tool_name) if self._registry else None
+        if tool is None:
+            error_msg = (
+                f"direct_tool {tool_name!r} not in registry — was the tool "
+                "removed or renamed since the schedule was created?"
+            )
+            logger.warning("Schedule %s: %s", schedule_id, error_msg)
+            completed_at = datetime.now(UTC).isoformat()
+            await self._db.execute_insert(
+                """UPDATE schedule_runs
+                   SET completed_at = ?, status = 'failed', error = ?
+                   WHERE id = ?""",
+                (completed_at, error_msg, run_id),
+            )
+            await self._db.execute_insert(
+                """UPDATE scheduled_tasks
+                   SET last_run_at = ?, last_status = 'failed', updated_at = ?
+                   WHERE id = ?""",
+                (completed_at, completed_at, schedule_id),
+            )
+            return
+
+        try:
+            params = _json.loads(schedule.direct_params or "{}")
+        except _json.JSONDecodeError as e:
+            error_msg = f"direct_params malformed JSON: {e}"
+            logger.warning("Schedule %s: %s", schedule_id, error_msg)
+            completed_at = datetime.now(UTC).isoformat()
+            await self._db.execute_insert(
+                """UPDATE schedule_runs
+                   SET completed_at = ?, status = 'failed', error = ?
+                   WHERE id = ?""",
+                (completed_at, error_msg, run_id),
+            )
+            return
+
+        try:
+            result = await tool.execute(params)
+            success = bool(getattr(result, "success", True))
+            data = getattr(result, "data", {}) or {}
+            error = getattr(result, "error", None)
+            # Summary line used in last_result + UI; keep small (5kb cap
+            # in DB column matches agent-loop path).
+            summary = (
+                _json.dumps(data, default=str)[:5000]
+                if success
+                else (error or "tool failed")
+            )
+
+            completed_at = datetime.now(UTC).isoformat()
+            status = "completed" if success else "failed"
+            await self._db.execute_insert(
+                """UPDATE schedule_runs
+                   SET completed_at = ?, status = ?, result = ?, steps_taken = 1
+                   WHERE id = ?""",
+                (completed_at, status, summary, run_id),
+            )
+            await self._db.execute_insert(
+                """UPDATE scheduled_tasks
+                   SET last_run_at = ?, last_status = ?,
+                       last_result = ?, updated_at = ?
+                   WHERE id = ?""",
+                (completed_at, status, summary[:1000], completed_at, schedule_id),
+            )
+            logger.info(
+                "Direct-tool schedule %s (%s) %s in %s",
+                schedule.name,
+                tool_name,
+                status,
+                run_id,
+            )
+        except Exception as e:  # noqa: BLE001 — log and record any tool error
+            logger.exception("Direct-tool schedule %s crashed", schedule.name)
+            completed_at = datetime.now(UTC).isoformat()
+            await self._db.execute_insert(
+                """UPDATE schedule_runs
+                   SET completed_at = ?, status = 'failed', error = ?
+                   WHERE id = ?""",
+                (completed_at, str(e)[:2000], run_id),
+            )
+            await self._db.execute_insert(
+                """UPDATE scheduled_tasks
+                   SET last_run_at = ?, last_status = 'failed', updated_at = ?
+                   WHERE id = ?""",
+                (completed_at, completed_at, schedule_id),
+            )
 
     async def _run_one(self, schedule_id: str) -> None:
         """Run one scheduled task through the resource manager.
@@ -706,6 +975,15 @@ class TaskScheduler:
 
     @staticmethod
     def _row_to_entry(row: Any) -> ScheduleEntry:
+        # row.keys() guard — direct_tool/direct_params arrive via the
+        # 2026-05-11 migration; pre-migration rows return None via the
+        # try/except.
+        def _opt(key: str) -> Any:
+            try:
+                return row[key]
+            except (KeyError, IndexError):
+                return None
+
         return ScheduleEntry(
             id=row["id"],
             name=row["name"],
@@ -719,6 +997,8 @@ class TaskScheduler:
             max_retries=row["max_retries"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            direct_tool=_opt("direct_tool"),
+            direct_params=_opt("direct_params"),
         )
 
 
