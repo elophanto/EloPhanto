@@ -162,6 +162,20 @@ class PolymarketLogPredictionTool(BaseTool):
             except (TypeError, ValueError):
                 kelly_fraction = None
 
+        # Sanity warning: caller passed a non-trivial size but no
+        # Kelly fraction. The calibration audit later can't assess
+        # "was my sizing strategy good?" without the kelly_fraction at
+        # entry — that whole dimension goes dead.
+        warning: str | None = None
+        if size >= 1.0 and (kelly_fraction is None or kelly_fraction == 0.0):
+            warning = (
+                "kelly_fraction missing or zero on a non-trivial size — "
+                "calibration audit won't be able to assess sizing strategy "
+                "for this trade later. Call polymarket_safe_compounder "
+                "BEFORE log_prediction and thread its returned kelly_fraction "
+                "in. See SKILL.md §8a."
+            )
+
         now = datetime.now(UTC).isoformat()
         row_id = await self._db.execute_insert(
             """INSERT INTO polymarket_predictions
@@ -183,13 +197,13 @@ class PolymarketLogPredictionTool(BaseTool):
             ),
         )
 
-        return ToolResult(
-            success=True,
-            data={
-                "prediction_id": row_id,
-                "logged_at": now,
-                "side": side,
-                "entry_price": entry_price,
-                "llm_prob": llm_prob,
-            },
-        )
+        data: dict[str, Any] = {
+            "prediction_id": row_id,
+            "logged_at": now,
+            "side": side,
+            "entry_price": entry_price,
+            "llm_prob": llm_prob,
+        }
+        if warning:
+            data["warning"] = warning
+        return ToolResult(success=True, data=data)

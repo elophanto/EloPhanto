@@ -723,6 +723,15 @@ _MIGRATIONS = [
     # are 'tool' by default.
     "ALTER TABLE ego_outcomes ADD COLUMN source TEXT NOT NULL DEFAULT 'tool'",
     "ALTER TABLE ego_humbling_events ADD COLUMN source TEXT NOT NULL DEFAULT 'system'",
+    # Direct-tool scheduled tasks — fast path that bypasses the agent
+    # loop entirely. When `direct_tool` is set, the scheduler invokes
+    # that registry tool directly (no LLM planning, no agent.run loop)
+    # with `direct_params` as the input dict. Lets mechanical cron jobs
+    # (polymarket_resolve_pending, solana_balance, etc.) run at
+    # sub-minute cadence for ~$0 instead of $5+/day in LLM tokens. See
+    # docs/70-SCHEDULER-CONCURRENCY.md (Phase 2 section).
+    "ALTER TABLE scheduled_tasks ADD COLUMN direct_tool TEXT",
+    "ALTER TABLE scheduled_tasks ADD COLUMN direct_params TEXT",
 ]
 
 

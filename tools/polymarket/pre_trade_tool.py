@@ -102,6 +102,56 @@ class PolymarketPreTradeTool(BaseTool):
                         "title-phrase blocklist (mention/say/wear/etc)."
                     ),
                 },
+                "peak_equity": {
+                    "type": "number",
+                    "description": (
+                        "Highest portfolio value in the lookback window "
+                        "(rolling 30-day high). When provided with "
+                        "current_equity, gate also enforces the drawdown "
+                        "circuit breaker — refuses to allow_trade when "
+                        "drawdown >= polymarket.drawdown_pause_pct unless "
+                        "drawdown_acknowledged=true."
+                    ),
+                },
+                "current_equity": {
+                    "type": "number",
+                    "description": (
+                        "Current portfolio value, USD. Required if "
+                        "peak_equity is provided."
+                    ),
+                },
+                "drawdown_acknowledged": {
+                    "type": "boolean",
+                    "description": (
+                        "Owner has explicitly approved trading despite "
+                        "active drawdown halt. Skill must surface the "
+                        "drawdown to the owner and only set this to true "
+                        "after receiving explicit go-ahead. Without this "
+                        "flag, peak/current implying drawdown >= threshold "
+                        "blocks allow_trade."
+                    ),
+                },
+                "upside_pct": {
+                    "type": "number",
+                    "description": (
+                        "Max gross upside if this bet resolves your way. "
+                        "For YES at price P: (1-P)/P. For NO at price P: "
+                        "P/(1-P). When provided, gate enforces the "
+                        "alignment rule — refuses to allow_trade when "
+                        "upside_pct < 0.10 (capital-preservation territory) "
+                        "unless capital_preservation_ack=true."
+                    ),
+                },
+                "capital_preservation_ack": {
+                    "type": "boolean",
+                    "description": (
+                        "Skill explicitly classifies this trade as a "
+                        "conservative capital-preservation move (low upside, "
+                        "high-certainty grind). Required when upside_pct < "
+                        "0.10. Bypasses the upside gate but should pair with "
+                        "tiny position sizing (<2% of bankroll)."
+                    ),
+                },
             },
             "required": ["llm_prob", "market_price", "confidence"],
         }
@@ -125,6 +175,69 @@ class PolymarketPreTradeTool(BaseTool):
             market_title=market_title,
             config=self._polymarket_config,
         )
+
+        # Drawdown gate — enforced in pre_trade so the skill can't
+        # accidentally honor-system its way past it. If peak/current
+        # were provided, run the circuit breaker check; if paused and
+        # not acknowledged, flip allow_trade to false with a
+        # drawdown_halt blocker.
+        from core.polymarket_engine import check_drawdown
+
+        peak_equity = params.get("peak_equity")
+        current_equity = params.get("current_equity")
+        drawdown_ack = bool(params.get("drawdown_acknowledged", False))
+        drawdown_info: dict[str, Any] | None = None
+        if peak_equity is not None and current_equity is not None:
+            try:
+                pe = float(peak_equity)
+                ce = float(current_equity)
+            except (TypeError, ValueError):
+                pe = ce = 0.0
+            pause_pct = 0.20
+            if self._polymarket_config is not None:
+                pause_pct = float(
+                    getattr(self._polymarket_config, "drawdown_pause_pct", 0.20)
+                )
+            cb = check_drawdown(pe, ce, pause_pct=pause_pct)
+            drawdown_info = {
+                "paused": cb.paused,
+                "drawdown_pct": cb.drawdown_pct,
+                "threshold_pct": cb.threshold_pct,
+                "reason": cb.reason,
+                "acknowledged": drawdown_ack,
+            }
+            if cb.paused and not drawdown_ack:
+                decision.allow_trade = False
+                decision.blockers.append(
+                    f"drawdown_halt: {cb.reason}. Surface to owner; "
+                    "re-call with drawdown_acknowledged=true after "
+                    "explicit approval."
+                )
+
+        # Upside-alignment gate — encodes the agent's own "20% upside
+        # or don't bet" rule (see SKILL.md §6b). Refuses sub-10%-upside
+        # bets unless explicitly classified as capital-preservation.
+        upside_pct = params.get("upside_pct")
+        cap_pres_ack = bool(params.get("capital_preservation_ack", False))
+        upside_info: dict[str, Any] | None = None
+        if upside_pct is not None:
+            try:
+                up = float(upside_pct)
+            except (TypeError, ValueError):
+                up = 0.0
+            upside_info = {
+                "upside_pct": up,
+                "capital_preservation_ack": cap_pres_ack,
+            }
+            if up < 0.10 and not cap_pres_ack:
+                decision.allow_trade = False
+                decision.blockers.append(
+                    f"upside_misaligned: {up:.1%} < 10% threshold "
+                    "(capital-preservation territory). Either pass "
+                    "capital_preservation_ack=true (and limit position "
+                    "to <2% of bankroll) or skip this trade. See "
+                    "SKILL.md §6b."
+                )
 
         data: dict[str, Any] = {
             "allow_trade": decision.allow_trade,
@@ -155,5 +268,10 @@ class PolymarketPreTradeTool(BaseTool):
             }
         else:
             data["stop_loss"] = None
+
+        if drawdown_info is not None:
+            data["drawdown"] = drawdown_info
+        if upside_info is not None:
+            data["upside"] = upside_info
 
         return ToolResult(success=True, data=data)

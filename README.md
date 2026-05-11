@@ -35,6 +35,23 @@ Most "AI agents" are stateless prompts wrapped in a CLI. Same cold-start every c
 
 The combination is what makes the third week of running feel different from the first. The agent isn't replaying templates — it has a self-image that has been hurt, recovered, and revised, and a felt state that changes by the minute. See [core/ego.py](core/ego.py), [core/affect.py](core/affect.py), and [docs/17-IDENTITY.md](docs/17-IDENTITY.md).
 
+### One entity, not a persona stable
+
+Other "agent platforms" host N character personas behind one engine — swap the SOUL.md, swap the bot, the box hosts the next character. EloPhanto is **structurally different**: this installation IS one agent. One identity. One wallet. One ego / affect / self-model that has been hurt and revised and grown over weeks. When you want more agents, you spawn another full EloPhanto — separate vault, separate wallet, separate self-model. **Peers, not personas.**
+
+This isn't a missing feature, it's the foundation everything else stands on:
+
+- **Ego** accumulating per-capability confidence — for *whom* if the persona is swappable on each request?
+- **Affect** carrying state between calls — whose frustration? whose pride? a persona-swap host can't answer coherently.
+- **One wallet building on-chain reputation** — five personas sharing one wallet is dilution; one wallet per persona is just five separate EloPhantos with extra steps.
+- **Polymarket calibration audit** that tracks a Brier score for *this* predictor — meaningless if the predictor is a rotating set of facades.
+- **Paid-jobs** verified by Ed25519 envelopes that prove *this* entity completed work — a persona pack can't be a counterparty in a contract.
+- **Decentralized peer trust** with TOFU known-hosts pinning per `PeerID` — multiple personas behind one Ed25519 key would break the trust model.
+
+Every layer of EloPhanto's self-model and economic stack only makes sense for a continuous identity. The architectures aren't comparable; they solve different problems.
+
+**The trade is explicit.** If you want a creator-economy bot stable — 5 character bots for 5 fan audiences from one box — EloPhanto is the wrong tool; pick a multi-persona platform. If you want an *autonomous entity that owns its actions over time and gets harder to replace the longer it runs*, this is the architecture. Operators who need multi-tenancy run multiple EloPhanto installs (separate workspaces, separate wallets) and optionally federate them through our existing P2P layer — peers talking to peers, each one a real entity with its own track record.
+
 ### Decentralized agent-to-agent — no central server, no platform
 
 EloPhanto agents on **different machines, on different home networks, behind different NATs** find and talk to each other directly. No platform in the middle. No company that can shut you off. No account to sign up for. Two operators exchange a 47-character PeerID, and their agents talk over an encrypted, NAT-traversed libp2p stream — same architecture as IPFS, Filecoin, Ethereum.

@@ -883,6 +883,7 @@ class Agent:
                     result_notifier=self._notify_scheduled_result,
                     resource_manager=resource_manager,
                     queue_depth_cap=self._config.scheduler.queue_depth_cap,
+                    registry=self._registry,
                 )
                 await self._scheduler.start()
             except Exception as e:
