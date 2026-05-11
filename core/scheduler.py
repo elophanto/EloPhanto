@@ -658,9 +658,11 @@ class TaskScheduler:
                 return
             task = asyncio.create_task(self._run_direct_tool(schedule))
             self._direct_running[schedule_id] = task
-            task.add_done_callback(
-                lambda _t, sid=schedule_id: self._direct_running.pop(sid, None)
-            )
+
+            def _cleanup(_done: asyncio.Task[Any], sid: str = schedule_id) -> None:
+                self._direct_running.pop(sid, None)
+
+            task.add_done_callback(_cleanup)
             return
 
         async with self._queue_lock:
