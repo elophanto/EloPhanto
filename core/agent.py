@@ -21,12 +21,24 @@ import logging
 import sys
 import time as _time
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from core.session import Session
+
+
+# Tracks whether the current asyncio task is already inside an agent
+# loop. Re-entrant calls (e.g. ``run_isolated`` invoked by the in-process
+# ``delegate`` tool from inside a tool execution) must NOT try to
+# re-acquire AGENT_LOOP — they already hold it transitively. Without
+# this, the second acquire deadlocks against the first. Contextvars
+# scope to the current asyncio task and propagate to awaited inner
+# coroutines but not to ``asyncio.create_task`` children unless
+# explicitly copied — exactly the semantics we want.
+_in_agent_loop: ContextVar[bool] = ContextVar("_in_agent_loop", default=False)
 
 
 class StatusCallback(Protocol):
@@ -545,10 +557,29 @@ class Agent:
 
         self._compaction_breaker = CompactionCircuitBreaker()
 
-        # Action queue — serializes all task execution (browser, tools, etc.)
+        # Action queue — legacy serialization layer. Kept for backward
+        # compatibility but no longer wraps run_session (Phase B of
+        # docs/74-CONCURRENCY-MIGRATION.md routes operator chat through
+        # ``self._resources`` instead). The ``TaskPriority`` enum it
+        # ships is still the priority vocabulary the resource manager
+        # uses.
         from core.action_queue import ActionQueue
 
         self._action_queue = ActionQueue()
+
+        # Resource-typed concurrency manager — shared with the scheduler
+        # if scheduler is enabled, otherwise stands alone. Routes operator
+        # chat, mind cycles, heartbeat, and scheduled tasks through
+        # typed semaphores (BROWSER=1, DESKTOP=1, VAULT_WRITE=1,
+        # LLM_BURST=4, DEFAULT=3) with priority-aware waiter ordering
+        # so USER messages jump ahead of MIND / SCHEDULED / GOAL waiters
+        # at the next free slot. See docs/74-CONCURRENCY-MIGRATION.md.
+        from core.task_resources import TaskResourceManager
+
+        self._resources: TaskResourceManager = TaskResourceManager.from_defaults(
+            global_concurrency=self._config.scheduler.max_concurrent_tasks,
+            llm_burst=self._config.scheduler.llm_burst_capacity,
+        )
 
         # Phase 2-4: Plugin loader, browser, scheduler
         self._plugin_loader: PluginLoader | None = None
@@ -865,23 +896,16 @@ class Agent:
             _status("Starting scheduler")
             try:
                 from core.scheduler import TaskScheduler
-                from core.task_resources import TaskResourceManager
 
-                # Resource-typed concurrency. Browser/desktop/vault are
-                # always 1 (single-instance contention); llm_burst caps
-                # concurrent LLM-heavy tasks against rate limits + budget;
-                # default-bucket is the global parallelism ceiling for
-                # tasks whose resources can't be inferred. See
-                # docs/02-ARCHITECTURE.md scheduler section.
-                resource_manager = TaskResourceManager.from_defaults(
-                    global_concurrency=self._config.scheduler.max_concurrent_tasks,
-                    llm_burst=self._config.scheduler.llm_burst_capacity,
-                )
+                # Reuse the agent-wide resource manager constructed in
+                # __init__ — same semaphores back operator chat,
+                # autonomous mind, heartbeat, and scheduled tasks, so
+                # priority-aware contention is unified.
                 self._scheduler = TaskScheduler(
                     db=self._db,
                     task_executor=self._execute_scheduled_task,
                     result_notifier=self._notify_scheduled_result,
-                    resource_manager=resource_manager,
+                    resource_manager=self._resources,
                     queue_depth_cap=self._config.scheduler.queue_depth_cap,
                     registry=self._registry,
                 )
@@ -2130,20 +2154,26 @@ class Agent:
             authority: AuthorityLevel for the requesting user (from gateway).
         """
 
-        # Pause background execution if user sends a message
-        if self._goal_runner and self._goal_runner.is_running:
-            self._goal_runner.notify_user_interaction()
-        if self._autonomous_mind and self._autonomous_mind.is_running:
-            self._autonomous_mind.notify_user_interaction()
-        if self._heartbeat_engine and self._heartbeat_engine.is_running:
-            self._heartbeat_engine.notify_user_interaction()
-        if self._scheduler and hasattr(self._scheduler, "notify_user_interaction"):
-            self._scheduler.notify_user_interaction()
-
-        # Acquire exclusive action queue slot (user = highest priority)
+        # Phase B (docs/74-CONCURRENCY-MIGRATION.md): operator chat
+        # acquires AGENT_LOOP with USER priority. AGENT_LOOP has
+        # capacity 1 because the loop mutates agent-wide singletons
+        # (working memory, executor callbacks, browser); two concurrent
+        # loops on the same Agent corrupt all of it. USER priority
+        # jumps ahead of mind / scheduled / heartbeat waiters at the
+        # next free slot but does NOT preempt an in-flight loop —
+        # the agent finishes its current sentence (principle 1).
+        # The pause-on-user-message hooks that previously froze the
+        # autonomous mind, heartbeat, and scheduler whenever the
+        # operator chatted are deliberately removed: priority-aware
+        # contention handles the wait queue, and freezing the agent's
+        # whole life because the operator opened a chat is anti-agent
+        # (principle 3).
         from core.action_queue import TaskPriority
+        from core.task_resources import TaskResource
 
-        async with self._action_queue.acquire(TaskPriority.USER):
+        async with self._resources.acquire(
+            [TaskResource.AGENT_LOOP], priority=TaskPriority.USER.value
+        ):
             # Temporarily override callbacks for this session
             prev_approval = self._executor._approval_callback
             prev_step = self._on_step
@@ -2153,6 +2183,7 @@ class Agent:
             if on_step:
                 self._on_step = on_step
 
+            token = _in_agent_loop.set(True)
             try:
                 response = await self._run_with_history(
                     goal,
@@ -2167,15 +2198,7 @@ class Agent:
                 # Restore previous callbacks
                 self._executor._approval_callback = prev_approval
                 self._on_step = prev_step
-                # Resume autonomous mind after user task
-                if self._autonomous_mind and self._autonomous_mind.is_paused:
-                    asyncio.create_task(self._autonomous_mind.notify_task_complete())
-                # Resume heartbeat engine after user task
-                if self._heartbeat_engine and self._heartbeat_engine.is_paused:
-                    self._heartbeat_engine.notify_task_complete()
-                # Resume scheduler after user task
-                if self._scheduler and hasattr(self._scheduler, "notify_task_complete"):
-                    self._scheduler.notify_task_complete()
+                _in_agent_loop.reset(token)
 
     async def run(
         self,
@@ -2183,11 +2206,19 @@ class Agent:
         *,
         max_steps_override: int | None = None,
         is_user_input: bool = True,
+        priority: int | None = None,
     ) -> AgentResponse:
         """Execute the plan-execute-reflect loop for a user goal.
 
         Legacy direct mode — uses internal conversation history.
         For gateway mode, use run_session() instead.
+
+        Acquires ``AGENT_LOOP`` (capacity 1) so two run() calls on the
+        same Agent instance serialize. The loop mutates agent-wide
+        singleton state (working memory, executor approval callback,
+        on_step hook, the single browser, cost tracker task_total) and
+        two concurrent loops corrupt all of it. Direct-tool scheduled
+        tasks bypass the loop entirely and remain truly concurrent.
 
         Args:
             max_steps_override: If set, overrides the global max_steps config
@@ -2198,17 +2229,51 @@ class Agent:
                 ("no", "stop", "wrong") assume a second party and produce
                 false-positive anger when matched against agent goal text.
                 Self-affect still fires through outcome-based signals below.
+            priority: ``TaskPriority`` value for AGENT_LOOP contention.
+                Defaults to USER if ``is_user_input`` else SCHEDULED. Mind
+                / heartbeat callers should pass their explicit priority.
         """
+        from core.action_queue import TaskPriority
         from core.authority import AuthorityLevel
+        from core.task_resources import TaskResource
 
-        return await self._run_with_history(
-            goal,
-            self._conversation_history,
-            self._append_conversation_turn,
-            max_steps_override=max_steps_override,
-            authority=AuthorityLevel.OWNER,
-            is_user_input=is_user_input,
-        )
+        effective_priority = priority
+        if effective_priority is None:
+            effective_priority = (
+                TaskPriority.USER.value
+                if is_user_input
+                else TaskPriority.SCHEDULED.value
+            )
+
+        # Re-entrant case: ``run_isolated`` (called from the delegate
+        # tool while a parent loop is mid-execution) gets here with
+        # AGENT_LOOP already held by the same task. Skip the acquire
+        # to avoid self-deadlock — the parent's hold covers us.
+        if _in_agent_loop.get():
+            return await self._run_with_history(
+                goal,
+                self._conversation_history,
+                self._append_conversation_turn,
+                max_steps_override=max_steps_override,
+                authority=AuthorityLevel.OWNER,
+                is_user_input=is_user_input,
+            )
+
+        async with self._resources.acquire(
+            [TaskResource.AGENT_LOOP], priority=effective_priority
+        ):
+            token = _in_agent_loop.set(True)
+            try:
+                return await self._run_with_history(
+                    goal,
+                    self._conversation_history,
+                    self._append_conversation_turn,
+                    max_steps_override=max_steps_override,
+                    authority=AuthorityLevel.OWNER,
+                    is_user_input=is_user_input,
+                )
+            finally:
+                _in_agent_loop.reset(token)
 
     async def run_isolated(
         self,
@@ -2673,6 +2738,26 @@ class Agent:
 
         stagnation_reason = ""
         while step < hard_limit:
+            # Phase C: fold mid-turn user messages into context BEFORE the
+            # next plan call. Operator may have sent a correction while
+            # we were running tools; pick it up at this decision boundary
+            # rather than waiting for the full turn to finish.
+            # See docs/74-CONCURRENCY-MIGRATION.md Phase C.
+            if session is not None and hasattr(session, "has_pending_messages"):
+                if session.has_pending_messages():
+                    for _pending in session.drain_pending_messages():
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": f"[user added mid-turn: {_pending}]",
+                            }
+                        )
+                        logger.info(
+                            "[phase-c] folded mid-turn user message into "
+                            "context: %s",
+                            _pending[:80],
+                        )
+
             if max_time and (_time.monotonic() - start_time) > max_time:
                 stagnation_reason = (
                     f"time limit reached ({int(_time.monotonic() - start_time)}s)"
@@ -3451,30 +3536,15 @@ class Agent:
     async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
         """Execute a task goal for a scheduled task.
 
-        Acquires the action queue with SCHEDULED priority so two scheduled
-        tasks (or scheduled vs heartbeat/mind) don't both grab the browser
-        and corrupt each other's state. If the queue is held longer than
-        the timeout, the task is skipped — APScheduler will fire it again
-        on the next cron beat rather than letting tasks pile up.
+        Pass-through to ``self.run``. Concurrency safety lives in
+        ``TaskScheduler._run_one``, which acquires the right
+        ``TaskResource`` semaphores (BROWSER, DESKTOP, LLM_BURST, ...)
+        before this is called. The browser-corruption incident that
+        motivated the old global ``action_queue`` wrap is now prevented
+        at the resource layer where it belongs — see
+        ``docs/74-CONCURRENCY-MIGRATION.md`` (Phase A).
         """
-        from core.action_queue import TaskPriority
-
-        try:
-            async with self._action_queue.acquire(
-                TaskPriority.SCHEDULED, timeout=600.0
-            ):
-                return await self.run(goal, is_user_input=False)
-        except TimeoutError:
-            logger.warning(
-                "Scheduled task '%s' skipped — action queue held "
-                "for >10 min (likely a long-running heartbeat or user task). "
-                "Will retry on next cron beat.",
-                goal[:80],
-            )
-            return AgentResponse(
-                content="(skipped — agent busy with another task)",
-                steps_taken=0,
-            )
+        return await self.run(goal, is_user_input=False)
 
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str

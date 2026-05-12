@@ -4,7 +4,7 @@
 > browser/tool access between scheduled tasks, manual messages, and
 > background operations.
 
-**Status:** Complete
+**Status:** Superseded by [74-CONCURRENCY-MIGRATION.md](74-CONCURRENCY-MIGRATION.md) (2026-05-12). The global `ActionQueue` lock described below no longer wraps `run_session` or `_execute_scheduled_task`; serialization moved to `TaskResource.AGENT_LOOP` (capacity 1) with priority-aware ordering. The `TaskPriority` enum from this doc is retained as the priority vocabulary. Doc kept for historical context.
 **Priority:** P0 — Critical concurrency fix
 
 ---

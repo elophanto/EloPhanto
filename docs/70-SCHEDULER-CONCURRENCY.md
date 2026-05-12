@@ -1,6 +1,6 @@
 # 70 — Scheduler concurrency: resource-typed semaphores + real queue
 
-**Status:** v1 implementation (2026-05-07).
+**Status:** v1 implementation (2026-05-07); refined by [74-CONCURRENCY-MIGRATION.md](74-CONCURRENCY-MIGRATION.md) (2026-05-12) — agent-loop scheduled tasks now serialize on `TaskResource.AGENT_LOOP` (capacity 1) because they share singleton state (browser, executor callbacks, working memory). Direct-tool scheduled tasks still parallelize as designed. The "two agent-loop scheduled tasks run truly in parallel" framing below applies only to direct-tool tasks; agent-loop tasks serialize on AGENT_LOOP.
 **Author:** EloPhanto + Claude (Opus 4.7).
 **Related:** [core/scheduler.py](../core/scheduler.py), [core/task_resources.py](../core/task_resources.py).
 

@@ -682,26 +682,22 @@ class AutonomousMind:
         self._agent._executor._on_tool_executed = _on_tool
 
         cycle_start = time.monotonic()
-        # Acquire the action queue so mind doesn't race with scheduled /
-        # heartbeat / user tasks for the browser. Skip this cycle if
-        # another task holds the queue for >10 min — mind will try again
-        # at next wakeup.
+        # agent.run() acquires AGENT_LOOP (capacity 1) internally with
+        # the priority we pass below — no explicit resource wrap here.
         from core.action_queue import TaskPriority
 
         try:
             try:
-                async with self._agent._action_queue.acquire(
-                    TaskPriority.MIND, timeout=600.0
-                ):
-                    response = await self._agent.run(
-                        prompt,
-                        max_steps_override=self._config.max_rounds_per_wakeup,
-                        is_user_input=False,
-                    )
+                response = await self._agent.run(
+                    prompt,
+                    max_steps_override=self._config.max_rounds_per_wakeup,
+                    is_user_input=False,
+                    priority=TaskPriority.MIND.value,
+                )
             except TimeoutError:
                 logger.warning(
-                    "AutoLoop iteration skipped — action queue held >10 min "
-                    "by another task. Will retry next wakeup."
+                    "AutoLoop iteration skipped — resource held by "
+                    "another task. Will retry next wakeup."
                 )
                 return
 
@@ -932,26 +928,21 @@ class AutonomousMind:
         prev_tool_cb = self._agent._executor._on_tool_executed
         self._agent._executor._on_tool_executed = _on_tool
 
-        # Acquire the action queue so mind doesn't race with scheduled /
-        # heartbeat / user tasks for the browser. Skip this think cycle
-        # if another task holds the queue for >10 min.
+        # agent.run() acquires AGENT_LOOP (capacity 1) internally.
         from core.action_queue import TaskPriority
 
         try:
             try:
-                async with self._agent._action_queue.acquire(
-                    TaskPriority.MIND, timeout=600.0
-                ):
-                    # Run through the agent's normal pipeline with max_rounds as step limit
-                    response = await self._agent.run(
-                        prompt,
-                        max_steps_override=self._config.max_rounds_per_wakeup,
-                        is_user_input=False,
-                    )
+                response = await self._agent.run(
+                    prompt,
+                    max_steps_override=self._config.max_rounds_per_wakeup,
+                    is_user_input=False,
+                    priority=TaskPriority.MIND.value,
+                )
             except TimeoutError:
                 logger.warning(
-                    "Mind think cycle skipped — action queue held >10 min "
-                    "by another task. Will retry next wakeup."
+                    "Mind think cycle skipped — resource held by "
+                    "another task. Will retry next wakeup."
                 )
                 return
 

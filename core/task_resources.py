@@ -24,6 +24,7 @@ See docs/02-ARCHITECTURE.md (scheduler section) for the full picture.
 from __future__ import annotations
 
 import asyncio
+import heapq
 import logging
 import re
 from collections.abc import AsyncIterator
@@ -33,6 +34,86 @@ from enum import StrEnum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# Priority convention — lower number = higher priority. Matches
+# core.action_queue.TaskPriority (USER=0, ..., GOAL=4). Defined here to
+# avoid an import cycle; callers from agent.py pass TaskPriority.USER.value.
+# Default for unmarked callers is SCHEDULED-equivalent so accidental
+# unmarked work doesn't jump operator chat.
+_DEFAULT_PRIORITY: int = 2
+
+
+class _PrioritySemaphore:
+    """A priority-aware async semaphore.
+
+    Built from scratch because ``asyncio.Semaphore`` is strictly FIFO
+    and exposes no way to insert a higher-priority waiter ahead of
+    earlier-arrived lower-priority waiters. Phase B of the concurrency
+    migration (docs/74-CONCURRENCY-MIGRATION.md) needs operator chat
+    to jump ahead of mind / scheduled / goal-runner waiters on the
+    ``LLM_BURST`` slot.
+
+    Semantics:
+      - When acquired below capacity: immediate, in_use += 1.
+      - When at capacity: caller's future is pushed onto a min-heap
+        keyed by ``(priority, seq)``. ``release()`` pops the highest-
+        priority waiter (lowest priority number) and transfers the
+        slot — in_use stays put, so the next free acquire still blocks.
+      - A waiter cancelled mid-await leaves a "tombstone" entry on the
+        heap; ``release()`` skips done futures and continues to the
+        next live one. No proactive cleanup needed (heap stays bounded
+        by the number of concurrent waiters).
+      - Same-priority callers serialize FIFO via the ``seq`` tiebreaker.
+    """
+
+    __slots__ = ("capacity", "_in_use", "_seq", "_waiters")
+
+    def __init__(self, capacity: int) -> None:
+        if capacity < 1:
+            raise ValueError(f"capacity must be >= 1, got {capacity}")
+        self.capacity = capacity
+        self._in_use = 0
+        self._seq = 0
+        self._waiters: list[tuple[int, int, asyncio.Future[None]]] = []
+
+    async def acquire(self, priority: int = _DEFAULT_PRIORITY) -> None:
+        if self._in_use < self.capacity:
+            self._in_use += 1
+            return
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[None] = loop.create_future()
+        self._seq += 1
+        heapq.heappush(self._waiters, (priority, self._seq, fut))
+        try:
+            await fut
+        except asyncio.CancelledError:
+            # Tombstone — release() will skip when it pops us.
+            if not fut.done():
+                fut.cancel()
+            raise
+        # Slot transferred to us by release(); no in_use bump needed.
+
+    def release(self) -> None:
+        # Skip cancelled tombstones; transfer the slot to the highest-
+        # priority live waiter. Falls through to decrementing in_use
+        # only if the heap is empty (or only tombstones remain).
+        while self._waiters:
+            _, _, fut = heapq.heappop(self._waiters)
+            if not fut.done():
+                fut.set_result(None)
+                return
+        self._in_use = max(0, self._in_use - 1)
+
+    @property
+    def in_use(self) -> int:
+        return self._in_use
+
+    @property
+    def waiters(self) -> int:
+        # Count live (non-cancelled) waiters — cancelled futures are
+        # tombstones that don't represent real demand.
+        return sum(1 for _, _, fut in self._waiters if not fut.done())
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +144,15 @@ class TaskResource(StrEnum):
     # provider rate limits, (b) cap how fast the daily budget burns.
     # Defaults to a few; configurable.
     LLM_BURST = "llm_burst"
+
+    # The agent's plan-execute-reflect loop itself. Capacity 1 because
+    # the loop mutates agent-wide singleton state — working memory,
+    # executor approval callback, on_step hook, the single browser,
+    # the cost tracker's task_total. Two concurrent run() calls on the
+    # same Agent instance corrupt all of these. Direct-tool scheduled
+    # tasks (which don't enter the loop) bypass this and remain truly
+    # concurrent. See docs/74-CONCURRENCY-MIGRATION.md.
+    AGENT_LOOP = "agent_loop"
 
     # Sentinel: when we can't infer resources from a task goal, we
     # default to this. Capacity = scheduler.max_concurrent_tasks so
@@ -197,7 +287,7 @@ class TaskResourceManager:
     """
 
     capacities: dict[TaskResource, int]
-    _semaphores: dict[TaskResource, asyncio.Semaphore] = field(
+    _semaphores: dict[TaskResource, _PrioritySemaphore] = field(
         default_factory=dict, init=False
     )
     _waiters: dict[TaskResource, int] = field(default_factory=dict, init=False)
@@ -210,7 +300,7 @@ class TaskResourceManager:
                 raise ValueError(
                     f"resource {resource} capacity must be >= 1, got {capacity}"
                 )
-            self._semaphores[resource] = asyncio.Semaphore(capacity)
+            self._semaphores[resource] = _PrioritySemaphore(capacity)
             self._waiters[resource] = 0
 
     @classmethod
@@ -232,22 +322,32 @@ class TaskResourceManager:
                 TaskResource.DESKTOP: 1,
                 TaskResource.VAULT_WRITE: 1,
                 TaskResource.LLM_BURST: max(1, llm_burst),
+                TaskResource.AGENT_LOOP: 1,
                 TaskResource.DEFAULT: max(1, global_concurrency),
             }
         )
 
     @asynccontextmanager
-    async def acquire(self, resources: list[TaskResource]) -> AsyncIterator[None]:
+    async def acquire(
+        self,
+        resources: list[TaskResource],
+        priority: int = _DEFAULT_PRIORITY,
+    ) -> AsyncIterator[None]:
         """Acquire all declared resources, in canonical order so two
         tasks declaring overlapping sets can't deadlock.
+
+        ``priority`` follows ``core.action_queue.TaskPriority`` (lower
+        number = higher priority — USER=0, HEARTBEAT=1, SCHEDULED=2,
+        MIND=3, GOAL=4). When the resource is at capacity, a higher-
+        priority caller jumps ahead of lower-priority waiters in the
+        wait queue but does NOT preempt a running holder. Worst-case
+        wait for a USER caller is one LLM call — see Phase B principle 1
+        in docs/74-CONCURRENCY-MIGRATION.md.
 
         Raises KeyError if a requested resource isn't configured —
         catches typos in resource lists at acquire time, not at the
         end of a 30-min task.
         """
-        # Canonical order = stable sort by enum value. asyncio.Semaphore
-        # is FIFO so two tasks acquiring the same set in the same order
-        # serialize cleanly.
         ordered = sorted(set(resources), key=lambda r: r.value)
         unknown = [r for r in ordered if r not in self._semaphores]
         if unknown:
@@ -258,7 +358,7 @@ class TaskResourceManager:
             for resource in ordered:
                 self._waiters[resource] += 1
                 try:
-                    await self._semaphores[resource].acquire()
+                    await self._semaphores[resource].acquire(priority)
                 finally:
                     self._waiters[resource] -= 1
                 acquired.append(resource)
@@ -270,8 +370,8 @@ class TaskResourceManager:
                 async with self._running_lock:
                     self._running_count = max(0, self._running_count - 1)
         finally:
-            # Release in reverse order — symmetric, doesn't change the
-            # FIFO semantics but makes traces easier to read.
+            # Release in reverse order — symmetric, doesn't change
+            # priority ordering but makes traces easier to read.
             for resource in reversed(acquired):
                 self._semaphores[resource].release()
 
@@ -285,15 +385,10 @@ class TaskResourceManager:
         out: dict[str, _ResourceState] = {}
         for resource, capacity in self.capacities.items():
             sem = self._semaphores[resource]
-            # asyncio.Semaphore exposes _value as remaining permits.
-            # Computing in_use as capacity - remaining is the standard
-            # way; the underscore is unfortunate but the API is stable.
-            remaining = sem._value  # type: ignore[attr-defined]
-            in_use = max(0, capacity - remaining)
             out[resource.value] = _ResourceState(
                 name=resource.value,
                 capacity=capacity,
-                in_use=in_use,
+                in_use=sem.in_use,
                 waiters=self._waiters.get(resource, 0),
             )
         return out
