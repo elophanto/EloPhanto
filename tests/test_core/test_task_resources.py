@@ -383,3 +383,171 @@ class TestSchedulerQueue:
         # Default capacities surfaced.
         assert snap["resources"]["browser"]["capacity"] == 1
         assert snap["resources"]["llm_burst"]["capacity"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Phase B — priority-aware semaphore. USER (0) jumps ahead of lower-priority
+# waiters in the wait queue but does NOT preempt a running holder.
+# See docs/74-CONCURRENCY-MIGRATION.md Phase B.
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseBPrioritySemaphore:
+    @pytest.mark.asyncio
+    async def test_higher_priority_waiter_acquires_first(self) -> None:
+        from core.action_queue import TaskPriority
+        from core.task_resources import TaskResource, TaskResourceManager
+
+        mgr = TaskResourceManager(capacities={TaskResource.LLM_BURST: 1})
+
+        order: list[str] = []
+        release = asyncio.Event()
+        holder_started = asyncio.Event()
+
+        async def holder() -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.MIND.value
+            ):
+                holder_started.set()
+                await release.wait()
+                order.append("holder")
+
+        async def low() -> None:
+            # Arrive BEFORE the high-pri waiter, but lower priority.
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.GOAL.value
+            ):
+                order.append("low")
+
+        async def high() -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.USER.value
+            ):
+                order.append("high")
+
+        h_task = asyncio.create_task(holder())
+        await asyncio.wait_for(holder_started.wait(), timeout=1.0)
+        # Low arrives first, then high — high should win the next slot.
+        low_task = asyncio.create_task(low())
+        await asyncio.sleep(0.01)  # let low queue up
+        high_task = asyncio.create_task(high())
+        await asyncio.sleep(0.01)  # let high queue up
+        release.set()
+        await asyncio.gather(h_task, low_task, high_task)
+
+        assert order == ["holder", "high", "low"]
+
+    @pytest.mark.asyncio
+    async def test_running_holder_is_not_preempted(self) -> None:
+        """Higher priority does NOT abort an in-flight holder — the
+        agent finishes its current sentence (Phase B principle 1)."""
+        from core.action_queue import TaskPriority
+        from core.task_resources import TaskResource, TaskResourceManager
+
+        mgr = TaskResourceManager(capacities={TaskResource.LLM_BURST: 1})
+
+        events: list[str] = []
+        holder_can_finish = asyncio.Event()
+
+        async def holder() -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.MIND.value
+            ):
+                events.append("holder_start")
+                await holder_can_finish.wait()
+                events.append("holder_end")
+
+        async def user() -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.USER.value
+            ):
+                events.append("user_run")
+
+        h = asyncio.create_task(holder())
+        # Let the holder start.
+        await asyncio.sleep(0.01)
+        assert events == ["holder_start"]
+        # High-priority user arrives — must NOT preempt.
+        u = asyncio.create_task(user())
+        await asyncio.sleep(0.05)
+        # Holder still inside the critical section; user is waiting.
+        assert events == ["holder_start"]
+        # Release the holder.
+        holder_can_finish.set()
+        await asyncio.gather(h, u)
+        assert events == ["holder_start", "holder_end", "user_run"]
+
+    @pytest.mark.asyncio
+    async def test_fifo_within_same_priority(self) -> None:
+        from core.action_queue import TaskPriority
+        from core.task_resources import TaskResource, TaskResourceManager
+
+        mgr = TaskResourceManager(capacities={TaskResource.LLM_BURST: 1})
+        order: list[str] = []
+        release = asyncio.Event()
+
+        async def hold() -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.MIND.value
+            ):
+                await release.wait()
+
+        async def waiter(tag: str) -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.SCHEDULED.value
+            ):
+                order.append(tag)
+
+        h = asyncio.create_task(hold())
+        await asyncio.sleep(0.01)
+        tasks = []
+        for tag in ["a", "b", "c"]:
+            tasks.append(asyncio.create_task(waiter(tag)))
+            await asyncio.sleep(0.01)
+        release.set()
+        await asyncio.gather(h, *tasks)
+        assert order == ["a", "b", "c"]
+
+    @pytest.mark.asyncio
+    async def test_cancelled_waiter_does_not_block_next(self) -> None:
+        from core.action_queue import TaskPriority
+        from core.task_resources import TaskResource, TaskResourceManager
+
+        mgr = TaskResourceManager(capacities={TaskResource.LLM_BURST: 1})
+        release_holder = asyncio.Event()
+        ran: list[str] = []
+
+        async def hold() -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.MIND.value
+            ):
+                await release_holder.wait()
+
+        async def cancellable() -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.USER.value
+            ):
+                ran.append("cancellable")
+
+        async def survivor() -> None:
+            async with mgr.acquire(
+                [TaskResource.LLM_BURST], priority=TaskPriority.SCHEDULED.value
+            ):
+                ran.append("survivor")
+
+        h = asyncio.create_task(hold())
+        await asyncio.sleep(0.01)
+        c = asyncio.create_task(cancellable())
+        await asyncio.sleep(0.01)
+        s = asyncio.create_task(survivor())
+        await asyncio.sleep(0.01)
+
+        # Cancel the high-priority waiter. The slot should still drain
+        # to the survivor.
+        c.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await c
+
+        release_holder.set()
+        await asyncio.gather(h, s)
+        assert ran == ["survivor"]

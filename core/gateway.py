@@ -124,6 +124,13 @@ class Gateway:
         # Map session_id → set of client_ids subscribed to that session
         self._session_clients: dict[str, set[str]] = {}
 
+        # Session IDs whose run_session() is currently in flight. Second
+        # chat messages arriving for an in-flight session are routed to
+        # ``session.add_pending_message()`` instead of starting a second
+        # concurrent run — the running loop picks them up at the next
+        # plan boundary (Phase C of docs/74-CONCURRENCY-MIGRATION.md).
+        self._inflight_sessions: set[str] = set()
+
         # Optional kid manager hook — set externally by Agent.initialize()
         # when kids are enabled. Intercepts inbound chat from
         # channel="kid-agent" so kid responses don't pollute the parent's
@@ -935,7 +942,39 @@ class Gateway:
                 exclude_client=client.client_id,
             )
 
+        # Phase C interrupt routing: if a turn is already running for
+        # this session, fold the new message into it instead of starting
+        # a second concurrent run (which would corrupt conversation
+        # history). The running plan loop drains pending messages at the
+        # next plan boundary and folds them in as
+        # "[user added mid-turn: ...]" turns. See
+        # docs/74-CONCURRENCY-MIGRATION.md Phase C.
+        if session.session_id in self._inflight_sessions:
+            session.add_pending_message(content)
+            await self.broadcast(
+                event_message(
+                    session.session_id,
+                    EventType.STEP_PROGRESS,
+                    {
+                        "step": -1,
+                        "tool_name": "(mid-turn)",
+                        "thought": (
+                            "Added your message to the running turn. The "
+                            "agent will pick it up at the next plan step."
+                        ),
+                    },
+                ),
+                session_id=session.session_id,
+            )
+            logger.info(
+                "Phase C: routed mid-turn message into session %s "
+                "(turn already in flight)",
+                session.session_id[:8],
+            )
+            return
+
         # Run agent with session isolation
+        self._inflight_sessions.add(session.session_id)
         try:
             agent_response = await self._agent.run_session(
                 goal=content,
@@ -1072,6 +1111,12 @@ class Gateway:
                 session_id=session.session_id,
                 exclude_client=client.client_id,
             )
+        finally:
+            # Phase C: release the in-flight marker so the next message
+            # for this session starts a fresh turn (or, if more pending
+            # messages are sitting in the buffer, the next run_session
+            # call drains them on its first iteration).
+            self._inflight_sessions.discard(session.session_id)
 
     async def _request_approval(
         self,

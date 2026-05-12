@@ -6,6 +6,7 @@ conversation history, persisted to SQLite for restart survival.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -32,6 +33,15 @@ class Session:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_active: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Mid-turn user messages — pushed by the channel adapter when a new
+    # user message arrives while a turn is already running. The agent's
+    # plan-execute-reflect loop drains these between LLM calls (Phase C
+    # of docs/74-CONCURRENCY-MIGRATION.md) and folds them into the next
+    # plan step as "[user added mid-turn: ...]" — the agent sees the
+    # correction without the operator having to wait for the current
+    # turn to finish. Not persisted: mid-turn means in-memory by design.
+    _pending_messages: list[str] = field(default_factory=list, repr=False)
+    _pending_event: asyncio.Event | None = field(default=None, repr=False)
 
     def append_conversation_turn(self, user_msg: str, assistant_msg: str) -> None:
         """Store a user/assistant pair, trimming to max length."""
@@ -47,6 +57,40 @@ class Session:
     def touch(self) -> None:
         """Update last_active timestamp."""
         self.last_active = datetime.now(UTC)
+
+    def add_pending_message(self, message: str) -> None:
+        """Push a mid-turn user message. The agent's run loop will fold
+        it into the next plan step.
+
+        Idempotent and safe to call regardless of whether a turn is in
+        progress — if no turn is running, the message just sits in the
+        buffer until the next run_session() call drains it during its
+        first iteration.
+        """
+        if not message:
+            return
+        self._pending_messages.append(message)
+        if self._pending_event is None:
+            self._pending_event = asyncio.Event()
+        self._pending_event.set()
+
+    def drain_pending_messages(self) -> list[str]:
+        """Take and clear pending mid-turn messages.
+
+        Called by the agent's run loop between LLM calls. Returns [] if
+        no messages are pending.
+        """
+        if not self._pending_messages:
+            return []
+        msgs = self._pending_messages[:]
+        self._pending_messages.clear()
+        if self._pending_event is not None:
+            self._pending_event.clear()
+        return msgs
+
+    def has_pending_messages(self) -> bool:
+        """True iff mid-turn messages are waiting to be folded in."""
+        return bool(self._pending_messages)
 
 
 class SessionManager:
