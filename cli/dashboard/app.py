@@ -1346,6 +1346,9 @@ class EloPhantoDashboard(App):
 
         if event == "step_progress":
             tool_name = msg.data.get("tool_name", "")
+            step_num = msg.data.get("step", 0)
+            thought = msg.data.get("thought", "")
+            source = msg.data.get("source", "")
             if tool_name:
                 if not self._state.current_tool:
                     self._state.current_tool_start = _time.monotonic()
@@ -1353,7 +1356,26 @@ class EloPhantoDashboard(App):
                 self.query_one("#input", Input).placeholder = (
                     f"❯ running {tool_name}..."
                 )
-                self._add_event(f"[{_ACCENT}]{tool_name}[/]", tag="AGT")
+                # Show step number, tool, and a short hint from the
+                # planner's thought when one is available. Scheduled
+                # tasks use a distinct "SCH-step" tag so the operator
+                # can tell autonomous activity apart from chat-driven
+                # work without losing either signal.
+                step_label = f"step {step_num}" if step_num else "step"
+                hint = ""
+                if thought:
+                    # First non-empty line, truncated.
+                    first_line = next(
+                        (ln.strip() for ln in thought.splitlines() if ln.strip()),
+                        "",
+                    )
+                    if first_line and len(first_line) > 2:
+                        hint = f" · [{_DIM}]{first_line[:60]}[/]"
+                tag = "SCH-step" if source == "scheduled" else "AGT"
+                self._add_event(
+                    f"[{_DIM}]{step_label}[/] · [{_ACCENT}]{tool_name}[/]{hint}",
+                    tag=tag,
+                )
                 self._repaint_panel("panel-agent")
 
         elif event == "task_complete":

@@ -125,8 +125,30 @@ class OpenRouterEmbedder:
                 f"{response.text[:200]}"
             )
 
-        data: dict[str, Any] = response.json()
-        vector = data["data"][0]["embedding"]
+        try:
+            data: dict[str, Any] = response.json()
+        except Exception as e:
+            raise RuntimeError(f"OpenRouter embedding response not JSON: {e}") from e
+
+        # OpenRouter sometimes returns a 200 with an error envelope
+        # (rate-limit / model-unavailable / auth issue) instead of a
+        # well-formed embeddings payload. Surface that case as a
+        # specific RuntimeError so callers can choose to fall back to
+        # keyword search rather than crashing the whole tool.
+        if "data" not in data:
+            err = data.get("error") or data
+            raise RuntimeError(
+                f"OpenRouter embedding response missing 'data' (likely "
+                f"upstream error): {str(err)[:200]}"
+            )
+
+        items = data["data"]
+        if not items or not isinstance(items, list) or "embedding" not in items[0]:
+            raise RuntimeError(
+                f"OpenRouter embedding response malformed: {str(data)[:200]}"
+            )
+
+        vector = items[0]["embedding"]
         return EmbeddingResult(
             vector=vector,
             model=model,

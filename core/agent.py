@@ -1637,6 +1637,17 @@ class Agent:
             search_tool._embedding_model = self._indexer._embedding_model
             search_tool._project_root = self._config.project_root
 
+        # session_search shares the main DB. Without this, the tool
+        # silently returned "Database not available" on every call,
+        # forcing every X engagement / email triage loop to fall back
+        # to slow local file grep for prior-turn dedupe — visible
+        # quality drop in autonomous mode. Injecting it here (next to
+        # knowledge_search since they share the same observability
+        # need) so the contract is obvious.
+        session_search = self._registry.get("session_search")
+        if session_search:
+            session_search._db = self._db
+
         write_tool = self._registry.get("knowledge_write")
         if write_tool:
             knowledge_dir = Path(self._config.knowledge.knowledge_dir)
@@ -3541,15 +3552,52 @@ class Agent:
     async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
         """Execute a task goal for a scheduled task.
 
-        Pass-through to ``self.run``. Concurrency safety lives in
-        ``TaskScheduler._run_one``, which acquires the right
-        ``TaskResource`` semaphores (BROWSER, DESKTOP, LLM_BURST, ...)
-        before this is called. The browser-corruption incident that
-        motivated the old global ``action_queue`` wrap is now prevented
-        at the resource layer where it belongs — see
-        ``docs/74-CONCURRENCY-MIGRATION.md`` (Phase A).
+        Pass-through to ``self.run`` with a gateway-broadcasting
+        ``on_step`` hook so the dashboard / web UI can see step-by-step
+        activity while the scheduled task is running. Without this,
+        scheduled tasks ran silently for minutes and operators saw
+        nothing between the "scheduled task started" and "completed"
+        markers. Concurrency safety lives in ``TaskScheduler._run_one``
+        (resource-typed semaphores); see ``docs/74-CONCURRENCY-MIGRATION.md``.
         """
-        return await self.run(goal, is_user_input=False)
+        # Broadcast STEP_PROGRESS via the gateway so the dashboard's
+        # activity lane shows step number + tool + truncated thought
+        # while the task runs. session_id="" because scheduled tasks
+        # are not bound to a chat session; the dashboard subscribes
+        # to all events regardless.
+        prev_on_step = self._on_step
+
+        async def _broadcast_step(
+            step: int, tool_name: str, thought: str, params: dict[str, Any]
+        ) -> None:
+            if self._gateway is None:
+                return
+            try:
+                from core.protocol import EventType, event_message
+
+                await self._gateway.broadcast(
+                    event_message(
+                        "",
+                        EventType.STEP_PROGRESS,
+                        {
+                            "step": step,
+                            "tool_name": tool_name,
+                            "thought": (thought or "")[:200],
+                            "source": "scheduled",
+                            "goal": goal[:80],
+                        },
+                    )
+                )
+            except Exception:
+                # Best-effort observability; never fail the task because
+                # the dashboard couldn't render the event.
+                pass
+
+        self._on_step = _broadcast_step
+        try:
+            return await self.run(goal, is_user_input=False)
+        finally:
+            self._on_step = prev_on_step
 
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str

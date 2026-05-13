@@ -76,10 +76,23 @@ class KnowledgeSearchTool(BaseTool):
             return ToolResult(success=False, error="Knowledge database not initialized")
 
         try:
-            # Try semantic search first
+            # Try semantic search first; if the embedder transiently
+            # fails (OpenRouter returning error envelope, network blip,
+            # provider 5xx) fall back to keyword search instead of
+            # blowing up the whole tool. Loss-of-recall beats loss-of-
+            # answer for an autonomous loop that depends on dedupe.
+            results = None
             if self._embedder and self._db.vec_available:
-                results = await self._semantic_search(query, scope, limit)
-            else:
+                try:
+                    results = await self._semantic_search(query, scope, limit)
+                except Exception as embed_err:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).warning(
+                        "Semantic search failed (%s); falling back to keyword",
+                        embed_err,
+                    )
+            if results is None:
                 results = await self._keyword_search(query, scope, limit)
 
             # Annotate stale results whose covered source files changed
