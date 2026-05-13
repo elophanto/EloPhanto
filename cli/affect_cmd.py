@@ -207,6 +207,61 @@ async def _simulate_async(scenario: str) -> int:
             ("relief", "verification"),
             ("pride", "goal"),
         ],
+        # ── content-source scenarios ─────────────────────────────────
+        # Exercise the affect_record_event path: the agent feeling its
+        # way through what it READS in autonomous mode (X DMs, replies,
+        # emails). source='content' tags so the audit trail proves the
+        # signal came from content, not from operator corrections or
+        # tool outcomes. See tools/affect/record_event_tool.py.
+        "scam-dm-stream": [
+            # Agent reads a series of escalating scam DMs in an X DM
+            # triage cycle. First mild anxiety (vague offer), then a
+            # strong one (wallet address pasted, $ demanded).
+            ("anxiety", "content"),
+            ("anxiety", "content"),
+            ("anger", "content"),
+        ],
+        "hostile-replies": [
+            # Replies to the agent's own X posts: dismissive,
+            # contemptuous, repeatedly. Frustration compounds.
+            ("frustration", "content"),
+            ("frustration", "content"),
+            ("frustration", "content"),
+            ("anger", "content"),
+        ],
+        "warm-stream": [
+            # Operator says "nice work" then a couple of replies on X
+            # quote the agent approvingly. Joy compounds without going
+            # overboard (no compounding cap problem on positive).
+            ("joy", "content"),
+            ("joy", "content"),
+            ("pride", "goal"),
+        ],
+        "autonomous-day": [
+            # Realistic full-cycle: agent reads DMs (one scam, one
+            # warm), gets a small win on a goal checkpoint, then
+            # another scam attempt later. Final state should not be
+            # cleanly happy or cleanly anxious — it should be the
+            # weighted blend, which is the truth of an autonomous
+            # day.
+            ("anxiety", "content"),
+            ("joy", "content"),
+            ("pride", "goal"),
+            ("anxiety", "content"),
+            ("relief", "verification"),
+        ],
+        "correction-during-scam": [
+            # The agent is in the middle of processing scam-DM anxiety
+            # when the operator lands a correction. Both feed in.
+            # This is the realistic case that the old system handled
+            # poorly: only the operator correction registered; the
+            # scam content was invisible to affect. With content
+            # events, both contribute and the final label/intensity
+            # reflects both signals.
+            ("anxiety", "content"),
+            ("anxiety", "content"),
+            ("frustration", "ego"),
+        ],
     }
 
     if scenario not in scenarios:
@@ -348,6 +403,11 @@ def affect_status(db_path_override: str | None) -> None:
             "win",
             "fail-recover",
             "mixed",
+            "scam-dm-stream",
+            "hostile-replies",
+            "warm-stream",
+            "autonomous-day",
+            "correction-during-scam",
         ]
     ),
 )
@@ -356,13 +416,21 @@ def affect_simulate(scenario: str) -> None:
     trajectory. Never touches the real database.
 
     SCENARIO is one of:
-      frustration   — three corrections in a row (compounding)
-      anger         — three "Nth time I told you" corrections (pushing back)
-      escalation    — frustration that escalates to anger
-      burst         — frustration + anxiety mix
-      win           — pride + relief + joy
-      fail-recover  — anxiety twice, then relief
-      mixed         — frustration → relief → pride
+      frustration             — three corrections in a row (compounding)
+      anger                   — three "Nth time I told you" corrections (pushing back)
+      escalation              — frustration that escalates to anger
+      burst                   — frustration + anxiety mix
+      win                     — pride + relief + joy
+      fail-recover            — anxiety twice, then relief
+      mixed                   — frustration → relief → pride
+
+    Content-source scenarios (autonomous-mode loop — agent feels its
+    way through what it reads via affect_record_event):
+      scam-dm-stream          — three escalating scam DMs from X DM triage
+      hostile-replies         — dismissive replies + final insult
+      warm-stream             — warm operator + supportive X replies
+      autonomous-day          — realistic mixed day (scam + win + scam + relief)
+      correction-during-scam  — scam DMs feed in alongside an operator correction
     """
     rc = asyncio.run(_simulate_async(scenario))
     raise SystemExit(rc)

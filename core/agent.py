@@ -1095,6 +1095,11 @@ class Agent:
                 # Router applies affect-based temperature bias.
                 if self._router is not None:
                     self._router._affect_manager = self._affect_manager
+                # affect_record_event tool — agent fires its own signals
+                # from content it just read (DMs, replies, vision text).
+                _affect_tool = self._registry.get("affect_record_event")
+                if _affect_tool is not None:
+                    _affect_tool._affect_manager = self._affect_manager
                 logger.info("Affect system ready")
             except Exception as e:
                 logger.warning(f"Affect system setup failed: {e}")
