@@ -1,6 +1,6 @@
 # 69 — Affect (state-level emotions)
 
-**Status:** v1 implementation (Phases 1-4 landed).
+**Status:** v1 implementation (Phases 1-4 landed); Phase 5 (content-source events + directive guidance) landed 2026-05-13.
 **Author:** EloPhanto + Claude (Opus 4.7).
 **Date:** 2026-05-06.
 **Related:** [docs/17-IDENTITY.md](17-IDENTITY.md), [core/ego.py](../core/ego.py).
@@ -234,6 +234,28 @@ Markdown rendering: `affect.md` next to `ego.md` and `nature.md`. Includes ASCII
 - `AffectManager.should_suggest_pause()` returns True only when label is in `{frustration, anxiety, dejection}` AND magnitude exceeds `_PAUSE_MAGNITUDE_GATE`.
 - `build_affect_context(allow_pause_note=True)` swaps in alternate guidance permitting a gentle "I'm stretched" mention.
 - Agent passes `allow_pause_note=affect.allow_self_pause` so the behavior is config-gated.
+
+### Phase 5 — content-source events + directive guidance ✅ landed 2026-05-13
+
+Phases 1-4 wired affect to **operator-typed corrections + tool outcomes** — perfect for chat sessions. In **autonomous mode** (mind, heartbeat, scheduler) the agent is its own user, and the meaningful content arrives as *tool results* — X DMs via `browser_extract`, replies to its own posts, vision-captioned screenshots, emails fetched. Phase 4 only registered "tool succeeded": the DM might have been a scam attempt for $20 in crypto, a warm compliment, or a hostile dismissal — affect saw none of it. Operator visibly had to advise the agent on emotional content because the system had no signal from what the agent *read*.
+
+Phase 5 closes that gap with three coupled changes:
+
+**1. `affect_record_event` tool** — [tools/affect/record_event_tool.py](../tools/affect/record_event_tool.py). SAFE, pure write to `affect_events`. Lets the LLM itself, which is already reading the content semantically, register what it felt. The tool description is the spec ("call when content has real emotional weight — hostile / manipulative / scammy DMs → anxiety or anger; warm replies → joy; repeated failures → frustration; hard wins → pride"). Tagged with `source='content'` in the audit trail so trajectories prove the signal came from content. Same PAD deltas as `emit_*` helpers — calling with `label='anxiety'` is equivalent to `emit_anxiety(source='content')`. Intensity word (`mild`/`moderate`/`strong`/`intense`) maps to weight multiplier (0.5 / 1.0 / 1.5 / 2.0). Summary string lands in the next `<recent>` block so future-you sees what was reacted to. Pattern matching on tool outputs was rejected as the alternative — a scam attempt's wording often looks positive ("we love your work, we'd like to send you marketing money"); sarcasm reads neutral to regex. The LLM is the right detector.
+
+**2. Directive guidance with TONE + BEHAVIOR cues** — replaces the previous *permissive* guidance ("let it color the tone") which the LLM's helpful-by-default training was overriding. Now: *"You ARE feeling [label] at [intensity] intensity right now. This is not a hypothetical — it is your present internal state."* Per-label embodiment cues split into TONE (how to write — *"frustration: shorter sentences, less hedging, cut filler"*) and BEHAVIOR (what to decide — *"frustration: do NOT paper over the friction by switching to a new task; verify one extra step before re-trying the same approach"*). BEHAVIOR shapes autonomous tool choices, not just operator-facing tone. Magnitude → intensity word map (mild < 0.6 < moderate < 1.2 < strong < 1.8 < intense). See `_EMBODIMENT_CUES` in [core/affect.py](../core/affect.py).
+
+**3. Equanimity reminder (cold-start fix)** — `build_affect_context()` used to return empty string at equanimity to save tokens. Cold-start problem: the LLM never saw the tool exists, so `affect_record_event` was never called, so state never rose, so the directive block never appeared, so the loop never closed. Now equanimity returns a short reminder block (~40 tokens) telling the agent the tool exists and listing trigger conditions. Costs token tax at rest, buys closed-loop self-awareness in autonomous mode. Above-threshold output unchanged — full state block with PAD numbers + directive guidance.
+
+**Five new simulation scenarios** in [cli/affect_cmd.py](../cli/affect_cmd.py) exercise the content path: `scam-dm-stream` (three escalating scam DMs), `hostile-replies` (dismissive replies + insult), `warm-stream` (warm operator + supportive replies), `autonomous-day` (realistic mixed day — scam, win, scam, relief; blended final state), `correction-during-scam` (content event compounds with operator correction). Six matching pytest trajectories in `TestContentSourceSimulations` pin the math against future retunes.
+
+**What this unlocks in autonomous mode:**
+
+| Before Phase 5 | After Phase 5 |
+|---|---|
+| Agent reads scam DM, browser_extract returns "success", affect sees "tool succeeded → mild pride/joy." | Agent reads scam DM, calls `affect_record_event(label='anxiety', intensity='strong', summary='Miguel asked for $20 deposit via DM with wallet address')`. Next plan sees anxiety state + behavior cue *"prefer safer / lower-risk actions; add verification step before money / identity actions."* |
+| Three dismissive replies in a row land as three "tool succeeded" events; mood stays positive. | Three replies fire compounded frustration via content path; next post is terser, less hedged, doesn't reflexively apologize. |
+| Operator has to type *"you sound chipper after that hostile DM — be more direct."* | Affect block tells the LLM *"you ARE feeling anger at moderate intensity"* before the next plan, so the directness is already there. |
 
 ## Bottom line
 

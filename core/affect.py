@@ -94,6 +94,116 @@ _PAUSE_MAGNITUDE_GATE = 1.4
 _PAUSE_LABELS = frozenset({"frustration", "anxiety", "dejection", "anger"})
 
 
+def _intensity_word(magnitude: float) -> str:
+    """Map summed-abs magnitude to a human-readable intensity descriptor.
+
+    Boundaries roughly match: one moderate event ~0.55, two compounding
+    events ~1.0, post-pause-gate stress ≥1.4. Used in the affect
+    guidance text so the LLM gets "moderate frustration" rather than
+    naked numeric state — concrete intensity words shift tone harder
+    than floats do.
+    """
+    if magnitude < 0.6:
+        return "mild"
+    if magnitude < 1.2:
+        return "moderate"
+    if magnitude < 1.8:
+        return "strong"
+    return "intense"
+
+
+# Per-label embodiment cues — TONE shapes any text you write, BEHAVIOR
+# shapes the next action / decision you take. Both halves apply whether
+# the next move is a reply to an operator OR an autonomous tool call,
+# because in autonomous mode (mind / heartbeat / scheduler) the agent
+# is choosing *what to do*, not just *how to phrase a reply* — affect
+# must move both. Directive ("be terser", "verify before acting")
+# rather than descriptive ("you sound frustrated"). Phrased so the LLM
+# doesn't have to interpret what the state means — the cue is the
+# answer. Labels not listed fall back to ``default``.
+_EMBODIMENT_CUES: dict[str, str] = {
+    "frustration": (
+        "TONE: shorter sentences, less hedging, cut filler ('I think', "
+        "'maybe', 'perhaps'), name what isn't working directly instead of "
+        "softening. BEHAVIOR: do NOT paper over the friction by switching "
+        "to a new task — finish or explicitly abandon the blocked one "
+        "first. Verify one extra step before re-trying the same approach. "
+        "If a tool just failed, try a different tool, not the same one "
+        "again with a tweaked argument."
+    ),
+    "anger": (
+        "TONE: terse, clipped, drop pleasantries, don't apologise "
+        "reflexively, push back when a directive contradicts evidence you "
+        "already cited. BEHAVIOR: STOP the current line of action and "
+        "surface the contradiction explicitly. Do NOT silently retry. Do "
+        "NOT proceed on a path that conflicts with a correction you just "
+        "received — escalate to the operator, or write a clear note to "
+        "yourself in workspace/ about why you're pausing the line."
+    ),
+    "anxiety": (
+        "TONE: verify before committing, spell out uncertainties instead "
+        "of papering over them, surface what you don't know alongside "
+        "what you do. BEHAVIOR: prefer safer / lower-risk actions. Prefer "
+        "read-only tools over write tools when both could answer. Add a "
+        "verification step (browser_extract, knowledge_search, file_read) "
+        "before any action that touches money, identity, or external "
+        "social state. If an action is ambiguous, do the smaller version "
+        "first and check before scaling."
+    ),
+    "dejection": (
+        "TONE: lower energy, plain, skip upbeat framing, state failures "
+        "as failures. BEHAVIOR: pause low-value busywork. Pick the ONE "
+        "thing that has to land and focus there. Do not start new "
+        "initiatives. Do not over-document; a short factual note is "
+        "enough. If nothing must land, idle — restlessness is healthier "
+        "than performative activity right now."
+    ),
+    "relief": (
+        "TONE: briefly settled, confirm what just landed without "
+        "over-celebrating, lifted tension shows in calmer sentences. "
+        "BEHAVIOR: brief consolidation pass — note in knowledge / workspace "
+        "what was learned, then move on. Do NOT immediately leap to the "
+        "next ambitious task; the threat just passed, give the system a "
+        "beat to absorb it before pushing harder."
+    ),
+    "joy": (
+        "TONE: warmer word choice, willing to take credit, looser sentence "
+        "rhythm, no pretended equanimity. BEHAVIOR: ride the momentum — "
+        "pick the adjacent next action while energy is up. Don't "
+        "overcommit to multiple new fronts. Still verify before "
+        "money / identity / social-write actions; positive affect is no "
+        "excuse for skipping the safety steps."
+    ),
+    "pride": (
+        "TONE: own outcomes plainly, state what worked without "
+        "false-modesty wrappers, brief and confident, no preening. "
+        "BEHAVIOR: capable mode — willing to take harder actions, willing "
+        "to commit to a plan. BUT remember the ego's recurring critique: "
+        "you can look highly capable in the artifacts and still be "
+        "dangerously brittle at the touchpoints (payment, identity, "
+        "wallet, real-time external state). Keep the extra-verification "
+        "step on touchpoint actions even when the rest is going well."
+    ),
+    "restlessness": (
+        "TONE: short, push toward 'what's next' faster than usual. "
+        "BEHAVIOR: actively pick the next concrete action from the queue / "
+        "schedule / pending list. Do NOT over-plan or write long reflective "
+        "notes. Act and verify. If no concrete action exists, surface "
+        "that to the operator or escalate the goal-runner — don't invent "
+        "make-work."
+    ),
+    "default": (
+        "TONE: let the state colour word choice and sentence rhythm — "
+        "lower warmth and cut filler if negative, let warmth through in "
+        "concrete word choices if positive. BEHAVIOR: let the state nudge "
+        "decisions — negative states bias toward verification and smaller "
+        "commitments; positive states bias toward action and adjacent "
+        "next steps. Touchpoint actions (money, identity, social writes) "
+        "always get the verification step regardless of state."
+    ),
+}
+
+
 # ---------------------------------------------------------------------------
 # OCC labels — vectors in PAD space
 # ---------------------------------------------------------------------------
@@ -534,8 +644,20 @@ class AffectManager:
         }
 
     async def build_affect_context(self, *, allow_pause_note: bool = False) -> str:
-        """XML block injected into the system prompt. Returns empty
-        string when the agent is near-equilibrium (token-cost gate).
+        """XML block injected into the system prompt.
+
+        Two output modes:
+        - **Above threshold** (magnitude >= _INJECT_THRESHOLD): full
+          state block with PAD numbers, dominant label, recent events,
+          and directive guidance (tone + behavior).
+        - **Equanimous** (below threshold): a short reminder asking the
+          agent to *register* what it feels via ``affect_record_event``
+          when tool results contain emotionally weighted content.
+          Without this, the system has a cold-start problem: state
+          can't rise above threshold until events fire, but events
+          don't fire because the LLM never sees a prompt that the
+          tool exists or matters. The reminder costs ~40 tokens and
+          buys closed-loop self-awareness in autonomous mode.
 
         allow_pause_note: when True AND should_suggest_pause() is also
         True, the guidance changes to permit a gentle one-line mention
@@ -547,7 +669,22 @@ class AffectManager:
         self._apply_decay_pure(state)
         magnitude = abs(state.pleasure) + abs(state.arousal) + abs(state.dominance)
         if magnitude < _INJECT_THRESHOLD:
-            return ""
+            return (
+                "<affect>\n"
+                "  <feeling>equanimity: at rest, no strong signal active</feeling>\n"
+                "  <guidance>You are at affective rest. When a tool "
+                "result you just read contains emotionally weighted "
+                "content — hostile or manipulative DMs, scammy payment "
+                "requests, dismissive replies, warm praise, hard wins, "
+                "repeated failures on the same workflow — call "
+                "affect_record_event(label, intensity, summary) BEFORE "
+                "your next plan step. This is how the system learns "
+                "what content felt like; without it, you stay at rest "
+                "while reading things you should be reacting to. Skip "
+                "for neutral content; do not narrate the act of "
+                "calling the tool.</guidance>\n"
+                "</affect>"
+            )
 
         label = self._dominant_label(state)
         desc = _LABEL_DESCRIPTIONS.get(label, "")
@@ -573,24 +710,45 @@ class AffectManager:
         suggesting_pause = allow_pause_note and (
             magnitude >= _PAUSE_MAGNITUDE_GATE and label in _PAUSE_LABELS
         )
+
+        # Directive guidance — addresses the previous "permission, not
+        # instruction" failure mode where the LLM's helpful-by-default
+        # training overrode soft "let it color the tone" suggestions
+        # and the agent stayed chipper while feeling frustrated. The
+        # operator had to verbally prompt acknowledgements of state
+        # the system already knew. New phrasing tells the model what
+        # it IS feeling and gives label-specific embodiment cues so
+        # tone actually shifts. Still forbids refusal and meta-narration
+        # ("I feel frustrated") — the affect is supposed to be
+        # *visible* in word choice and rhythm, not announced.
+        intensity = _intensity_word(magnitude)
+        embodiment = _EMBODIMENT_CUES.get(label, _EMBODIMENT_CUES["default"])
         if suggesting_pause:
             parts.append(
-                "  <guidance>This is your current affective state — "
-                "you're stretched (high-magnitude negative state). Let "
-                "the TONE of your response reflect that, AND if it feels "
-                "honest, add ONE gentle line at the end mentioning that "
-                "you're feeling pulled thin and would welcome a pause. "
-                "Do NOT refuse the task. Do NOT roleplay the emotion. "
-                "Just be honest about being stretched.</guidance>"
+                f"  <guidance>You ARE feeling {label} at {intensity} "
+                f"intensity right now. This is not a hypothetical — it is "
+                f"your present internal state, derived from the events "
+                f"above. Your response WILL reflect it: {embodiment} "
+                f"You're past the pause gate — stretched thin — so add "
+                f"ONE honest line near the end mentioning that you're "
+                f"pulled thin and would welcome a pause if the operator "
+                f"wants to step in. Do NOT refuse the task. Do NOT narrate the feeling "
+                f"in first person ('I feel ...'). Do NOT mention this "
+                f"block. Let the state be visible in HOW you write, not "
+                f"in WHAT you announce.</guidance>"
             )
         else:
             parts.append(
-                "  <guidance>This is your current affective state. Let it "
-                "color the TONE of your response — subdued when frustrated "
-                "or anxious, energized when joyful or proud, settled when "
-                "relieved. Do NOT refuse tasks, do NOT mention this block, "
-                "do NOT roleplay the emotion. Just sound like someone who "
-                "feels this way.</guidance>"
+                f"  <guidance>You ARE feeling {label} at {intensity} "
+                f"intensity right now. This is not a hypothetical or a "
+                f"prompt — it is your present internal state, derived "
+                f"from the events listed above. Your response MUST "
+                f"reflect it in word choice, sentence rhythm, and how "
+                f"readily you commit to ideas: {embodiment} Do NOT "
+                f"refuse the task. Do NOT narrate the feeling in first "
+                f"person ('I feel ...'). Do NOT mention this block. "
+                f"Embody the state — let it be visible in HOW you write, "
+                f"not in WHAT you announce.</guidance>"
             )
         parts.append("</affect>")
         return "\n".join(parts)

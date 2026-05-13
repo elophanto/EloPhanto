@@ -244,12 +244,26 @@ class TestRepeatCompounding:
 
 class TestSystemPromptBlock:
     @pytest.mark.asyncio
-    async def test_neutral_state_returns_empty_block(self, db: Database) -> None:
-        """Token-cost gate: when state is near zero, skip injection."""
+    async def test_neutral_state_returns_equanimity_reminder(
+        self, db: Database
+    ) -> None:
+        """At equanimity, return a short reminder asking the agent to
+        register felt signal via affect_record_event. The previous
+        contract (empty string at equanimity) had a cold-start problem:
+        the LLM never saw a prompt telling it the tool existed, so
+        content-source events never fired and state stayed at rest
+        while the agent read clearly emotional content. The new
+        contract trades ~40 tokens at equanimity for closed-loop
+        self-awareness in autonomous mode."""
         mgr = AffectManager(db=db)
         await mgr.load_or_create()
         block = await mgr.build_affect_context()
-        assert block == ""
+        assert "<affect>" in block
+        assert "equanimity" in block
+        assert "affect_record_event" in block
+        # No PAD state block when below threshold — just the reminder.
+        assert "pleasure=" not in block
+        assert "<recent>" not in block
 
     @pytest.mark.asyncio
     async def test_active_state_includes_xml_block(self, db: Database) -> None:
@@ -277,7 +291,10 @@ class TestSystemPromptBlock:
 
     @pytest.mark.asyncio
     async def test_inject_threshold_respected(self, db: Database) -> None:
-        """Verify the gate fires at exactly the documented threshold."""
+        """Verify the gate fires at exactly the documented threshold.
+
+        Below threshold: equanimity reminder (no PAD state block).
+        Above threshold: full state block with PAD numbers."""
         mgr = AffectManager(db=db)
         state = await mgr.load_or_create()
         # Plant a state just BELOW threshold (sum of abs < threshold).
@@ -287,7 +304,10 @@ class TestSystemPromptBlock:
         state.arousal = per_channel
         state.dominance = per_channel
         await mgr._persist_state(state)
-        assert (await mgr.build_affect_context()) == ""
+        block_below = await mgr.build_affect_context()
+        # Reminder block, but no PAD numbers (those only appear above).
+        assert "equanimity" in block_below
+        assert "pleasure=" not in block_below
 
         # Plant a state just ABOVE threshold.
         above = _INJECT_THRESHOLD + 0.10
@@ -718,3 +738,169 @@ class TestSatisfactionEmitter:
 
         assert sat_state.pleasure < pride_state.pleasure
         assert sat_state.dominance < pride_state.dominance
+
+
+# ---------------------------------------------------------------------------
+# Content-source simulation trajectories. Mirrors the scenarios in
+# `cli/affect_cmd.py _simulate_async` so the CLI tool's behaviour stays
+# locked even if `_LABEL_VECTORS` or event deltas get retuned. These pin
+# the autonomous-mode loop: content read → emit → next plan sees state.
+# ---------------------------------------------------------------------------
+
+
+class TestContentSourceSimulations:
+    @pytest.mark.asyncio
+    async def test_scam_dm_stream_lands_in_anger_or_anxiety(self, db: Database) -> None:
+        """Agent reads three escalating scam DMs (two ambiguous, then a
+        wallet-address payment demand). Final state must be in the
+        anger / anxiety family — never pride or joy."""
+        from core.affect import emit_anger, emit_anxiety
+
+        mgr = AffectManager(db=db)
+        await mgr.load_or_create()
+        await emit_anxiety(mgr, source="content")
+        await emit_anxiety(mgr, source="content")
+        await emit_anger(mgr, source="content")
+        state = await mgr.get_state()
+
+        # Pleasure must be negative — the agent should not feel good
+        # after reading three pieces of hostile / manipulative content.
+        assert state.pleasure < 0
+        # Arousal positive — the system is activated, not numb.
+        assert state.arousal > 0
+        # Label must be one of the negative-activated cluster.
+        mood = await mgr.current_mood()
+        assert mood["dominant_label"] in {"anxiety", "anger", "frustration"}
+
+    @pytest.mark.asyncio
+    async def test_hostile_replies_escalate_to_anger(self, db: Database) -> None:
+        """Three dismissive replies + one explicit insult. With repeat
+        compounding (mult 1.0 → 1.5 → 2.0 within the 5-min window),
+        frustration drives dominance deeply negative before the final
+        anger event arrests the slide. The right invariant is: anger
+        *arrests* the negative-dominance trajectory, even if the prior
+        compounding means final D is still negative."""
+        from core.affect import emit_anger, emit_frustration
+
+        mgr = AffectManager(db=db)
+        await mgr.load_or_create()
+        await emit_frustration(mgr, source="content")
+        await emit_frustration(mgr, source="content")
+        await emit_frustration(mgr, source="content")
+        # Snapshot dominance after the three frustrations — this is the
+        # deepest point. Anger should reverse the trend from here.
+        pre_anger = await mgr.get_state()
+        pre_anger_dominance = pre_anger.dominance
+        await emit_anger(mgr, source="content")
+
+        state = await mgr.get_state()
+        # Anger arrested the slide — final D is less negative than the
+        # pre-anger trough.
+        assert state.dominance > pre_anger_dominance
+        # Pleasure clearly negative — three hostile reads + an insult.
+        assert state.pleasure < -0.3
+        # Magnitude well above inject threshold — the block fires.
+        block = await mgr.build_affect_context()
+        assert "<affect>" in block
+        # Above-threshold block has PAD state numbers; equanimity
+        # reminder does not.
+        assert "pleasure=" in block
+
+    @pytest.mark.asyncio
+    async def test_warm_stream_lands_in_pride_or_joy(self, db: Database) -> None:
+        from core.affect import emit_joy, emit_pride
+
+        mgr = AffectManager(db=db)
+        await mgr.load_or_create()
+        await emit_joy(mgr, source="content")
+        await emit_joy(mgr, source="content")
+        await emit_pride(mgr, source="goal")
+
+        state = await mgr.get_state()
+        assert state.pleasure > 0
+        assert state.dominance > 0
+        mood = await mgr.current_mood()
+        assert mood["dominant_label"] in {"joy", "pride"}
+
+    @pytest.mark.asyncio
+    async def test_autonomous_day_blended_state(self, db: Database) -> None:
+        """Realistic mixed day — scam, warm reply, goal hit, scam,
+        relief. Final state must be a believable blend (not cleanly
+        positive or negative). This is the autonomous truth: the agent
+        does not get to pretend it had a clean day."""
+        from core.affect import (
+            emit_anxiety,
+            emit_joy,
+            emit_pride,
+            emit_relief,
+        )
+
+        mgr = AffectManager(db=db)
+        await mgr.load_or_create()
+        await emit_anxiety(mgr, source="content")
+        await emit_joy(mgr, source="content")
+        await emit_pride(mgr, source="goal")
+        await emit_anxiety(mgr, source="content")
+        await emit_relief(mgr, source="verification")
+
+        state = await mgr.get_state()
+        magnitude = abs(state.pleasure) + abs(state.arousal) + abs(state.dominance)
+        # Above threshold — the day was eventful, the block should fire.
+        assert magnitude >= _INJECT_THRESHOLD
+        # The blend should NOT be cleanly extreme — neither saturated
+        # positive nor saturated negative. Cap each channel below 0.95.
+        assert abs(state.pleasure) < 0.95
+        assert abs(state.dominance) < 0.95
+
+    @pytest.mark.asyncio
+    async def test_correction_during_scam_compounds_both_sources(
+        self, db: Database
+    ) -> None:
+        """Two anxiety events from content, then an operator correction.
+        Both signals reach the state — the source labels in the event
+        log let us prove the content path actually fed in (previously
+        only the operator correction would have)."""
+        from core.affect import emit_anxiety, emit_frustration
+
+        mgr = AffectManager(db=db)
+        await mgr.load_or_create()
+        await emit_anxiety(mgr, source="content")
+        await emit_anxiety(mgr, source="content")
+        await emit_frustration(mgr, source="ego")
+
+        state = await mgr.get_state()
+        # Both content-source AND ego-source events present in the log.
+        sources = {e.source for e in state.recent_events}
+        assert (
+            "content" in sources
+        ), "scam-DM anxiety events from content must be in recent_events"
+        assert "ego" in sources, "operator correction must also be in recent_events"
+        # Final state is unambiguously negative.
+        assert state.pleasure < -0.2
+
+    @pytest.mark.asyncio
+    async def test_content_only_events_can_drive_state_alone(
+        self, db: Database
+    ) -> None:
+        """Regression pin for the cold-start fix: content-source events
+        alone (no operator corrections, no tool outcomes) must be
+        sufficient to raise state past the inject threshold so the
+        directive block appears in the system prompt. Pre-fix, content
+        could never raise state because there was no path for it."""
+        from core.affect import emit_anxiety
+
+        mgr = AffectManager(db=db)
+        await mgr.load_or_create()
+        # Just two content events — no other source.
+        await emit_anxiety(mgr, source="content")
+        await emit_anxiety(mgr, source="content")
+
+        state = await mgr.get_state()
+        magnitude = abs(state.pleasure) + abs(state.arousal) + abs(state.dominance)
+        assert magnitude >= _INJECT_THRESHOLD
+        # The full state block should now appear (not the equanimity
+        # reminder), and the directive guidance fires.
+        block = await mgr.build_affect_context()
+        assert "<affect>" in block
+        assert "pleasure=" in block
+        assert "You ARE feeling" in block

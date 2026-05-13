@@ -231,6 +231,16 @@ class ToolRegistry:
         self.register(IdentityUpdateTool())
         self.register(IdentityReflectTool())
 
+        # Affect tool — lets the agent register its own felt signal from
+        # content it just read. Closes the gap where affect was only fed
+        # by operator-typed corrections + tool outcomes, never by the
+        # content of DMs / replies / vision-extracted text the agent
+        # was reading in autonomous mode. See
+        # tools/affect/record_event_tool.py.
+        from tools.affect.record_event_tool import AffectRecordEventTool
+
+        self.register(AffectRecordEventTool())
+
         # User profile tool
         from tools.user.profile_tool import UserProfileViewTool
 
