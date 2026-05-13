@@ -308,28 +308,84 @@ async def compress_messages(
 def microcompact(
     messages: list[dict[str, Any]],
     keep_recent: int = 5,
+    arg_cap_chars: int = 4000,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Clear old tool result contents without LLM call.
+    """Clear old tool result contents AND truncate fat tool_call arguments,
+    without an LLM call.
 
-    Returns (messages, cleared_count). Mutates in-place for efficiency.
+    The original microcompact only cleared ``role=='tool'`` result strings,
+    which misses the bigger leak: ``role=='assistant'`` messages carry
+    ``tool_calls[].function.arguments`` strings that often embed multi-KB
+    payloads (full file_write content, full knowledge_write markdown,
+    huge browser_eval expressions). On 2026-05-13 a tiered compaction
+    that reduced 52 messages \u2192 7 left ~723k tokens because every
+    surviving assistant message contained a fat tool_call argument.
+    Codex then 404'd with context_length_exceeded, the agent failed
+    over to deepseek (timeout) and HF (out of credits), and the
+    planning step collapsed entirely.
+
+    Two passes per call:
+      1. ``role=='tool'`` results older than ``keep_recent`` get
+         replaced with a short marker. (Original behavior.)
+      2. ``role=='assistant'`` ``tool_calls[].function.arguments``
+         strings older than ``keep_recent`` get truncated to
+         ``arg_cap_chars`` with a tail marker. The tool name and the
+         first ~N chars of args stay so the conversation still reads
+         coherently; the bulk content (which has already been
+         executed and its result either preserved or cleared above)
+         is what we drop.
+
+    Returns ``(messages, cleared_count)``. Mutates in-place.
     """
+    cleared = 0
+
+    # Pass 1 \u2014 tool results (unchanged behavior).
     tool_indices = [
         i
         for i, m in enumerate(messages)
         if m.get("role") == "tool" and isinstance(m.get("content"), str)
     ]
-    if len(tool_indices) <= keep_recent:
-        return messages, 0
+    if len(tool_indices) > keep_recent:
+        for i in tool_indices[:-keep_recent]:
+            content = messages[i]["content"]
+            if len(content) > 200:
+                messages[i] = {
+                    **messages[i],
+                    "content": "[result cleared \u2014 context optimization]",
+                }
+                cleared += 1
 
-    cleared = 0
-    for i in tool_indices[:-keep_recent]:
-        content = messages[i]["content"]
-        if len(content) > 200:  # Don't bother with tiny results
-            messages[i] = {
-                **messages[i],
-                "content": "[result cleared \u2014 context optimization]",
-            }
-            cleared += 1
+    # Pass 2 \u2014 fat assistant tool_call arguments older than keep_recent.
+    asst_indices = [
+        i
+        for i, m in enumerate(messages)
+        if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
+    if len(asst_indices) > keep_recent:
+        for i in asst_indices[:-keep_recent]:
+            calls = messages[i].get("tool_calls") or []
+            modified = False
+            new_calls = []
+            for tc in calls:
+                fn = tc.get("function") or {}
+                args = fn.get("arguments")
+                if isinstance(args, str) and len(args) > arg_cap_chars:
+                    truncated = (
+                        args[:arg_cap_chars]
+                        + f"\n\u2026[truncated {len(args) - arg_cap_chars} chars \u2014 old turn]"
+                    )
+                    new_calls.append(
+                        {
+                            **tc,
+                            "function": {**fn, "arguments": truncated},
+                        }
+                    )
+                    modified = True
+                else:
+                    new_calls.append(tc)
+            if modified:
+                messages[i] = {**messages[i], "tool_calls": new_calls}
+                cleared += 1
 
     return messages, cleared
 
@@ -387,5 +443,62 @@ async def tiered_compress(
             messages = messages[:keep_first] + messages[-keep_last:]
             messages = _fix_orphaned_tool_calls(messages)
             logger.info("Emergency trimmed to %d messages", len(messages))
+            total = _total_tokens(messages)
+
+        # Even after emergency trim, individual messages can still be
+        # huge (e.g., a single assistant message with a 100KB
+        # tool_call argument that microcompact didn't catch because it
+        # was inside the keep_recent window). When that happens, do
+        # a final hard truncate on any oversized message's content /
+        # tool_call args so we don't hand the LLM a payload that will
+        # 404 with context_length_exceeded. The agent loses recent
+        # detail but the planning call survives.
+        if total > tier3_threshold:
+            hard_cap_per_msg = max(8000, tier3_threshold // max(1, len(messages)))
+            trimmed = 0
+            for i, m in enumerate(messages):
+                # Plain content truncation.
+                content = m.get("content")
+                if isinstance(content, str) and len(content) > hard_cap_per_msg:
+                    messages[i] = {
+                        **m,
+                        "content": content[:hard_cap_per_msg]
+                        + f"\n\u2026[truncated {len(content) - hard_cap_per_msg} chars \u2014 emergency trim]",
+                    }
+                    trimmed += 1
+                    continue
+                # tool_call args truncation on the most recent assistant
+                # message too \u2014 we cannot let one fat in-flight call
+                # alone blow the window.
+                if m.get("role") == "assistant" and m.get("tool_calls"):
+                    new_calls = []
+                    modified = False
+                    for tc in m["tool_calls"]:
+                        fn = tc.get("function") or {}
+                        args = fn.get("arguments")
+                        if isinstance(args, str) and len(args) > hard_cap_per_msg:
+                            truncated_args = (
+                                args[:hard_cap_per_msg]
+                                + f"\n\u2026[truncated {len(args) - hard_cap_per_msg} chars \u2014 emergency trim]"
+                            )
+                            new_calls.append(
+                                {
+                                    **tc,
+                                    "function": {**fn, "arguments": truncated_args},
+                                }
+                            )
+                            modified = True
+                        else:
+                            new_calls.append(tc)
+                    if modified:
+                        messages[i] = {**m, "tool_calls": new_calls}
+                        trimmed += 1
+            if trimmed:
+                logger.warning(
+                    "Tier 3 hard-cap: truncated %d oversized message(s) "
+                    "to ~%d chars each",
+                    trimmed,
+                    hard_cap_per_msg,
+                )
 
     return messages

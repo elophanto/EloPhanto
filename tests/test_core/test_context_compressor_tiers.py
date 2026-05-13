@@ -301,3 +301,114 @@ class TestCompressMessagesNoneContent:
         # If we got a result back, the compactor didn't crash. Bug
         # surfaced as `TypeError` before the fix.
         assert isinstance(out, list)
+
+
+# ---------------------------------------------------------------------------
+# Regression: fat assistant tool_call arguments must also be truncated by
+# microcompact, not just role=='tool' result content. Pre-fix, a long-
+# running autonomous loop would accumulate file_write markdown payloads as
+# assistant tool_calls and survive every compaction pass — eventually
+# triggering "context_length_exceeded" on the planner. See logs from
+# 2026-05-13 ~16:29 (52 → 7 messages but tokens stayed at ~723k).
+# ---------------------------------------------------------------------------
+
+
+class TestMicrocompactTruncatesFatToolCallArgs:
+    def test_old_assistant_tool_call_args_get_truncated(self) -> None:
+        """An assistant message with a huge file_write tool_call older
+        than keep_recent must have its arguments string truncated."""
+        from core.context_compressor import microcompact
+
+        fat_args = "x" * 50_000
+        messages = [
+            # Old fat tool_call.
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "file_write",
+                            "arguments": fat_args,
+                        },
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+            # 6 more recent turns so the old one falls past keep_recent.
+            *[
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"r{i}",
+                            "type": "function",
+                            "function": {
+                                "name": "knowledge_search",
+                                "arguments": '{"query":"x"}',
+                            },
+                        }
+                    ],
+                }
+                for i in range(6)
+            ],
+        ]
+        out, cleared = microcompact(messages, keep_recent=2, arg_cap_chars=2000)
+        # Old fat one truncated.
+        truncated_args = out[0]["tool_calls"][0]["function"]["arguments"]
+        assert len(truncated_args) < 10_000
+        assert "truncated" in truncated_args
+        assert cleared >= 1
+
+    def test_recent_assistant_tool_call_args_preserved(self) -> None:
+        """Tool calls inside the keep_recent window must NOT be touched —
+        they belong to in-flight or fresh turns the planner still needs."""
+        from core.context_compressor import microcompact
+
+        fat_args = "y" * 30_000
+        # Three assistant turns; with keep_recent=2 the last two should be
+        # preserved intact.
+        messages = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": f"k{i}",
+                        "type": "function",
+                        "function": {
+                            "name": "file_write",
+                            "arguments": fat_args if i == 0 else '{"x":1}',
+                        },
+                    }
+                ],
+            }
+            for i in range(3)
+        ]
+        out, _ = microcompact(messages, keep_recent=2, arg_cap_chars=1000)
+        # Index 0 is OLD → truncated.
+        assert len(out[0]["tool_calls"][0]["function"]["arguments"]) < 5000
+        # Indices 1 and 2 are within keep_recent → untouched.
+        assert out[1]["tool_calls"][0]["function"]["arguments"] == '{"x":1}'
+        assert out[2]["tool_calls"][0]["function"]["arguments"] == '{"x":1}'
+
+    def test_microcompact_still_clears_tool_results(self) -> None:
+        """Original pass-1 behavior preserved: old tool results get
+        replaced with a marker. Regression guard for the dual-pass
+        change."""
+        from core.context_compressor import microcompact
+
+        messages = [
+            {"role": "tool", "tool_call_id": f"t{i}", "content": "x" * 1000}
+            for i in range(10)
+        ]
+        out, cleared = microcompact(messages, keep_recent=2)
+        # 8 older tool results cleared; 2 most recent kept.
+        assert cleared == 8
+        for i in range(8):
+            assert "cleared" in out[i]["content"]
+        for i in range(8, 10):
+            assert "cleared" not in out[i]["content"]
