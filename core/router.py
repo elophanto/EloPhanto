@@ -475,6 +475,12 @@ class LLMRouter:
         # 1. Explicit override
         if model_override:
             provider = self._infer_provider(model_override)
+            # Strip provider prefix so the adapter receives the bare
+            # model name. ``codex/gpt-5.5`` → provider="codex",
+            # model="gpt-5.5". The prefix is purely a routing hint;
+            # the Codex adapter expects the raw OpenAI-style id.
+            if provider == "codex" and model_override.startswith("codex/"):
+                return provider, model_override[len("codex/") :]
             return provider, model_override
 
         # 2. Preferred provider from per-task routing
@@ -577,7 +583,17 @@ class LLMRouter:
         return filtered
 
     def _infer_provider(self, model: str) -> str:
-        """Infer provider from model name."""
+        """Infer provider from model name.
+
+        Provider prefixes (``codex/``, ``ollama/``) take precedence over
+        the generic ``org/model`` → openrouter rule. This lets the
+        operator pick the *transport* explicitly — ``codex/gpt-5.5``
+        routes through the Codex ChatGPT-subscription adapter, while a
+        bare ``gpt-5.5`` routes through the direct OpenAI API. Same
+        model name, two billing paths.
+        """
+        if model.startswith("codex/"):
+            return "codex"
         # HuggingFace models use org/model format (e.g. Qwen/Qwen3.5-397B-A17B)
         # Check if huggingface is configured and the model looks like an HF repo
         if "/" in model and not model.startswith("ollama/"):

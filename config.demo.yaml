@@ -58,7 +58,24 @@ llm:
 
   # When messages contain image_url blocks (screenshots), this model is used
   # automatically instead of the normal routing chain.
-  vision_model: "openrouter/x-ai/grok-4.3"   # or google/gemini-3-flash-preview
+  #
+  # Provider routing by prefix (same scheme used by browser.vision_model):
+  #   codex/<model>             → ChatGPT Plus/Pro subscription via Codex
+  #                               OAuth — no per-call API spend. Example:
+  #                               codex/gpt-5.5
+  #   openrouter/<org>/<model>  → OpenRouter (any vision model on the
+  #                               catalog). Example: openrouter/x-ai/grok-4.3
+  #   <org>/<model>             → also OpenRouter when the prefix isn't
+  #                               codex/ or ollama/. Example:
+  #                               google/gemini-3-flash-preview,
+  #                               perceptron/perceptron-mk1
+  #   gpt-5.5                   → OpenAI direct API (uses openai.api_key)
+  #   glm-4.7-flash             → Z.ai
+  #
+  # Same model name on two transports: ``codex/gpt-5.5`` (subscription)
+  # vs ``gpt-5.5`` (OpenAI direct API billing). Pick based on whether
+  # you'd rather burn ChatGPT-subscription quota or OpenAI API credit.
+  vision_model: "codex/gpt-5.5"   # or openrouter/x-ai/grok-4.3, google/gemini-3-flash-preview, perceptron/perceptron-mk1
 
   provider_priority:
     - codex
@@ -189,7 +206,17 @@ browser:
   viewport_height: 720
   profile_directory: ""                   # ← e.g. "Profile 1" or "Default"
   profile_refresh_hours: 0                # 0 = never auto-refresh — agent logins (2FA etc.) persist
-  vision_model: "x-ai/grok-4.3"      # OpenRouter model for screenshot analysis
+  # Browser screenshot analysis. Same provider-prefix scheme as
+  # llm.vision_model above:
+  #   codex/gpt-5.5             → ChatGPT subscription (no per-call API spend)
+  #   openrouter/x-ai/grok-4.3  → OpenRouter Grok
+  #   perceptron/perceptron-mk1 → OpenRouter Perceptron MK1
+  #   google/gemini-3-flash-preview → OpenRouter Gemini Flash
+  # Can be DIFFERENT from llm.vision_model — e.g. use codex/gpt-5.5 for
+  # browser screenshots (high volume, want subscription) and
+  # openrouter/x-ai/grok-4.3 for user-attached images (lower volume,
+  # don't want to mix billing paths).
+  vision_model: "codex/gpt-5.5"      # screenshot analysis model
 
 # --- Desktop GUI Agent ---
 # Pixel-level desktop control via screenshot + pyautogui.
