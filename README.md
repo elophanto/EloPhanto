@@ -426,8 +426,11 @@ llm:
       enabled: true
       base_url: "http://localhost:11434"
 
-  # Auto-routes to this model when messages contain screenshots/images
-  vision_model: "openrouter/x-ai/grok-4.3"
+  # Auto-routes to this model when messages contain screenshots/images.
+  # Provider routing is by prefix: codex/<model> = ChatGPT subscription,
+  # openrouter/<org>/<model> = OpenRouter, gpt-5.5 = OpenAI direct API,
+  # glm-4.7-flash = Z.ai, etc. Same scheme as browser.vision_model.
+  vision_model: "codex/gpt-5.5"   # or openrouter/x-ai/grok-4.3
 
   provider_priority: [openrouter, zai, openai, kimi]
   routing:
@@ -466,7 +469,14 @@ browser:
   enabled: true
   mode: profile                    # reuse your Chrome profile (keeps logins)
   headless: false
-  vision_model: "x-ai/grok-4.3"  # for screenshot analysis
+  # Browser screenshot analysis. Provider routing by prefix:
+  #   codex/gpt-5.5             → ChatGPT subscription via Codex OAuth
+  #                               (no per-call API spend)
+  #   openrouter/x-ai/grok-4.3  → OpenRouter
+  #   perceptron/perceptron-mk1 → OpenRouter
+  #   google/gemini-3-flash-preview → OpenRouter
+  # Same scheme as llm.vision_model; can be set differently per use.
+  vision_model: "codex/gpt-5.5"
 
 # ... all other sections with defaults in config.demo.yaml
 ```

@@ -159,6 +159,29 @@ class TestRouterSelection:
         assert router._infer_provider("glm-4.7-flash") == "zai"
         assert router._infer_provider("qwen2.5:32b") == "ollama"
         assert router._infer_provider("llama3.1:8b") == "ollama"
+        # codex/ prefix routes to the Codex ChatGPT-subscription adapter
+        # instead of the (otherwise matching) openrouter / openai paths.
+        # Same model id, different transport.
+        assert router._infer_provider("codex/gpt-5.5") == "codex"
+        assert router._infer_provider("codex/gpt-5") == "codex"
+        # Bare gpt-5.5 still goes to OpenAI (direct API).
+        assert router._infer_provider("gpt-5.5") == "openai"
+
+    def test_codex_prefix_strips_in_override(self) -> None:
+        """``model_override='codex/gpt-5.5'`` should resolve to
+        provider='codex', model='gpt-5.5' — the prefix is a routing
+        hint, the adapter wants the bare OpenAI-style id."""
+        config = self._make_config()
+        router = LLMRouter(config)
+        provider, model = router._select_provider_and_model("planning", "codex/gpt-5.5")
+        assert provider == "codex"
+        assert model == "gpt-5.5"
+        # Non-codex prefixes pass through unchanged.
+        provider, model = router._select_provider_and_model(
+            "simple", "openrouter/x-ai/grok-4.3"
+        )
+        assert provider == "openrouter"
+        assert model == "openrouter/x-ai/grok-4.3"
 
     def test_models_map_lookup_per_provider(self) -> None:
         """Each provider resolves its own model from the models map."""

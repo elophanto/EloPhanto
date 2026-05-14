@@ -394,8 +394,16 @@ class CodexAdapter:
             "include": [],
             "text": {"verbosity": "medium"},
         }
-        if instructions:
-            payload["instructions"] = instructions
+        # Codex's /responses endpoint requires an ``instructions`` field
+        # — sending the payload without it returns
+        # ``400 {"detail":"Instructions are required"}``. The agent's
+        # normal planning call carries a system message that becomes
+        # the instructions, but standalone vision calls (e.g. the
+        # screenshot-description path in ``agent.py``) build a single
+        # user message with ``image_url`` content and no system block.
+        # Default to a minimal instruction so those calls succeed
+        # rather than failing the whole turn.
+        payload["instructions"] = instructions or "Respond to the user."
 
         headers = {
             "Authorization": f"Bearer {self._auth['access']}",
