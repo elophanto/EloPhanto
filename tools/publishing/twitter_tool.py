@@ -121,6 +121,30 @@ class TwitterPostTool(BaseTool):
                 error=f"Tweet exceeds {_MAX_TWEET_CHARS} chars ({len(content)}).",
             )
 
+        # Mechanical style preflight — refuses to send on hard
+        # violations from the operator's accumulated banned-phrase
+        # list. The agent's old self-graded "style_preflight_pass"
+        # was the same LLM signing off on its own draft; this is
+        # the actual gate. See
+        # ``tools/social/x_style_preflight_tool.py`` for the list
+        # and rationale.
+        from tools.social.x_style_preflight_tool import check_x_style
+
+        _style = check_x_style(content)
+        if not _style["pass"]:
+            _hits = ", ".join(f"{v['phrase']!r}" for v in _style["hard_violations"])
+            return ToolResult(
+                success=False,
+                error=(
+                    "x_style_preflight failed — draft contains "
+                    f"banned phrase(s): {_hits}. Rewrite without "
+                    "consultant/policy-memo cadence and try again. "
+                    "Run ``x_style_preflight`` on the new draft "
+                    "before retrying."
+                ),
+                data={"style_violations": _style},
+            )
+
         if media_path and not os.path.isfile(media_path):
             return ToolResult(
                 success=False, error=f"Media file not found: {media_path}"

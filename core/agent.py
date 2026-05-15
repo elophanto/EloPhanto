@@ -40,6 +40,24 @@ if TYPE_CHECKING:
 # explicitly copied — exactly the semantics we want.
 _in_agent_loop: ContextVar[bool] = ContextVar("_in_agent_loop", default=False)
 
+# True iff the current asyncio task is executing inside a scheduled task
+# (set by ``_execute_scheduled_task``). Used by ``tools/scheduling/list_tool.py``
+# and ``tools/scheduling/schedule_tool.py`` to refuse cross-schedule
+# mutation: one schedule must never enable/disable/stop/delete/create
+# another. The scheduler queues them — they don't get to meddle. On
+# 2026-05-15 a Daily Review schedule autonomously disabled three other
+# schedules right after we updated their task_goals; that's the bug
+# this guards against. Read-only ``list`` / ``history`` actions stay
+# allowed because legitimate dedupe checks need them.
+_in_scheduled_task: ContextVar[bool] = ContextVar("_in_scheduled_task", default=False)
+
+
+def is_in_scheduled_task() -> bool:
+    """Public helper for tools to check whether they're being called
+    from inside a scheduled-task run loop. Used to gate cross-schedule
+    mutation."""
+    return _in_scheduled_task.get()
+
 
 class StatusCallback(Protocol):
     """Callback to report initialization progress."""
@@ -824,6 +842,12 @@ class Agent:
                     self._browser_manager.vision_model = (
                         self._config.browser.vision_model
                     )
+                # Separate field for the Node bridge's vision (DOM
+                # annotation) — bridge can't talk to Codex, so this is
+                # OpenRouter-only. Empty = bridge runs vision-less.
+                self._browser_manager.bridge_vision_model = (
+                    self._config.browser.bridge_vision_model
+                )
 
                 # Wire proxy routing — credentials live directly in
                 # config.yaml under the proxy section, same shape as
@@ -3593,11 +3617,64 @@ class Agent:
                 # the dashboard couldn't render the event.
                 pass
 
-        self._on_step = _broadcast_step
+        # Diagnostic: log task_goal length + head at run start so future
+        # task_goal regressions are visible immediately. On 2026-05-15 a
+        # decline in posting was traced to the task_goal text accumulating
+        # cascading SKIP-permissions; without this log we needed to grep
+        # the live DB to spot it.
+        _tracked_tool_calls: list[str] = []
+        logger.info(
+            "[sched-task] starting (goal len=%d, head=%r)",
+            len(goal),
+            goal[:200].replace("\n", " "),
+        )
+        _start_ts = _time.monotonic()
+
+        # Wrap _broadcast_step to also track tool calls for the
+        # bail-out detection in the finally block below.
+        async def _tracked_step(
+            step: int, tool_name: str, thought: str, params: dict[str, Any]
+        ) -> None:
+            _tracked_tool_calls.append(tool_name)
+            await _broadcast_step(step, tool_name, thought, params)
+
+        self._on_step = _tracked_step
+        # Set the cross-schedule mutation guard. Inside this contextvar
+        # scope, tools/scheduling/list_tool.py refuses enable / disable /
+        # stop / delete / stop_all and tools/scheduling/schedule_tool.py
+        # refuses create. A schedule must NOT modify another schedule —
+        # the scheduler queues them; they don't get to meddle.
+        _sched_token = _in_scheduled_task.set(True)
         try:
             return await self.run(goal, is_user_input=False)
         finally:
             self._on_step = prev_on_step
+            _in_scheduled_task.reset(_sched_token)
+            # Diagnostic: warn when a scheduled task completes suspiciously
+            # fast without doing real work. The "bailed at preflight"
+            # failure mode (read a skill, list schedules, declare complete
+            # in 20s) is what hid yesterday's posting regression — make
+            # it impossible to miss in future logs.
+            _elapsed = _time.monotonic() - _start_ts
+            _ACTIONLESS_TOOLS = {
+                "skill_read",
+                "schedule_list",
+                "knowledge_search",
+                "session_search",
+                "tool_discover",
+                "file_list",
+                "file_read",
+            }
+            _real_action = any(t not in _ACTIONLESS_TOOLS for t in _tracked_tool_calls)
+            if _elapsed < 30.0 and not _real_action:
+                logger.warning(
+                    "[sched-task] BAIL-OUT detected: completed in %.1fs "
+                    "with only preflight tools (%s) — task likely "
+                    "interpreted its rules as 'nothing to do.' Goal head: %r",
+                    _elapsed,
+                    _tracked_tool_calls,
+                    goal[:200].replace("\n", " "),
+                )
 
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str

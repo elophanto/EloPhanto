@@ -143,6 +143,21 @@ class BrowserConfig:
     viewport_width: int = 1280
     viewport_height: int = 720
     vision_model: str = "google/gemini-2.0-flash-001"
+    # Override for the Node browser bridge's own DOM-annotation vision
+    # calls. The bridge hits OpenRouter directly (no Codex auth), so
+    # when ``vision_model`` is set to a non-OpenRouter transport like
+    # ``codex/gpt-5.5``, the bridge can't use it — every call returns
+    # ``400 "{model} is not a valid model ID"``. Two routes here:
+    #   - leave empty → bridge falls back to no-vision DOM mode
+    #     (deterministic extract + elements only); Python-side
+    #     screenshot description still runs through ``vision_model``
+    #     and works fine.
+    #   - set to a known-good OpenRouter vision model (e.g.
+    #     ``perceptron/perceptron-mk1``, ``x-ai/grok-4.3``,
+    #     ``google/gemini-3-flash-preview``) → bridge keeps its
+    #     DOM-annotation vision on that model, Python-side stays on
+    #     ``vision_model``.
+    bridge_vision_model: str = ""
     profile_refresh_hours: float = (
         8.0  # 0 = never auto-refresh (agent sessions persist)
     )
@@ -1382,6 +1397,16 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         viewport_width=browser_raw.get("viewport_width", 1280),
         viewport_height=browser_raw.get("viewport_height", 720),
         vision_model=browser_raw.get("vision_model", "google/gemini-2.0-flash-001"),
+        bridge_vision_model=browser_raw.get("bridge_vision_model", ""),
+        # Pre-existing parser bug surfaced 2026-05-15: this field was
+        # missing here, so the operator's config.yaml setting was
+        # silently ignored and the dataclass default (8.0h) was used.
+        # When the auth'd Chrome profile got copy-refreshed on cron
+        # wakeup, X session cookies were dropped — agent landed on a
+        # sign-in screen instead of @EloPhanto's home feed. Setting
+        # ``profile_refresh_hours: 0`` in config.yaml now actually
+        # disables the periodic refresh.
+        profile_refresh_hours=browser_raw.get("profile_refresh_hours", 8.0),
     )
 
     # Parse desktop section

@@ -116,6 +116,29 @@ class ScheduleTaskTool(BaseTool):
         if not self._scheduler:
             return ToolResult(success=False, error="Scheduler not available")
 
+        # Cross-schedule creation guard: a scheduled task cannot create
+        # new schedules. Same reason as the mutation guard in
+        # tools/scheduling/list_tool.py — schedule lifecycle is operator
+        # policy, not autonomous-agent decision. Without this, an
+        # over-eager Daily Review or self-improvement loop could spawn
+        # parallel copies of itself or replacement schedules.
+        try:
+            from core.agent import is_in_scheduled_task
+
+            if is_in_scheduled_task():
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "refused: schedule_task (create) is not allowed "
+                        "from inside a scheduled task. Schedule lifecycle "
+                        "is operator policy. If you believe a new schedule "
+                        "is needed, log the recommendation to workspace/ "
+                        "for the operator to apply manually."
+                    ),
+                )
+        except ImportError:
+            pass
+
         from core.scheduler import parse_delay, parse_natural_language_schedule
 
         schedule_text = params["schedule"]
