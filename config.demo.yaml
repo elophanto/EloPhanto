@@ -217,6 +217,18 @@ browser:
   # openrouter/x-ai/grok-4.3 for user-attached images (lower volume,
   # don't want to mix billing paths).
   vision_model: "codex/gpt-5.5"      # screenshot analysis model
+  # Separate model for the Node browser bridge's own DOM-annotation
+  # vision. The bridge hits OpenRouter directly, so when vision_model
+  # above is codex/<x>, ollama/<x>, or any non-OpenRouter transport,
+  # the bridge fails every call with "model not valid". Two options:
+  #   - leave empty → bridge falls back to deterministic-only mode
+  #     (extract + elements, no vision); Python-side screenshot
+  #     description still works via vision_model.
+  #   - set to an OpenRouter vision model → bridge keeps doing DOM
+  #     annotation on that model. Recommended:
+  #     perceptron/perceptron-mk1, x-ai/grok-4.3, or
+  #     google/gemini-3-flash-preview.
+  bridge_vision_model: "perceptron/perceptron-mk1"
 
 # --- Desktop GUI Agent ---
 # Pixel-level desktop control via screenshot + pyautogui.

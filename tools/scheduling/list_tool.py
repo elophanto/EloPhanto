@@ -104,6 +104,42 @@ class ScheduleListTool(BaseTool):
         action = params.get("action", "list")
         schedule_id = params.get("schedule_id", "")
 
+        # Cross-schedule mutation guard: a scheduled task is NEVER allowed
+        # to enable / disable / stop / delete another schedule (or itself
+        # in a way that breaks the cron). The scheduler queues runs;
+        # individual schedules don't get to meddle with each other. This
+        # check guards against the 2026-05-15 incident where a Daily
+        # Review schedule autonomously disabled three other schedules
+        # right after operator policy was updated. Read-only ``list`` and
+        # ``history`` stay allowed for legitimate dedupe checks.
+        _MUTATING_ACTIONS = {
+            "enable",
+            "disable",
+            "stop",
+            "stop_all",
+            "delete",
+            "update",
+        }
+        if action in _MUTATING_ACTIONS:
+            try:
+                from core.agent import is_in_scheduled_task
+
+                if is_in_scheduled_task():
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"refused: schedule_list action='{action}' is not "
+                            "allowed from inside a scheduled task. One schedule "
+                            "must not modify another — the scheduler queues "
+                            "runs; schedules do not meddle with each other. "
+                            "If you believe a schedule should be changed, log "
+                            "the recommendation to workspace/ for the operator "
+                            "to review and apply manually."
+                        ),
+                    )
+            except ImportError:
+                pass
+
         if action == "stop_all":
             count = await self._scheduler.stop_all_running()
             return ToolResult(

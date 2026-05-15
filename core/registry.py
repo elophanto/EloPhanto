@@ -241,6 +241,15 @@ class ToolRegistry:
 
         self.register(AffectRecordEventTool())
 
+        # X style preflight — mechanical check against the operator's
+        # accumulated banned-phrase list. Closes the gap where the
+        # agent's self-graded "style_preflight_pass" claim was the
+        # same LLM signing off on its own draft. See
+        # tools/social/x_style_preflight_tool.py.
+        from tools.social.x_style_preflight_tool import XStylePreflightTool
+
+        self.register(XStylePreflightTool())
+
         # User profile tool
         from tools.user.profile_tool import UserProfileViewTool
 
