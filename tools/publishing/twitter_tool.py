@@ -189,31 +189,57 @@ class TwitterPostTool(BaseTool):
                 'div[data-testid="tweetTextarea_0"] div[role="textbox"]',
                 'div[role="textbox"]',
             ]
+            # 2026-05-16 fix: the find loop used to try each selector
+            # exactly once at a single instant. On slow page renders /
+            # SPA route transitions, the textbox simply isn't in the DOM
+            # yet — the tool returned "Could not find tweet text box"
+            # and the agent fell back to raw browser_type_text, which
+            # eats leading chars on Lexical-controlled inputs (visible
+            # truncations like "clarity headline is doing more work" →
+            # "e is doing more work"). Poll up to 12 seconds before
+            # giving up so the page has time to mount the composer.
             focused = False
-            for selector in selectors:
-                try:
-                    result = await self._browser_manager.call_tool(
-                        "browser_eval",
-                        {
-                            "expression": (
-                                "(() => { const el = document.querySelector("
-                                + json.dumps(selector)
-                                + "); if (el) { el.focus(); return 'found'; }"
-                                " return ''; })()"
-                            )
-                        },
-                    )
-                    val = eval_value(result)
-                    if val == "found":
-                        focused = True
-                        break
-                except Exception:
-                    continue
+            _MAX_FIND_ATTEMPTS = 6
+            _WAIT_BETWEEN_MS = 2000
+            for _attempt in range(_MAX_FIND_ATTEMPTS):
+                for selector in selectors:
+                    try:
+                        result = await self._browser_manager.call_tool(
+                            "browser_eval",
+                            {
+                                "expression": (
+                                    "(() => { const el = document.querySelector("
+                                    + json.dumps(selector)
+                                    + "); if (el) { el.focus(); return 'found'; }"
+                                    " return ''; })()"
+                                )
+                            },
+                        )
+                        val = eval_value(result)
+                        if val == "found":
+                            focused = True
+                            break
+                    except Exception:
+                        continue
+                if focused:
+                    break
+                # Wait for the composer to mount and retry.
+                await self._browser_manager.call_tool(
+                    "browser_wait", {"milliseconds": _WAIT_BETWEEN_MS}
+                )
 
             if not focused:
                 return ToolResult(
                     success=False,
-                    error="Could not find tweet text box. Is X logged in?",
+                    error=(
+                        "Could not find tweet text box after "
+                        f"{_MAX_FIND_ATTEMPTS * _WAIT_BETWEEN_MS // 1000}s "
+                        "of polling. Is X logged in? Do NOT fall back to "
+                        "browser_type_text on the X composer — it loses "
+                        "leading chars on Lexical-controlled inputs. "
+                        "Either retry twitter_post or use browser_paste_html "
+                        "with text-only payload after focusing the composer."
+                    ),
                 )
 
             # Step 3: Insert content via a synthetic paste event. X's
