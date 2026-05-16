@@ -55,6 +55,46 @@ class BridgeBrowserTool(BaseTool):
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         if not self._browser_manager:
             return ToolResult(success=False, error="Browser not available")
+
+        # X composer guard — refuse browser_type_text with substantive
+        # text when the active page is on x.com / twitter.com. The X
+        # composer is a Lexical-controlled contentEditable and char-by-
+        # char typing during the focus race drops leading characters
+        # (visible truncation: "clarity headline is doing more work"
+        # landed on X as "e is doing more work" on 2026-05-16 04:28).
+        # twitter_post uses a synthetic paste event; browser_paste_html
+        # exists for everything else. Short text (<10 chars) like
+        # search queries or hashtags still goes through — only the
+        # multi-paragraph drafts that hit the race are blocked.
+        if self._name == "browser_type_text":
+            _text = params.get("text", "") or ""
+            if isinstance(_text, str) and len(_text) >= 10:
+                try:
+                    _cur = await self._browser_manager.call_tool(
+                        "browser_eval",
+                        {"expression": "(() => location.host)()"},
+                    )
+                    from tools.browser.eval_utils import eval_value
+
+                    _host = (eval_value(_cur) or "").lower()
+                    if "x.com" in _host or "twitter.com" in _host:
+                        return ToolResult(
+                            success=False,
+                            error=(
+                                "refused: browser_type_text with substantive "
+                                "text on x.com drops leading chars on the "
+                                "Lexical composer (controlled contentEditable "
+                                "+ focus race). Use twitter_post for the full "
+                                "publish flow, or browser_paste_html with "
+                                "text-only payload after focusing the composer."
+                            ),
+                        )
+                except Exception:
+                    # Host check failed — let the call through rather than
+                    # blocking unrelated work. Worst case the agent gets
+                    # a truncated post and the diagnostic loop catches it.
+                    pass
+
         try:
             result = await self._browser_manager.call_tool(self._name, params)
             return ToolResult(success=True, data=result)
