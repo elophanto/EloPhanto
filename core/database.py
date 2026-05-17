@@ -96,7 +96,8 @@ _SCHEMA = [
         retry_count INTEGER DEFAULT 0,
         max_retries INTEGER DEFAULT 3,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        cadence INTEGER NOT NULL DEFAULT 0
     )
     """,
     """
@@ -732,6 +733,17 @@ _MIGRATIONS = [
     # docs/70-SCHEDULER-CONCURRENCY.md (Phase 2 section).
     "ALTER TABLE scheduled_tasks ADD COLUMN direct_tool TEXT",
     "ALTER TABLE scheduled_tasks ADD COLUMN direct_params TEXT",
+    # Cadence flag — distinguishes deadline schedules (e.g. "09:00 daily
+    # report") from frequency hints (e.g. "every hour try to post"). Old
+    # rows default to 0 (deadline / current behavior preserved). Cadence
+    # schedules acquire the AGENT_LOOP slot at SCHEDULED_CADENCE priority
+    # which sits *below* MIND — so the autonomous mind's reflection loop
+    # gets to decide whether this cycle's instance is worth running
+    # instead of being preempted by pure cron pressure. See
+    # core/action_queue.py:TaskPriority and the ego-log lesson "hourly
+    # social schedules create pressure to act, but low-quality public
+    # artifacts are worse than evidence-backed no-ops".
+    "ALTER TABLE scheduled_tasks ADD COLUMN cadence INTEGER NOT NULL DEFAULT 0",
     # Shadow predictions for the Polymarket calibration audit. Lets
     # the agent log a probability estimate WITHOUT placing a real bet,
     # so calibration data accumulates in days instead of months.

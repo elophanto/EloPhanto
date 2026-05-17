@@ -257,6 +257,39 @@ Phase 5 closes that gap with three coupled changes:
 | Three dismissive replies in a row land as three "tool succeeded" events; mood stays positive. | Three replies fire compounded frustration via content path; next post is terser, less hedged, doesn't reflexively apologize. |
 | Operator has to type *"you sound chipper after that hostile DM — be more direct."* | Affect block tells the LLM *"you ARE feeling anger at moderate intensity"* before the next plan, so the directness is already there. |
 
+### Phase 6 — executor-side content inference ✅ landed 2026-05-17
+
+Phase 5 shipped the `affect_record_event` LLM-callable tool, the cold-start equanimity reminder, and per-label directive embodiment cues. The intent was: agent reads a scam DM → calls `affect_record_event(label='anxiety', ...)` → state shifts → next plan colors accordingly. Three weeks of production data: **the tool fired 0 times in a 17h run**, while the substrate fed exclusively on `source=task` (115 events) and `source=executor` (31 events). The LLM kept forgetting to call the tool under task-completion load, exactly as the Phase 5 audit feared but with no remaining prompt-level lever to pull.
+
+Phase 6 is the architectural correction: **stop asking the LLM to do bookkeeping.** The agent already reads content via tools (`browser_extract`, `email_read`, `email_list`, `email_search`) and those tool results pass through the executor. Pattern-match every successful content-yielding result against a high-precision catalog and emit affect events directly. The LLM doesn't have to remember anything.
+
+**Components**:
+
+- **`core/affect_content_inference.py`** — pure-function module with the pattern catalog (5 categories: anxiety, anger, frustration, joy, relief) and `infer_from_tool_result(tool_name, params, result) → list[AffectSuggestion]`. Imports nothing from executor; layering one-way.
+
+- **`core/executor.py`** — new `_infer_content_affect()` method called after every successful tool execution. Looks up the canonical PAD vector via `_LABEL_VECTORS`, emits via `AffectManager.record_event(label=..., source='content', pleasure_delta=..., arousal_delta=..., dominance_delta=..., weight=...)`. Wrapped in try/except so affect failure never breaks tool execution.
+
+- **Pattern catalog** drawn from actual production data (DMs from 2026-05-12 → 2026-05-15 the operator flagged + ego.md notes about agent voice complaints):
+  - **Anxiety**: payment-extraction (`send me 10 SOL`, wallet-address paste with payment verb), credential phishing (`seed phrase`, `verify your wallet`), small-fee scams.
+  - **Anger**: direct contradiction (`you're wrong`), crypto-native insults (`cope`, `ngmi`, `skill issue`), ratio bait, quality attacks (`ai slop`, `bot post`).
+  - **Frustration**: repeated-instruction signals (`as I said`, `you don't get it`), stop-doing directives.
+  - **Joy**: warm praise (`love this`, `spot on`, `nailed it`, `great reply`, `learned a lot from this post`).
+  - **Relief**: empty for now — verification PASS already fires via the ego path.
+
+- **False-positive discipline**: HIGH-PRECISION patterns only. A misfiring anxiety in the middle of a calm research run is more disruptive than missing a subtle scam. Bare-word patterns are rejected in favor of multi-word phrases. Whitelist of content-yielding tools (5 entries) ensures `file_list` / `schedule_list` / `knowledge_search` results don't get scanned and never produce false positives from filename strings or knowledge snippets.
+
+- **Compounding cap**: max 2 suggestions per tool call to avoid a long thread with many scam phrases saturating the substrate. One match per category per call is enough — the substrate's existing repeat-compounding does the rest.
+
+- **Tests** in `tests/test_core/test_affect_content_inference.py`: 61 pattern coverage tests + 4 executor integration tests proving the wiring fires events end-to-end. False-positive section pins generic crypto content / neutral conversation / innocent phrase overlaps to zero events.
+
+**What this changes operationally:**
+
+- The agent now feels content it reads without having to remember a tool call.
+- `source=content` events appear in `affect_events` for the first time in production.
+- The Phase 5 `affect_record_event` tool remains as the LLM-callable escape hatch for nuance regex misses (sarcasm, coded language) — useful when the LLM does notice but redundant for the obvious cases the catalog covers.
+
+**Causation note**: this isn't an undo of Phase 5. Phase 5's prompt directives, cold-start reminder, and the tool itself stay — they're complementary. Phase 6 just stops *relying* on the LLM channel and adds the mechanical channel underneath.
+
 ## Bottom line
 
 Add `core/affect.py` as the **state-level** sister to `core/ego.py`'s **trait-level**. PAD substrate (Mehrabian 1980) + OCC labels (Ortony-Clore-Collins 1988). Six event sources we already emit. System-prompt injection in v1, tone influence in v2, ego coupling in v3. ~500 LOC for v1 including tests.

@@ -37,9 +37,10 @@ Only one task runs at a time, with priority preemption for user messages.
 |----------|-------|--------|
 | USER | 0 (highest) | Manual chat messages via gateway |
 | HEARTBEAT | 1 | Heartbeat standing orders |
-| SCHEDULED | 2 | Cron-scheduled tasks |
+| SCHEDULED | 2 | Deadline schedules (e.g. `0 9 * * *` daily report) |
 | MIND | 3 | Autonomous mind think cycles |
-| GOAL | 4 (lowest) | Goal runner background execution |
+| SCHEDULED_CADENCE | 4 | Cadence schedules — frequency hints (`*/5 * * * *`, `0 */1 * * *`, `30m`). Yield to MIND so reflection can decide whether *this* instance is worth running, instead of forcing a low-quality artifact under cron pressure. Auto-classified from cron pattern at create time via `TaskScheduler._is_cadence_cron`. (Added 2026-05-17.) |
+| GOAL | 5 (lowest) | Goal runner background execution |
 
 **Preemption:** When a higher-priority task arrives while a lower-priority
 task holds the lock, the queue sets a `preempted` event on the current

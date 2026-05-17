@@ -56,6 +56,12 @@ class ScheduleEntry:
     updated_at: str = ""
     direct_tool: str | None = None
     direct_params: str | None = None  # JSON string
+    # Cadence schedules acquire AGENT_LOOP at SCHEDULED_CADENCE priority
+    # (below MIND) so the autonomous mind's reflection loop is not
+    # preempted by frequency-hint cron firings. Deadline schedules keep
+    # the original SCHEDULED priority (above MIND). Auto-detected from
+    # the cron expression at create time via ``_is_cadence_cron``.
+    cadence: bool = False
 
 
 @dataclass
@@ -95,7 +101,7 @@ class TaskScheduler:
     def __init__(
         self,
         db: Database,
-        task_executor: Callable[[str], Coroutine[Any, Any, Any]],
+        task_executor: Callable[..., Coroutine[Any, Any, Any]],
         result_notifier: (
             Callable[[str, str, str], Coroutine[Any, Any, None]] | None
         ) = None,
@@ -229,6 +235,11 @@ class TaskScheduler:
         schedule_id = str(uuid.uuid4())[:8]
         now = datetime.now(UTC).isoformat()
 
+        # Direct-tool schedules bypass the agent loop and never contend
+        # for AGENT_LOOP — cadence flag is irrelevant there. For
+        # agent-loop schedules, auto-classify from the cron expression.
+        is_cadence = direct_tool is None and self._is_cadence_cron(cron_expression)
+
         entry = ScheduleEntry(
             id=schedule_id,
             name=name,
@@ -241,13 +252,15 @@ class TaskScheduler:
             updated_at=now,
             direct_tool=direct_tool,
             direct_params=params_json,
+            cadence=is_cadence,
         )
 
         await self._db.execute_insert(
             """INSERT INTO scheduled_tasks
                (id, name, description, cron_expression, task_goal, enabled,
-                max_retries, created_at, updated_at, direct_tool, direct_params)
-               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+                max_retries, created_at, updated_at, direct_tool, direct_params,
+                cadence)
+               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)""",
             (
                 entry.id,
                 entry.name,
@@ -259,11 +272,70 @@ class TaskScheduler:
                 entry.updated_at,
                 entry.direct_tool,
                 entry.direct_params,
+                1 if entry.cadence else 0,
             ),
         )
 
         self._add_job(entry)
         return entry
+
+    @staticmethod
+    def _is_cadence_cron(expr: str) -> bool:
+        """Classify a trigger expression as cadence vs deadline.
+
+        Cadence = frequency hint without a clock target. Triggers that
+        fire at evenly-spaced intervals regardless of wall-clock time:
+        ``*/N * * * *`` (every N minutes), ``0 */N * * *`` (every N
+        hours on the hour), and the interval shorthand ``30s``/``5m``/
+        ``2h``/``1d``. These are guesses about useful frequency, not
+        commitments.
+
+        Deadline = specific clock target. Anything like ``0 9 * * *``
+        ("09:00 daily") or ``30 14 * * 1`` ("Monday 14:30"). These
+        carry external commitment cost if missed.
+
+        Conservative: anything we can't confidently classify falls back
+        to deadline (current behavior). False negatives just mean a few
+        more schedules keep their MIND-preempting power until tagged
+        explicitly.
+        """
+        expr = expr.strip()
+        # Interval shorthand — always cadence.
+        if re.fullmatch(r"\d+\s*[smhd]", expr):
+            return True
+        # 5-field cron: minute hour day month weekday
+        parts = expr.split()
+        if len(parts) != 5:
+            return False
+        minute, hour, day, month, weekday = parts
+        # Every N minutes: */N * * * *  (with day/month/weekday wild)
+        if (
+            re.fullmatch(r"\*/\d+", minute)
+            and hour == "*"
+            and day == "*"
+            and month == "*"
+            and weekday == "*"
+        ):
+            return True
+        # Every N hours on the hour: 0 */N * * *
+        if (
+            minute == "0"
+            and re.fullmatch(r"\*/\d+", hour)
+            and day == "*"
+            and month == "*"
+            and weekday == "*"
+        ):
+            return True
+        # Every minute: * * * * * (rare but cadence by nature)
+        if (
+            minute == "*"
+            and hour == "*"
+            and day == "*"
+            and month == "*"
+            and weekday == "*"
+        ):
+            return True
+        return False
 
     @staticmethod
     def _validate_trigger(expr: str) -> None:
@@ -876,7 +948,7 @@ class TaskScheduler:
 
         # Wrap executor in a tracked task so we can cancel it on delete/disable
         executor_task: asyncio.Task[Any] = asyncio.create_task(
-            self._task_executor(schedule.task_goal)
+            self._task_executor(schedule.task_goal, cadence=schedule.cadence)
         )
         self._running_tasks[schedule_id] = executor_task
         try:
@@ -1001,6 +1073,7 @@ class TaskScheduler:
             updated_at=row["updated_at"],
             direct_tool=_opt("direct_tool"),
             direct_params=_opt("direct_params"),
+            cadence=bool(_opt("cadence") or 0),
         )
 
 

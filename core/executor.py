@@ -236,6 +236,21 @@ class Executor:
                 and getattr(result, "success", True) is False
             ):
                 await self._fire_affect_safe("anxiety", "executor")
+
+            # Content-affect inference: scan the tool result for
+            # high-signal phrases (scam DMs, hostile replies, warm
+            # praise) and fire affect events. Closes the content
+            # boundary that the LLM-callable ``affect_record_event``
+            # tool was supposed to cover but isn't used in practice
+            # (0 calls in 17h of production). See
+            # ``core/affect_content_inference.py``.
+            if (
+                self._affect_manager is not None
+                and result is not None
+                and getattr(result, "success", True)
+            ):
+                await self._infer_content_affect(tool_name, params, result)
+
             return ExecutionResult(
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
@@ -263,12 +278,77 @@ class Executor:
         must not break tool execution. Handles the import indirection so
         executor.py stays free of affect imports at module top level."""
         try:
-            from core.affect import emit_anxiety
+            from core.affect import (
+                emit_anger,
+                emit_anxiety,
+                emit_frustration,
+                emit_joy,
+                emit_relief,
+            )
 
-            if label == "anxiety":
-                await emit_anxiety(self._affect_manager, source=source)
+            emitters = {
+                "anxiety": emit_anxiety,
+                "anger": emit_anger,
+                "frustration": emit_frustration,
+                "joy": emit_joy,
+                "relief": emit_relief,
+            }
+            emitter = emitters.get(label)
+            if emitter is not None:
+                await emitter(self._affect_manager, source=source)
         except Exception as e:  # pragma: no cover — defensive
             logger.debug("Affect emit (%s) from executor failed: %s", label, e)
+
+    async def _infer_content_affect(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+        result: Any,
+    ) -> None:
+        """Run content-affect inference on a tool result and emit
+        suggested affect events. Best-effort — never raises. The
+        inference module is pure / regex-only (no LLM call, no I/O),
+        so the cost is negligible per tool call. See
+        ``core/affect_content_inference.py``."""
+        try:
+            from core.affect_content_inference import infer_from_tool_result
+
+            suggestions = infer_from_tool_result(tool_name, params, result)
+            for sug in suggestions:
+                # Use source='content' so the audit trail proves the
+                # signal came from the agent reading something, not
+                # from the executor failure path. Manager-level
+                # ``record_event`` is what we want, not the
+                # ``emit_anxiety(source=)`` helper which hardcodes the
+                # source.
+                from core.affect import _LABEL_VECTORS
+
+                # Look up canonical PAD vector for the label so the
+                # delta matches what emit_* helpers would produce.
+                vec = _LABEL_VECTORS.get(sug.label)
+                if vec is None:
+                    continue
+                p_target, a_target, d_target = vec
+                # Direction-only scaling — match the emit_* helpers'
+                # ~0.2-magnitude deltas. The label vector is a target
+                # in PAD space; we move toward it at scaled magnitude.
+                scale = 0.4
+                await self._affect_manager.record_event(
+                    label=f"{sug.label}: {sug.summary[:120]}",
+                    source="content",
+                    pleasure_delta=p_target * scale,
+                    arousal_delta=a_target * scale,
+                    dominance_delta=d_target * scale,
+                    weight=sug.weight,
+                )
+                logger.info(
+                    "[affect-content] %s (from %s): %s",
+                    sug.label,
+                    tool_name,
+                    sug.summary,
+                )
+        except Exception as e:  # pragma: no cover — defensive
+            logger.debug("Content-affect inference failed for %s: %s", tool_name, e)
 
     def _check_permission(
         self,

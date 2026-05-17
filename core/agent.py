@@ -3573,7 +3573,9 @@ class Agent:
                 -_MAX_CONVERSATION_HISTORY:
             ]
 
-    async def _execute_scheduled_task(self, goal: str) -> AgentResponse:
+    async def _execute_scheduled_task(
+        self, goal: str, *, cadence: bool = False
+    ) -> AgentResponse:
         """Execute a task goal for a scheduled task.
 
         Pass-through to ``self.run`` with a gateway-broadcasting
@@ -3646,7 +3648,18 @@ class Agent:
         # the scheduler queues them; they don't get to meddle.
         _sched_token = _in_scheduled_task.set(True)
         try:
-            return await self.run(goal, is_user_input=False)
+            # Cadence schedules yield to the autonomous mind — they're
+            # frequency hints, not deadlines. Deadline schedules keep the
+            # original SCHEDULED priority and preempt the mind. See
+            # core/action_queue.py:TaskPriority.
+            from core.action_queue import TaskPriority
+
+            sched_priority = (
+                TaskPriority.SCHEDULED_CADENCE.value
+                if cadence
+                else TaskPriority.SCHEDULED.value
+            )
+            return await self.run(goal, is_user_input=False, priority=sched_priority)
         finally:
             self._on_step = prev_on_step
             _in_scheduled_task.reset(_sched_token)

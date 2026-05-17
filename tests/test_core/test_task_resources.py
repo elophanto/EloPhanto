@@ -270,7 +270,7 @@ class TestSchedulerQueue:
         first_started = asyncio.Event()
         first_release = asyncio.Event()
 
-        async def fake_executor(goal: str) -> Any:
+        async def fake_executor(goal: str, **kwargs) -> Any:
             executed.append(goal)
             if goal == "first":
                 first_started.set()
@@ -330,7 +330,7 @@ class TestSchedulerQueue:
         release = asyncio.Event()
         run_count = 0
 
-        async def slow_executor(goal: str) -> Any:
+        async def slow_executor(goal: str, **kwargs) -> Any:
             nonlocal run_count
             run_count += 1
             running.set()
@@ -371,7 +371,7 @@ class TestSchedulerQueue:
         """The doctor command needs queue_status() → {queue_depth,
         running, paused, resources: {...}}. Pin the shape."""
 
-        async def fake_executor(goal: str) -> Any:
+        async def fake_executor(goal: str, **kwargs) -> Any:
             return type("R", (), {"content": "ok", "steps_taken": 0})()
 
         scheduler = TaskScheduler(db=db, task_executor=fake_executor)
