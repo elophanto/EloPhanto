@@ -313,8 +313,22 @@ class GoalManager:
         )
         goal.llm_calls_used += 1
 
+        # Pick start_order from the LIVE DB state, not goal.current_checkpoint —
+        # the goal's in-memory counter can lag behind completed rows after
+        # crash/recovery. Querying max(order) where status='completed' is
+        # the only source of truth that can't collide with UNIQUE.
+        rows = await self._db.execute(
+            "SELECT MAX(checkpoint_order) AS max_ord FROM goal_checkpoints "
+            "WHERE goal_id = ? AND status = 'completed'",
+            (goal.goal_id,),
+        )
+        max_completed = 0
+        if rows:
+            max_ord = rows[0]["max_ord"]
+            max_completed = int(max_ord) if max_ord is not None else 0
+
         new_checkpoints = self._parse_checkpoint_json(
-            response.content or "[]", goal.goal_id
+            response.content or "[]", goal.goal_id, start_order=max_completed + 1
         )
         if not new_checkpoints:
             return []
@@ -662,8 +676,21 @@ class GoalManager:
         await self._persist_goal(goal)
         return True
 
-    def _parse_checkpoint_json(self, raw: str, goal_id: str) -> list[Checkpoint]:
-        """Parse LLM JSON output into Checkpoint objects."""
+    def _parse_checkpoint_json(
+        self, raw: str, goal_id: str, start_order: int = 1
+    ) -> list[Checkpoint]:
+        """Parse LLM JSON output into Checkpoint objects.
+
+        The ``order`` field emitted by the LLM is **ignored** — we
+        renumber sequentially from ``start_order`` so the resulting
+        list is guaranteed to be collision-free against the UNIQUE
+        (goal_id, checkpoint_order) constraint. Trusting LLM-emitted
+        order numbers was the source of repeated UNIQUE violations:
+        the model would emit duplicates within one decompose, or
+        numbers that overlapped already-completed checkpoints on
+        revise. The DB constraint is the truth; this parser conforms
+        to it instead of fighting it.
+        """
         # Try to extract JSON array from response
         text = raw.strip()
         # Handle markdown code blocks
@@ -683,18 +710,20 @@ class GoalManager:
             return []
 
         checkpoints: list[Checkpoint] = []
+        next_order = start_order
         for item in items:
             if not isinstance(item, dict):
                 continue
             checkpoints.append(
                 Checkpoint(
                     goal_id=goal_id,
-                    order=item.get("order", len(checkpoints) + 1),
+                    order=next_order,
                     title=str(item.get("title", "Untitled"))[:60],
                     description=str(item.get("description", "")),
                     success_criteria=str(item.get("success_criteria", "")),
                 )
             )
+            next_order += 1
         return checkpoints
 
     @staticmethod

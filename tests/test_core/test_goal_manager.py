@@ -477,3 +477,99 @@ class TestRevision:
         new_cps = await gm.revise_plan(goal, "New information found")
         assert len(new_cps) == 2
         assert new_cps[0].title == "New step 2"
+
+
+# ---------------------------------------------------------------------------
+# UNIQUE(goal_id, checkpoint_order) regression — the LLM cannot be trusted
+# to emit collision-free order numbers. Production hit "UNIQUE constraint
+# failed: goal_checkpoints.goal_id, goal_checkpoints.checkpoint_order" on
+# 2026-05-17; these tests pin the Python-side renumbering that prevents it.
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpointOrderRenumber:
+    @pytest.mark.asyncio
+    async def test_decompose_with_duplicate_order_does_not_violate_unique(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """LLM emits two checkpoints both claiming order=1. Pre-fix this
+        crashed on INSERT. Post-fix the parser renumbers and both land."""
+        bad_json = json.dumps(
+            [
+                {"order": 1, "title": "A", "description": "d", "success_criteria": "s"},
+                {"order": 1, "title": "B", "description": "d", "success_criteria": "s"},
+                {"order": 1, "title": "C", "description": "d", "success_criteria": "s"},
+            ]
+        )
+        router.complete.return_value = FakeLLMResponse(content=bad_json)
+        goal = await gm.create_goal("Dup orders")
+        cps = await gm.decompose(goal)
+        assert [c.order for c in cps] == [1, 2, 3]
+        assert [c.title for c in cps] == ["A", "B", "C"]
+
+    @pytest.mark.asyncio
+    async def test_decompose_ignores_llm_order_field(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """LLM emits weird/out-of-band order numbers (7, 99, 0). The
+        parser ignores them and renumbers 1..N. This is the contract:
+        Python owns ordering, the LLM owns content."""
+        weird_json = json.dumps(
+            [
+                {"order": 7, "title": "First", "description": "d", "success_criteria": "s"},
+                {"order": 99, "title": "Second", "description": "d", "success_criteria": "s"},
+                {"order": 0, "title": "Third", "description": "d", "success_criteria": "s"},
+            ]
+        )
+        router.complete.return_value = FakeLLMResponse(content=weird_json)
+        goal = await gm.create_goal("Weird orders")
+        cps = await gm.decompose(goal)
+        assert [c.order for c in cps] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_revise_starts_after_max_completed_order(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """After completing checkpoints 1 and 2, a revision must
+        produce new checkpoints starting at order=3 — even if the LLM
+        emits them with orders 1 and 2 (overlapping the completed
+        rows that revise_plan does NOT delete). Pre-fix this was the
+        exact bug surfaced in production."""
+        initial = json.dumps(
+            [
+                {"order": 1, "title": "Step 1", "description": "d", "success_criteria": "s"},
+                {"order": 2, "title": "Step 2", "description": "d", "success_criteria": "s"},
+                {"order": 3, "title": "Step 3", "description": "d", "success_criteria": "s"},
+            ]
+        )
+        # Adversarial: LLM emits orders 1 and 2, which would collide
+        # with the completed rows 1 and 2 if we trusted its numbering.
+        revised = json.dumps(
+            [
+                {"order": 1, "title": "New A", "description": "d", "success_criteria": "s"},
+                {"order": 2, "title": "New B", "description": "d", "success_criteria": "s"},
+            ]
+        )
+        router.complete.side_effect = [
+            FakeLLMResponse(content=initial),
+            FakeLLMResponse(content=revised),
+        ]
+        goal = await gm.create_goal("Revise w/ collision")
+        await gm.decompose(goal)
+        await gm.mark_checkpoint_complete(goal.goal_id, 1, "Done")
+        await gm.mark_checkpoint_complete(goal.goal_id, 2, "Done")
+        goal = await gm.get_goal(goal.goal_id)
+        assert goal is not None
+
+        new_cps = await gm.revise_plan(goal, "rethink")
+        assert [c.order for c in new_cps] == [3, 4], (
+            f"new checkpoints must start after max completed order; "
+            f"got {[c.order for c in new_cps]}"
+        )
+
+        # End-state check: all checkpoints in DB have distinct orders.
+        all_cps = await gm.get_checkpoints(goal.goal_id)
+        orders = [c.order for c in all_cps]
+        assert len(orders) == len(set(orders)), (
+            f"duplicate orders in DB: {orders}"
+        )

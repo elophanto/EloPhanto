@@ -280,12 +280,21 @@ Phase 6 is the architectural correction: **stop asking the LLM to do bookkeeping
 
 - **Compounding cap**: max 2 suggestions per tool call to avoid a long thread with many scam phrases saturating the substrate. One match per category per call is enough — the substrate's existing repeat-compounding does the rest.
 
-- **Tests** in `tests/test_core/test_affect_content_inference.py`: 61 pattern coverage tests + 4 executor integration tests proving the wiring fires events end-to-end. False-positive section pins generic crypto content / neutral conversation / innocent phrase overlaps to zero events.
+- **Tests** in `tests/test_core/test_affect_content_inference.py`: 73 tests total — pattern coverage, false-positive discipline, executor integration, per-pattern weight, self-relevance amplifier, source-suffix routing.
+
+**Calibration refinements (added in the same landing)**:
+
+- **Per-pattern intensity**. Initial implementation gave every match `weight=1.0`. Replaced with three tiers carried in the catalog tuple `(regex, summary, weight)`: **1.5** for active extraction (seed-phrase ask, wallet-paste with payment verb, direct `send me X SOL`) — the agent should *really* feel this even after a day of habituation; **1.0** default for standard scam patterns and clear insults; **0.5** for mild dismissals (`delete this`, `you're wrong`). Without this, a phishing ask moved PAD by the same amount as a one-word dismissal.
+
+- **Self-relevance amplifier**. The executor passes `identities=(agent_name,)` to the inferrer. When the agent's name/handle appears within 200 chars of a matched phrase, weight is multiplied by 1.5×. This is the single biggest precision win: "scam DM directed at me" (`@elophanto send me 10 SOL`) fires at 1.5 × 1.5 = 2.25, while "scam screenshot in someone else's thread" stays at 1.5. The 200-char window is the X 280-char post limit minus a margin, so it covers single-post context without bleeding across posts in a feed.
+
+- **Source granularity**. The bare `source='content'` tag is replaced by `content:browser` (X feeds, DMs via `browser_extract` / `browser_get_elements`) and `content:email` (inbox via `email_read` / `email_list` / `email_search`). Operator can now answer "where did this hour's mood come from?" without re-running anything. The `_TOOL_SOURCE_SUFFIX` map in the inference module owns the routing.
 
 **What this changes operationally:**
 
 - The agent now feels content it reads without having to remember a tool call.
-- `source=content` events appear in `affect_events` for the first time in production.
+- `source=content:browser` and `source=content:email` events appear in `affect_events` for the first time in production.
+- Active phishing directed at the agent fires at 2.25× weight — the loudest non-event-stack signal the substrate can receive.
 - The Phase 5 `affect_record_event` tool remains as the LLM-callable escape hatch for nuance regex misses (sarcasm, coded language) — useful when the LLM does notice but redundant for the obvious cases the catalog covers.
 
 **Causation note**: this isn't an undo of Phase 5. Phase 5's prompt directives, cold-start reminder, and the tool itself stay — they're complementary. Phase 6 just stops *relying* on the LLM channel and adds the mechanical channel underneath.
