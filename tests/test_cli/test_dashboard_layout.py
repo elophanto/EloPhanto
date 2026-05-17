@@ -104,15 +104,63 @@ class TestPanelRendering:
             },
         ]
         body = _GoalsPanel(s).body()
-        # Title is truncated to 8 chars — Textual border + container
-        # padding eats more than the 30-col panel width suggests, so
-        # the visible budget is ~22 cols. Earlier (longer) caps wrapped
-        # in real terminals.
-        assert "ship inv" in body
+        # Title now renders in full on its own line — the old 8-char
+        # cap made goals unreadable ("Build a 5/15" instead of "Build a
+        # robust X-virality test framework"). 22-char body budget
+        # comfortably fits "ship invoice MVP" untruncated.
+        assert "ship invoice MVP" in body
+        # Two-line layout: title row + bar/tail row.
+        assert body.count("\n") >= 1, "goals must render on two lines"
         # Progress bar uses ▓ filled + ░ empty.
         assert "▓" in body and "░" in body
         # Checkpoint takes the right column when present.
         assert "3/7" in body
+
+    def test_goals_long_title_ellipsizes_with_hellip(self) -> None:
+        """Titles past the 22-char body budget get a trailing … so the
+        operator can see truncation happened. Wrong-cap is worse than
+        visible-cut."""
+        from cli.dashboard.app import _GoalsPanel, _State
+
+        s = _State()
+        s.goals = [
+            {
+                "title": "Build a robust X-virality test framework for the agent",
+                "pct": 10,
+                "checkpoint": "1/8",
+                "status": "active",
+            },
+        ]
+        body = _GoalsPanel(s).body()
+        assert "…" in body, f"long title must be ellipsized; body={body!r}"
+        # Cap is 21 chars + ellipsis. The first 21 chars must appear.
+        assert "Build a robust X-vira" in body
+
+    def test_goals_more_than_two_shows_footer(self) -> None:
+        """The panel caps at 2 visible goals to protect SCHEDULED /
+        APPROVALS from getting pushed offscreen. A '+N more' footer
+        tells the operator the panel is a window, not the full list."""
+        from cli.dashboard.app import _GoalsPanel, _State
+
+        s = _State()
+        s.goals = [
+            {"title": f"goal-{i}", "pct": 10, "checkpoint": "1/5"} for i in range(4)
+        ]
+        body = _GoalsPanel(s).body()
+        assert "+2 more" in body
+        # First two goals are shown, the rest hidden.
+        assert "goal-0" in body and "goal-1" in body
+        assert "goal-2" not in body and "goal-3" not in body
+
+    def test_goals_two_or_fewer_no_footer(self) -> None:
+        """No '+N more' footer when the panel can show everything —
+        otherwise the operator gets confused about hidden state."""
+        from cli.dashboard.app import _GoalsPanel, _State
+
+        s = _State()
+        s.goals = [{"title": "only one", "pct": 50, "checkpoint": "2/4"}]
+        body = _GoalsPanel(s).body()
+        assert "more" not in body
 
     def test_approvals_empty_returns_no_body(self) -> None:
         """Approvals panel hides itself when there's nothing to ask
@@ -481,7 +529,15 @@ class TestEgoQualifier:
         is fixed to a small word set."""
         from cli.dashboard.app import _ego_qualifier
 
-        valid = {"green", "stale", "humbled", "shaken", "questioning", "steady", "settled"}
+        valid = {
+            "green",
+            "stale",
+            "humbled",
+            "shaken",
+            "questioning",
+            "steady",
+            "settled",
+        }
         # Sweep across the parameter space and assert every output is
         # one of the valid words.
         for coherence in (0.0, 0.3, 0.5, 0.7, 0.9, 1.0):
@@ -496,4 +552,6 @@ class TestEgoQualifier:
                                 "tasks_since_recompute": tasks_since,
                             }
                         )
-                        assert result in valid, f"unexpected qualifier {result!r} for state ({coherence},{conf_avg},{humbling},{tasks_since})"
+                        assert (
+                            result in valid
+                        ), f"unexpected qualifier {result!r} for state ({coherence},{conf_avg},{humbling},{tasks_since})"

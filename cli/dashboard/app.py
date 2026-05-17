@@ -608,16 +608,27 @@ class _GoalsPanel(_SidePanel):
             "done": f"[{_OK}]✓[/]",
         }
         lines = []
-        # Show top 3 — too many goals at once usually means the
-        # operator hasn't pruned, and the panel shouldn't compensate
-        # for that by growing taller and squashing other panels.
-        for goal in s.goals[:3]:
+        # Two-line layout per goal. The old single-line layout had to
+        # cap the title at 8 chars to fit a bar + tail on the same
+        # row; operators reported they couldn't actually read what the
+        # agent was working on. Two lines per goal trades vertical
+        # space for legibility, which is the right trade — goals are
+        # the most important running state.
+        #
+        # Line 1: indent(2) + icon+space(2) + title(up to 22) = up to 26
+        #         within the 30-col sidebar (border+padding budget ~26).
+        # Line 2: indent(4) + bar(4) + space + tail(~6) = ~15.
+        #
+        # Cap at top 2 — multi-goal concurrency exists but is rare;
+        # capping prevents the panel from pushing SCHEDULED / APPROVALS
+        # offscreen on short terminals. Operators with >2 goals see the
+        # rest via the `/goals` command.
+        for goal in s.goals[:2]:
             icon = icons.get(goal.get("status", "active"), f"[{_DIM}]?[/]")
-            # 8-char title cap. Sidebar visual budget after Textual
-            # border + padding is ~22 cols on a 30-col panel:
-            # 2 indent + 2 icon+space + 8 title + 1 + 4 bar + 1 + 4 tail = 22.
-            # Earlier 14-char cap wrapped on real terminals.
-            title = goal.get("title", "?")[:8]
+            raw_title = goal.get("title", "?")
+            # Truncate with an ellipsis so the operator can see the
+            # title was cut, not just that it was short.
+            title = raw_title if len(raw_title) <= 22 else raw_title[:21] + "…"
             pct = int(goal.get("pct", 0))
             checkpoint = goal.get("checkpoint", "")
             filled = min(4, max(0, int(pct / 25)))
@@ -625,7 +636,13 @@ class _GoalsPanel(_SidePanel):
             tail = (
                 f"[{_DIM}]{checkpoint}[/]" if checkpoint else f"[{_DIM}]{pct:>3d}%[/]"
             )
-            lines.append(f"  {icon} [{_BRIGHT}]{title:<8}[/] {bar} {tail}")
+            lines.append(f"  {icon} [{_BRIGHT}]{title}[/]")
+            lines.append(f"    {bar} {tail}")
+        # Footer when more goals exist than we can show — keeps the
+        # operator aware that the panel is a window, not the whole list.
+        if len(s.goals) > 2:
+            extra = len(s.goals) - 2
+            lines.append(f"  [{_DIM}]+{extra} more[/]")
         return "\n".join(lines)
 
 
