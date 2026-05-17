@@ -97,14 +97,23 @@ You MUST complete all 4 steps IN THIS CYCLE. Do NOT explore code, do NOT
 read source files, do NOT investigate tools. Dream → Decide → Create. That's it.
 
 Step 1 — DISCOVER (1 tool call max):
-  Call goal_dream to get scored goal candidates. That's your only discovery step.
-  Do NOT call self_list_capabilities, self_read_source, file_read, shell_execute,
-  or any exploration tools. goal_dream already reviews your capabilities internally.
+  Call goal_dream with focus='{dream_focus}' — TODAY'S DREAM FOCUS. The focus
+  rotates deterministically by day across the seven value lenses (compounding,
+  capability, research, relational, creation, identity, infrastructure) so the
+  agent does not get stuck in one mode of thinking. Pass focus='{dream_focus}'
+  exactly, not 'balanced' and not anything else. Do NOT call
+  self_list_capabilities, self_read_source, file_read, shell_execute, or any
+  exploration tools — goal_dream already injects skills, identity, affect,
+  recent ego notes, and previously proposed dreams.
 
 Step 2 — EVALUATE the candidates returned by goal_dream.
-  Read the feasibility, value, cost, and risk scores. No extra tool calls needed.
+  Each candidate carries feasibility, value, cost, risk, and the value lenses
+  it pursues. Read them. No extra tool calls needed.
 
-Step 3 — DECIDE which candidate to pursue. Pick the highest-value feasible one.
+Step 3 — DECIDE which candidate to pursue. The best pick is not always the
+  highest value × feasibility — for a research-focus cycle, a low-value bet
+  that teaches something is often the right answer. Match the choice to the
+  cycle's focus.
 
 Step 4 — CREATE immediately with goal_create. Then update_scratchpad with your
   reasoning. Do NOT do anything else this cycle.
@@ -165,6 +174,34 @@ RULES — no exceptions:
 
 BUDGET: ${budget_remaining:.4f} remaining today. UTC: {utc_now}
 """
+
+
+# Dream focus rotation — the seven value lenses the dream phase rotates
+# through, one per day. Lives in the mind (not the dream tool) so the
+# dream stays a stateless function of its inputs. Determinism over
+# randomness: random would occasionally repeat the same focus three
+# days running, which is exactly the convergence we are fixing.
+_DREAM_LENSES: tuple[str, ...] = (
+    "compounding",
+    "capability",
+    "research",
+    "relational",
+    "creation",
+    "identity",
+    "infrastructure",
+)
+
+
+def _dream_focus_for_today() -> str:
+    """Pick today's dream focus deterministically from the 7-lens rotation.
+
+    Day-of-year mod 7 — same focus all day (so a dream cycle that runs
+    twice on the same day gets a coherent context), different focus
+    each day.
+    """
+    today = datetime.now(UTC)
+    day_of_year = today.timetuple().tm_yday
+    return _DREAM_LENSES[day_of_year % len(_DREAM_LENSES)]
 
 
 class AutonomousMind:
@@ -1233,6 +1270,7 @@ class AutonomousMind:
             last_wakeup=self._last_wakeup_time,
             last_action=self._last_action,
             utc_now=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+            dream_focus=_dream_focus_for_today(),
         )
 
     # ------------------------------------------------------------------
