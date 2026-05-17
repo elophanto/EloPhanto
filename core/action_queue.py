@@ -22,9 +22,15 @@ class TaskPriority(IntEnum):
 
     USER = 0  # Manual chat messages — highest priority
     HEARTBEAT = 1  # Heartbeat standing orders
-    SCHEDULED = 2  # Scheduled cron tasks
+    SCHEDULED = 2  # Scheduled cron tasks with deadline semantics
     MIND = 3  # Autonomous mind background cycles
-    GOAL = 4  # Goal runner background execution
+    # Cadence schedules ("post every hour", "check inbox every 30m") are
+    # frequency hints, not deadlines. They yield to the mind's reflection
+    # loop — letting the mind decide whether *this* instance is worth
+    # running, instead of forcing a low-quality artifact under cadence
+    # pressure. See docs/ego logs 2026-05-17.
+    SCHEDULED_CADENCE = 4
+    GOAL = 5  # Goal runner background execution
 
 
 class ActionQueue:

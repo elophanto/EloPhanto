@@ -246,7 +246,7 @@ class TestTaskScheduler:
 
         started = asyncio.Event()
 
-        async def slow_executor(goal: str):
+        async def slow_executor(goal: str, **kwargs):
             started.set()
             await asyncio.sleep(60)
             return type("Result", (), {"content": "done", "steps_taken": 1})()
@@ -280,7 +280,7 @@ class TestTaskScheduler:
 
         started = asyncio.Semaphore(0)
 
-        async def slow_executor(goal: str):
+        async def slow_executor(goal: str, **kwargs):
             started.release()
             await asyncio.sleep(60)
             return type("Result", (), {"content": "done", "steps_taken": 1})()
@@ -320,7 +320,7 @@ class TestTaskScheduler:
 
         started = asyncio.Event()
 
-        async def slow_executor(goal: str):
+        async def slow_executor(goal: str, **kwargs):
             started.set()
             await asyncio.sleep(60)
             return type("Result", (), {"content": "done", "steps_taken": 1})()
@@ -585,7 +585,7 @@ class TestDirectTool:
         the task_executor (agent.run path), unaffected by the new fork."""
         called = asyncio.Event()
 
-        async def task_exec(_goal: str) -> Any:
+        async def task_exec(_goal: str, **kwargs) -> Any:
             called.set()
             return type("R", (), {"content": "ok", "steps_taken": 0})()
 
@@ -601,3 +601,121 @@ class TestDirectTool:
             schedule_id = await s._queue.get()
             await s._run_one(schedule_id)
         await asyncio.wait_for(called.wait(), timeout=3)
+
+
+class TestCadenceDetection:
+    """``_is_cadence_cron`` classifies trigger expressions as cadence
+    (frequency hint, yields to autonomous mind) vs deadline (specific
+    clock target, preempts mind). See action_queue.TaskPriority."""
+
+    @pytest.mark.parametrize(
+        "expr",
+        [
+            "*/5 * * * *",      # every 5 minutes
+            "*/15 * * * *",     # every 15 minutes
+            "0 */1 * * *",      # every hour on the hour
+            "0 */3 * * *",      # every 3 hours
+            "* * * * *",        # every minute
+            "30s",              # interval shorthand seconds
+            "5m",               # interval shorthand minutes
+            "2h",               # interval shorthand hours
+            "1d",               # interval shorthand days
+        ],
+    )
+    def test_cadence_patterns(self, expr: str) -> None:
+        assert TaskScheduler._is_cadence_cron(expr), expr
+
+    @pytest.mark.parametrize(
+        "expr",
+        [
+            "0 9 * * *",        # 09:00 daily — deadline
+            "30 14 * * *",      # 14:30 daily — deadline
+            "0 9 * * 1",        # Monday 09:00 — deadline
+            "0 0 1 * *",        # 1st of month — deadline
+            "0 9,17 * * *",     # specific hours — deadline
+        ],
+    )
+    def test_deadline_patterns(self, expr: str) -> None:
+        assert not TaskScheduler._is_cadence_cron(expr), expr
+
+
+class TestCadencePersistence:
+    @pytest.fixture
+    async def db(self, tmp_path: Path) -> Database:
+        db = Database(tmp_path / "test.db")
+        await db.initialize()
+        return db
+
+    @pytest.mark.asyncio
+    async def test_cadence_auto_flagged_on_create(self, db: Database) -> None:
+        """Schedules with ``*/N`` cron get cadence=True; clock-targeted
+        ones get cadence=False. Round-trips through the DB."""
+        async def exec_noop(goal: str, **kwargs: Any) -> Any:
+            return type("R", (), {"content": "", "steps_taken": 0})()
+
+        s = TaskScheduler(db=db, task_executor=exec_noop)
+        cadence_entry = await s.create_schedule(
+            name="Hourly cadence",
+            task_goal="post",
+            cron_expression="0 */1 * * *",
+        )
+        deadline_entry = await s.create_schedule(
+            name="9am report",
+            task_goal="report",
+            cron_expression="0 9 * * *",
+        )
+        assert cadence_entry.cadence is True
+        assert deadline_entry.cadence is False
+
+        # Reload from DB → flags survive
+        reloaded = {e.id: e for e in await s.list_schedules()}
+        assert reloaded[cadence_entry.id].cadence is True
+        assert reloaded[deadline_entry.id].cadence is False
+
+    @pytest.mark.asyncio
+    async def test_direct_tool_never_cadence(
+        self, db: Database, tmp_path: Path
+    ) -> None:
+        """Direct-tool schedules bypass the agent loop entirely, so the
+        cadence flag is meaningless — always stored as False."""
+
+        class _StubRegistry:
+            def get(self, name: str) -> Any:
+                from tools.base import PermissionLevel
+
+                t = type("T", (), {})()
+                t.permission_level = PermissionLevel.SAFE
+                return t
+
+        async def exec_noop(goal: str, **kwargs: Any) -> Any:
+            return type("R", (), {"content": "", "steps_taken": 0})()
+
+        s = TaskScheduler(
+            db=db, task_executor=exec_noop, registry=_StubRegistry()
+        )
+        entry = await s.create_schedule(
+            name="cadence cron but direct",
+            task_goal="",
+            cron_expression="*/5 * * * *",
+            direct_tool="anything",
+            direct_params={},
+        )
+        assert entry.cadence is False
+
+
+class TestCadencePriorityRouting:
+    """The agent-side ``_execute_scheduled_task`` picks
+    SCHEDULED_CADENCE vs SCHEDULED priority based on the flag plumbed
+    from the scheduler. This is the load-bearing wiring — verify the
+    forwarded priority directly without spinning up a full Agent."""
+
+    @pytest.mark.asyncio
+    async def test_cadence_routes_to_scheduled_cadence_priority(
+        self, tmp_path: Path
+    ) -> None:
+        from core.action_queue import TaskPriority
+
+        # Cadence is strictly lower-priority than MIND
+        assert TaskPriority.SCHEDULED_CADENCE > TaskPriority.MIND
+        # Deadline is strictly higher-priority than MIND
+        assert TaskPriority.SCHEDULED < TaskPriority.MIND
