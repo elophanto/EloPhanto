@@ -311,39 +311,54 @@ class Executor:
         so the cost is negligible per tool call. See
         ``core/affect_content_inference.py``."""
         try:
+            from core.affect import _LABEL_VECTORS
             from core.affect_content_inference import infer_from_tool_result
 
-            suggestions = infer_from_tool_result(tool_name, params, result)
-            for sug in suggestions:
-                # Use source='content' so the audit trail proves the
-                # signal came from the agent reading something, not
-                # from the executor failure path. Manager-level
-                # ``record_event`` is what we want, not the
-                # ``emit_anxiety(source=)`` helper which hardcodes the
-                # source.
-                from core.affect import _LABEL_VECTORS
+            # Identity tokens for the self-relevance amplifier. "Scam in
+            # MY DMs" must fire harder than "scam screenshot in someone
+            # else's thread"; without this gate both fire identically.
+            # We pass the agent's configured name; the inference module
+            # case-folds when matching, so "elophanto" / "EloPhanto" /
+            # "@elophanto" all amplify.
+            identities: tuple[str, ...] = ()
+            agent_name = getattr(self._config, "agent_name", "") or ""
+            if agent_name:
+                identities = (agent_name,)
 
-                # Look up canonical PAD vector for the label so the
-                # delta matches what emit_* helpers would produce.
+            suggestions = infer_from_tool_result(
+                tool_name, params, result, identities=identities
+            )
+            for sug in suggestions:
+                # Look up canonical PAD vector for the label. We move
+                # toward it at fixed scale; the per-pattern weight and
+                # repeat-compounding live inside record_event.
                 vec = _LABEL_VECTORS.get(sug.label)
                 if vec is None:
                     continue
                 p_target, a_target, d_target = vec
+                # Source tag: "content:browser" / "content:email" so the
+                # audit trail tells the operator where mood came from.
+                # Falls back to bare "content" if the tool isn't routed.
+                source = (
+                    f"content:{sug.source_suffix}" if sug.source_suffix else "content"
+                )
                 # Direction-only scaling — match the emit_* helpers'
                 # ~0.2-magnitude deltas. The label vector is a target
                 # in PAD space; we move toward it at scaled magnitude.
                 scale = 0.4
                 await self._affect_manager.record_event(
                     label=f"{sug.label}: {sug.summary[:120]}",
-                    source="content",
+                    source=source,
                     pleasure_delta=p_target * scale,
                     arousal_delta=a_target * scale,
                     dominance_delta=d_target * scale,
                     weight=sug.weight,
                 )
                 logger.info(
-                    "[affect-content] %s (from %s): %s",
+                    "[affect-content] %s w=%.2f src=%s (from %s): %s",
                     sug.label,
+                    sug.weight,
+                    source,
                     tool_name,
                     sug.summary,
                 )
