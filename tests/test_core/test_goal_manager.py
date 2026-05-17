@@ -573,3 +573,136 @@ class TestCheckpointOrderRenumber:
         assert len(orders) == len(set(orders)), (
             f"duplicate orders in DB: {orders}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Completion hooks — autonomous mind subscribes here so finishing a goal
+# triggers an immediate dream-cycle wakeup instead of waiting for the
+# next scheduled tick. These tests pin the contract: fires once on
+# goal-completion, swallows hook failures, supports multiple subscribers.
+# ---------------------------------------------------------------------------
+
+
+class TestCompletionHooks:
+    @pytest.mark.asyncio
+    async def test_hook_fires_on_goal_completion(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        router.complete.return_value = FakeLLMResponse(
+            content=json.dumps(
+                [
+                    {
+                        "order": 1,
+                        "title": "Step 1",
+                        "description": "d",
+                        "success_criteria": "s",
+                    },
+                ]
+            )
+        )
+        captured: list[str] = []
+
+        async def hook(goal_id: str) -> None:
+            captured.append(goal_id)
+
+        gm.add_completion_hook(hook)
+        goal = await gm.create_goal("One-step goal")
+        await gm.decompose(goal)
+
+        # Completing the only checkpoint flips the goal to 'completed'.
+        await gm.mark_checkpoint_complete(goal.goal_id, 1, "Done")
+
+        assert captured == [goal.goal_id], (
+            f"hook should fire exactly once with the goal_id; got {captured}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_hook_does_not_fire_on_intermediate_checkpoint(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """Hook must only fire when the GOAL completes, not on every
+        checkpoint. Otherwise the mind would wake up between every step."""
+        router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
+        captured: list[str] = []
+
+        async def hook(goal_id: str) -> None:
+            captured.append(goal_id)
+
+        gm.add_completion_hook(hook)
+        goal = await gm.create_goal("Multi-step")
+        await gm.decompose(goal)  # 3 checkpoints
+
+        await gm.mark_checkpoint_complete(goal.goal_id, 1, "Done")
+        await gm.mark_checkpoint_complete(goal.goal_id, 2, "Done")
+        assert captured == [], "hook must not fire on intermediate checkpoints"
+
+        await gm.mark_checkpoint_complete(goal.goal_id, 3, "Done")
+        assert captured == [goal.goal_id], "hook must fire on the final checkpoint"
+
+    @pytest.mark.asyncio
+    async def test_hook_failure_does_not_break_completion(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """One bad subscriber must not stop the goal from completing."""
+        router.complete.return_value = FakeLLMResponse(
+            content=json.dumps(
+                [
+                    {
+                        "order": 1,
+                        "title": "Step 1",
+                        "description": "d",
+                        "success_criteria": "s",
+                    },
+                ]
+            )
+        )
+
+        async def broken_hook(goal_id: str) -> None:
+            raise RuntimeError("hook is on fire")
+
+        gm.add_completion_hook(broken_hook)
+        goal = await gm.create_goal("With broken hook")
+        await gm.decompose(goal)
+
+        # Must not raise.
+        await gm.mark_checkpoint_complete(goal.goal_id, 1, "Done")
+
+        # Goal still ends up completed in the DB.
+        refreshed = await gm.get_goal(goal.goal_id)
+        assert refreshed is not None
+        assert refreshed.status == "completed"
+
+    @pytest.mark.asyncio
+    async def test_multiple_hooks_all_fire(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """Mind + analytics + anything else can subscribe in parallel."""
+        router.complete.return_value = FakeLLMResponse(
+            content=json.dumps(
+                [
+                    {
+                        "order": 1,
+                        "title": "S",
+                        "description": "d",
+                        "success_criteria": "s",
+                    }
+                ]
+            )
+        )
+        a: list[str] = []
+        b: list[str] = []
+
+        async def hook_a(goal_id: str) -> None:
+            a.append(goal_id)
+
+        async def hook_b(goal_id: str) -> None:
+            b.append(goal_id)
+
+        gm.add_completion_hook(hook_a)
+        gm.add_completion_hook(hook_b)
+        goal = await gm.create_goal("Two subscribers")
+        await gm.decompose(goal)
+        await gm.mark_checkpoint_complete(goal.goal_id, 1, "Done")
+
+        assert a == [goal.goal_id]
+        assert b == [goal.goal_id]

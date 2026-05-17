@@ -142,6 +142,30 @@ class GoalManager:
         self._db = db
         self._router = router
         self._config = config
+        # Optional callback fired when a goal flips to "completed". The
+        # autonomous mind registers a hook so finishing a goal kicks the
+        # next dream cycle immediately instead of waiting up to several
+        # hours for the next scheduled wakeup. Kept as a list to support
+        # multiple subscribers (e.g. analytics + mind).
+        # Signature: async def hook(goal_id: str) -> None
+        self._on_goal_completed: list[Any] = []
+
+    def add_completion_hook(self, hook: Any) -> None:
+        """Register an async callback fired after a goal flips to
+        'completed'. Hooks must be ``async def hook(goal_id: str)`` and
+        must not raise — failures are logged and swallowed so one bad
+        subscriber cannot break the goal lifecycle.
+        """
+        self._on_goal_completed.append(hook)
+
+    async def _fire_completion_hooks(self, goal_id: str) -> None:
+        """Best-effort fan-out. Hook exceptions are logged and dropped
+        so a downstream consumer cannot affect goal persistence."""
+        for hook in self._on_goal_completed:
+            try:
+                await hook(goal_id)
+            except Exception as e:
+                logger.warning("Goal completion hook failed: %s", e)
 
     # --- Goal lifecycle ---
 
@@ -420,15 +444,25 @@ class GoalManager:
             return
 
         next_cp = await self.get_next_checkpoint(goal_id)
+        just_completed = False
         if next_cp:
             goal.current_checkpoint = next_cp.order
         else:
             # All checkpoints done
             goal.status = "completed"
             goal.completed_at = now
+            just_completed = True
 
         goal.updated_at = now
         await self._persist_goal(goal)
+
+        # Fire completion hooks AFTER persistence — subscribers can
+        # safely re-query DB state. The autonomous mind uses this to
+        # interrupt its sleep and start dreaming the next goal
+        # immediately, closing the multi-hour latency window between
+        # "goal finished" and "next dream cycle wakes up".
+        if just_completed:
+            await self._fire_completion_hooks(goal_id)
 
     async def mark_checkpoint_failed(
         self, goal_id: str, order: int, error: str

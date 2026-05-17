@@ -192,6 +192,15 @@ _DREAM_LENSES: tuple[str, ...] = (
 )
 
 
+# Planning-stuck timeout: how long a goal can sit in status='planning'
+# (= decompose never ran or returned 0 checkpoints) before maintenance
+# auto-retries. 30 minutes balances "give the LLM a chance to call
+# goal_decompose itself" against "don't let a stuck goal block dream
+# phase for a full day". Two retries max — second cancels.
+_PLANNING_STUCK_TIMEOUT_S = 30 * 60
+_PLANNING_MAX_RETRIES = 2
+
+
 def _dream_focus_for_today() -> str:
     """Pick today's dream focus deterministically from the 7-lens rotation.
 
@@ -289,6 +298,18 @@ class AutonomousMind:
         self._stop_requested = False
         self._paused = False
         self._next_wakeup_sec = float(self._config.wakeup_seconds)
+        # Register goal-completion hook so finishing a goal triggers an
+        # immediate wakeup. Previously the mind only noticed empty goal
+        # state on its next scheduled wakeup, which could be hours
+        # later for low-urgency cycles. This closes that latency window.
+        if (
+            self._agent
+            and hasattr(self._agent, "_goal_manager")
+            and self._agent._goal_manager is not None
+        ):
+            self._agent._goal_manager.add_completion_hook(
+                self._on_goal_completed_wakeup
+            )
         self._task = asyncio.create_task(self._run_loop(), name="autonomous-mind")
         self._task.add_done_callback(self._on_task_done)
         logger.info(
@@ -296,6 +317,83 @@ class AutonomousMind:
             self._config.wakeup_seconds,
         )
         return True
+
+    async def _retry_stuck_planning_goals(self, goal_manager: Any) -> None:
+        """Find goals stuck in status='planning' past the timeout and
+        retry decomposition. Cancels on the second failure so the
+        snapshot stops showing a poisoned [GOAL-PLANNING] entry forever.
+
+        A goal is 'stuck' when:
+          - status == 'planning'
+          - updated_at is older than ``_PLANNING_STUCK_TIMEOUT_S``
+          - total_checkpoints == 0 (decompose never produced anything)
+        """
+        try:
+            planning = await goal_manager.list_goals(status="planning", limit=10)
+        except Exception:
+            return
+
+        if not planning:
+            return
+
+        now = datetime.now(UTC)
+        for g in planning:
+            if g.total_checkpoints > 0:
+                # Has checkpoints — not stuck, just paused mid-flow.
+                continue
+            try:
+                last = datetime.fromisoformat(g.updated_at)
+            except (ValueError, TypeError):
+                continue
+            age_s = (now - last).total_seconds()
+            if age_s < _PLANNING_STUCK_TIMEOUT_S:
+                continue
+
+            # ``attempts`` counts how many times we've tried to decompose
+            # this goal. After max retries, cancel — better to surface
+            # the failure than to retry forever.
+            if g.attempts >= _PLANNING_MAX_RETRIES:
+                logger.warning(
+                    "Goal %s stuck in planning %.0fs after %d attempts — cancelling",
+                    g.goal_id[:8],
+                    age_s,
+                    g.attempts,
+                )
+                try:
+                    await goal_manager.cancel_goal(g.goal_id)
+                except Exception as e:
+                    logger.warning("cancel_goal failed: %s", e)
+                continue
+
+            logger.info(
+                "Goal %s stuck in planning %.0fs — retrying decompose (attempt %d)",
+                g.goal_id[:8],
+                age_s,
+                g.attempts + 1,
+            )
+            try:
+                await goal_manager.decompose(g)
+            except Exception as e:
+                logger.warning("decompose retry failed for %s: %s", g.goal_id[:8], e)
+
+    async def _on_goal_completed_wakeup(self, goal_id: str) -> None:
+        """Hook fired by GoalManager when a goal flips to 'completed'.
+
+        Interrupts the mind's current sleep so the next cycle starts
+        immediately and finds an empty active-goal list, triggering
+        dream phase. Skips when the mind is paused (user interaction
+        in flight) — we don't want to barge in mid-conversation. The
+        normal resume-on-task-complete path will fire dream eventually.
+        """
+        if not self.is_running or self._paused:
+            return
+        logger.info(
+            "Goal %s completed — interrupting mind sleep for next dream cycle",
+            goal_id[:8],
+        )
+        # Short-circuit the next wakeup to ~immediately so dream fires.
+        self._next_wakeup_sec = min(self._next_wakeup_sec, 5.0)
+        self._wakeup_event.set()
 
     @staticmethod
     def _on_task_done(task: asyncio.Task) -> None:
@@ -846,6 +944,20 @@ class AutonomousMind:
             except Exception:
                 pass
 
+        # Planning-stuck goal retry. A goal that sits in status='planning'
+        # without ever producing checkpoints stalls the agent silently:
+        # the mind sees it under [GOAL-PLANNING] in state, doesn't enter
+        # dream phase (workable goals > 0), but also never calls
+        # goal_decompose because the LLM isn't reliably prompted to.
+        # After PLANNING_STUCK_TIMEOUT_S the maintenance pass retries
+        # decomposition exactly once. Second failure cancels the goal
+        # so it stops poisoning the snapshot.
+        if hasattr(agent, "_goal_manager") and agent._goal_manager is not None:
+            try:
+                await self._retry_stuck_planning_goals(agent._goal_manager)
+            except Exception as e:
+                logger.debug("planning-stuck retry failed: %s", e)
+
         # Knowledge consolidation — prune stale, merge duplicates, enforce caps
         if hasattr(agent, "_db") and agent._db:
             try:
@@ -1039,6 +1151,26 @@ class AutonomousMind:
     # ------------------------------------------------------------------
     # Prompt building
     # ------------------------------------------------------------------
+
+    async def _count_workable_goals(self) -> int:
+        """Return the count of goals that are either active or planning.
+
+        Used by ``_build_prompt`` to decide whether to force dream phase.
+        Defensive — returns a non-zero sentinel (999) on any error so a
+        DB hiccup never trips a false 'FORCE-DREAM' directive.
+        """
+        try:
+            gm = getattr(self._agent, "_goal_manager", None)
+            if gm is None:
+                return 999
+            active = await gm.list_goals(status="active", limit=1)
+            if active:
+                return len(active)
+            planning = await gm.list_goals(status="planning", limit=1)
+            return len(planning)
+        except Exception as e:
+            logger.debug("workable goals count failed: %s", e)
+            return 999
 
     async def _build_state_snapshot(self) -> tuple[str, str]:
         """Query all managers to build a real state snapshot for the mind.
@@ -1254,6 +1386,24 @@ class AutonomousMind:
 
         # Build real state from all managers
         state_snapshot, identity_anchor = await self._build_state_snapshot()
+
+        # Mechanical dream gate. If there are zero active AND zero
+        # planning goals, prepend a hard directive that forces dream
+        # phase this cycle. The prompt's WHEN NO ACTIVE GOALS EXIST
+        # block already steers the LLM toward goal_dream, but it is
+        # *advisory*. Operators reported cycles where the LLM read the
+        # empty snapshot and went off to check email or read files
+        # instead. This gate makes the constraint mechanical: the
+        # state_snapshot itself is rewritten with a [FORCE-DREAM]
+        # marker that the LLM can't dismiss as soft guidance.
+        workable = await self._count_workable_goals()
+        if workable == 0:
+            state_snapshot = (
+                "[FORCE-DREAM] Zero active and zero planning goals. This "
+                f"cycle MUST call goal_dream(focus='{_dream_focus_for_today()}') followed by "
+                "goal_create. No exploration, no email, no file reads. "
+                "Dream → Decide → Create — nothing else.\n\n"
+            ) + state_snapshot
 
         # Budget
         daily_budget = self._daily_budget()
