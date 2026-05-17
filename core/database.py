@@ -197,6 +197,25 @@ _SCHEMA = [
         UNIQUE(goal_id, checkpoint_order)
     )
     """,
+    # Dream journal — every dream-phase ideation persists here so the next
+    # cycle's dream can see what was already proposed (and not picked).
+    # Kills the amnesia that caused dream to keep re-proposing the same
+    # "build paid lead list" class of goals every cycle. See
+    # ``core/dream_journal.py``.
+    """
+    CREATE TABLE IF NOT EXISTS dream_journal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        focus TEXT NOT NULL DEFAULT 'balanced',
+        candidates_json TEXT NOT NULL,
+        recommendation_json TEXT NOT NULL DEFAULT '{}',
+        chosen_goal_id TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dream_journal_created
+        ON dream_journal(created_at)
+    """,
     """
     CREATE TABLE IF NOT EXISTS identity (
         id TEXT PRIMARY KEY DEFAULT 'self',

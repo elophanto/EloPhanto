@@ -1124,6 +1124,9 @@ class Agent:
                 _affect_tool = self._registry.get("affect_record_event")
                 if _affect_tool is not None:
                     _affect_tool._affect_manager = self._affect_manager
+                # Re-inject goal deps so goal_dream picks up affect + ego
+                # that were None on the first injection pass at line ~1018.
+                self._inject_goal_deps()
                 logger.info("Affect system ready")
             except Exception as e:
                 logger.warning(f"Affect system setup failed: {e}")
@@ -1827,15 +1830,34 @@ class Agent:
             ):
                 tool._goal_runner = self._goal_runner
 
-        # Dream tool needs router, registry, identity, and goal manager
+        # Dream tool needs router, registry, identity, goal manager, plus
+        # affect / ego / journal / project_root to escape the convergence
+        # loop that produced "paid lead list"-class goals every cycle.
+        # All optional — the tool degrades gracefully when any are None.
+        # This method is called twice: once after goal manager init (when
+        # affect/ego are still None) and again after the affect system is
+        # ready, so the late-arrivers get wired in.
         dream_tool = self._registry.get("goal_dream")
         if dream_tool:
             dream_tool._router = self._router
             dream_tool._registry = self._registry
+            dream_tool._project_root = self._config.project_root
             if self._goal_manager:
                 dream_tool._goal_manager = self._goal_manager
             if self._identity_manager:
                 dream_tool._identity_manager = self._identity_manager
+            if self._affect_manager is not None:
+                dream_tool._affect_manager = self._affect_manager
+            if self._ego_manager is not None:
+                dream_tool._ego_manager = self._ego_manager
+            # Lazy-construct the journal — small object, one per agent.
+            if dream_tool._dream_journal is None and self._db is not None:
+                try:
+                    from core.dream_journal import DreamJournal
+
+                    dream_tool._dream_journal = DreamJournal(self._db)
+                except Exception as e:
+                    logger.debug("dream journal init failed: %s", e)
 
         # plan_autoplan needs the router for the three sequential
         # review LLM calls. Registry + identity are optional — if
