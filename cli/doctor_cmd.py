@@ -118,42 +118,64 @@ def _check_ffmpeg() -> CheckResult:
     return CheckResult("ffmpeg (pump.fun livestream)", "ok", "installed")
 
 
-def _check_container_runtime() -> CheckResult:
-    """Container runtime check for kid-agents. Warn-by-default — kids
-    are optional, so missing runtime is not a startup blocker.
-
-    Refuses spawn at the tool level if runtime is missing; the message
-    here just helps users get unstuck before they try."""
+def _check_container_runtime(project_root: Path | None = None) -> CheckResult:
+    """Container runtime check for kid-agents. Skip when kids feature
+    is disabled in config — no point warning about a runtime the
+    operator hasn't opted into. Warns only when ``kids.enabled: true``
+    AND a runtime is missing (the case where kid_spawn would refuse).
+    """
     found: list[str] = []
     for name in ("docker", "podman", "colima"):
         if shutil.which(name):
             found.append(name)
-    if not found:
-        import platform as _plat
 
-        sysname = _plat.system().lower()
-        if sysname == "darwin":
-            fix = (
-                "macOS: brew install colima docker && colima start "
-                "(CLI-only, no GUI license needed)"
-            )
-        elif sysname == "linux":
-            fix = "Linux: curl -fsSL https://get.docker.com | sh"
-        else:
-            fix = (
-                "Install Docker Desktop from docker.com, run it once, "
-                "then re-run elophanto doctor."
-            )
+    if found:
         return CheckResult(
             "container runtime (kid agents)",
-            "warn",
-            "no docker/podman/colima found — kid_spawn will refuse",
-            fix,
+            "ok",
+            f"available: {', '.join(found)}",
+        )
+
+    # No runtime found. Is kids feature opted into?
+    kids_enabled = False
+    if project_root is not None:
+        try:
+            import yaml as _yaml
+
+            cfg = _config_path(project_root)
+            if cfg.exists():
+                raw = _yaml.safe_load(cfg.read_text("utf-8")) or {}
+                kids_enabled = bool((raw.get("kids") or {}).get("enabled", False))
+        except Exception:
+            pass
+
+    if not kids_enabled:
+        return CheckResult(
+            "container runtime (kid agents)",
+            "skip",
+            "kids feature disabled — runtime not required",
+        )
+
+    import platform as _plat
+
+    sysname = _plat.system().lower()
+    if sysname == "darwin":
+        fix = (
+            "macOS: brew install colima docker && colima start "
+            "(CLI-only, no GUI license needed)"
+        )
+    elif sysname == "linux":
+        fix = "Linux: curl -fsSL https://get.docker.com | sh"
+    else:
+        fix = (
+            "Install Docker Desktop from docker.com, run it once, "
+            "then re-run elophanto doctor."
         )
     return CheckResult(
         "container runtime (kid agents)",
-        "ok",
-        f"available: {', '.join(found)}",
+        "warn",
+        "no docker/podman/colima found — kid_spawn will refuse",
+        fix,
     )
 
 
@@ -262,15 +284,37 @@ def _check_gateway_security(project_root: Path) -> CheckResult:
     )
 
 
-def _check_tailscale() -> CheckResult:
-    """Tailscale CLI presence — required only if you want
-    agent_discover. Warn-by-default."""
+def _check_tailscale(project_root: Path | None = None) -> CheckResult:
+    """Tailscale CLI presence. Skip when peers feature is disabled —
+    Tailscale only matters if the operator wants cross-machine peer
+    discovery. Warning otherwise is noise."""
     if shutil.which("tailscale"):
         return CheckResult(
             "tailscale (peer discovery)",
             "ok",
             "available — `agent_discover` will find peers on your tailnet",
         )
+
+    # Not installed. Is peers feature opted into?
+    peers_enabled = False
+    if project_root is not None:
+        try:
+            import yaml as _yaml
+
+            cfg = _config_path(project_root)
+            if cfg.exists():
+                raw = _yaml.safe_load(cfg.read_text("utf-8")) or {}
+                peers_enabled = bool((raw.get("peers") or {}).get("enabled", False))
+        except Exception:
+            pass
+
+    if not peers_enabled:
+        return CheckResult(
+            "tailscale (peer discovery)",
+            "skip",
+            "peers feature disabled — tailscale not required",
+        )
+
     return CheckResult(
         "tailscale (peer discovery)",
         "warn",
@@ -823,11 +867,11 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_vault(project_root))
     rows.append(_check_workspace(project_root))
     rows.append(_check_bootstrap(project_root))
-    rows.append(_check_container_runtime())
+    rows.append(_check_container_runtime(project_root))
     rows.append(_check_kid_image(project_root))
     rows.append(_check_agent_identity())
     rows.append(_check_gateway_security(project_root))
-    rows.append(_check_tailscale())
+    rows.append(_check_tailscale(project_root))
     rows.append(_check_p2p_sidecar(project_root))
     rows.append(_check_p2p_bootstrap_diversity(project_root))
     rows.append(_check_proxy(project_root))

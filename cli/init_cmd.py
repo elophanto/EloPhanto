@@ -602,7 +602,15 @@ def _edit_models(config: dict) -> None:
 
 
 def _edit_permissions(config: dict) -> None:
-    """Edit permission mode."""
+    """Edit permission mode + workspace path.
+
+    Workspace is the directory where agent-produced artifacts land
+    (markdown deliverables, JSON outputs, etc.). file_write auto-
+    indexes markdowns landing here so the agent can knowledge_search
+    its own outputs next session. Without a workspace set, the doctor
+    flags it as a missing config entry — and the auto-index hook
+    silently no-ops. Both surfaces depend on this being filled in.
+    """
     console.print("[bold]Permission Mode[/bold]")
     console.print("  [dim]ask_always[/dim]  — Every tool requires approval")
     console.print(
@@ -616,6 +624,31 @@ def _edit_permissions(config: dict) -> None:
         default=current,
     )
     config.setdefault("agent", {})["permission_mode"] = mode
+
+    # Workspace path. Default to ~/agents/<agent_name>/workspace so
+    # operators with multiple agent installs don't collide. Resolves
+    # the doctor's "agent.workspace not set" warning and lets the
+    # file_write auto-index hook actually fire.
+    agent_name = config.get("agent", {}).get("name", "elophanto").lower()
+    default_workspace = config.get("agent", {}).get(
+        "workspace", f"~/agents/{agent_name}/workspace"
+    )
+    workspace = Prompt.ask(
+        "  Workspace path (where agent artifacts land — auto-indexed for search)",
+        default=default_workspace,
+    )
+    config["agent"]["workspace"] = workspace
+    # Create the directory immediately so first-write doesn't fail
+    # and so the doctor sees it as initialised. Expand ~ first.
+    try:
+        ws_path = Path(workspace).expanduser()
+        ws_path.mkdir(parents=True, exist_ok=True)
+        console.print(f"  [green]Workspace ready at {ws_path}[/green]")
+    except OSError as e:
+        console.print(
+            f"  [yellow]Could not create workspace dir ({e}). "
+            "The agent will retry on first write.[/yellow]"
+        )
 
 
 def _edit_browser(config: dict) -> None:

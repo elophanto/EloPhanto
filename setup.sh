@@ -35,20 +35,56 @@ if [ "$PY_MINOR" -ge 14 ]; then
     echo "    If install hangs or fails, try Python 3.13: brew install python@3.13"
 fi
 
+# Ensure ~/.local/bin is on PATH (where uv lands by default). This is a
+# no-op when it's already there but covers the fresh-shell case where
+# the installer added it to .zshrc but the current shell hasn't sourced.
+export PATH="$HOME/.local/bin:$PATH"
+
 # Check/install uv
 if ! command -v uv &>/dev/null; then
     echo "  → Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Re-export — installer may have added a different path.
     export PATH="$HOME/.local/bin:$PATH"
 fi
 echo "  ✓ uv $(uv --version 2>/dev/null | head -1)"
 
-# Check Node.js (for browser bridge)
+# Detect Homebrew once so we can auto-install Node + ffmpeg on macOS
+# without making the operator hunt down each tool manually. Brew is
+# already a near-universal macOS dev prerequisite; on Linux we fall
+# back to printing instructions.
+HAS_BREW=0
+if command -v brew &>/dev/null; then
+    HAS_BREW=1
+fi
+
+# Check / auto-install Node.js (for browser bridge)
 if command -v node &>/dev/null; then
     NODE_VERSION=$(node --version)
     echo "  ✓ Node.js $NODE_VERSION"
 else
-    echo "  ⚠ Node.js not found (optional — needed for browser automation)"
+    if [ "$HAS_BREW" -eq 1 ]; then
+        echo "  → Installing Node.js via brew..."
+        brew install node >/dev/null 2>&1 && \
+            echo "  ✓ Node.js $(node --version)" || \
+            echo "  ⚠ brew install node failed — install Node 24+ LTS manually from https://nodejs.org/"
+    else
+        echo "  ⚠ Node.js not found — install Node 24+ LTS from https://nodejs.org/ for browser tools"
+    fi
+fi
+
+# Check / auto-install ffmpeg (for pump.fun livestream)
+if command -v ffmpeg &>/dev/null; then
+    echo "  ✓ ffmpeg installed"
+else
+    if [ "$HAS_BREW" -eq 1 ]; then
+        echo "  → Installing ffmpeg via brew..."
+        brew install ffmpeg >/dev/null 2>&1 && \
+            echo "  ✓ ffmpeg installed" || \
+            echo "  ⚠ brew install ffmpeg failed — pump_livestream tools will be disabled"
+    else
+        echo "  ⚠ ffmpeg not found — needed only for pump_livestream (Linux: apt install ffmpeg)"
+    fi
 fi
 
 # Check Ollama (for local models)
@@ -218,6 +254,41 @@ if [ ! -f "config.yaml" ]; then
         echo "  ⚠ Could not run setup wizard. Run 'elophanto init' manually after activating the venv."
 else
     echo "  ✓ config.yaml found (re-run setup with: elophanto init)"
+fi
+
+# ── Post-wizard initialisation ──
+# Generate the Ed25519 agent identity proactively. It would otherwise
+# be auto-created on first agent boot, but the doctor flags its
+# absence as a warning — which is confusing for new operators who just
+# completed setup. Creating it here makes the post-setup doctor green.
+source .venv/bin/activate 2>/dev/null || true
+if [ ! -f "$HOME/.elophanto/agent_identity.pem" ]; then
+    echo "  → Generating agent identity (Ed25519)..."
+    python3 -c "from pathlib import Path; from core.agent_identity import load_or_create; load_or_create(Path.home() / '.elophanto' / 'agent_identity.pem', auto_create=True); print('  ✓ Agent identity created')" 2>/dev/null || \
+        echo "  ⚠ Identity generation skipped (agent will create it on first start)"
+else
+    echo "  ✓ Agent identity already present"
+fi
+
+# Vault initialisation prompt. Vault is opt-in (operator may not need
+# stored secrets) but if they DO want it, prompting at setup time
+# beats discovering "secrets-using tools unavailable" later. Skip
+# silently if Vault.exists() already.
+if [ -f "config.yaml" ]; then
+    if python3 -c "from core.vault import Vault; from pathlib import Path; exit(0 if Vault.exists(Path('.')) else 1)" 2>/dev/null; then
+        echo "  ✓ Vault already initialised"
+    else
+        echo ""
+        echo "  ▸ Vault stores API keys, wallet seeds, OAuth tokens etc."
+        echo "    Initialise now? (y/N — skip if you don't plan to use email/payments/etc.)"
+        read -r INIT_VAULT
+        if [[ "$INIT_VAULT" =~ ^[Yy]$ ]]; then
+            python3 -m cli.main vault init 2>/dev/null || elophanto vault init 2>/dev/null || \
+                echo "  ⚠ Vault init failed — run 'elophanto vault init' later"
+        else
+            echo "  [skipped — secrets-using tools will be unavailable until you run 'elophanto vault init']"
+        fi
+    fi
 fi
 
 echo ""

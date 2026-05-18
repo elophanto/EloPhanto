@@ -18,6 +18,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Ensure uv is discoverable. The uv installer writes ~/.local/bin
+# into shell rc files but the current session may not have re-sourced
+# yet, so doctor reports "uv not on PATH" even after a successful
+# setup. Prepending unconditionally is a no-op when already there.
+export PATH="$HOME/.local/bin:$PATH"
+
 # Activate venv
 if [ -f ".venv/bin/activate" ]; then
     source .venv/bin/activate
