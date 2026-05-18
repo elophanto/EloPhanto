@@ -145,7 +145,7 @@ class BrowserConfig:
     # Default vision model. codex/gpt-5.5 routes screenshot analysis
     # through an existing ChatGPT Plus/Pro subscription (no per-call
     # API spend). Alternatives via OpenRouter: x-ai/grok-4.3,
-    # google/gemini-3-flash-preview, perceptron/perceptron-mk1.
+    # google/gemini-3.1-flash-lite, perceptron/perceptron-mk1.
     vision_model: str = "codex/gpt-5.5"
     # Override for the Node browser bridge's own DOM-annotation vision
     # calls. The bridge hits OpenRouter directly (no Codex auth), so
@@ -158,7 +158,7 @@ class BrowserConfig:
     #     and works fine.
     #   - set to a known-good OpenRouter vision model (e.g.
     #     ``perceptron/perceptron-mk1``, ``x-ai/grok-4.3``,
-    #     ``google/gemini-3-flash-preview``) → bridge keeps its
+    #     ``google/gemini-3.1-flash-lite``) → bridge keeps its
     #     DOM-annotation vision on that model, Python-side stays on
     #     ``vision_model``.
     bridge_vision_model: str = ""

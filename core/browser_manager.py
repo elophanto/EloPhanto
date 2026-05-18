@@ -616,7 +616,7 @@ class BrowserManager:
             # so raw OpenRouter model IDs (no provider prefix). Modern
             # default — gemini-2.0-flash is deprecated; do not put it
             # back here.
-            config["visionModel"] = _bridge_model or "google/gemini-3-flash-preview"
+            config["visionModel"] = _bridge_model or "google/gemini-3.1-flash-lite"
 
         # Pass proxy config so Chrome launches with --proxy-server applied.
         # Empty server = no proxy (default). LLM API calls, Polymarket

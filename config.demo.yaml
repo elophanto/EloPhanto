@@ -67,7 +67,7 @@ llm:
   #                               catalog). Example: openrouter/x-ai/grok-4.3
   #   <org>/<model>             → also OpenRouter when the prefix isn't
   #                               codex/ or ollama/. Example:
-  #                               google/gemini-3-flash-preview,
+  #                               google/gemini-3.1-flash-lite,
   #                               perceptron/perceptron-mk1
   #   gpt-5.5                   → OpenAI direct API (uses openai.api_key)
   #   glm-4.7-flash             → Z.ai
@@ -75,7 +75,7 @@ llm:
   # Same model name on two transports: ``codex/gpt-5.5`` (subscription)
   # vs ``gpt-5.5`` (OpenAI direct API billing). Pick based on whether
   # you'd rather burn ChatGPT-subscription quota or OpenAI API credit.
-  vision_model: "codex/gpt-5.5"   # or openrouter/x-ai/grok-4.3, google/gemini-3-flash-preview, perceptron/perceptron-mk1
+  vision_model: "codex/gpt-5.5"   # or openrouter/x-ai/grok-4.3, google/gemini-3.1-flash-lite, perceptron/perceptron-mk1
 
   provider_priority:
     - codex
@@ -211,7 +211,7 @@ browser:
   #   codex/gpt-5.5             → ChatGPT subscription (no per-call API spend)
   #   openrouter/x-ai/grok-4.3  → OpenRouter Grok
   #   perceptron/perceptron-mk1 → OpenRouter Perceptron MK1
-  #   google/gemini-3-flash-preview → OpenRouter Gemini Flash
+  #   google/gemini-3.1-flash-lite → OpenRouter Gemini Flash
   # Can be DIFFERENT from llm.vision_model — e.g. use codex/gpt-5.5 for
   # browser screenshots (high volume, want subscription) and
   # openrouter/x-ai/grok-4.3 for user-attached images (lower volume,
@@ -227,7 +227,7 @@ browser:
   #   - set to an OpenRouter vision model → bridge keeps doing DOM
   #     annotation on that model. Recommended:
   #     perceptron/perceptron-mk1, x-ai/grok-4.3, or
-  #     google/gemini-3-flash-preview.
+  #     google/gemini-3.1-flash-lite.
   bridge_vision_model: "perceptron/perceptron-mk1"
 
 # --- Desktop GUI Agent ---
