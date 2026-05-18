@@ -195,6 +195,23 @@ def _edit_providers(config: dict) -> None:
         console.print(
             "[bold]Codex[/bold] [green](detected ChatGPT subscription)[/green]"
         )
+        # Crystal-clear callout. New users on a fresh install need to
+        # know that the ChatGPT subscription covers *everything* —
+        # planning, coding, analysis, vision, screenshots — at no
+        # per-call API spend. Otherwise they assume Codex is "the
+        # coding one" and grab a separate OpenRouter key for the
+        # rest. This block is the difference between "I have to pay
+        # for both" and "my $20/mo ChatGPT plan runs the whole agent."
+        console.print(
+            "  [green]Your ChatGPT subscription will be used for "
+            "planning, coding, analysis, simple tasks, AND vision "
+            "(screenshots) — no per-call API spend.[/green]"
+        )
+        console.print(
+            "  [dim]Default model across all task types: gpt-5.5. "
+            "OpenRouter is offered next as a fallback when Codex "
+            "hits rate limits or is unavailable.[/dim]"
+        )
         console.print()
     else:
         _ensure_provider(config, "codex")
@@ -479,11 +496,24 @@ def _edit_models(config: dict) -> None:
     routing = config.setdefault("llm", {}).setdefault("routing", {})
     priority = config.get("llm", {}).get("provider_priority", [])
 
-    # Cloud providers that need interactive model selection
-    cloud_providers = ["openrouter", "zai", "kimi"]
+    # Cloud providers that need interactive model selection. Codex is
+    # listed FIRST so when the user has a ChatGPT subscription (auto-
+    # detected via ~/.codex/auth.json) it shows up as the headline
+    # routing option on every task type — same gpt-5.5 model across
+    # planning / coding / analysis / simple, no per-call API spend.
+    cloud_providers = ["codex", "openrouter", "zai", "kimi"]
 
-    # Default models per (provider, task)
+    # Default models per (provider, task). Codex maps every task to
+    # gpt-5.5 — single capable model handles the whole routing matrix
+    # when the operator has a ChatGPT subscription. This mirrors the
+    # reference config.demo.yaml.
     defaults: dict[str, dict[str, str]] = {
+        "codex": {
+            "planning": "gpt-5.5",
+            "coding": "gpt-5.5",
+            "analysis": "gpt-5.5",
+            "simple": "gpt-5.5",
+        },
         "openrouter": {
             "planning": "anthropic/claude-sonnet-4.6",
             "coding": "qwen/qwen3.5-plus-02-15",
@@ -679,10 +709,29 @@ def _edit_browser(config: dict) -> None:
         browser_cfg.setdefault("cdp_port", 9222)
         browser_cfg.setdefault("cdp_ws_endpoint", "")
 
-        # Vision model for screenshot analysis (via OpenRouter)
-        current_vision = browser_cfg.get("vision_model", "google/gemini-2.0-flash-001")
+        # Vision model for screenshot analysis. Default depends on which
+        # providers the user enabled earlier in the wizard:
+        #  - Codex (ChatGPT subscription) → codex/gpt-5.5: no per-call
+        #    API spend, uses existing subscription. Best default when
+        #    available.
+        #  - Otherwise → openrouter/x-ai/grok-4.3: current, capable
+        #    vision model on OpenRouter (NOT gemini-2.0; that's old).
+        codex_on = (
+            config.get("llm", {})
+            .get("providers", {})
+            .get("codex", {})
+            .get("enabled", False)
+        )
+        smart_default = "codex/gpt-5.5" if codex_on else "openrouter/x-ai/grok-4.3"
+        current_vision = browser_cfg.get("vision_model", smart_default)
+        # If the existing config still has the stale gemini-2 default,
+        # upgrade it transparently — operator gets the current default
+        # without having to know what changed.
+        if "gemini-2.0-flash" in current_vision:
+            current_vision = smart_default
+        provider_hint = "Codex/ChatGPT" if codex_on else "OpenRouter"
         vision_model = Prompt.ask(
-            "  Vision model for screenshot analysis (OpenRouter)",
+            f"  Vision model for screenshot analysis ({provider_hint})",
             default=current_vision,
         )
         browser_cfg["vision_model"] = vision_model
@@ -691,7 +740,19 @@ def _edit_browser(config: dict) -> None:
         browser_cfg["user_data_dir"] = ""
         browser_cfg.setdefault("cdp_port", 9222)
         browser_cfg.setdefault("cdp_ws_endpoint", "")
-        browser_cfg.setdefault("vision_model", "google/gemini-2.0-flash-001")
+        # Even when browser disabled, set a sane vision default in case
+        # the operator flips browser on later. Same Codex-vs-OpenRouter
+        # split as the enabled branch.
+        codex_on = (
+            config.get("llm", {})
+            .get("providers", {})
+            .get("codex", {})
+            .get("enabled", False)
+        )
+        browser_cfg.setdefault(
+            "vision_model",
+            "codex/gpt-5.5" if codex_on else "openrouter/x-ai/grok-4.3",
+        )
         console.print("  [dim]Disabled.[/dim]")
 
 
@@ -1825,7 +1886,12 @@ def _default_config() -> dict:
             "use_system_chrome": True,
             "viewport_width": 1280,
             "viewport_height": 720,
-            "vision_model": "google/gemini-2.0-flash-001",
+            # Default to codex/gpt-5.5 in the template — operators with
+            # a ChatGPT subscription get vision routed through the same
+            # subscription as everything else (no per-call API spend).
+            # The wizard's _edit_browser path picks an OpenRouter
+            # fallback when Codex isn't detected.
+            "vision_model": "codex/gpt-5.5",
         },
         "scheduler": {
             "enabled": False,

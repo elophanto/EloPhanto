@@ -612,7 +612,11 @@ class BrowserManager:
             # vision rather than spamming "model not valid" errors.
             if _bridge_model.startswith(("codex/", "ollama/")):
                 _bridge_model = self.bridge_vision_model  # explicit override only
-            config["visionModel"] = _bridge_model or "google/gemini-2.0-flash-001"
+            # Node bridge fallback. The bridge calls OpenRouter directly,
+            # so raw OpenRouter model IDs (no provider prefix). Modern
+            # default — gemini-2.0-flash is deprecated; do not put it
+            # back here.
+            config["visionModel"] = _bridge_model or "google/gemini-3-flash-preview"
 
         # Pass proxy config so Chrome launches with --proxy-server applied.
         # Empty server = no proxy (default). LLM API calls, Polymarket

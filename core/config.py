@@ -142,7 +142,11 @@ class BrowserConfig:
     use_system_chrome: bool = True
     viewport_width: int = 1280
     viewport_height: int = 720
-    vision_model: str = "google/gemini-2.0-flash-001"
+    # Default vision model. codex/gpt-5.5 routes screenshot analysis
+    # through an existing ChatGPT Plus/Pro subscription (no per-call
+    # API spend). Alternatives via OpenRouter: x-ai/grok-4.3,
+    # google/gemini-3-flash-preview, perceptron/perceptron-mk1.
+    vision_model: str = "codex/gpt-5.5"
     # Override for the Node browser bridge's own DOM-annotation vision
     # calls. The bridge hits OpenRouter directly (no Codex auth), so
     # when ``vision_model`` is set to a non-OpenRouter transport like
@@ -1396,7 +1400,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         use_system_chrome=browser_raw.get("use_system_chrome", True),
         viewport_width=browser_raw.get("viewport_width", 1280),
         viewport_height=browser_raw.get("viewport_height", 720),
-        vision_model=browser_raw.get("vision_model", "google/gemini-2.0-flash-001"),
+        vision_model=browser_raw.get("vision_model", "codex/gpt-5.5"),
         bridge_vision_model=browser_raw.get("bridge_vision_model", ""),
         # Pre-existing parser bug surfaced 2026-05-15: this field was
         # missing here, so the operator's config.yaml setting was

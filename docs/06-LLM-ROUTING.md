@@ -329,8 +329,10 @@ When any message in the conversation history contains an `image_url` content blo
 
 ```yaml
 llm:
-  vision_model: "openrouter/x-ai/grok-4.3"   # recommended
-  # vision_model: "openrouter/google/gemini-2.0-flash-001"  # alternative
+  vision_model: "codex/gpt-5.5"   # recommended when you have a ChatGPT subscription — no per-call API spend
+  # vision_model: "openrouter/x-ai/grok-4.3"            # alternative
+  # vision_model: "openrouter/google/gemini-3-flash-preview"  # alternative
+  # vision_model: "openrouter/perceptron/perceptron-mk1"      # alternative
 ```
 
 Leave empty (`""`) to disable — images will be stripped before sending to text-only providers.
