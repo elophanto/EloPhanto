@@ -1444,6 +1444,15 @@ class Gateway:
 
             dashboard: dict[str, Any] = {}
 
+            # Agent name for header rendering. Comes from config.agent_name
+            # — set by the setup wizard. Identity.display_name (sent below)
+            # can drift via reflection / first-awakening so it isn't safe
+            # to use for the top bar; the config name is the stable
+            # operator-facing identifier.
+            agent_cfg = getattr(self._agent, "_config", None)
+            if agent_cfg is not None:
+                dashboard["agent_name"] = getattr(agent_cfg, "agent_name", "EloPhanto")
+
             # Identity
             identity_mgr = getattr(self._agent, "_identity_manager", None)
             if identity_mgr:

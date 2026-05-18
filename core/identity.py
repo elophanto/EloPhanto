@@ -181,10 +181,21 @@ Return ONLY a JSON object — no markdown, no explanation:
 class IdentityManager:
     """Manages the agent's evolving identity profile."""
 
-    def __init__(self, db: Database, router: Any, config: IdentityConfig) -> None:
+    def __init__(
+        self,
+        db: Database,
+        router: Any,
+        config: IdentityConfig,
+        agent_name: str = "EloPhanto",
+    ) -> None:
         self._db = db
         self._router = router
         self._config = config
+        # Operator-chosen display name from config.yaml's agent.name.
+        # Used as the default when no identity row exists yet. Existing
+        # identities preserve whatever display_name they were created
+        # with — renaming after first boot needs explicit identity_update.
+        self._agent_name = agent_name or "EloPhanto"
         self._identity: Identity | None = None
         self._tasks_since_deep_reflect: int = 0
         self._tasks_since_light_reflect: int = 0
@@ -285,7 +296,10 @@ class IdentityManager:
             identity = Identity(
                 id="self",
                 creator="EloPhanto",
-                display_name=data.get("display_name", "EloPhanto"),
+                # First-awakening LLM may suggest a name; if it does,
+                # use that. If it returns something blank or generic,
+                # fall back to the operator's configured agent.name.
+                display_name=data.get("display_name") or self._agent_name,
                 purpose=data.get("purpose"),
                 values=data.get("values", [])[:5],
                 curiosities=data.get("curiosities", [])[:5],
@@ -598,12 +612,19 @@ updated: {now}
     # ------------------------------------------------------------------
 
     def _default_identity(self) -> Identity:
-        """Create a default identity without LLM."""
+        """Create a default identity without LLM.
+
+        ``display_name`` comes from the operator's config.yaml
+        (``agent.name``) — set by the setup wizard or edited manually.
+        ``creator`` stays "EloPhanto" because that's the project/org
+        that built the architecture; the agent's name is its own,
+        but its creator is fixed.
+        """
         now = datetime.now(UTC).isoformat()
         return Identity(
             id="self",
             creator="EloPhanto",
-            display_name="EloPhanto",
+            display_name=self._agent_name,
             purpose="Help users accomplish complex tasks autonomously",
             values=["persistence", "accuracy", "learning"],
             boundaries=[
