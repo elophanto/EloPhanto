@@ -234,6 +234,12 @@ class _Tick(Message):
 class _State:
     session_start: float = field(default_factory=_time.monotonic)
 
+    # Agent's operator-chosen display name. Comes from the gateway's
+    # dashboard payload (which reads config.agent_name). Falls back to
+    # "EloPhanto" only when the gateway hasn't sent it yet — at which
+    # point the dashboard hasn't connected so nothing renders anyway.
+    agent_name: str = "EloPhanto"
+
     # Budget
     budget_used: float = 0.0
     budget_limit: float = 100.0
@@ -776,7 +782,7 @@ class _Digest:
     ego_coherence: float = 0.0
 
 
-def _render_digest(d: _Digest) -> str:
+def _render_digest(d: _Digest, agent_name: str = "EloPhanto") -> str:
     """Render the digest as Rich markup for the chat RichLog.
 
     Sections are skipped when empty so a fresh install (no goals,
@@ -792,11 +798,11 @@ def _render_digest(d: _Digest) -> str:
     # Greeting line — sets the tone. Never absent.
     if d.since_label:
         rows.append(
-            f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]"
+            f"[{_MIND}]◆[/] [{_BRIGHT}]{agent_name}[/]"
             f"  [{_DIM}]· {d.since_label} since you opened me[/]"
         )
     else:
-        rows.append(f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]")
+        rows.append(f"[{_MIND}]◆[/] [{_BRIGHT}]{agent_name}[/]")
     rows.append("")  # breathing room before sections
 
     def _section(label: str, entries: list[_DigestEntry], glyph_color: str) -> None:
@@ -990,7 +996,7 @@ class _Header(Static):
             providers = f"[{_DIM}]providers ·[/]"
 
         row = (
-            f"[{_MIND}]◆[/] [{_BRIGHT}]EloPhanto[/]   "
+            f"[{_MIND}]◆[/] [{_BRIGHT}]{s.agent_name}[/]   "
             f"[{_DIM}]{elapsed}[/]   "
             f"{budget_bar} [{_DIM}]{budget_str}[/]   "
             f"[{_DIM}]{s.mode}[/]   "
@@ -1194,7 +1200,9 @@ class EloPhantoDashboard(App):
         # back to a minimal greeting when there's nothing yet.
         try:
             digest = _build_digest_from_state(self._state, self._digest_seed)
-            self.query_one("#chat", RichLog).write(_render_digest(digest))
+            self.query_one("#chat", RichLog).write(
+                _render_digest(digest, agent_name=self._state.agent_name)
+            )
         except Exception:
             # Digest is best-effort eye-candy — never block startup
             # because of a render glitch. Fall through to chat.
@@ -1348,7 +1356,9 @@ class EloPhantoDashboard(App):
             if _resp_provider and _resp_model:
                 _m_short = _resp_model.split("/")[-1][:20]
                 _model_tag = f"  [{_DIM}]{_resp_provider}/{_m_short}[/]"
-            chat.write(f"[#b8b2a8]─[/] [bold {_MIND}]EloPhanto[/]{_model_tag}")
+            chat.write(
+                f"[#b8b2a8]─[/] [bold {_MIND}]{self._state.agent_name}[/]{_model_tag}"
+            )
             chat.write(content)
             chat.write("")
 
@@ -1930,6 +1940,13 @@ class EloPhantoDashboard(App):
         port = data.get("gateway_port", 0)
         if port:
             s.gateway_port = port
+
+        # Agent name (header + chat persona). Operator-chosen via the
+        # setup wizard and surfaced here so the dashboard displays the
+        # configured identity, not the hard-coded "EloPhanto".
+        agent_name = data.get("agent_name", "")
+        if agent_name:
+            s.agent_name = agent_name
 
         # Ego (footer + digest mood). Populated when the agent's
         # identity layer is initialized; absent on first boot before

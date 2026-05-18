@@ -1077,7 +1077,10 @@ class Agent:
                 from core.identity import IdentityManager
 
                 self._identity_manager = IdentityManager(
-                    db=self._db, router=self._router, config=self._config.identity
+                    db=self._db,
+                    router=self._router,
+                    config=self._config.identity,
+                    agent_name=self._config.agent_name,
                 )
                 await self._identity_manager.load_or_create()
                 self._inject_identity_deps()
