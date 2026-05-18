@@ -110,6 +110,7 @@ class ToolRegistry:
         from tools.data.llm import LLMCallTool
         from tools.knowledge.index_tool import KnowledgeIndexTool
         from tools.knowledge.search import KnowledgeSearchTool
+        from tools.knowledge.skill_promote_tool import SkillPromoteTool
         from tools.knowledge.skill_tool import SkillListTool, SkillReadTool
         from tools.knowledge.writer import KnowledgeWriteTool
         from tools.mcp_manage import MCPManageTool
@@ -160,6 +161,7 @@ class ToolRegistry:
         self.register(KnowledgeIndexTool())
         self.register(SkillReadTool())
         self.register(SkillListTool())
+        self.register(SkillPromoteTool())
 
         # Self-development tools
         self.register(SelfReadSourceTool(config.project_root))

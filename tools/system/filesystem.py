@@ -133,6 +133,17 @@ class FileReadTool(BaseTool):
 class FileWriteTool(BaseTool):
     """Creates or overwrites files."""
 
+    def __init__(self) -> None:
+        # Optional auto-indexer for workspace markdown files. Wired by
+        # Agent at startup so a successful file_write inside the
+        # configured workspace also indexes the markdown into
+        # knowledge_chunks. Without this hook the agent generates
+        # markdown deliverables it can't search for next session —
+        # introspection that doesn't compound. Both fields are typed
+        # ``Any`` to keep filesystem.py free of core imports.
+        self._indexer: Any = None
+        self._workspace_path: Path | None = None
+
     @property
     def name(self) -> str:
         return "file_write"
@@ -204,16 +215,57 @@ class FileWriteTool(BaseTool):
 
             file_path.write_text(content, encoding="utf-8")
 
+            # Auto-index workspace markdown into knowledge_chunks so the
+            # agent can find what it just produced in a later cycle.
+            # Best-effort — index failure must never break file_write.
+            indexed = await self._maybe_index(file_path)
+
             return ToolResult(
                 success=True,
                 data={
                     "path": str(file_path),
                     "size_bytes": file_path.stat().st_size,
                     "backed_up": backed_up,
+                    "indexed": indexed,
                 },
             )
         except Exception as e:
             return ToolResult(success=False, error=f"Failed to write file: {e}")
+
+    async def _maybe_index(self, file_path: Path) -> bool:
+        """Auto-index workspace markdown into knowledge_chunks.
+
+        Triggers only when:
+          - indexer was injected (Agent startup wires this)
+          - file is .md / .markdown
+          - file path is inside the configured workspace
+
+        Failures are logged at debug and swallowed — indexing is
+        opportunistic, never blocking. Returns True only if the
+        indexer ran successfully so callers can verify the hook fired
+        (used by the FileWriteTool tests).
+        """
+        if self._indexer is None or self._workspace_path is None:
+            return False
+        if file_path.suffix.lower() not in (".md", ".markdown"):
+            return False
+        try:
+            resolved = file_path.resolve()
+            workspace_resolved = self._workspace_path.resolve()
+            if not str(resolved).startswith(str(workspace_resolved)):
+                return False
+        except OSError:
+            return False
+        try:
+            await self._indexer.index_file(file_path)
+            return True
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "Auto-index of %s failed: %s", file_path, e
+            )
+            return False
 
 
 class FilePatchTool(BaseTool):
