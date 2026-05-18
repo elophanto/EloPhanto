@@ -256,6 +256,23 @@ class IdentityManager:
                     await self._rewrite_self_narrative(old_name, self._agent_name)
                 except Exception as e:
                     logger.warning("Self-narrative rename sweep failed: %s", e)
+
+            # UNCONDITIONAL sweep for the literal default "EloPhanto"
+            # in the self-narrative files. Necessary because the
+            # reconciliation block above only fires when the DB row
+            # disagrees with config — but on a fresh install where
+            # awakening correctly produced the operator's chosen name
+            # in the DB, the files shipped with the repo (notably
+            # knowledge/system/identity.md) still contain the literal
+            # "EloPhanto" from the time they were written, and
+            # knowledge_search returns that text. This sweep is
+            # idempotent: if agent_name == "EloPhanto" it no-ops via
+            # the early return in _rewrite_self_narrative.
+            if self._agent_name and self._agent_name != "EloPhanto":
+                try:
+                    await self._rewrite_self_narrative("EloPhanto", self._agent_name)
+                except Exception as e:
+                    logger.warning("Static-file EloPhanto sweep failed: %s", e)
             # One-time prune: trim any lists that exceed current caps
             await self._prune_lists_if_needed(self._identity)
             return self._identity
