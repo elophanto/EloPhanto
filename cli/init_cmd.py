@@ -601,6 +601,51 @@ def _edit_models(config: dict) -> None:
     # not by LLM routing. No routing entry needed.
 
 
+def _edit_agent_name(config: dict) -> None:
+    """Ask for the agent's name and propagate it to derived fields.
+
+    The agent is a continuous entity, not a persona swap pack — its name
+    is its identity. Default is "EloPhanto" (the reference instance) but
+    every operator picks their own.
+
+    Derived fields updated when they are still at their EloPhanto-flavored
+    defaults: ``email.inbox_display_name``, ``email.smtp.from_name``,
+    ``hub.name``, ``payments.wallet.from_name``. We avoid clobbering any
+    field the operator has already customized — if they set
+    ``inbox_display_name: 'Riley Inbox'`` previously, picking a new agent
+    name won't reset it.
+    """
+    console.print("[bold]Agent name[/bold]")
+    console.print(
+        "  [dim]What is this agent called? Determines display name, "
+        "default workspace path, email from-name, etc. You can change "
+        "it later by editing config.yaml directly.[/dim]"
+    )
+    current = (config.get("agent") or {}).get("name", "EloPhanto")
+    name = Prompt.ask("  Name", default=current)
+    name = name.strip() or "EloPhanto"
+    config.setdefault("agent", {})["name"] = name
+
+    # Propagate to derived fields ONLY when they are at the canonical
+    # EloPhanto defaults. Anything customized stays customized.
+    eloph_defaults = {
+        ("email", "inbox_display_name"): ("EloPhanto Agent", f"{name} Agent"),
+        ("hub", "name"): ("EloPhanto", name),
+    }
+    for (section, key), (default_value, new_value) in eloph_defaults.items():
+        sec = config.get(section) or {}
+        if sec.get(key, default_value) == default_value:
+            config.setdefault(section, {})[key] = new_value
+
+    # smtp.from_name lives one level deeper.
+    email_cfg = config.setdefault("email", {})
+    smtp_cfg = email_cfg.setdefault("smtp", {})
+    if smtp_cfg.get("from_name", "EloPhanto Agent") == "EloPhanto Agent":
+        smtp_cfg["from_name"] = f"{name} Agent"
+
+    console.print(f"  [green]Agent identity: {name}[/green]")
+
+
 def _edit_permissions(config: dict) -> None:
     """Edit permission mode + workspace path.
 
@@ -1441,6 +1486,14 @@ def _run_full_wizard(config_dir: str) -> None:
     console.print("[bold]── Core ──[/bold]")
     console.print()
 
+    # Agent identity. Asked first because several downstream defaults
+    # (workspace path, inbox display name, from_name on outbound mail,
+    # hub.name) derive from it. Default "EloPhanto" is the reference
+    # name but every install can pick its own — this is a continuous
+    # entity, not a persona stable, so naming matters.
+    _edit_agent_name(config)
+
+    console.print()
     console.print("[bold]1. LLM Providers[/bold]")
     _edit_providers(config)
 
