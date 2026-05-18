@@ -104,6 +104,8 @@ elophanto bootstrap       # regenerate knowledge/system/{identity,capabilities,s
 elophanto vault list      # see what credentials the agent has stored
 ```
 
+> **The `elophanto` binary lives inside the project's `.venv/`** — it's NOT on your global `$PATH`. Two ways to run it: (1) **`source .venv/bin/activate`** once in your shell, then `elophanto <command>` works for the rest of the session; (2) **prefix with `./start.sh`** — `./start.sh vault set search_sh_api_key sk-sh_...` does the same thing without activating the venv. If you get `zsh: command not found: elophanto`, you're outside the venv — pick one of the two above. Anywhere in the README that says `elophanto <command>`, either form works.
+
 <details>
 <summary>Prerequisites</summary>
 
