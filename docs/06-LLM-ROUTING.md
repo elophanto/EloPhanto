@@ -331,7 +331,7 @@ When any message in the conversation history contains an `image_url` content blo
 llm:
   vision_model: "codex/gpt-5.5"   # recommended when you have a ChatGPT subscription — no per-call API spend
   # vision_model: "openrouter/x-ai/grok-4.3"            # alternative
-  # vision_model: "openrouter/google/gemini-3-flash-preview"  # alternative
+  # vision_model: "openrouter/google/gemini-3.1-flash-lite"  # alternative
   # vision_model: "openrouter/perceptron/perceptron-mk1"      # alternative
 ```
 

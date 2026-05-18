@@ -329,7 +329,7 @@ browser:
   viewport_width: 1536        # Browser viewport width
   viewport_height: 864        # Browser viewport height
   vision_model: codex/gpt-5.5  # Screenshot analysis. codex/gpt-5.5 = ChatGPT subscription (no API spend).
-                               # Alternatives: openrouter/x-ai/grok-4.3, openrouter/google/gemini-3-flash-preview
+                               # Alternatives: openrouter/x-ai/grok-4.3, openrouter/google/gemini-3.1-flash-lite
 ```
 
 ## Setup

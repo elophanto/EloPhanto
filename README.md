@@ -476,7 +476,7 @@ browser:
   #                               (no per-call API spend)
   #   openrouter/x-ai/grok-4.3  → OpenRouter
   #   perceptron/perceptron-mk1 → OpenRouter
-  #   google/gemini-3-flash-preview → OpenRouter
+  #   google/gemini-3.1-flash-lite → OpenRouter
   # Same scheme as llm.vision_model; can be set differently per use.
   vision_model: "codex/gpt-5.5"
 
