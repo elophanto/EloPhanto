@@ -1419,11 +1419,18 @@ class EloPhantoDashboard(App):
         elif event == "goal_started":
             goal = msg.data.get("goal", "")
             self._state.current_goal = goal[:40]
+            # Events ticker is column-constrained — keep the 50-char cap.
             self._add_event(
                 f"[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:50]}[/]", tag="AGT"
             )
+            # Main chat has 80+ cols of width — render the goal's
+            # natural title (first sentence) in full instead of an
+            # arbitrary 60-char slice. Goal text is stored as one
+            # paragraph; the first sentence IS the title. Falls back
+            # to a 200-char cap when there's no period (rare).
             chat = self.query_one("#chat", RichLog)
-            chat.write(f"\n[white on blue] ▶ GOAL [/] [{_DIM}]{goal[:60]}[/]")
+            chat_title = goal.split(". ", 1)[0] if ". " in goal else goal[:200]
+            chat.write(f"\n[white on blue] ▶ GOAL [/] [{_DIM}]{chat_title}[/]")
             self._repaint_panel("panel-agent")
 
         elif event == "goal_checkpoint_complete":
