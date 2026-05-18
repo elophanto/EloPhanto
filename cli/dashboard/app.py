@@ -204,6 +204,33 @@ _RAISED = "#e8e4dc"  # header / input bar — elevated          (oklch 0.94 0.00
 _BORDER = "#d4cfc5"  # dividers           — warm separator    (oklch 0.88 0.005 80)
 
 
+def _read_agent_name_from_config() -> str:
+    """Read ``agent.name`` from config.yaml in the current working dir.
+
+    Used at App.__init__ time to pre-seed the agent_name into state
+    before the gateway connects and pushes its dashboard payload.
+    Without this, the digest greeting paints on_mount with the literal
+    default "EloPhanto" — a visible flicker on every dashboard launch
+    for operators who chose a different name.
+
+    Best-effort. Returns empty string when config.yaml is missing or
+    malformed; the caller leaves state.agent_name at its default.
+    """
+    try:
+        from pathlib import Path as _Path
+
+        import yaml as _yaml
+
+        cfg = _Path("config.yaml")
+        if not cfg.exists():
+            return ""
+        raw = _yaml.safe_load(cfg.read_text("utf-8")) or {}
+        name = (raw.get("agent") or {}).get("name", "")
+        return str(name) if name else ""
+    except Exception:
+        return ""
+
+
 # ── Internal Textual message ─────────────────────────────────────────────
 class _GwMsg(Message):
     """Posted when a gateway WebSocket message arrives."""
@@ -1101,6 +1128,13 @@ class EloPhantoDashboard(App):
         digest_seed: dict | None = None,
     ) -> None:
         super().__init__()
+        # Pre-seed state.agent_name from config.yaml so the digest
+        # greeting (which renders on_mount, BEFORE the gateway
+        # connection sends state) shows the operator's chosen name.
+        # Reading config.yaml is fast (local file, ~couple KB) and
+        # avoids a flicker between greeting-as-EloPhanto and the
+        # gateway-pushed agent_name landing seconds later.
+        _initial_name = _read_agent_name_from_config()
         # The dashboard's CSS sets light backgrounds (#f9f8f4 / #f2f0ea)
         # but Textual defaults App.dark = True, which makes the default
         # foreground color light-grey-on-dark. Result: text rendered
@@ -1115,6 +1149,8 @@ class EloPhantoDashboard(App):
         self._user_id = "cli-user"
         self._pending: dict[str, asyncio.Future[GatewayMessage]] = {}
         self._state = _State()
+        if _initial_name:
+            self._state.agent_name = _initial_name
         self._awaiting_response = False
         self._current_msg_id = ""
         self._approval_pending: GatewayMessage | None = None
