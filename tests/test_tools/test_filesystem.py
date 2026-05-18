@@ -195,3 +195,123 @@ class TestFileList:
         names = [e["name"] for e in result.data["entries"]]
         assert "visible.txt" in names
         assert ".hidden" not in names
+
+
+# ---------------------------------------------------------------------------
+# Auto-index hook — file_write hands successful writes to the indexer
+# when the target lives inside the configured workspace and is markdown.
+# Without this, agent-produced markdown deliverables scatter into
+# workspace/ and never become retrievable via knowledge_search.
+# ---------------------------------------------------------------------------
+
+
+class _StubIndexer:
+    def __init__(self) -> None:
+        self.calls: list[Path] = []
+
+    async def index_file(self, file_path: Path) -> int:
+        self.calls.append(file_path)
+        return 1
+
+
+class TestFileWriteAutoIndex:
+    @pytest.mark.asyncio
+    async def test_indexes_workspace_markdown(self, tmp_path: Path) -> None:
+        from tools.system.filesystem import FileWriteTool
+
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        target = ws / "deliverable.md"
+
+        tool = FileWriteTool()
+        tool._indexer = _StubIndexer()
+        tool._workspace_path = ws
+
+        result = await tool.execute(
+            {"path": str(target), "content": "# Body", "backup": False}
+        )
+        assert result.success is True
+        assert result.data["indexed"] is True
+        assert tool._indexer.calls == [target]
+
+    @pytest.mark.asyncio
+    async def test_does_not_index_outside_workspace(self, tmp_path: Path) -> None:
+        """A markdown file written outside workspace must not be
+        indexed — that path is reserved for operator-curated content
+        (knowledge/, skills/) which has its own indexing flow."""
+        from tools.system.filesystem import FileWriteTool
+
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        outside = tmp_path / "other" / "note.md"
+
+        tool = FileWriteTool()
+        tool._indexer = _StubIndexer()
+        tool._workspace_path = ws
+
+        result = await tool.execute(
+            {"path": str(outside), "content": "# Body", "backup": False}
+        )
+        assert result.success is True
+        assert result.data["indexed"] is False
+        assert tool._indexer.calls == []
+
+    @pytest.mark.asyncio
+    async def test_does_not_index_non_markdown(self, tmp_path: Path) -> None:
+        """JSON/CSV/etc. in workspace shouldn't be indexed — they
+        don't chunk well as knowledge and would just create noise."""
+        from tools.system.filesystem import FileWriteTool
+
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        target = ws / "data.json"
+
+        tool = FileWriteTool()
+        tool._indexer = _StubIndexer()
+        tool._workspace_path = ws
+
+        result = await tool.execute(
+            {"path": str(target), "content": "{}", "backup": False}
+        )
+        assert result.success is True
+        assert result.data["indexed"] is False
+
+    @pytest.mark.asyncio
+    async def test_index_failure_does_not_break_write(self, tmp_path: Path) -> None:
+        """Indexer is opportunistic. A failing index must not fail
+        the write — the file itself landed on disk and the contract
+        for file_write is 'wrote the file', not 'and also indexed it'."""
+        from tools.system.filesystem import FileWriteTool
+
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        target = ws / "doomed.md"
+
+        class _BrokenIndexer:
+            async def index_file(self, _p: Path) -> int:
+                raise RuntimeError("indexer is on fire")
+
+        tool = FileWriteTool()
+        tool._indexer = _BrokenIndexer()
+        tool._workspace_path = ws
+
+        result = await tool.execute(
+            {"path": str(target), "content": "# Body", "backup": False}
+        )
+        assert result.success is True
+        assert result.data["indexed"] is False
+        # The file still exists.
+        assert target.exists()
+
+    @pytest.mark.asyncio
+    async def test_no_indexer_skips_indexing(self, tmp_path: Path) -> None:
+        from tools.system.filesystem import FileWriteTool
+
+        target = tmp_path / "x.md"
+        tool = FileWriteTool()
+        # indexer left as None — should skip silently.
+        result = await tool.execute(
+            {"path": str(target), "content": "# Body", "backup": False}
+        )
+        assert result.success is True
+        assert result.data["indexed"] is False

@@ -1687,6 +1687,28 @@ class Agent:
         if index_tool:
             index_tool._indexer = self._indexer
 
+        # skill_promote distils lesson clusters into reusable SKILL.md.
+        # Needs router (LLM call) + project root (where skills/ lives).
+        skill_promote = self._registry.get("skill_promote")
+        if skill_promote:
+            skill_promote._router = self._router
+            skill_promote._project_root = self._config.project_root
+
+        # file_write auto-indexes markdown that lands in the configured
+        # workspace so the agent can find its own deliverables next
+        # session via knowledge_search. Without this, autonomous goals
+        # produce markdown that scatters into workspace/ and never
+        # compounds into retrievable knowledge.
+        file_write_tool = self._registry.get("file_write")
+        if file_write_tool:
+            file_write_tool._indexer = self._indexer
+            ws = (self._config.workspace or "").strip()
+            if ws:
+                ws_path = Path(ws).expanduser()
+                if not ws_path.is_absolute():
+                    ws_path = self._config.project_root / ws_path
+                file_write_tool._workspace_path = ws_path
+
     def _inject_learner_deps(self) -> None:
         """Inject LessonExtractor into knowledge_write so compress=True works."""
         write_tool = self._registry.get("knowledge_write")
@@ -1850,6 +1872,14 @@ class Agent:
                 dream_tool._affect_manager = self._affect_manager
             if self._ego_manager is not None:
                 dream_tool._ego_manager = self._ego_manager
+            # Embedder wires the pre-dream dedup pass — drops candidates
+            # too close to existing goals before they hit the journal.
+            # Cheap (one batch call per dream); silently skipped when
+            # embedder is None.
+            if self._embedder is not None:
+                dream_tool._embedder = self._embedder
+                if self._indexer is not None:
+                    dream_tool._embedding_model = self._indexer._embedding_model
             # Lazy-construct the journal — small object, one per agent.
             if dream_tool._dream_journal is None and self._db is not None:
                 try:

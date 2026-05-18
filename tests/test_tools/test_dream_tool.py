@@ -11,6 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from core.autonomous_mind import _DREAM_LENSES, _dream_focus_for_today
 from tools.goals.dream_tool import (
     _collect_skills,
@@ -236,3 +238,147 @@ class TestFocusRotation:
         a = _dream_focus_for_today()
         b = _dream_focus_for_today()
         assert a == b
+
+
+# ---------------------------------------------------------------------------
+# Pre-dream dedup — when an embedder is wired, candidates whose
+# cosine similarity to any existing goal exceeds 0.85 are dropped
+# before the journal records the dream. Without this, the dream
+# kept proposing variants of the same idea each cycle.
+# ---------------------------------------------------------------------------
+
+
+class _StubEmbedder:
+    """Returns deterministic vectors based on a token map. Same tokens
+    in the text produce same vectors → identical text yields identical
+    cosine = 1.0. Different tokens yield orthogonal vectors."""
+
+    def __init__(self, token_to_dim: dict[str, int], dims: int = 16) -> None:
+        self.token_to_dim = token_to_dim
+        self.dims = dims
+
+    async def embed_batch(self, texts, model=None):
+        class _R:
+            def __init__(self, vector):
+                self.vector = vector
+                self.model = "stub"
+                self.dimensions = len(vector)
+
+        out = []
+        for t in texts:
+            vec = [0.0] * self.dims
+            for token, dim in self.token_to_dim.items():
+                if token.lower() in t.lower():
+                    vec[dim] += 1.0
+            out.append(_R(vec))
+        return out
+
+
+class _FakeGoal:
+    def __init__(self, text: str) -> None:
+        self.goal = text
+
+
+class _StubGoalManager:
+    def __init__(self, goals: dict[str, list[str]]) -> None:
+        # {status: [goal_text, ...]}
+        self._goals = goals
+
+    async def list_goals(self, status: str, limit: int):
+        return [_FakeGoal(g) for g in self._goals.get(status, [])[:limit]]
+
+
+@pytest.mark.asyncio
+async def test_dedup_drops_near_duplicate_of_existing_goal() -> None:
+    """Candidate sharing all tokens with an existing goal must be
+    dropped. The dedup catches the 'Build identity index' vs 'Build
+    identity memory index' class of overlap that string Jaccard
+    misses."""
+    from tools.goals.dream_tool import GoalDreamTool
+
+    tool = GoalDreamTool()
+    tool._embedder = _StubEmbedder(
+        {"identity": 0, "memory": 1, "build": 2, "fresh": 3, "research": 4}
+    )
+    tool._goal_manager = _StubGoalManager(
+        {"completed": ["Build identity memory index"]}
+    )
+
+    candidates = [
+        {
+            "title": "Build identity memory index",
+            "description": "same as existing",
+        },
+        {
+            "title": "Fresh research topic",
+            "description": "totally different vector",
+        },
+    ]
+    kept, dropped = await tool._dedup_candidates(candidates)
+    assert len(kept) == 1
+    assert kept[0]["title"] == "Fresh research topic"
+    assert len(dropped) == 1
+    assert "identity memory" in dropped[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_dedup_keeps_distinct_candidates() -> None:
+    """Different-topic candidates pass through unchanged."""
+    from tools.goals.dream_tool import GoalDreamTool
+
+    tool = GoalDreamTool()
+    tool._embedder = _StubEmbedder(
+        {"identity": 0, "compounding": 1, "research": 2, "creation": 3}
+    )
+    tool._goal_manager = _StubGoalManager({"completed": ["Run identity audit"]})
+    candidates = [
+        {"title": "Compounding revenue test", "description": "compounding"},
+        {"title": "Research bet on X", "description": "research"},
+        {"title": "Creation of a poem-bot", "description": "creation"},
+    ]
+    kept, dropped = await tool._dedup_candidates(candidates)
+    assert len(kept) == 3
+    assert dropped == []
+
+
+@pytest.mark.asyncio
+async def test_dedup_skipped_without_embedder() -> None:
+    """No embedder = no dedup = all candidates pass through. The
+    pre-dream dedup is opportunistic; absent dependencies must not
+    break the tool."""
+    from tools.goals.dream_tool import GoalDreamTool
+
+    tool = GoalDreamTool()
+    tool._embedder = None
+    tool._goal_manager = _StubGoalManager({"completed": ["X"]})
+    cands = [{"title": "A"}, {"title": "B"}]
+    kept, dropped = await tool._dedup_candidates(cands)
+    assert kept == cands
+    assert dropped == []
+
+
+@pytest.mark.asyncio
+async def test_dedup_no_existing_goals_keeps_all() -> None:
+    """First-ever dream cycle (or post-cleanup): nothing to dedup
+    against, every candidate survives."""
+    from tools.goals.dream_tool import GoalDreamTool
+
+    tool = GoalDreamTool()
+    tool._embedder = _StubEmbedder({"x": 0})
+    tool._goal_manager = _StubGoalManager({})
+    cands = [{"title": "A"}, {"title": "B"}]
+    kept, dropped = await tool._dedup_candidates(cands)
+    assert kept == cands
+    assert dropped == []
+
+
+def test_cosine_orthogonal_vectors() -> None:
+    """Sanity on the cosine helper — orthogonal vectors return 0,
+    identical vectors return 1, zero vectors return 0 (not NaN)."""
+    from tools.goals.dream_tool import GoalDreamTool
+
+    cos = GoalDreamTool._cosine
+    assert cos([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
+    assert cos([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
+    assert cos([0.0, 0.0], [1.0, 1.0]) == 0.0  # degenerate, not NaN
+    assert cos([1.0, 2.0], [2.0, 4.0]) == pytest.approx(1.0)  # parallel

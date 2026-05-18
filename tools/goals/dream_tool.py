@@ -322,6 +322,11 @@ class GoalDreamTool(BaseTool):
         self._ego_manager: Any = None
         self._dream_journal: Any = None
         self._project_root: Path | None = None
+        # Embedder for pre-dream dedup against existing goals. Optional
+        # — when None the dedup pass is skipped silently and all
+        # parsed candidates are returned.
+        self._embedder: Any = None
+        self._embedding_model: str | None = None
 
     @property
     def group(self) -> str:
@@ -369,6 +374,103 @@ class GoalDreamTool(BaseTool):
     @property
     def permission_level(self) -> PermissionLevel:
         return PermissionLevel.SAFE
+
+    # Cosine similarity threshold above which a candidate is considered
+    # a duplicate of an existing goal and dropped. 0.85 catches semantic
+    # near-duplicates ("Build identity memory index" vs "Create memory
+    # index for identity") while leaving room for goals that share a
+    # domain but pursue different deliverables ("Build identity index"
+    # vs "Run identity stress test" — same domain, different actions).
+    _DEDUP_THRESHOLD = 0.85
+
+    @staticmethod
+    def _cosine(a: list[float], b: list[float]) -> float:
+        """Cosine similarity of two equal-length vectors. Returns 0 if
+        either vector is degenerate (zero norm) rather than dividing
+        by zero — degenerate embeddings shouldn't false-positive."""
+        import math
+
+        if len(a) != len(b) or not a:
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
+        na = math.sqrt(sum(x * x for x in a))
+        nb = math.sqrt(sum(y * y for y in b))
+        if na == 0.0 or nb == 0.0:
+            return 0.0
+        return dot / (na * nb)
+
+    async def _dedup_candidates(
+        self, candidates: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Drop candidates whose embedding is too close to any existing
+        goal. Existing goals come from the goal_manager: active +
+        planning + recently completed. Returns ``(kept, dropped_titles)``.
+
+        Safety: any error in the embedder or DB path raises out to the
+        caller, which logs and returns the unmodified candidates. The
+        dedup pass is opportunistic — it must not break the dream.
+        """
+        if not candidates or self._embedder is None or self._goal_manager is None:
+            return candidates, []
+
+        existing_texts: list[str] = []
+        try:
+            for status in ("active", "planning"):
+                goals = await self._goal_manager.list_goals(status=status, limit=20)
+                for g in goals:
+                    existing_texts.append(g.goal)
+            completed = await self._goal_manager.list_goals(
+                status="completed", limit=30
+            )
+            for g in completed:
+                existing_texts.append(g.goal)
+        except Exception as e:
+            logger.debug("dedup: existing-goals query failed: %s", e)
+            return candidates, []
+
+        if not existing_texts:
+            return candidates, []
+
+        candidate_texts: list[str] = []
+        for c in candidates:
+            if not isinstance(c, dict):
+                candidate_texts.append("")
+                continue
+            title = str(c.get("title", ""))
+            desc = str(c.get("description", ""))
+            candidate_texts.append(f"{title}\n{desc}".strip())
+
+        # One batch call covers everything; cheaper than N round trips.
+        all_texts = candidate_texts + existing_texts
+        try:
+            results = await self._embedder.embed_batch(
+                all_texts, model=self._embedding_model
+            )
+        except Exception as e:
+            logger.debug("dedup: embedder batch failed: %s", e)
+            return candidates, []
+
+        if len(results) != len(all_texts):
+            return candidates, []
+
+        cand_vecs = [r.vector for r in results[: len(candidate_texts)]]
+        existing_vecs = [r.vector for r in results[len(candidate_texts) :]]
+
+        kept: list[dict[str, Any]] = []
+        dropped: list[str] = []
+        for cand, vec in zip(candidates, cand_vecs, strict=False):
+            max_sim = 0.0
+            for ev in existing_vecs:
+                sim = self._cosine(vec, ev)
+                if sim > max_sim:
+                    max_sim = sim
+            if max_sim >= self._DEDUP_THRESHOLD:
+                title = str(cand.get("title", "")) if isinstance(cand, dict) else ""
+                dropped.append(f"{title} (cos={max_sim:.2f})")
+            else:
+                kept.append(cand)
+
+        return kept, dropped
 
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         if not self._router:
@@ -489,6 +591,37 @@ class GoalDreamTool(BaseTool):
             candidates = result.get("candidates", [])
             recommendation = result.get("recommendation", {})
 
+            # Pre-persist dedup against existing goals. Without this the
+            # dream cheerfully re-proposed near-identical goals every
+            # cycle ("Build an Identity Memory Index" + "Build an
+            # Identity Debt Burn-Down Board" + ...) because Jaccard
+            # similarity on titles alone isn't enough — the candidates
+            # describe different deliverables in the same conceptual
+            # cluster. Embeddings catch that; string overlap does not.
+            dropped_titles: list[str] = []
+            if isinstance(candidates, list) and self._embedder is not None:
+                try:
+                    candidates, dropped_titles = await self._dedup_candidates(
+                        candidates
+                    )
+                    # Recommendation index points into the pre-dedup list.
+                    # If the recommended candidate was dropped, clear
+                    # the recommendation so the caller doesn't try to
+                    # goal_create something we just rejected.
+                    if dropped_titles and isinstance(recommendation, dict):
+                        rec_idx = recommendation.get("index")
+                        if isinstance(rec_idx, int) and rec_idx >= len(candidates):
+                            recommendation = {
+                                "index": 0 if candidates else None,
+                                "reasoning": (
+                                    "Original recommendation dropped by dedup "
+                                    "(too similar to existing goal). Falling "
+                                    "back to the first remaining candidate."
+                                ),
+                            }
+                except Exception as e:
+                    logger.warning("dream: dedup pass failed (continuing): %s", e)
+
             # Persist BEFORE returning. The dream id flows back so the
             # caller can link goal_create back to its originating dream.
             dream_id: int | None = None
@@ -512,6 +645,7 @@ class GoalDreamTool(BaseTool):
                     "count": len(candidates) if isinstance(candidates, list) else 0,
                     "focus": focus,
                     "dream_id": dream_id,
+                    "dropped_as_duplicate": dropped_titles,
                     "note": (
                         "These are suggestions — use goal_create to create "
                         "the one you want, or ask for a different focus. "
