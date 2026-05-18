@@ -1009,6 +1009,11 @@ class EloPhantoDashboard(App):
     Screen {
         layout: vertical;
         background: #f9f8f4;
+        /* Belt-and-suspenders for terminals that override Textual's
+         * default-foreground heuristic — text without explicit colour
+         * markup must still render as near-black on the cream
+         * background, never light-on-light. */
+        color: #1c1a16;
     }
     #body {
         layout: horizontal;
@@ -1019,6 +1024,7 @@ class EloPhantoDashboard(App):
         min-width: 30;
         border-right: solid #d4cfc5;
         background: #f2f0ea;
+        color: #1c1a16;
         overflow-y: auto;
     }
     #main-area {
@@ -1029,6 +1035,7 @@ class EloPhantoDashboard(App):
         height: 1fr;
         padding: 0 1;
         background: #f9f8f4;
+        color: #1c1a16;
     }
     #feed-header {
         height: 1;
@@ -1040,6 +1047,7 @@ class EloPhantoDashboard(App):
     #events {
         height: 5;
         background: #f9f8f4;
+        color: #1c1a16;
         padding: 0 1;
     }
 #input-bar {
@@ -1087,6 +1095,14 @@ class EloPhantoDashboard(App):
         digest_seed: dict | None = None,
     ) -> None:
         super().__init__()
+        # The dashboard's CSS sets light backgrounds (#f9f8f4 / #f2f0ea)
+        # but Textual defaults App.dark = True, which makes the default
+        # foreground color light-grey-on-dark. Result: text rendered
+        # without explicit `[hex]...[/]` markup is light-on-light and
+        # invisible on some terminals (depends on the terminal's
+        # default-color synthesis). Forcing dark = False tells Textual
+        # "this app is a light theme; default the foreground to dark."
+        self.dark = False
         self._gw_url = gateway_url
         self._ws: Any = None
         self._session_id = ""
