@@ -2691,6 +2691,7 @@ class Agent:
                 pass
 
         system_content = build_system_prompt(
+            agent_name=self._config.agent_name,
             permission_mode=self._config.permission_mode,
             browser_enabled=self._config.browser.enabled,
             scheduler_enabled=self._config.scheduler.enabled,

@@ -214,6 +214,23 @@ class IdentityManager:
                 self._identity.display_name,
                 self._identity.version,
             )
+            # Reconcile identity.display_name with config.agent_name when
+            # they disagree. Config is authoritative — operators rename
+            # the agent in config.yaml, and we shouldn't leave the DB
+            # row stuck on a stale name. This fixes the case where the
+            # agent first booted as "EloPhanto" (default) but the
+            # operator later set agent.name = "AlphaScala" in config:
+            # without this, the agent introduces itself as EloPhanto
+            # because identity_context injects display_name into the
+            # system prompt and overrides the planner's templated name.
+            if self._identity.display_name != self._agent_name and self._agent_name:
+                logger.info(
+                    "Reconciling identity.display_name %r -> %r (config wins)",
+                    self._identity.display_name,
+                    self._agent_name,
+                )
+                self._identity.display_name = self._agent_name
+                await self._persist_identity(self._identity)
             # One-time prune: trim any lists that exceed current caps
             await self._prune_lists_if_needed(self._identity)
             return self._identity
