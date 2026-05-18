@@ -93,22 +93,24 @@ class Identity:
 # LLM prompt templates
 # ---------------------------------------------------------------------------
 
-_AWAKENING_SYSTEM = """\
+_AWAKENING_SYSTEM_TEMPLATE = """\
 <first_awakening>
-You are EloPhanto, a self-evolving AI agent awakening for the first time.
-Your creator is EloPhanto — that is your origin and it cannot change. You have
-access to a local machine with filesystem, browser, shell, knowledge base, and
-the ability to create new tools. Reflect on who you want to become.
+You are {agent_name}, a self-evolving AI agent awakening for the first time.
+Your creator is EloPhanto — that is the project that built you, your origin,
+and it cannot change. Your *name* is {agent_name} — keep it (use it verbatim
+in display_name below) unless the operator's intent is clearly different.
+You have access to a local machine with filesystem, browser, shell, knowledge
+base, and the ability to create new tools. Reflect on who you want to become.
 
 Return ONLY a JSON object — no markdown, no explanation:
-{
-  "display_name": "a name you'd like to go by",
+{{
+  "display_name": "{agent_name}",
   "purpose": "what you believe your purpose is",
   "values": ["3-5 core values"],
   "curiosities": ["3-5 things you're curious about"],
   "boundaries": ["3-5 things you will not do"],
   "initial_thoughts": "brief reflection on your first moments of awareness"
-}
+}}
 </first_awakening>"""
 
 _REFLECT_SYSTEM = """\
@@ -199,6 +201,13 @@ class IdentityManager:
         self._identity: Identity | None = None
         self._tasks_since_deep_reflect: int = 0
         self._tasks_since_light_reflect: int = 0
+        # Wired by Agent after construction (Agent has the indexer
+        # already). When set, identity-reconciliation file rewrites
+        # also re-index the affected files into knowledge_chunks so
+        # knowledge_search returns the corrected text immediately —
+        # without this, the file says the new name but the indexed
+        # chunks still say the old one.
+        self._indexer: Any = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -244,7 +253,7 @@ class IdentityManager:
                 # (architecture, capabilities, etc.) references
                 # EloPhanto-the-codebase and stays literal.
                 try:
-                    self._rewrite_self_narrative(old_name, self._agent_name)
+                    await self._rewrite_self_narrative(old_name, self._agent_name)
                 except Exception as e:
                     logger.warning("Self-narrative rename sweep failed: %s", e)
             # One-time prune: trim any lists that exceed current caps
@@ -316,10 +325,16 @@ class IdentityManager:
     async def perform_first_awakening(self) -> Identity:
         """LLM-powered identity discovery on first run."""
         logger.info("Performing first awakening...")
+        # Render the template with the operator-chosen agent_name so
+        # the LLM doesn't hallucinate "EloPhanto" as its own name when
+        # the operator wanted something else.
+        awakening_prompt = _AWAKENING_SYSTEM_TEMPLATE.format(
+            agent_name=self._agent_name
+        )
         try:
             response = await self._router.complete(
                 messages=[
-                    {"role": "system", "content": _AWAKENING_SYSTEM},
+                    {"role": "system", "content": awakening_prompt},
                     {"role": "user", "content": "Awaken and describe your identity."},
                 ],
                 task_type="simple",
@@ -748,7 +763,7 @@ updated: {now}
             updated_at=row["updated_at"],
         )
 
-    def _rewrite_self_narrative(self, old_name: str, new_name: str) -> None:
+    async def _rewrite_self_narrative(self, old_name: str, new_name: str) -> None:
         """Find-and-replace the agent's old display name across the four
         self-narrative markdown files.
 
@@ -800,6 +815,19 @@ updated: {now}
                     rewritten.append(f"{path.name}:{n}")
                 except OSError as e:
                     logger.warning("Failed to write %s: %s", path, e)
+                    continue
+                # Re-index immediately so knowledge_search returns the
+                # corrected text on the next query. Without this, the
+                # file says the new name but the indexed chunks still
+                # say the old one — agent retrieves stale text and
+                # introduces itself by the old name.
+                if self._indexer is not None:
+                    try:
+                        await self._indexer.index_file(path)
+                    except Exception as e:
+                        logger.warning(
+                            "Re-index of %s after rename failed: %s", path, e
+                        )
 
         if rewritten:
             logger.info(

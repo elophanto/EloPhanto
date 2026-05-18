@@ -1082,6 +1082,12 @@ class Agent:
                     config=self._config.identity,
                     agent_name=self._config.agent_name,
                 )
+                # Wire indexer BEFORE load_or_create so a reconciliation
+                # rename re-indexes the affected files in the same call.
+                # Without this, the sweep edits the markdown files but
+                # knowledge_chunks still has the stale text — agent
+                # quotes the old name on the next knowledge_search.
+                self._identity_manager._indexer = self._indexer
                 await self._identity_manager.load_or_create()
                 self._inject_identity_deps()
                 logger.info("Identity system ready")
