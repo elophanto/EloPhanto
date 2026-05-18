@@ -605,7 +605,16 @@ class _GoalsPanel(_SidePanel):
             "active": f"[{_OK}]●[/]",
             "paused": f"[{_DIM}]◇[/]",
             "blocked": f"[{_WARN}]●[/]",
+            # The goal manager writes status='completed'; an earlier
+            # version of this dict used "done" as the key, so finished
+            # goals fell through to the '?' fallback. The gateway
+            # filters completed goals out of the panel payload now,
+            # but keeping both keys is cheap insurance.
+            "completed": f"[{_OK}]✓[/]",
             "done": f"[{_OK}]✓[/]",
+            "cancelled": f"[{_DIM}]✕[/]",
+            "failed": f"[{_WARN}]✗[/]",
+            "planning": f"[{_DIM}]◯[/]",
         }
         lines = []
         # Two-line layout per goal. The old single-line layout had to

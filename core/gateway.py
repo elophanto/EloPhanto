@@ -1538,7 +1538,17 @@ class Gateway:
             goal_mgr = getattr(self._agent, "_goal_manager", None)
             if goal_mgr:
                 try:
-                    goals = await goal_mgr.list_goals(limit=10)
+                    # GOALS panel shows work-in-progress only — fetch
+                    # each in-flight status individually so completed
+                    # / cancelled / failed goals don't push the actual
+                    # active goal off the panel. Previous unfiltered
+                    # list_goals(limit=10) caused the operator-visible
+                    # bug where a finished goal sat in the sidebar
+                    # rendered as '?' next to the active one.
+                    active = await goal_mgr.list_goals(status="active", limit=4)
+                    paused = await goal_mgr.list_goals(status="paused", limit=2)
+                    planning = await goal_mgr.list_goals(status="planning", limit=2)
+                    goals = active + planning + paused
                     dashboard["goals"] = [
                         {
                             # Legacy keys — kept for downstream
