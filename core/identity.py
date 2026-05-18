@@ -224,13 +224,29 @@ class IdentityManager:
             # because identity_context injects display_name into the
             # system prompt and overrides the planner's templated name.
             if self._identity.display_name != self._agent_name and self._agent_name:
+                old_name = self._identity.display_name
                 logger.info(
                     "Reconciling identity.display_name %r -> %r (config wins)",
-                    self._identity.display_name,
+                    old_name,
                     self._agent_name,
                 )
                 self._identity.display_name = self._agent_name
                 await self._persist_identity(self._identity)
+                # Sweep the agent's self-narrative markdown files for
+                # the old name. The DB has the new name now, the
+                # system prompt template has the new name, but if we
+                # leave nature.md / ego.md / affect.md / system
+                # identity.md saying "I am EloPhanto", any
+                # knowledge_search for "name" or "who am I" retrieves
+                # them and the LLM dutifully quotes EloPhanto back.
+                # Word-boundary replace, scoped to the four self-
+                # narrative files only. The rest of knowledge/
+                # (architecture, capabilities, etc.) references
+                # EloPhanto-the-codebase and stays literal.
+                try:
+                    self._rewrite_self_narrative(old_name, self._agent_name)
+                except Exception as e:
+                    logger.warning("Self-narrative rename sweep failed: %s", e)
             # One-time prune: trim any lists that exceed current caps
             await self._prune_lists_if_needed(self._identity)
             return self._identity
@@ -731,6 +747,67 @@ updated: {now}
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    def _rewrite_self_narrative(self, old_name: str, new_name: str) -> None:
+        """Find-and-replace the agent's old display name across the four
+        self-narrative markdown files.
+
+        The agent reads these via knowledge_search and the LLM quotes
+        the old name back. Auto-fixing them at reconciliation time
+        keeps the rename actually working without a manual sweep.
+
+        Scope: only files that describe the *agent's identity*. Other
+        files in knowledge/ (architecture.md, capabilities.md, etc.)
+        reference EloPhanto-the-codebase and intentionally stay literal.
+
+        Word-boundary regex avoids changing strings that happen to
+        contain the old name as a substring of something else.
+        """
+        import re
+
+        if not old_name or not new_name or old_name == new_name:
+            return
+
+        # Files derived from IdentityConfig and a known bootstrap doc.
+        candidates: list[Path] = []
+        for cfg_field in ("nature_file", "ego_file", "affect_file"):
+            rel = getattr(self._config, cfg_field, "")
+            if rel:
+                candidates.append(Path(rel))
+        # Bootstrap identity doc lives at a fixed relative path;
+        # include it unconditionally since it's the first-awakening
+        # narrative the agent reads on initialization.
+        candidates.append(Path("knowledge/system/identity.md"))
+
+        pattern = re.compile(rf"\b{re.escape(old_name)}\b")
+        rewritten: list[str] = []
+        for path in candidates:
+            if not path.is_absolute():
+                # Resolve relative paths against cwd — agent.py runs
+                # with project root as cwd, so this matches the path
+                # convention used elsewhere.
+                path = Path.cwd() / path
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            new_text, n = pattern.subn(new_name, text)
+            if n > 0:
+                try:
+                    path.write_text(new_text, encoding="utf-8")
+                    rewritten.append(f"{path.name}:{n}")
+                except OSError as e:
+                    logger.warning("Failed to write %s: %s", path, e)
+
+        if rewritten:
+            logger.info(
+                "Self-narrative rename %r -> %r touched: %s",
+                old_name,
+                new_name,
+                ", ".join(rewritten),
+            )
 
     async def _prune_lists_if_needed(self, identity: Identity) -> None:
         """One-time migration: trim any list fields that exceed _LIST_CAPS.
