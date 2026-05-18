@@ -328,7 +328,8 @@ browser:
   use_system_chrome: true     # Use system Chrome vs Playwright Chromium
   viewport_width: 1536        # Browser viewport width
   viewport_height: 864        # Browser viewport height
-  vision_model: google/gemini-2.0-flash-001  # OpenRouter model for screenshot analysis
+  vision_model: codex/gpt-5.5  # Screenshot analysis. codex/gpt-5.5 = ChatGPT subscription (no API spend).
+                               # Alternatives: openrouter/x-ai/grok-4.3, openrouter/google/gemini-3-flash-preview
 ```
 
 ## Setup
