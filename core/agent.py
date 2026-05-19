@@ -21,7 +21,6 @@ import logging
 import sys
 import time as _time
 from collections.abc import Callable
-from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -38,25 +37,30 @@ if TYPE_CHECKING:
 # scope to the current asyncio task and propagate to awaited inner
 # coroutines but not to ``asyncio.create_task`` children unless
 # explicitly copied — exactly the semantics we want.
-_in_agent_loop: ContextVar[bool] = ContextVar("_in_agent_loop", default=False)
+# Legacy contextvar — kept as a thin shim around the unified
+# ExecutionContext in core/execution_context.py. New code should read
+# ``current_context().in_agent_loop`` directly; this alias survives
+# until the submit_task refactor removes the legacy entry points.
+def _is_in_agent_loop() -> bool:
+    """Read the unified execution context for the AGENT_LOOP reentrance
+    flag. Replaces the old ``_in_agent_loop.get()`` calls."""
+    from core.execution_context import current_context
 
-# True iff the current asyncio task is executing inside a scheduled task
-# (set by ``_execute_scheduled_task``). Used by ``tools/scheduling/list_tool.py``
-# and ``tools/scheduling/schedule_tool.py`` to refuse cross-schedule
-# mutation: one schedule must never enable/disable/stop/delete/create
-# another. The scheduler queues them — they don't get to meddle. On
-# 2026-05-15 a Daily Review schedule autonomously disabled three other
-# schedules right after we updated their task_goals; that's the bug
-# this guards against. Read-only ``list`` / ``history`` actions stay
-# allowed because legitimate dedupe checks need them.
-_in_scheduled_task: ContextVar[bool] = ContextVar("_in_scheduled_task", default=False)
+    return current_context().in_agent_loop
 
 
 def is_in_scheduled_task() -> bool:
     """Public helper for tools to check whether they're being called
     from inside a scheduled-task run loop. Used to gate cross-schedule
-    mutation."""
-    return _in_scheduled_task.get()
+    mutation (one schedule must never enable/disable/stop/delete/create
+    another — the scheduler queues them; they don't get to meddle).
+
+    Reads the unified ``ExecutionContext`` rather than the old
+    ``_in_scheduled_task`` contextvar. Backed by the same propagation
+    semantics; behavior unchanged."""
+    from core.execution_context import current_context
+
+    return current_context().is_scheduled
 
 
 class StatusCallback(Protocol):
@@ -2325,22 +2329,23 @@ class Agent:
             if on_step:
                 self._on_step = on_step
 
-            token = _in_agent_loop.set(True)
-            try:
-                response = await self._run_with_history(
-                    goal,
-                    session.conversation_history,
-                    session.append_conversation_turn,
-                    authority=authority,
-                    session=session,
-                )
-                session.touch()
-                return response
-            finally:
-                # Restore previous callbacks
-                self._executor._approval_callback = prev_approval
-                self._on_step = prev_step
-                _in_agent_loop.reset(token)
+            from core.execution_context import TaskSource, execution_context
+
+            with execution_context(source=TaskSource.USER, in_agent_loop=True):
+                try:
+                    response = await self._run_with_history(
+                        goal,
+                        session.conversation_history,
+                        session.append_conversation_turn,
+                        authority=authority,
+                        session=session,
+                    )
+                    session.touch()
+                    return response
+                finally:
+                    # Restore previous callbacks
+                    self._executor._approval_callback = prev_approval
+                    self._on_step = prev_step
 
     async def run(
         self,
@@ -2386,11 +2391,13 @@ class Agent:
                 else TaskPriority.SCHEDULED.value
             )
 
+        from core.execution_context import current_context, execution_context
+
         # Re-entrant case: ``run_isolated`` (called from the delegate
         # tool while a parent loop is mid-execution) gets here with
         # AGENT_LOOP already held by the same task. Skip the acquire
         # to avoid self-deadlock — the parent's hold covers us.
-        if _in_agent_loop.get():
+        if current_context().in_agent_loop:
             return await self._run_with_history(
                 goal,
                 self._conversation_history,
@@ -2403,8 +2410,12 @@ class Agent:
         async with self._resources.acquire(
             [TaskResource.AGENT_LOOP], priority=effective_priority
         ):
-            token = _in_agent_loop.set(True)
-            try:
+            # in_agent_loop flag prevents reentrant runs (e.g. via the
+            # delegate tool) from trying to re-acquire AGENT_LOOP and
+            # self-deadlocking. Source stays whatever the caller set
+            # (mind / scheduled / etc.) — we're only flipping the
+            # reentrance flag here, not redefining the work origin.
+            with execution_context(in_agent_loop=True):
                 return await self._run_with_history(
                     goal,
                     self._conversation_history,
@@ -2413,8 +2424,6 @@ class Agent:
                     authority=AuthorityLevel.OWNER,
                     is_user_input=is_user_input,
                 )
-            finally:
-                _in_agent_loop.reset(token)
 
     async def run_isolated(
         self,
@@ -3743,53 +3752,61 @@ class Agent:
             await _broadcast_step(step, tool_name, thought, params)
 
         self._on_step = _tracked_step
-        # Set the cross-schedule mutation guard. Inside this contextvar
-        # scope, tools/scheduling/list_tool.py refuses enable / disable /
-        # stop / delete / stop_all and tools/scheduling/schedule_tool.py
-        # refuses create. A schedule must NOT modify another schedule —
-        # the scheduler queues them; they don't get to meddle.
-        _sched_token = _in_scheduled_task.set(True)
-        try:
-            # Cadence schedules yield to the autonomous mind — they're
-            # frequency hints, not deadlines. Deadline schedules keep the
-            # original SCHEDULED priority and preempt the mind. See
-            # core/action_queue.py:TaskPriority.
-            from core.task_resources import TaskPriority
+        # Mark the execution context as SCHEDULED. Inside this scope,
+        # tools/scheduling/list_tool.py refuses enable / disable / stop
+        # / delete / stop_all and tools/scheduling/schedule_tool.py
+        # refuses create — one schedule must NOT mutate another. The
+        # scheduler queues them; they don't get to meddle. Also flips
+        # the ego correction detector off for this turn (is_user_input
+        # is derived from source via current_context().is_user_input).
+        from core.execution_context import TaskSource, execution_context
 
-            sched_priority = (
-                TaskPriority.SCHEDULED_CADENCE.value
-                if cadence
-                else TaskPriority.SCHEDULED.value
-            )
-            return await self.run(goal, is_user_input=False, priority=sched_priority)
-        finally:
-            self._on_step = prev_on_step
-            _in_scheduled_task.reset(_sched_token)
-            # Diagnostic: warn when a scheduled task completes suspiciously
-            # fast without doing real work. The "bailed at preflight"
-            # failure mode (read a skill, list schedules, declare complete
-            # in 20s) is what hid yesterday's posting regression — make
-            # it impossible to miss in future logs.
-            _elapsed = _time.monotonic() - _start_ts
-            _ACTIONLESS_TOOLS = {
-                "skill_read",
-                "schedule_list",
-                "knowledge_search",
-                "session_search",
-                "tool_discover",
-                "file_list",
-                "file_read",
-            }
-            _real_action = any(t not in _ACTIONLESS_TOOLS for t in _tracked_tool_calls)
-            if _elapsed < 30.0 and not _real_action:
-                logger.warning(
-                    "[sched-task] BAIL-OUT detected: completed in %.1fs "
-                    "with only preflight tools (%s) — task likely "
-                    "interpreted its rules as 'nothing to do.' Goal head: %r",
-                    _elapsed,
-                    _tracked_tool_calls,
-                    goal[:200].replace("\n", " "),
+        with execution_context(source=TaskSource.SCHEDULED):
+            try:
+                # Cadence schedules yield to the autonomous mind —
+                # they're frequency hints, not deadlines. Deadline
+                # schedules keep the original SCHEDULED priority and
+                # preempt the mind.
+                from core.task_resources import TaskPriority
+
+                sched_priority = (
+                    TaskPriority.SCHEDULED_CADENCE.value
+                    if cadence
+                    else TaskPriority.SCHEDULED.value
                 )
+                return await self.run(
+                    goal, is_user_input=False, priority=sched_priority
+                )
+            finally:
+                self._on_step = prev_on_step
+                # Diagnostic: warn when a scheduled task completes
+                # suspiciously fast without doing real work. The
+                # "bailed at preflight" failure mode (read a skill,
+                # list schedules, declare complete in 20s) is what
+                # hid yesterday's posting regression — make it
+                # impossible to miss in future logs.
+                _elapsed = _time.monotonic() - _start_ts
+                _ACTIONLESS_TOOLS = {
+                    "skill_read",
+                    "schedule_list",
+                    "knowledge_search",
+                    "session_search",
+                    "tool_discover",
+                    "file_list",
+                    "file_read",
+                }
+                _real_action = any(
+                    t not in _ACTIONLESS_TOOLS for t in _tracked_tool_calls
+                )
+                if _elapsed < 30.0 and not _real_action:
+                    logger.warning(
+                        "[sched-task] BAIL-OUT detected: completed in %.1fs "
+                        "with only preflight tools (%s) — task likely "
+                        "interpreted its rules as 'nothing to do.' Goal head: %r",
+                        _elapsed,
+                        _tracked_tool_calls,
+                        goal[:200].replace("\n", " "),
+                    )
 
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str

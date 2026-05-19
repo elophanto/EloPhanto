@@ -819,16 +819,22 @@ class AutonomousMind:
         cycle_start = time.monotonic()
         # agent.run() acquires AGENT_LOOP (capacity 1) internally with
         # the priority we pass below — no explicit resource wrap here.
+        from core.execution_context import TaskSource, execution_context
         from core.task_resources import TaskPriority
 
         try:
             try:
-                response = await self._agent.run(
-                    prompt,
-                    max_steps_override=self._config.max_rounds_per_wakeup,
-                    is_user_input=False,
-                    priority=TaskPriority.MIND.value,
-                )
+                # Mark this work as autonomous-mind sourced. Downstream
+                # gates (ego correction detector, schedule-mutation
+                # tools, etc.) read the execution context instead of
+                # the legacy is_user_input parameter.
+                with execution_context(source=TaskSource.MIND):
+                    response = await self._agent.run(
+                        prompt,
+                        max_steps_override=self._config.max_rounds_per_wakeup,
+                        is_user_input=False,
+                        priority=TaskPriority.MIND.value,
+                    )
             except TimeoutError:
                 logger.warning(
                     "AutoLoop iteration skipped — resource held by "
@@ -1078,16 +1084,20 @@ class AutonomousMind:
         self._agent._executor._on_tool_executed = _on_tool
 
         # agent.run() acquires AGENT_LOOP (capacity 1) internally.
+        from core.execution_context import TaskSource, execution_context
         from core.task_resources import TaskPriority
 
         try:
             try:
-                response = await self._agent.run(
-                    prompt,
-                    max_steps_override=self._config.max_rounds_per_wakeup,
-                    is_user_input=False,
-                    priority=TaskPriority.MIND.value,
-                )
+                # Mark this work as autonomous-mind sourced — see the
+                # AutoLoop sibling above for the rationale.
+                with execution_context(source=TaskSource.MIND):
+                    response = await self._agent.run(
+                        prompt,
+                        max_steps_override=self._config.max_rounds_per_wakeup,
+                        is_user_input=False,
+                        priority=TaskPriority.MIND.value,
+                    )
             except TimeoutError:
                 logger.warning(
                     "Mind think cycle skipped — resource held by "
