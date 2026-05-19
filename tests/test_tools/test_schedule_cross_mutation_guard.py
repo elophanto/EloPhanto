@@ -14,19 +14,24 @@ from typing import Any
 
 import pytest
 
-from core.agent import _in_scheduled_task
+from core.execution_context import TaskSource, execution_context
 from tools.scheduling.list_tool import ScheduleListTool
 from tools.scheduling.schedule_tool import ScheduleTaskTool
 
 
 @contextmanager
 def _inside_scheduled_task():
-    """Simulate being called from inside a scheduled task run."""
-    token = _in_scheduled_task.set(True)
-    try:
+    """Simulate being called from inside a scheduled task run.
+
+    Sets the unified ExecutionContext to source=SCHEDULED — the
+    same thing core/agent.py:_execute_scheduled_task does in
+    production. The legacy `_in_scheduled_task` contextvar was
+    replaced in the cleanup-B refactor; tools now read
+    `current_context().is_scheduled` (via the
+    `is_in_scheduled_task()` helper).
+    """
+    with execution_context(source=TaskSource.SCHEDULED):
         yield
-    finally:
-        _in_scheduled_task.reset(token)
 
 
 class _StubScheduler:
