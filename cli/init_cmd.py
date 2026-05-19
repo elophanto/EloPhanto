@@ -705,7 +705,10 @@ def _edit_browser(config: dict) -> None:
     )
 
     browser_cfg = config.setdefault("browser", {})
-    current_enabled = browser_cfg.get("enabled", False)
+    # Default ON — browser is part of the recommended reference
+    # config. Most things the agent does (X, Polymarket, login flows,
+    # research) need real Chrome with the operator's sessions.
+    current_enabled = browser_cfg.get("enabled", True)
     browser_enabled = Confirm.ask(
         "  Allow the agent to browse the web?", default=current_enabled
     )
@@ -716,7 +719,11 @@ def _edit_browser(config: dict) -> None:
     browser_cfg.setdefault("headless", False)
 
     if browser_enabled:
-        current_mode = browser_cfg.get("mode", "fresh")
+        # Default to 'profile' — real Chrome with the operator's
+        # sessions. That's what makes the agent able to actually do
+        # X/Polymarket/email/etc. without having to log in fresh.
+        # Fresh mode is the niche path (CI, demo screenshots).
+        current_mode = browser_cfg.get("mode", "profile")
         use_sessions = Confirm.ask(
             "  Use your existing Chrome sessions (logged-in sites, cookies)?",
             default=current_mode == "profile",
@@ -843,7 +850,8 @@ def _edit_desktop(config: dict) -> None:
     )
 
     desktop_cfg = config.setdefault("desktop", {})
-    current_enabled = desktop_cfg.get("enabled", False)
+    # Default ON — part of the recommended reference config.
+    current_enabled = desktop_cfg.get("enabled", True)
     desktop_enabled = Confirm.ask("  Enable desktop agent?", default=current_enabled)
     desktop_cfg["enabled"] = desktop_enabled
 
@@ -885,7 +893,10 @@ def _edit_channels(config: dict) -> None:
     console.print()
     console.print("  [bold]Telegram[/bold]")
     tg_cfg = config.setdefault("telegram", {})
-    current_tg = tg_cfg.get("enabled", False)
+    # Default ON — part of the recommended reference config. Asks
+    # for bot token next if accepted; operator can skip by entering
+    # blank.
+    current_tg = tg_cfg.get("enabled", True)
     tg_enabled = Confirm.ask("  Enable Telegram bot?", default=current_tg)
     tg_cfg["enabled"] = tg_enabled
 
@@ -974,7 +985,9 @@ def _edit_email(config: dict) -> None:
     )
 
     email_cfg = config.setdefault("email", {})
-    current_enabled = email_cfg.get("enabled", False)
+    # Default ON — part of the recommended reference config.
+    # Follow-ups handle provider selection (AgentMail / SMTP+IMAP).
+    current_enabled = email_cfg.get("enabled", True)
     email_enabled = Confirm.ask("  Enable agent email?", default=current_enabled)
     email_cfg["enabled"] = email_enabled
 
@@ -1051,7 +1064,10 @@ def _edit_payments(config: dict) -> None:
     )
 
     pay_cfg = config.setdefault("payments", {})
-    current_enabled = pay_cfg.get("enabled", False)
+    # Default ON — part of the recommended reference config.
+    # Agent gets its own local-self-custody wallet by default; can
+    # be flipped to Coinbase AgentKit in the follow-up.
+    current_enabled = pay_cfg.get("enabled", True)
     pay_enabled = Confirm.ask("  Enable payments?", default=current_enabled)
     pay_cfg["enabled"] = pay_enabled
 
@@ -1162,7 +1178,10 @@ def _edit_gateway(config: dict) -> None:
     )
 
     gw_cfg = config.setdefault("gateway", {})
-    current_enabled = gw_cfg.get("enabled", False)
+    # Default ON — gateway is the multi-channel control plane that
+    # binds CLI / web / Telegram / Discord / Slack / VS Code into
+    # one unified session. Recommended reference config has this on.
+    current_enabled = gw_cfg.get("enabled", True)
     gw_enabled = Confirm.ask("  Enable gateway?", default=current_enabled)
     gw_cfg["enabled"] = gw_enabled
 
@@ -1189,7 +1208,9 @@ def _edit_swarm(config: dict) -> None:
     )
 
     swarm_cfg = config.setdefault("swarm", {})
-    current_enabled = swarm_cfg.get("enabled", False)
+    # Default ON — part of the recommended reference config.
+    # Needs tmux (setup.sh prompts for brew install if missing).
+    current_enabled = swarm_cfg.get("enabled", True)
     swarm_enabled = Confirm.ask("  Enable agent swarm?", default=current_enabled)
     swarm_cfg["enabled"] = swarm_enabled
 
@@ -1231,7 +1252,9 @@ def _edit_scheduler(config: dict) -> None:
         "  Requires the agent to be running in the background.[/dim]"
     )
     scheduler_cfg = config.setdefault("scheduler", {})
-    current_enabled = scheduler_cfg.get("enabled", False)
+    # Default ON — part of the recommended reference config. Hourly
+    # cron + cadence schedules are core to the autonomous loop.
+    current_enabled = scheduler_cfg.get("enabled", True)
     scheduler_enabled = Confirm.ask(
         "  Enable task scheduling?", default=current_enabled
     )
@@ -1255,7 +1278,10 @@ def _edit_autonomous_mind(config: dict) -> None:
     )
 
     mind_cfg = config.setdefault("autonomous_mind", {})
-    current_enabled = mind_cfg.get("enabled", False)
+    # Default ON — the autonomous mind is the headline feature.
+    # Without it, the agent only acts when you type. With it, it
+    # runs between your messages — dreams, executes goals, learns.
+    current_enabled = mind_cfg.get("enabled", True)
     mind_enabled = Confirm.ask("  Enable autonomous mind?", default=current_enabled)
     mind_cfg["enabled"] = mind_enabled
 
@@ -1329,7 +1355,10 @@ def _edit_mcp(config: dict) -> None:
 
     mcp_cfg = config.setdefault("mcp", {})
     servers = mcp_cfg.setdefault("servers", {})
-    current_enabled = mcp_cfg.get("enabled", False)
+    # Default ON — empty MCP servers list does no harm; operator
+    # can add servers later via `mcp_manage`. Part of the
+    # recommended reference config.
+    current_enabled = mcp_cfg.get("enabled", True)
 
     mcp_enabled = Confirm.ask("  Enable MCP tool servers?", default=current_enabled)
     mcp_cfg["enabled"] = mcp_enabled
