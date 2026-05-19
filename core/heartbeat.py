@@ -235,7 +235,7 @@ class HeartbeatEngine:
             )
 
             # agent.run() acquires AGENT_LOOP (capacity 1) internally.
-            from core.action_queue import TaskPriority
+            from core.task_resources import TaskPriority
 
             try:
                 response = await self._agent.run(

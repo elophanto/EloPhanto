@@ -575,16 +575,6 @@ class Agent:
 
         self._compaction_breaker = CompactionCircuitBreaker()
 
-        # Action queue — legacy serialization layer. Kept for backward
-        # compatibility but no longer wraps run_session (Phase B of
-        # docs/74-CONCURRENCY-MIGRATION.md routes operator chat through
-        # ``self._resources`` instead). The ``TaskPriority`` enum it
-        # ships is still the priority vocabulary the resource manager
-        # uses.
-        from core.action_queue import ActionQueue
-
-        self._action_queue = ActionQueue()
-
         # Resource-typed concurrency manager — shared with the scheduler
         # if scheduler is enabled, otherwise stands alone. Routes operator
         # chat, mind cycles, heartbeat, and scheduled tasks through
@@ -2321,8 +2311,7 @@ class Agent:
         # contention handles the wait queue, and freezing the agent's
         # whole life because the operator opened a chat is anti-agent
         # (principle 3).
-        from core.action_queue import TaskPriority
-        from core.task_resources import TaskResource
+        from core.task_resources import TaskPriority, TaskResource
 
         async with self._resources.acquire(
             [TaskResource.AGENT_LOOP], priority=TaskPriority.USER.value
@@ -2386,9 +2375,8 @@ class Agent:
                 Defaults to USER if ``is_user_input`` else SCHEDULED. Mind
                 / heartbeat callers should pass their explicit priority.
         """
-        from core.action_queue import TaskPriority
         from core.authority import AuthorityLevel
-        from core.task_resources import TaskResource
+        from core.task_resources import TaskPriority, TaskResource
 
         effective_priority = priority
         if effective_priority is None:
@@ -3766,7 +3754,7 @@ class Agent:
             # frequency hints, not deadlines. Deadline schedules keep the
             # original SCHEDULED priority and preempt the mind. See
             # core/action_queue.py:TaskPriority.
-            from core.action_queue import TaskPriority
+            from core.task_resources import TaskPriority
 
             sched_priority = (
                 TaskPriority.SCHEDULED_CADENCE.value

@@ -713,7 +713,7 @@ class TestCadencePriorityRouting:
     async def test_cadence_routes_to_scheduled_cadence_priority(
         self, tmp_path: Path
     ) -> None:
-        from core.action_queue import TaskPriority
+        from core.task_resources import TaskPriority
 
         # Cadence is strictly lower-priority than MIND
         assert TaskPriority.SCHEDULED_CADENCE > TaskPriority.MIND

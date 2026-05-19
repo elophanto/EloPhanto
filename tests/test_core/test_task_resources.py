@@ -395,8 +395,7 @@ class TestSchedulerQueue:
 class TestPhaseBPrioritySemaphore:
     @pytest.mark.asyncio
     async def test_higher_priority_waiter_acquires_first(self) -> None:
-        from core.action_queue import TaskPriority
-        from core.task_resources import TaskResource, TaskResourceManager
+        from core.task_resources import TaskPriority, TaskResource, TaskResourceManager
 
         mgr = TaskResourceManager(capacities={TaskResource.LLM_BURST: 1})
 
@@ -441,8 +440,7 @@ class TestPhaseBPrioritySemaphore:
     async def test_running_holder_is_not_preempted(self) -> None:
         """Higher priority does NOT abort an in-flight holder — the
         agent finishes its current sentence (Phase B principle 1)."""
-        from core.action_queue import TaskPriority
-        from core.task_resources import TaskResource, TaskResourceManager
+        from core.task_resources import TaskPriority, TaskResource, TaskResourceManager
 
         mgr = TaskResourceManager(capacities={TaskResource.LLM_BURST: 1})
 
@@ -479,8 +477,7 @@ class TestPhaseBPrioritySemaphore:
 
     @pytest.mark.asyncio
     async def test_fifo_within_same_priority(self) -> None:
-        from core.action_queue import TaskPriority
-        from core.task_resources import TaskResource, TaskResourceManager
+        from core.task_resources import TaskPriority, TaskResource, TaskResourceManager
 
         mgr = TaskResourceManager(capacities={TaskResource.LLM_BURST: 1})
         order: list[str] = []
@@ -510,8 +507,7 @@ class TestPhaseBPrioritySemaphore:
 
     @pytest.mark.asyncio
     async def test_cancelled_waiter_does_not_block_next(self) -> None:
-        from core.action_queue import TaskPriority
-        from core.task_resources import TaskResource, TaskResourceManager
+        from core.task_resources import TaskPriority, TaskResource, TaskResourceManager
 
         mgr = TaskResourceManager(capacities={TaskResource.LLM_BURST: 1})
         release_holder = asyncio.Event()

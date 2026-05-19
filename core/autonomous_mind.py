@@ -819,7 +819,7 @@ class AutonomousMind:
         cycle_start = time.monotonic()
         # agent.run() acquires AGENT_LOOP (capacity 1) internally with
         # the priority we pass below — no explicit resource wrap here.
-        from core.action_queue import TaskPriority
+        from core.task_resources import TaskPriority
 
         try:
             try:
@@ -1078,7 +1078,7 @@ class AutonomousMind:
         self._agent._executor._on_tool_executed = _on_tool
 
         # agent.run() acquires AGENT_LOOP (capacity 1) internally.
-        from core.action_queue import TaskPriority
+        from core.task_resources import TaskPriority
 
         try:
             try:

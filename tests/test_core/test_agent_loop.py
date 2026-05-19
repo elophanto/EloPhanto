@@ -404,42 +404,14 @@ class TestPhaseAScheduledTaskUnwrapped:
 
         assert {r.content for r in results} == {"task-a", "task-b"}
 
-    @pytest.mark.asyncio
-    async def test_does_not_acquire_action_queue(self, test_config: Config) -> None:
-        """Belt-and-suspenders: the action_queue lock must not be touched
-        by _execute_scheduled_task. If it were, a held lock would block
-        the call entirely."""
-        import asyncio
-
-        from core.action_queue import TaskPriority
-
-        agent = Agent(test_config)
-        await agent.initialize()
-
-        async def quick_run(goal: str, is_user_input: bool = False, **kw):
-            return type("R", (), {"content": goal, "steps_taken": 0})()
-
-        # Hold the action_queue with a higher-priority slot in the background.
-        # If _execute_scheduled_task still acquired the lock, it would wait
-        # forever for this hold to release.
-        hold_release = asyncio.Event()
-
-        async def hold_lock():
-            async with agent._action_queue.acquire(TaskPriority.USER):
-                await hold_release.wait()
-
-        holder = asyncio.create_task(hold_lock())
-        try:
-            # Yield once so holder actually acquires before we proceed.
-            await asyncio.sleep(0)
-            with patch.object(agent, "run", side_effect=quick_run):
-                result = await asyncio.wait_for(
-                    agent._execute_scheduled_task("not-blocked"), timeout=1.0
-                )
-            assert result.content == "not-blocked"
-        finally:
-            hold_release.set()
-            await holder
+    # Note: the old `test_does_not_acquire_action_queue` test was deleted
+    # alongside the action_queue module itself. It guarded against
+    # `_execute_scheduled_task` regressing back to using the legacy
+    # ActionQueue; that class no longer exists, so the regression it
+    # guarded against is structurally impossible. The companion test
+    # above (`test_two_scheduled_tasks_overlap`) still covers the
+    # actually-important property — scheduled tasks running in parallel
+    # without serializing through a global lock.
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +571,9 @@ class TestAgentLoopSerialization:
             concurrent -= 1
             return type("R", (), {"content": "ok", "steps_taken": 1})()
 
-        with patch.object(agent, "_run_with_history", side_effect=slow_run_with_history):
+        with patch.object(
+            agent, "_run_with_history", side_effect=slow_run_with_history
+        ):
             t1 = asyncio.create_task(agent.run("task-1"))
             await asyncio.wait_for(first_in.wait(), timeout=1.0)
             # First is inside the loop. Second starts but must wait
@@ -636,9 +610,7 @@ class TestAgentLoopSerialization:
         async def outer_history(*args, **kw):
             nonlocal inner_done
             # Re-enter via run() — should short-circuit AGENT_LOOP.
-            with patch.object(
-                agent, "_run_with_history", side_effect=inner_history
-            ):
+            with patch.object(agent, "_run_with_history", side_effect=inner_history):
                 await agent.run("inner")
             inner_done = True
             return type("R", (), {"content": "outer", "steps_taken": 1})()
