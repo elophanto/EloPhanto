@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
+from core.task_resources import TaskResource
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 
@@ -81,6 +82,10 @@ class VaultLookupTool(BaseTool):
 
 class VaultSetTool(BaseTool):
     """Store a credential in the encrypted vault."""
+
+    # Per-call resource: vault writes serialize on the password-derived
+    # key. Reads (VaultLookupTool) don't contend; writes do.
+    resources: ClassVar[frozenset[TaskResource]] = frozenset({TaskResource.VAULT_WRITE})
 
     def __init__(self) -> None:
         self._vault: Any = None

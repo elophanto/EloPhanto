@@ -21,7 +21,7 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from core.database import Database
-from core.task_resources import TaskResource, TaskResourceManager, infer_resources
+from core.task_resources import TaskResource, TaskResourceManager
 
 logger = logging.getLogger(__name__)
 
@@ -918,16 +918,21 @@ class TaskScheduler:
         if not schedule or not schedule.enabled:
             return
 
-        # Infer resources from task goal text. Conservative — when in
-        # doubt, declare BROWSER. See core/task_resources.py.
-        resources: list[TaskResource] = infer_resources(schedule.task_goal)
-        logger.debug(
-            "Schedule %s requesting resources: %s",
-            schedule_id,
-            [r.value for r in resources],
-        )
-
-        async with self._resources.acquire(resources):
+        # Resource acquisition moved DOWN to the tool-execution layer.
+        # See tools/base.py BaseTool.resources — each tool declares
+        # what it needs, the executor acquires those at tool-call
+        # time, and BROWSER / DESKTOP are held session-lazily for the
+        # whole agent.run() lifetime. This replaces the old coarse
+        # infer_resources(goal) heuristic that grabbed BROWSER for
+        # the entire schedule even when no browser call ever fired,
+        # and would deadlock if the agent-loop tried to re-acquire
+        # the same resource via the shared TaskResourceManager.
+        #
+        # The DEFAULT semaphore (global parallelism cap) is still
+        # honored — we hold it for the schedule's lifetime so the
+        # scheduler.max_concurrent_tasks setting actually means
+        # something. Pure-API schedules contend only on DEFAULT.
+        async with self._resources.acquire([TaskResource.DEFAULT]):
             await self._execute_schedule_body(schedule_id, schedule)
 
     async def _execute_schedule_body(

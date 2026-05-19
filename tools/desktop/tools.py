@@ -13,10 +13,11 @@ import asyncio
 import base64
 import logging
 import sys
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
+from core.task_resources import TaskResource
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 # ---------------------------------------------------------------------------
@@ -26,6 +27,12 @@ from tools.base import BaseTool, PermissionLevel, ToolResult
 
 class _DesktopTool(BaseTool):
     """Shared base for desktop tools with controller injection slot."""
+
+    # Every desktop tool contends for the single physical (or VM)
+    # screen + cursor + keyboard. Acquired session-lazily — first
+    # desktop tool in a run holds DESKTOP for the rest of the cycle
+    # so workflows that observe-then-act stay coherent.
+    resources: ClassVar[frozenset[TaskResource]] = frozenset({TaskResource.DESKTOP})
 
     @property
     def group(self) -> str:

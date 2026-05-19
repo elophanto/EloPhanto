@@ -6,8 +6,9 @@ import logging
 import os
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
+from core.task_resources import TaskResource
 from tools.base import BaseTool, PermissionLevel, ToolResult
 from tools.browser.eval_utils import eval_value
 
@@ -20,6 +21,9 @@ _MAX_DESCRIPTION = 5000
 
 class YouTubeUploadTool(BaseTool):
     """Upload a video file to YouTube (regular or Shorts)."""
+
+    # Multi-step Chrome flow — see twitter_tool.py for the rationale.
+    resources: ClassVar[frozenset[TaskResource]] = frozenset({TaskResource.BROWSER})
 
     def __init__(self) -> None:
         self._browser_manager: Any = None
