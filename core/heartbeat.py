@@ -235,15 +235,20 @@ class HeartbeatEngine:
             )
 
             # agent.run() acquires AGENT_LOOP (capacity 1) internally.
+            from core.execution_context import TaskSource, execution_context
             from core.task_resources import TaskPriority
 
             try:
-                response = await self._agent.run(
-                    prompt,
-                    max_steps_override=self._config.max_rounds,
-                    is_user_input=False,
-                    priority=TaskPriority.HEARTBEAT.value,
-                )
+                # Mark this work as heartbeat-sourced so downstream
+                # gates (ego correction detector, etc.) don't treat
+                # the standing-order text as a user message.
+                with execution_context(source=TaskSource.HEARTBEAT):
+                    response = await self._agent.run(
+                        prompt,
+                        max_steps_override=self._config.max_rounds,
+                        is_user_input=False,
+                        priority=TaskPriority.HEARTBEAT.value,
+                    )
             except TimeoutError:
                 logger.warning(
                     "Heartbeat skipped — resource held by another task. "
