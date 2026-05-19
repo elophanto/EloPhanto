@@ -147,6 +147,14 @@ class CodexAdapter:
         self._default_model = codex_cfg.default_model or "gpt-5.5"
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0))
         self._auth: dict[str, Any] = {}
+        # Optional callback fired per completed reasoning chunk. Wired
+        # by Agent.initialize() to broadcast AGENT_THOUGHT events so
+        # the dashboard's main chat shows the agent's chain-of-thought
+        # as it streams. Without this the reasoning is captured only
+        # at DEBUG and the operator sees a long silent pause.
+        # Signature: `(chunk: str) -> None` (sync; broadcast call is
+        # fire-and-forget via asyncio.create_task on the caller side).
+        self.on_reasoning_chunk: Any = None
         self._load_auth()
 
     def _load_auth(self) -> None:
@@ -417,6 +425,27 @@ class CodexAdapter:
 
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
+        # Current reasoning summary chunk being accumulated. The Codex
+        # API emits `response.reasoning_summary_part.added` to start a
+        # new chunk, `..._text.delta` for the body, and `..._part.done`
+        # (or part.added of the next) to end. We flush at boundary so
+        # the dashboard receives complete summary sentences, not
+        # token-by-token deltas.
+        current_chunk_parts: list[str] = []
+
+        def _flush_reasoning_chunk() -> None:
+            if not current_chunk_parts:
+                return
+            chunk_text = "".join(current_chunk_parts).strip()
+            current_chunk_parts.clear()
+            if not chunk_text:
+                return
+            if self.on_reasoning_chunk is not None:
+                try:
+                    self.on_reasoning_chunk(chunk_text)
+                except Exception:
+                    pass  # callback failure must not break streaming
+
         # function_call items in progress — keyed by item index in the output.
         # Each value: {"id", "name", "args_parts": [str]}.
         fn_calls_by_index: dict[int, dict[str, Any]] = {}
@@ -457,10 +486,17 @@ class CodexAdapter:
                     d = evt.get("delta")
                     if isinstance(d, str):
                         text_parts.append(d)
+                elif etype == "response.reasoning_summary_part.added":
+                    # Boundary: previous chunk ended, flush it to the
+                    # dashboard before accumulating the next.
+                    _flush_reasoning_chunk()
                 elif etype == "response.reasoning_summary_text.delta":
                     d = evt.get("delta")
                     if isinstance(d, str):
                         reasoning_parts.append(d)
+                        current_chunk_parts.append(d)
+                elif etype == "response.reasoning_summary_part.done":
+                    _flush_reasoning_chunk()
                 elif etype == "response.output_item.added":
                     item = evt.get("item") or {}
                     if item.get("type") == "function_call":

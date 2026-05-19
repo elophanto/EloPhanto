@@ -1848,6 +1848,58 @@ class Agent:
         if collections_tool:
             collections_tool._store = self._document_store
 
+    def wire_codex_streaming(self) -> None:
+        """Stream Codex chain-of-thought summaries to the dashboard.
+
+        Wires the CodexAdapter's reasoning-chunk callback so each
+        completed summary part fires an AGENT_THOUGHT gateway event.
+        The dashboard renders these in the main chat as live narration,
+        so operators see what the agent is thinking instead of staring
+        at a silent pause while Codex grinds.
+
+        Idempotent. Safe to call multiple times — the callback is set
+        once, subsequent calls are no-ops. Caller is expected to be
+        gateway_cmd / chat_cmd after `agent._gateway = gateway`.
+
+        Only affects Codex. Other providers don't expose streaming
+        reasoning summaries; their thinking remains invisible (we
+        surface tool calls via step_progress for those).
+        """
+        if self._gateway is None or self._router is None:
+            return
+        try:
+            adapter = self._router._get_codex_adapter()
+        except Exception:
+            return  # Codex not configured for this install
+
+        if getattr(adapter, "on_reasoning_chunk", None) is not None:
+            return  # already wired
+
+        gateway = self._gateway
+
+        def _on_chunk(chunk: str) -> None:
+            # Codex emits these from the streaming-response handler,
+            # which is inside a running asyncio task. Fire the
+            # broadcast as a sibling task; we don't await it because
+            # the callback is sync and must not block the stream loop.
+            try:
+                from core.protocol import EventType, event_message
+
+                asyncio.create_task(
+                    gateway.broadcast(
+                        event_message(
+                            "",
+                            EventType.AGENT_THOUGHT,
+                            {"text": chunk[:500]},
+                        ),
+                        session_id=None,
+                    )
+                )
+            except Exception:
+                pass  # never break streaming on broadcast failure
+
+        adapter.on_reasoning_chunk = _on_chunk
+
     def _inject_goal_deps(self) -> None:
         """Inject goal manager and goal runner into goal tools."""
         for tool_name in ("goal_create", "goal_status", "goal_manage"):

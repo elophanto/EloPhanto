@@ -210,6 +210,9 @@ async def _run_gateway(
 
     await gateway.start()
     agent._gateway = gateway  # Enable scheduled task notifications
+    # Stream Codex chain-of-thought summaries to the dashboard's main
+    # chat so operators see the agent thinking, not just waiting.
+    agent.wire_codex_streaming()
 
     # Update GoalRunner with gateway reference + resume active goals
     if agent._goal_runner:
