@@ -30,18 +30,42 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-# Priority convention — lower number = higher priority. Matches
-# core.action_queue.TaskPriority (USER=0, ..., GOAL=4). Defined here to
-# avoid an import cycle; callers from agent.py pass TaskPriority.USER.value.
+class TaskPriority(IntEnum):
+    """Execution priority — lower number = higher priority.
+
+    Used by ``_PrioritySemaphore`` (below) to order waiters on
+    contested resources. Every caller of ``agent.run()`` or
+    ``TaskResourceManager.acquire()`` should pass a value from this
+    enum so the priority-aware queue can sort fairly.
+
+    Lives in this module (rather than in core/action_queue.py which
+    no longer exists) because the priority and the semaphore that
+    consumes it are the same concept — separating them caused an
+    import-cycle workaround and a misleading dead-code file.
+    """
+
+    USER = 0  # Manual chat messages — highest priority
+    HEARTBEAT = 1  # Heartbeat standing orders
+    SCHEDULED = 2  # Scheduled cron tasks with deadline semantics
+    MIND = 3  # Autonomous mind background cycles
+    # Cadence schedules ("post every hour", "check inbox every 30m") are
+    # frequency hints, not deadlines. They yield to the mind's reflection
+    # loop — letting the mind decide whether *this* instance is worth
+    # running, instead of forcing a low-quality artifact under cadence
+    # pressure. See docs/ego logs 2026-05-17.
+    SCHEDULED_CADENCE = 4
+    GOAL = 5  # Goal runner background execution
+
+
 # Default for unmarked callers is SCHEDULED-equivalent so accidental
 # unmarked work doesn't jump operator chat.
-_DEFAULT_PRIORITY: int = 2
+_DEFAULT_PRIORITY: int = TaskPriority.SCHEDULED.value
 
 
 class _PrioritySemaphore:
