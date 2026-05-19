@@ -91,7 +91,11 @@ llm:
   routing:
     planning:
       preferred_provider: codex
-      reasoning_effort: medium            # minimal | low | medium | high
+      # `low` keeps Codex responsive (~5-15s typical) — medium routinely
+      # took 90-180s on tool-heavy planning prompts in production. Bump
+      # to medium per-call only when you've verified a goal genuinely
+      # needs deeper reasoning; the autonomous mind doesn't.
+      reasoning_effort: low               # minimal | low | medium | high
       models:
         codex: "gpt-5.5"
         openai: "gpt-5.5"
@@ -103,7 +107,7 @@ llm:
 
     coding:
       preferred_provider: codex
-      reasoning_effort: medium
+      reasoning_effort: low
       models:
         codex: "gpt-5.5"
         openai: "gpt-5.5"
