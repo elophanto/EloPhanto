@@ -2330,22 +2330,30 @@ class Agent:
                 self._on_step = on_step
 
             from core.execution_context import TaskSource, execution_context
+            from core.task_resources import run_scope
 
+            # Open a resource lease scope for the lifetime of this
+            # run. The executor reads this scope (via current_scope())
+            # to acquire BROWSER / DESKTOP session-lazily and per-call
+            # resources (VAULT_WRITE / LLM_BURST) around each tool
+            # invocation. Closes automatically on exit, releasing any
+            # session-held resources.
             with execution_context(source=TaskSource.USER, in_agent_loop=True):
-                try:
-                    response = await self._run_with_history(
-                        goal,
-                        session.conversation_history,
-                        session.append_conversation_turn,
-                        authority=authority,
-                        session=session,
-                    )
-                    session.touch()
-                    return response
-                finally:
-                    # Restore previous callbacks
-                    self._executor._approval_callback = prev_approval
-                    self._on_step = prev_step
+                async with run_scope(self._resources, priority=TaskPriority.USER.value):
+                    try:
+                        response = await self._run_with_history(
+                            goal,
+                            session.conversation_history,
+                            session.append_conversation_turn,
+                            authority=authority,
+                            session=session,
+                        )
+                        session.touch()
+                        return response
+                    finally:
+                        # Restore previous callbacks
+                        self._executor._approval_callback = prev_approval
+                        self._on_step = prev_step
 
     # Single source→priority mapping. The only place in the codebase
     # that decides priority from source. Callers pass a TaskSource;
@@ -2468,6 +2476,8 @@ class Agent:
                 is_user_input=is_user_input,
             )
 
+        from core.task_resources import run_scope
+
         async with self._resources.acquire(
             [TaskResource.AGENT_LOOP], priority=effective_priority
         ):
@@ -2477,14 +2487,18 @@ class Agent:
             # (mind / scheduled / etc.) — we're only flipping the
             # reentrance flag here, not redefining the work origin.
             with execution_context(in_agent_loop=True):
-                return await self._run_with_history(
-                    goal,
-                    self._conversation_history,
-                    self._append_conversation_turn,
-                    max_steps_override=max_steps_override,
-                    authority=AuthorityLevel.OWNER,
-                    is_user_input=is_user_input,
-                )
+                # Open the resource lease scope so the executor can
+                # acquire BROWSER / DESKTOP session-lazily and per-call
+                # resources around tool calls. Auto-closes on exit.
+                async with run_scope(self._resources, priority=effective_priority):
+                    return await self._run_with_history(
+                        goal,
+                        self._conversation_history,
+                        self._append_conversation_turn,
+                        max_steps_override=max_steps_override,
+                        authority=AuthorityLevel.OWNER,
+                        is_user_input=is_user_input,
+                    )
 
     async def run_isolated(
         self,

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
+from core.task_resources import TaskResource
 from tools.base import BaseTool, PermissionLevel, ToolResult
 from tools.browser.eval_utils import eval_value
 
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 class AffiliateScrapeTool(BaseTool):
     """Scrape product information from e-commerce platforms (Amazon, etc.)."""
+
+    # Drives Chrome via browser_manager.
+    resources: ClassVar[frozenset[TaskResource]] = frozenset({TaskResource.BROWSER})
 
     def __init__(self) -> None:
         self._browser_manager: Any = None

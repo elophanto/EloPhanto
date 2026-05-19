@@ -7,8 +7,9 @@ import logging
 import os
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
+from core.task_resources import TaskResource
 from tools.base import BaseTool, PermissionLevel, ToolResult
 from tools.browser.eval_utils import eval_value
 
@@ -20,6 +21,13 @@ _MAX_TWEET_CHARS = 280
 
 class TwitterPostTool(BaseTool):
     """Post text and/or media to X (Twitter)."""
+
+    # Drives Chrome through multi-step navigate -> type -> attach ->
+    # submit. Holds BROWSER for the whole tool call AND keeps the
+    # session-lazy lock so neighboring tool calls in the same run
+    # (browser_screenshot to verify, browser_extract to read confirm
+    # toast) reuse the existing hold.
+    resources: ClassVar[frozenset[TaskResource]] = frozenset({TaskResource.BROWSER})
 
     def __init__(self) -> None:
         self._browser_manager: Any = None

@@ -7,8 +7,9 @@ so tools can be registered before the browser starts.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
+from core.task_resources import TaskResource
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 
@@ -18,6 +19,15 @@ class BridgeBrowserTool(BaseTool):
     Each instance wraps a single browser tool from the Node.js BrowserPlugin.
     The tool forwards its args to ``browser_manager.call_tool(name, args)``.
     """
+
+    # Every browser tool contends for the single Chrome instance.
+    # Acquired session-lazily by the executor: first browser tool in
+    # an agent.run() call acquires BROWSER and holds it for the rest
+    # of the run, so multi-step workflows (twitter_post, reddit posts,
+    # research loops navigate->extract->reason->navigate) stay
+    # coherent — another session can't navigate Chrome away between
+    # the LLM's tool calls.
+    resources: ClassVar[frozenset[TaskResource]] = frozenset({TaskResource.BROWSER})
 
     def __init__(
         self,

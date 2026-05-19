@@ -9,7 +9,14 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    # Imported only for type hints — kept under TYPE_CHECKING to
+    # avoid the circular import that would otherwise happen because
+    # core/task_resources.py imports nothing from tools, and we want
+    # to keep it that way.
+    from core.task_resources import TaskResource
 
 
 class PermissionLevel(StrEnum):
@@ -55,6 +62,30 @@ class BaseTool(abc.ABC):
     """Abstract base class for all EloPhanto tools."""
 
     _tier_override: ToolTier | None = None
+
+    # Resources this tool contends for. Read by the executor before
+    # invocation to acquire the right semaphores. Default empty —
+    # tools with no real contention (pure-API, knowledge_search, etc.)
+    # need no protection. Tools that touch Chrome must declare
+    # ``frozenset({TaskResource.BROWSER})``; desktop tools declare
+    # DESKTOP; vault writers declare VAULT_WRITE; LLM-heavy tools
+    # that should count toward the soft cap declare LLM_BURST.
+    #
+    # BROWSER and DESKTOP are *session-lazy*: the executor acquires
+    # them on first use within an ``agent.run()`` call and holds them
+    # for the rest of that run — multi-step browser workflows
+    # (twitter_post, reddit posting, research loops) stay coherent
+    # because Chrome doesn't get navigated away by another session
+    # between the LLM's tool calls. Other tools declared as needing
+    # those resources reuse the existing hold without re-acquiring.
+    #
+    # VAULT_WRITE and LLM_BURST are *per-call*: acquired around each
+    # invocation, released after. They have no state continuity
+    # requirement across calls.
+    #
+    # Forward-reference annotation keeps tools/base.py independent of
+    # core/task_resources.py (no import cycle).
+    resources: ClassVar[frozenset[TaskResource]] = frozenset()
 
     @property
     def tier(self) -> ToolTier:

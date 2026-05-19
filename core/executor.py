@@ -217,10 +217,23 @@ class Executor:
                     elif guard["action"] == "warn":
                         logger.warning("[guard] %s", guard["message"])
 
-        # Execute
+        # Execute — wrapped in tool-declared resource acquisition.
+        # See tools/base.py BaseTool.resources for the contract and
+        # core/task_resources.py for the per-session vs per-call split.
+        # BROWSER / DESKTOP are acquired session-lazily (first browser
+        # tool in a run holds the lock for the rest of the cycle);
+        # VAULT_WRITE / LLM_BURST are acquired around just this call.
         try:
             logger.info(f"Executing tool '{tool_name}' with params: {params}")
-            result = await tool.execute(params)
+            tool_resources = getattr(tool, "resources", frozenset())
+            if tool_resources:
+                result = await self._execute_with_resources(
+                    tool, params, tool_resources
+                )
+            else:
+                # No declared resources — invoke directly. Same as
+                # legacy behavior for tools that don't contend.
+                result = await tool.execute(params)
             if self._on_tool_executed:
                 try:
                     self._on_tool_executed(tool_name, params, None)
@@ -272,6 +285,52 @@ class Executor:
                 tool_call_id=tool_call_id,
                 error=f"Tool execution failed: {e}",
             )
+
+    async def _execute_with_resources(
+        self,
+        tool: Any,
+        params: dict[str, Any],
+        tool_resources: frozenset[Any],
+    ) -> Any:
+        """Invoke ``tool.execute(params)`` with proper resource acquisition.
+
+        Splits the tool's declared resources into:
+          - session-lazy (BROWSER, DESKTOP) — acquired once per
+            agent.run() via the ResourceLeaseScope and held until
+            the run exits, so multi-step workflows stay coherent.
+          - per-call (VAULT_WRITE, LLM_BURST) — acquired around just
+            this invocation, released as soon as it returns.
+
+        Skipped silently when no ResourceLeaseScope is on the
+        contextvar (test harness, direct-tool fast path) — calling
+        the tool directly preserves backward compatibility.
+        """
+        from core.task_resources import (
+            _PER_CALL_RESOURCES,
+            _SESSION_LAZY_RESOURCES,
+            current_scope,
+        )
+
+        scope = current_scope()
+        if scope is None:
+            # No active scope — caller didn't open one. Fall back to
+            # the legacy direct invocation. Documented in the
+            # current_scope() docstring.
+            return await tool.execute(params)
+
+        # Session-lazy resources: ensure each is held by the scope.
+        # ensure_held is idempotent — second call for the same
+        # resource within the same scope is a no-op.
+        for resource in tool_resources:
+            if resource in _SESSION_LAZY_RESOURCES:
+                await scope.ensure_held(resource)
+
+        # Per-call resources: acquire around just this invocation.
+        per_call = [r for r in tool_resources if r in _PER_CALL_RESOURCES]
+        if per_call:
+            async with scope.per_call_acquire(per_call):
+                return await tool.execute(params)
+        return await tool.execute(params)
 
     async def _fire_affect_safe(self, label: str, source: str) -> None:
         """Best-effort affect emission. Never raises — affect failure

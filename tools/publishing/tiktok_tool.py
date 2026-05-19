@@ -6,8 +6,9 @@ import logging
 import os
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
+from core.task_resources import TaskResource
 from tools.base import BaseTool, PermissionLevel, ToolResult
 from tools.browser.eval_utils import eval_value
 
@@ -19,6 +20,9 @@ _MAX_CAPTION = 2200
 
 class TikTokUploadTool(BaseTool):
     """Upload a short video to TikTok."""
+
+    # Multi-step Chrome flow.
+    resources: ClassVar[frozenset[TaskResource]] = frozenset({TaskResource.BROWSER})
 
     def __init__(self) -> None:
         self._browser_manager: Any = None

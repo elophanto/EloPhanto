@@ -29,6 +29,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 from typing import Any
@@ -182,6 +183,21 @@ class TaskResource(StrEnum):
     # default to this. Capacity = scheduler.max_concurrent_tasks so
     # unknown tasks fall back to global parallelism cap.
     DEFAULT = "default"
+
+
+# Resources that retain state across tool calls within a single
+# agent.run() invocation. Chrome remembers what page it's on; the
+# desktop remembers focus + cursor. Tool calls inside one cycle
+# need that continuity (twitter_post does navigate -> type -> click;
+# research loops do navigate -> extract -> reason -> navigate again).
+# The executor acquires these LAZILY (on first use in a run) and
+# holds them until the run() returns — preventing other sessions
+# from navigating Chrome away mid-workflow.
+_SESSION_LAZY_RESOURCES: frozenset[TaskResource] = frozenset()  # populated below
+
+# Resources that are per-call: acquired around one tool invocation,
+# released immediately after. No state continuity across calls.
+_PER_CALL_RESOURCES: frozenset[TaskResource] = frozenset()  # populated below
 
 
 # ---------------------------------------------------------------------------
@@ -427,3 +443,144 @@ class TaskResourceManager:
             }
             for k, v in self.status().items()
         }
+
+
+# ---------------------------------------------------------------------------
+# Per-resource semantics + per-run lease scope
+# ---------------------------------------------------------------------------
+#
+# Some resources (BROWSER, DESKTOP) retain state across tool calls;
+# others (VAULT_WRITE, LLM_BURST) are fire-and-forget. The executor
+# needs to know which kind it's dealing with so it knows whether to
+# hold the lock across calls or just for one call.
+
+_SESSION_LAZY_RESOURCES = frozenset(
+    {
+        TaskResource.BROWSER,
+        TaskResource.DESKTOP,
+    }
+)
+
+_PER_CALL_RESOURCES = frozenset(
+    {
+        TaskResource.VAULT_WRITE,
+        TaskResource.LLM_BURST,
+    }
+)
+
+
+class ResourceLeaseScope:
+    """Tracks resources held across an agent.run() invocation.
+
+    Created once per ``agent.run()`` call. Lives in a contextvar so
+    the executor (called many times during the loop) can find it
+    without explicit threading. On scope close, all lazily-acquired
+    resources are released.
+
+    Per-call resources (VAULT_WRITE, LLM_BURST) are acquired around
+    each tool invocation via ``per_call_acquire`` and released
+    immediately by the same context manager.
+
+    Per-session resources (BROWSER, DESKTOP) go through
+    ``ensure_held`` — first call acquires + records the release
+    callback; subsequent calls within the same run are no-ops.
+    """
+
+    __slots__ = ("_manager", "_priority", "_holds", "_log")
+
+    def __init__(self, manager: TaskResourceManager, priority: int) -> None:
+        self._manager = manager
+        self._priority = priority
+        # resource -> async release callable
+        self._holds: dict[TaskResource, Any] = {}
+        self._log = logger
+
+    async def ensure_held(self, resource: TaskResource) -> None:
+        """Acquire ``resource`` for this run if not already held.
+
+        Idempotent. Subsequent calls for the same resource within
+        this scope are no-ops because the lock is still held from
+        the first call.
+        """
+        if resource in self._holds:
+            return
+        cm = self._manager.acquire([resource], priority=self._priority)
+        await cm.__aenter__()  # type: ignore[attr-defined]
+        # Stash the context-manager's exit so close() can release.
+        self._holds[resource] = cm
+        self._log.debug(
+            "ResourceLeaseScope: acquired session-lazy %s (priority=%d)",
+            resource.value,
+            self._priority,
+        )
+
+    @asynccontextmanager
+    async def per_call_acquire(
+        self, resources: list[TaskResource]
+    ) -> AsyncIterator[None]:
+        """Acquire ``resources`` only for the body of the with-block.
+
+        For per-call resources (VAULT_WRITE, LLM_BURST). When the
+        body exits, the resources release immediately.
+        """
+        async with self._manager.acquire(resources, priority=self._priority):
+            yield
+
+    async def close(self) -> None:
+        """Release every session-lazy resource held by this scope.
+
+        Called when ``agent.run()`` exits. Even if exceptions
+        bubbled up, every held resource must release — otherwise
+        future runs deadlock waiting for a BROWSER that nobody
+        actually holds.
+        """
+        # Release in reverse order of acquisition for tidy contention
+        # diagnostics in logs; semantically the order doesn't matter.
+        for resource, cm in reversed(list(self._holds.items())):
+            try:
+                await cm.__aexit__(None, None, None)  # type: ignore[attr-defined]
+            except Exception as e:
+                self._log.warning(
+                    "ResourceLeaseScope: failed to release %s: %s",
+                    resource.value,
+                    e,
+                )
+        self._holds.clear()
+
+
+# The current run's scope. Set at agent.run() entry, reset at exit.
+# Executor reads it to wrap tool calls with resource acquisition.
+_current_scope: ContextVar[ResourceLeaseScope | None] = ContextVar(
+    "_resource_lease_scope", default=None
+)
+
+
+def current_scope() -> ResourceLeaseScope | None:
+    """Read the current run's resource lease scope, if any.
+
+    Returns None when no run is in flight (e.g., tool invoked from
+    a test or a direct-tool scheduled task). Callers that get None
+    skip resource acquisition entirely; the legacy behavior.
+    """
+    return _current_scope.get()
+
+
+@asynccontextmanager
+async def run_scope(
+    manager: TaskResourceManager, priority: int
+) -> AsyncIterator[ResourceLeaseScope]:
+    """Top-level context manager for one agent.run() lifecycle.
+
+    Creates a fresh ResourceLeaseScope, installs it on the
+    contextvar, yields it for tool calls to use via ``current_scope()``,
+    and ensures ``close()`` runs on exit.
+    """
+    scope = ResourceLeaseScope(manager, priority)
+    token = _current_scope.set(scope)
+    try:
+        yield scope
+    finally:
+        try:
+            await scope.close()
+        finally:
+            _current_scope.reset(token)
