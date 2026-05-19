@@ -33,6 +33,12 @@ def mock_agent() -> MagicMock:
     agent._executor._approval_callback = None
     agent._executor.set_approval_callback = MagicMock()
     agent.run = AsyncMock(return_value=MagicMock(content="Task completed successfully"))
+    # heartbeat.py was migrated to call agent.submit_task() in the
+    # cleanup-C refactor. Mock both so tests that assert on either
+    # entry point keep working.
+    agent.submit_task = AsyncMock(
+        return_value=MagicMock(content="Task completed successfully")
+    )
     return agent
 
 
@@ -101,7 +107,7 @@ class TestHeartbeatEngine:
     ) -> None:
         """No LLM call when HEARTBEAT.md is empty/missing."""
         await engine._check_and_execute()
-        mock_agent.run.assert_not_called()
+        mock_agent.submit_task.assert_not_called()
         assert engine._tasks_executed == 0
 
     @pytest.mark.asyncio
@@ -111,12 +117,13 @@ class TestHeartbeatEngine:
         mock_agent: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Calls agent.run when HEARTBEAT.md has content."""
+        """Calls agent.submit_task when HEARTBEAT.md has content."""
         (tmp_path / "HEARTBEAT.md").write_text("Send daily report", encoding="utf-8")
         await engine._check_and_execute()
-        mock_agent.run.assert_called_once()
-        call_args = mock_agent.run.call_args
-        assert "Send daily report" in call_args[0][0]
+        mock_agent.submit_task.assert_called_once()
+        call_args = mock_agent.submit_task.call_args
+        # submit_task(source, goal, ...) — goal is the second positional.
+        assert "Send daily report" in call_args[0][1]
         assert call_args[1]["max_steps_override"] == 4
         assert engine._tasks_executed == 1
 
@@ -128,7 +135,7 @@ class TestHeartbeatEngine:
         tmp_path: Path,
     ) -> None:
         """Agent responding HEARTBEAT_OK counts as idle, not as task executed."""
-        mock_agent.run = AsyncMock(
+        mock_agent.submit_task = AsyncMock(
             return_value=MagicMock(content="HEARTBEAT_OK — nothing to do")
         )
         (tmp_path / "HEARTBEAT.md").write_text("Check for updates", encoding="utf-8")

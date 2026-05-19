@@ -2347,6 +2347,67 @@ class Agent:
                     self._executor._approval_callback = prev_approval
                     self._on_step = prev_step
 
+    # Single source→priority mapping. The only place in the codebase
+    # that decides priority from source. Callers pass a TaskSource;
+    # they don't get to invent priorities. If you ever want to change
+    # the policy ("Saturdays GOAL bumps to MIND", "heartbeat with
+    # empty queue runs at GOAL"), edit this one table.
+    _SOURCE_PRIORITY: dict[Any, Any] = {}  # populated below class def
+
+    async def submit_task(
+        self,
+        source: Any,
+        goal: str,
+        *,
+        max_steps_override: int | None = None,
+        cadence: bool = False,
+    ) -> AgentResponse:
+        """Single normalized entry point for any task source.
+
+        Maps the operator-meaningful concept (USER chat, MIND cycle,
+        SCHEDULED cron, etc.) to the system-internal concepts
+        (priority, is_user_input, ExecutionContext) so callers don't
+        construct each one independently.
+
+        Replaces the prior implicit contract — every caller used to
+        manually wrap `with execution_context(source=...):`, pass
+        `is_user_input=False/True`, AND pass `priority=...`. Three
+        ways of saying the same thing; new callers had to remember
+        all three. Now: one argument, one method, one truth.
+
+        Args:
+            source: TaskSource value identifying who initiated this
+                work. See core/execution_context.py.
+            goal: The task text / prompt.
+            max_steps_override: Override the global max_steps for
+                this call (used by mind / autoloop to cap rounds).
+            cadence: Only relevant for source=SCHEDULED. When True,
+                routes to SCHEDULED_CADENCE priority (yields to
+                mind reflection); when False, deadline-priority
+                SCHEDULED (preempts mind). See action_queue docs.
+        """
+        from core.execution_context import TaskSource, execution_context
+        from core.task_resources import TaskPriority
+
+        # Source → priority. Cadence flag refines SCHEDULED only.
+        if source == TaskSource.SCHEDULED and cadence:
+            priority_value = TaskPriority.SCHEDULED_CADENCE.value
+        else:
+            priority_value = self._SOURCE_PRIORITY[source].value
+
+        with execution_context(source=source):
+            return await self.run(
+                goal,
+                max_steps_override=max_steps_override,
+                # is_user_input is now redundant with the context, but
+                # `run()` still reads it explicitly for backward compat
+                # with direct callers (tests, telegram.py, etc.) that
+                # haven't migrated yet. We derive it from the source
+                # so the two never disagree.
+                is_user_input=(source in (TaskSource.USER, TaskSource.DELEGATE)),
+                priority=priority_value,
+            )
+
     async def run(
         self,
         goal: str,
@@ -3752,61 +3813,44 @@ class Agent:
             await _broadcast_step(step, tool_name, thought, params)
 
         self._on_step = _tracked_step
-        # Mark the execution context as SCHEDULED. Inside this scope,
-        # tools/scheduling/list_tool.py refuses enable / disable / stop
-        # / delete / stop_all and tools/scheduling/schedule_tool.py
-        # refuses create — one schedule must NOT mutate another. The
-        # scheduler queues them; they don't get to meddle. Also flips
-        # the ego correction detector off for this turn (is_user_input
-        # is derived from source via current_context().is_user_input).
-        from core.execution_context import TaskSource, execution_context
+        # Submit via the normalized entry — submit_task() handles the
+        # SCHEDULED execution context (which gates cross-schedule
+        # mutation in list_tool / schedule_tool), the cadence vs
+        # deadline priority routing, and the is_user_input derivation.
+        # One argument (cadence) refines the source; no manual flag
+        # plumbing.
+        from core.execution_context import TaskSource
 
-        with execution_context(source=TaskSource.SCHEDULED):
-            try:
-                # Cadence schedules yield to the autonomous mind —
-                # they're frequency hints, not deadlines. Deadline
-                # schedules keep the original SCHEDULED priority and
-                # preempt the mind.
-                from core.task_resources import TaskPriority
-
-                sched_priority = (
-                    TaskPriority.SCHEDULED_CADENCE.value
-                    if cadence
-                    else TaskPriority.SCHEDULED.value
+        try:
+            return await self.submit_task(TaskSource.SCHEDULED, goal, cadence=cadence)
+        finally:
+            self._on_step = prev_on_step
+            # Diagnostic: warn when a scheduled task completes
+            # suspiciously fast without doing real work. The
+            # "bailed at preflight" failure mode (read a skill,
+            # list schedules, declare complete in 20s) is what
+            # hid yesterday's posting regression — make it
+            # impossible to miss in future logs.
+            _elapsed = _time.monotonic() - _start_ts
+            _ACTIONLESS_TOOLS = {
+                "skill_read",
+                "schedule_list",
+                "knowledge_search",
+                "session_search",
+                "tool_discover",
+                "file_list",
+                "file_read",
+            }
+            _real_action = any(t not in _ACTIONLESS_TOOLS for t in _tracked_tool_calls)
+            if _elapsed < 30.0 and not _real_action:
+                logger.warning(
+                    "[sched-task] BAIL-OUT detected: completed in %.1fs "
+                    "with only preflight tools (%s) — task likely "
+                    "interpreted its rules as 'nothing to do.' Goal head: %r",
+                    _elapsed,
+                    _tracked_tool_calls,
+                    goal[:200].replace("\n", " "),
                 )
-                return await self.run(
-                    goal, is_user_input=False, priority=sched_priority
-                )
-            finally:
-                self._on_step = prev_on_step
-                # Diagnostic: warn when a scheduled task completes
-                # suspiciously fast without doing real work. The
-                # "bailed at preflight" failure mode (read a skill,
-                # list schedules, declare complete in 20s) is what
-                # hid yesterday's posting regression — make it
-                # impossible to miss in future logs.
-                _elapsed = _time.monotonic() - _start_ts
-                _ACTIONLESS_TOOLS = {
-                    "skill_read",
-                    "schedule_list",
-                    "knowledge_search",
-                    "session_search",
-                    "tool_discover",
-                    "file_list",
-                    "file_read",
-                }
-                _real_action = any(
-                    t not in _ACTIONLESS_TOOLS for t in _tracked_tool_calls
-                )
-                if _elapsed < 30.0 and not _real_action:
-                    logger.warning(
-                        "[sched-task] BAIL-OUT detected: completed in %.1fs "
-                        "with only preflight tools (%s) — task likely "
-                        "interpreted its rules as 'nothing to do.' Goal head: %r",
-                        _elapsed,
-                        _tracked_tool_calls,
-                        goal[:200].replace("\n", " "),
-                    )
 
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str
@@ -4274,3 +4318,23 @@ User message:
             logger.debug("Directive classifier returned non-JSON: %s", text[:200])
         except Exception as e:
             logger.debug("Directive detection failed (non-fatal): %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Source → priority mapping, populated after the imports are resolved.
+#
+# Lives down here so the import of TaskPriority + TaskSource doesn't have
+# to run at Agent class-construction time (cleaner module load order).
+# ---------------------------------------------------------------------------
+
+from core.execution_context import TaskSource as _TaskSource  # noqa: E402
+from core.task_resources import TaskPriority as _TaskPriority  # noqa: E402
+
+Agent._SOURCE_PRIORITY = {
+    _TaskSource.USER: _TaskPriority.USER,
+    _TaskSource.HEARTBEAT: _TaskPriority.HEARTBEAT,
+    _TaskSource.SCHEDULED: _TaskPriority.SCHEDULED,  # CADENCE branch handled in submit_task
+    _TaskSource.MIND: _TaskPriority.MIND,
+    _TaskSource.GOAL: _TaskPriority.GOAL,
+    _TaskSource.DELEGATE: _TaskPriority.USER,  # delegate subagent inherits user-priority by default
+}
