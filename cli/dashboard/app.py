@@ -1451,6 +1451,7 @@ class EloPhantoDashboard(App):
                 # work without losing either signal.
                 step_label = f"step {step_num}" if step_num else "step"
                 hint = ""
+                first_line = ""
                 if thought:
                     # First non-empty line, truncated.
                     first_line = next(
@@ -1464,6 +1465,21 @@ class EloPhantoDashboard(App):
                     f"[{_DIM}]{step_label}[/] · [{_ACCENT}]{tool_name}[/]{hint}",
                     tag=tag,
                 )
+                # Live activity line in the main chat — dim + indented
+                # so it reads as live narration of what the agent is
+                # doing, not competing with the agent's final response.
+                # Without this, the chat shows only "user → response"
+                # which is unwatchable for a stream; with it, viewers
+                # see each tool call + the thought that drove it.
+                chat = self.query_one("#chat", RichLog)
+                src_prefix = "[mind] " if source == "scheduled" else ""
+                if first_line and len(first_line) > 2:
+                    chat.write(
+                        f"  [{_DIM}]{src_prefix}· {tool_name}[/] "
+                        f"[{_DIM}]— {first_line[:100]}[/]"
+                    )
+                else:
+                    chat.write(f"  [{_DIM}]{src_prefix}· {tool_name}[/]")
                 self._repaint_panel("panel-agent")
 
         elif event == "task_complete":
@@ -1503,6 +1519,14 @@ class EloPhantoDashboard(App):
             )
             self._add_event(
                 f"[black on {_OK}] ✓ CP {order} [/] [{_DIM}]{title[:40]}[/]", tag="AGT"
+            )
+            # Checkpoint completion in the main chat — a tangible
+            # "something just got done" line that breaks up the dim
+            # tool-call narration with a moment of visible progress.
+            chat = self.query_one("#chat", RichLog)
+            chat.write(
+                f"  [{_OK}]✓[/] [{_DIM}]checkpoint {order}:[/] "
+                f"[{_BRIGHT}]{title[:120]}[/]"
             )
             self._repaint_panel("panel-agent")
 
@@ -1592,6 +1616,16 @@ class EloPhantoDashboard(App):
                 pass
 
             self._add_event(f"[{_MIND}]mind[/] cycle #{s.mind_cycle} wakeup", tag="MND")
+            # Mind wakeup in the main chat — viewers see the
+            # autonomous loop kick in even when no user is typing.
+            # The wakeup line is the conversation beat that frames
+            # the next batch of `step_progress` activity as "mind
+            # thinking" instead of mystery tool calls.
+            chat = self.query_one("#chat", RichLog)
+            chat.write(
+                f"\n[{_MIND}]◆[/] [{_DIM}]mind cycle #{s.mind_cycle} — "
+                f"waking to think[/]"
+            )
 
         elif event == "mind_tool_use":
             tool = data.get("tool", "")
@@ -1611,6 +1645,14 @@ class EloPhantoDashboard(App):
             if summary:
                 s.mind_last_action = summary[:30]
             s.current_tool = ""
+            # Mind action summary in the main chat — closes the
+            # narrative beat that mind_wakeup opened. Viewers see
+            # what the autonomous cycle DID, not just that it ran.
+            if summary:
+                chat = self.query_one("#chat", RichLog)
+                chat.write(
+                    f"[{_MIND}]◆[/] [{_DIM}]mind:[/] " f"[{_BRIGHT}]{summary[:200]}[/]"
+                )
 
         elif event == "mind_sleep":
             s.mind_state = "sleeping"
