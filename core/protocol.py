@@ -49,6 +49,12 @@ class EventType(StrEnum):
     TASK_COMPLETE = "task_complete"
     TASK_ERROR = "task_error"
     STEP_PROGRESS = "step_progress"
+    # Reasoning chunk streamed from the model's chain-of-thought
+    # summary (Codex Responses API). One event per completed summary
+    # part — the dashboard renders these in the main chat as live
+    # narration so operators see the agent actually thinking instead
+    # of just waiting for a final response.
+    AGENT_THOUGHT = "agent_thought"
     SESSION_CREATED = "session_created"
     NOTIFICATION = "notification"
     GOAL_STARTED = "goal_started"

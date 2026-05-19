@@ -1482,6 +1482,21 @@ class EloPhantoDashboard(App):
                     chat.write(f"  [{_DIM}]{src_prefix}· {tool_name}[/]")
                 self._repaint_panel("panel-agent")
 
+        elif event == "agent_thought":
+            # Streamed chain-of-thought summary from Codex. Rendered
+            # dim+italic in the main chat as live narration. This is
+            # the difference between watching the agent think and
+            # staring at a blank screen while Codex grinds. Fires for
+            # BOTH user-driven chat and autonomous-mind cycles — same
+            # CodexAdapter instance handles both, and there's no need
+            # to distinguish them here since the surrounding context
+            # (active mind cycle, current goal, etc.) tells the
+            # operator what the thought belongs to.
+            text = msg.data.get("text", "").strip()
+            if text:
+                chat = self.query_one("#chat", RichLog)
+                chat.write(f"  [{_DIM}][italic]💭 {text[:300]}[/italic][/]")
+
         elif event == "task_complete":
             self._state.current_tool = ""
             self._state.current_goal = ""
