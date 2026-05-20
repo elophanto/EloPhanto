@@ -363,6 +363,7 @@ EloPhanto/
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (2080+ tests)
 ├── setup.sh             # One-command install
+├── update.sh            # One-command update (pull + deps + config migrate)
 └── docs/                # Full specification (76+ docs)
 ```
 
@@ -530,6 +531,25 @@ Channel setup (Telegram / Discord / Slack / VS Code): see [docs/11-TELEGRAM.md](
 Latest highlights live in [CHANGELOG.md](CHANGELOG.md) and on the [releases page](https://github.com/elophanto/EloPhanto/releases). Watch the repo to follow new features.
 
 ---
+
+## Updating
+
+After the initial install, pull the latest release with:
+
+```bash
+./update.sh
+```
+
+This runs `git pull`, refreshes Python deps, rebuilds the browser bridge,
+and — critically — **runs `elophanto config migrate`** so new config
+sections added in newer releases (e.g. the Phase 3 arbiter under
+`autonomous_mind.arbiter`) get patched into your existing `config.yaml`
+with safe defaults, without touching your existing values or comments.
+Idempotent — safe to re-run. A `config.yaml.bak` backup is written
+before any edits.
+
+If you prefer the granular path: `elophanto update` (code-only) +
+`elophanto config migrate` (config-only).
 
 ## Development
 

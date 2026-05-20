@@ -197,6 +197,32 @@ _SCHEMA = [
         UNIQUE(goal_id, checkpoint_order)
     )
     """,
+    # Missions — durable drives the autonomous mind works toward
+    # across many goals. See docs/75-AUTONOMOUS-MIND-V2.md §Phase 2.
+    # Missions are NEVER "completed" — they're paused or retired by
+    # the operator. Goals roll under missions; finishing a goal moves
+    # a mission's momentum, doesn't close the mission.
+    """
+    CREATE TABLE IF NOT EXISTS missions (
+        mission_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        priority_weight REAL NOT NULL DEFAULT 1.0,
+        momentum_score REAL NOT NULL DEFAULT 0.0,
+        last_touched_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_missions_status_weight
+        ON missions(status, priority_weight DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_missions_last_touched
+        ON missions(last_touched_at)
+    """,
     # Dream journal — every dream-phase ideation persists here so the next
     # cycle's dream can see what was already proposed (and not picked).
     # Kills the amnesia that caused dream to keep re-proposing the same
@@ -770,6 +796,11 @@ _MIGRATIONS = [
     # at risk; kind='shadow' = paper bet for calibration only. Both
     # get resolved via polymarket_resolve_pending the same way.
     "ALTER TABLE polymarket_predictions ADD COLUMN kind TEXT NOT NULL DEFAULT 'live'",
+    # Phase 2 (docs/75-AUTONOMOUS-MIND-V2.md): goals optionally roll
+    # under a mission. NULL = unparented (legacy goals + one-off
+    # operator requests). FK is informational — SQLite enforces only
+    # when foreign_keys pragma is on; we don't depend on cascade.
+    "ALTER TABLE goals ADD COLUMN mission_id TEXT",
 ]
 
 

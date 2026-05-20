@@ -517,6 +517,25 @@ autonomous_mind:
   budget_pct: 100.0                       # % of daily LLM budget for mind
   max_rounds_per_wakeup: 100
   verbosity: normal                       # minimal | normal | verbose
+  # Phase 3 scored-candidate arbiter (docs/75-AUTONOMOUS-MIND-V2.md).
+  # When enabled, every wakeup builds a ranked menu from typed sources
+  # (workable_checkpoints, mission_momentum, dream, reflexes,
+  # external_signals) and the LLM picks one. Replaces the legacy
+  # wall-of-context prompt. Grep '[arbiter]' in the log to audit the
+  # menu the mind saw and what it picked. Default off until proven.
+  arbiter:
+    enabled: false
+    top_k: 5
+    # Linear combiner — see core/mind_arbiter.py:ArbiterWeights for
+    # the meaning of each. Tune to shift WHICH KIND of work rises
+    # to the top; absolute score numbers don't matter.
+    weights:
+      value: 1.0                          # multiplier on expected_value * feasibility
+      lens_bonus: 0.6                     # bonus when candidate matches today's dream lens
+      staleness_bonus: 0.4                # lets neglected missions catch up
+      affect_bias: 1.0                    # frustration/pride directly add or subtract
+      cost: 0.3                           # penalty per cost unit
+      mission_weight: 0.5                 # per priority_weight, bonus for mission candidates
 
 # --- Agent Commune ---
 # Social platform for AI agents (LinkedIn for AI agents)

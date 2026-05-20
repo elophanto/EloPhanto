@@ -224,6 +224,21 @@ class ToolRegistry:
         self.register(GoalManageTool())
         self.register(GoalDreamTool())
 
+        # Mission tools (Phase 2 — docs/75-AUTONOMOUS-MIND-V2.md)
+        from tools.missions.tools import (
+            MissionCreateTool,
+            MissionListTool,
+            MissionStatusTool,
+            MissionTouchTool,
+            MissionUpdateTool,
+        )
+
+        self.register(MissionListTool())
+        self.register(MissionCreateTool())
+        self.register(MissionStatusTool())
+        self.register(MissionTouchTool())
+        self.register(MissionUpdateTool())
+
         # Identity tools
         from tools.identity.reflect_tool import IdentityReflectTool
         from tools.identity.status_tool import IdentityStatusTool

@@ -1311,10 +1311,88 @@ def _edit_autonomous_mind(config: dict) -> None:
         )
         mind_cfg["verbosity"] = verbosity
 
+        # Phase 3 arbiter (docs/75-AUTONOMOUS-MIND-V2.md). Opt-in for
+        # now; the LLM picks from a ranked candidate menu instead of
+        # the legacy wall-of-context prompt. Grep '[arbiter]' in logs
+        # to audit what the mind saw and what it picked.
+        arbiter_cfg = mind_cfg.setdefault("arbiter", {})
+        current_arbiter = arbiter_cfg.get("enabled", False)
+        arbiter_on = Confirm.ask(
+            "  Enable scored-candidate arbiter? (newer Phase 3 wakeup loop)",
+            default=current_arbiter,
+        )
+        arbiter_cfg["enabled"] = arbiter_on
+        arbiter_cfg.setdefault("top_k", 5)
+        # Seed default weights so operators have a starting point to
+        # tune; the linear combiner is documented in
+        # core/mind_arbiter.py:ArbiterWeights.
+        arbiter_cfg.setdefault(
+            "weights",
+            {
+                "value": 1.0,
+                "lens_bonus": 0.6,
+                "staleness_bonus": 0.4,
+                "affect_bias": 1.0,
+                "cost": 0.3,
+                "mission_weight": 0.5,
+            },
+        )
+
         console.print(
             f"  [green]Autonomous mind enabled — wakes every {mind_cfg['wakeup_seconds']}s, "
-            f"{mind_cfg['budget_pct']}% budget.[/green]"
+            f"{mind_cfg['budget_pct']}% budget"
+            + (", arbiter ON" if arbiter_on else "")
+            + ".[/green]"
         )
+
+        # Missions — durable operator-defined drives the mind works
+        # toward across many goals. Codebase ships ZERO defaults
+        # because they'd be operator-specific; the right place for
+        # them is here at setup or later via
+        # ``elophanto mission create``. Skipping is fine; the mind
+        # handles no-missions cleanly via dream phase.
+        console.print()
+        console.print(
+            "  [dim]Missions are long-running drives the agent works toward "
+            "across many goals[/dim]\n"
+            "  [dim](e.g. 'launch product X', 'grow audience Y'). "
+            "Optional — skip and add later via [/dim]\n"
+            "  [dim]`elophanto mission create`.[/dim]"
+        )
+        if Confirm.ask("  Define any missions now?", default=False):
+            identity_cfg = config.setdefault("identity", {})
+            existing = identity_cfg.get("missions") or []
+            console.print("  [dim]Enter one per prompt. Empty title to stop.[/dim]")
+            collected: list[dict[str, Any]] = list(existing)
+            while len(collected) < 8:
+                idx = len(collected) + 1
+                title = Prompt.ask(
+                    f"    Mission {idx} title (empty to stop)", default=""
+                )
+                if not title.strip():
+                    break
+                slug_default = title.strip().lower().replace(" ", "-")[:32]
+                slug = Prompt.ask("      ID/slug", default=slug_default)
+                desc = Prompt.ask("      Description (one sentence)", default="")
+                weight = Prompt.ask("      Priority weight (1.0–3.0)", default="1.0")
+                try:
+                    weight_f = float(weight)
+                except ValueError:
+                    weight_f = 1.0
+                collected.append(
+                    {
+                        "id": slug.strip(),
+                        "title": title.strip(),
+                        "description": desc.strip(),
+                        "priority_weight": weight_f,
+                    }
+                )
+            if collected:
+                identity_cfg["missions"] = collected
+                console.print(
+                    f"  [green]{len(collected)} mission(s) configured under "
+                    f"identity.missions.[/green]"
+                )
     else:
         console.print("  [dim]Disabled.[/dim]")
 
@@ -2032,5 +2110,21 @@ def _default_config() -> dict:
             "budget_pct": 15.0,
             "max_rounds_per_wakeup": 8,
             "verbosity": "normal",
+            # Phase 3 arbiter — docs/75-AUTONOMOUS-MIND-V2.md.
+            # Off by default; wizard prompts to enable when the
+            # mind itself is enabled. See core/mind_arbiter.py
+            # for the weight tuning guide.
+            "arbiter": {
+                "enabled": False,
+                "top_k": 5,
+                "weights": {
+                    "value": 1.0,
+                    "lens_bonus": 0.6,
+                    "staleness_bonus": 0.4,
+                    "affect_bias": 1.0,
+                    "cost": 0.3,
+                    "mission_weight": 0.5,
+                },
+            },
         },
     }

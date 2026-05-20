@@ -321,6 +321,12 @@ class GoalDreamTool(BaseTool):
         self._affect_manager: Any = None
         self._ego_manager: Any = None
         self._dream_journal: Any = None
+        # Missions tier (Phase 2 — docs/75-AUTONOMOUS-MIND-V2.md). The
+        # dream renders neglected high-weight missions into context so
+        # the LLM proposes goals that touch them, instead of inventing
+        # drives from scratch every cycle. Optional; tool degrades when
+        # None.
+        self._mission_manager: Any = None
         self._project_root: Path | None = None
         # Embedder for pre-dream dedup against existing goals. Optional
         # — when None the dedup pass is skipped silently and all
@@ -511,6 +517,38 @@ class GoalDreamTool(BaseTool):
                 )
             except Exception as e:
                 logger.debug("dream: tool inventory unavailable: %s", e)
+
+        # MISSIONS — durable drives. Ranked by neglect (priority_weight
+        # × staleness) so the LLM sees the high-leverage stale ones
+        # first. The dream is then explicitly steered toward those:
+        # the goal it picks will be tagged with mission_id when
+        # created (Phase 2.8 hooks momentum back). See
+        # docs/75-AUTONOMOUS-MIND-V2.md §2.7.
+        if self._mission_manager:
+            try:
+                ranked = await self._mission_manager.list_by_neglect(limit=5)
+                if ranked:
+                    lines = ["MISSIONS (durable drives, ranked by neglect):"]
+                    for m in ranked:
+                        stale_h = m.staleness_hours()
+                        stale_label = (
+                            "never touched"
+                            if stale_h == float("inf")
+                            else f"{stale_h:.0f}h stale"
+                        )
+                        lines.append(
+                            f"  - {m.mission_id} (weight={m.priority_weight}, "
+                            f"{stale_label}): {m.title} — {m.description[:120]}"
+                        )
+                    lines.append(
+                        "PREFER candidates that touch a high-weight stale "
+                        "mission. Set the candidate's mission_id field to "
+                        "the slug above so momentum bookkeeping fires when "
+                        "the goal completes."
+                    )
+                    context_parts.append("\n".join(lines))
+            except Exception as e:
+                logger.debug("dream: missions unavailable: %s", e)
 
         # IDENTITY — purpose + capabilities.
         if self._identity_manager:

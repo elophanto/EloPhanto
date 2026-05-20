@@ -59,6 +59,11 @@ class Goal:
     created_at: str = ""
     updated_at: str = ""
     completed_at: str | None = None
+    # Optional FK to ``missions.mission_id``. None for unparented
+    # goals (legacy + one-off operator requests). When set, the
+    # goal-completion hook bumps the mission's momentum. See
+    # docs/75-AUTONOMOUS-MIND-V2.md §Phase 2.
+    mission_id: str | None = None
 
 
 @dataclass
@@ -169,8 +174,19 @@ class GoalManager:
 
     # --- Goal lifecycle ---
 
-    async def create_goal(self, goal: str, session_id: str | None = None) -> Goal:
-        """Create a new goal and persist it."""
+    async def create_goal(
+        self,
+        goal: str,
+        session_id: str | None = None,
+        *,
+        mission_id: str | None = None,
+    ) -> Goal:
+        """Create a new goal and persist it.
+
+        ``mission_id`` optionally parents the goal under a mission
+        (Phase 2). Unparented goals (mission_id=None) are still
+        first-class — the missions tier is opt-in.
+        """
         now = datetime.now(UTC).isoformat()
         g = Goal(
             goal_id=str(uuid.uuid4())[:12],
@@ -180,6 +196,7 @@ class GoalManager:
             max_attempts=self._config.max_goal_attempts,
             created_at=now,
             updated_at=now,
+            mission_id=mission_id,
         )
         await self._persist_goal(g)
         return g
@@ -660,8 +677,8 @@ class GoalManager:
             INSERT INTO goals (goal_id, session_id, goal, status, plan_json,
                 context_summary, current_checkpoint, total_checkpoints,
                 attempts, max_attempts, llm_calls_used, cost_usd,
-                created_at, updated_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, completed_at, mission_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(goal_id) DO UPDATE SET
                 status = excluded.status,
                 plan_json = excluded.plan_json,
@@ -672,7 +689,8 @@ class GoalManager:
                 llm_calls_used = excluded.llm_calls_used,
                 cost_usd = excluded.cost_usd,
                 updated_at = excluded.updated_at,
-                completed_at = excluded.completed_at
+                completed_at = excluded.completed_at,
+                mission_id = excluded.mission_id
             """,
             (
                 goal.goal_id,
@@ -690,6 +708,7 @@ class GoalManager:
                 goal.created_at,
                 goal.updated_at,
                 goal.completed_at,
+                goal.mission_id,
             ),
         )
 
@@ -779,6 +798,7 @@ class GoalManager:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             completed_at=row["completed_at"],
+            mission_id=row["mission_id"] if "mission_id" in row.keys() else None,
         )
 
     @staticmethod

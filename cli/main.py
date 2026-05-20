@@ -15,7 +15,9 @@ from cli.doctor_cmd import doctor_cmd
 from cli.gateway_cmd import gateway_cmd
 from cli.init_cmd import init_cmd
 from cli.kid_cmd import kid_cmd
+from cli.config_cmd import config_cmd
 from cli.mcp_cmd import mcp_cmd
+from cli.mission_cmd import mission_cmd
 from cli.polymarket_cmd import polymarket_cmd
 from cli.rollback_cmd import rollback_cmd
 from cli.schedule_cmd import schedule_cmd
@@ -47,6 +49,8 @@ cli.add_command(daemon_cmd, "daemon")
 cli.add_command(update_cmd, "update")
 cli.add_command(affect_cmd, "affect")
 cli.add_command(polymarket_cmd, "polymarket")
+cli.add_command(mission_cmd, "mission")
+cli.add_command(config_cmd, "config")
 
 
 if __name__ == "__main__":
