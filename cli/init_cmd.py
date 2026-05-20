@@ -1317,9 +1317,12 @@ def _edit_autonomous_mind(config: dict) -> None:
         # the legacy wall-of-context prompt. Grep '[arbiter]' in logs
         # to audit what the mind saw and what it picked.
         arbiter_cfg = mind_cfg.setdefault("arbiter", {})
-        current_arbiter = arbiter_cfg.get("enabled", False)
+        # Default ON: the legacy free-form prompt produces analysis-
+        # paralysis loops in production (see AlphaScala log review
+        # 2026-05-20). Arbiter forces a pick from a scored menu.
+        current_arbiter = arbiter_cfg.get("enabled", True)
         arbiter_on = Confirm.ask(
-            "  Enable scored-candidate arbiter? (newer Phase 3 wakeup loop)",
+            "  Enable scored-candidate arbiter? (Phase 3 wakeup loop — recommended)",
             default=current_arbiter,
         )
         arbiter_cfg["enabled"] = arbiter_on
@@ -2112,11 +2115,11 @@ def _default_config() -> dict:
             "max_rounds_per_wakeup": 8,
             "verbosity": "normal",
             # Phase 3 arbiter — docs/75-AUTONOMOUS-MIND-V2.md.
-            # Off by default; wizard prompts to enable when the
-            # mind itself is enabled. See core/mind_arbiter.py
-            # for the weight tuning guide.
+            # ON by default since 2026-05-20 (legacy prompt produced
+            # analysis-paralysis loops in production). See
+            # core/mind_arbiter.py for the weight tuning guide.
             "arbiter": {
-                "enabled": False,
+                "enabled": True,
                 "top_k": 5,
                 "weights": {
                     "value": 1.0,

@@ -518,13 +518,14 @@ autonomous_mind:
   max_rounds_per_wakeup: 100
   verbosity: normal                       # minimal | normal | verbose
   # Phase 3 scored-candidate arbiter (docs/75-AUTONOMOUS-MIND-V2.md).
-  # When enabled, every wakeup builds a ranked menu from typed sources
-  # (workable_checkpoints, mission_momentum, dream, reflexes,
-  # external_signals) and the LLM picks one. Replaces the legacy
-  # wall-of-context prompt. Grep '[arbiter]' in the log to audit the
-  # menu the mind saw and what it picked. Default off until proven.
+  # When enabled (default), every wakeup builds a ranked menu from
+  # typed sources (workable_checkpoints, mission_momentum, dream,
+  # reflexes, external_signals) and the LLM picks one. Replaces the
+  # legacy wall-of-context prompt that produced analysis-paralysis
+  # loops. Grep '[arbiter]' in the log to audit the menu the mind
+  # saw and what it picked. Flip to false only as an escape hatch.
   arbiter:
-    enabled: false
+    enabled: true
     top_k: 5
     # Linear combiner — see core/mind_arbiter.py:ArbiterWeights for
     # the meaning of each. Tune to shift WHICH KIND of work rises
