@@ -52,9 +52,18 @@ class TaskPriority(IntEnum):
     """
 
     USER = 0  # Manual chat messages — highest priority
-    HEARTBEAT = 1  # Heartbeat standing orders
-    SCHEDULED = 2  # Scheduled cron tasks with deadline semantics
-    MIND = 3  # Autonomous mind background cycles
+    SCHEDULED = 1  # Scheduled cron tasks with deadline semantics
+    MIND = 2  # Autonomous mind background cycles
+    # Heartbeat used to live at priority 1 (above SCHEDULED) on the
+    # theory that "standing orders" might be urgent. In practice the
+    # heartbeat is a lightweight HEARTBEAT.md check that returns
+    # HEARTBEAT_OK most of the time, and at 30-min cadence it was
+    # preempting in-flight scheduled work — 7 of 20 X-Hourly posts
+    # in a single night ended up cut off at steps 1–13 because a
+    # heartbeat happened to fire mid-post. Heartbeat now sits below
+    # MIND: it can run between mind reflections but never punches a
+    # real scheduled task out of the chair. See logs 2026-05-20.
+    HEARTBEAT = 3
     # Cadence schedules ("post every hour", "check inbox every 30m") are
     # frequency hints, not deadlines. They yield to the mind's reflection
     # loop — letting the mind decide whether *this* instance is worth
@@ -69,8 +78,34 @@ class TaskPriority(IntEnum):
 _DEFAULT_PRIORITY: int = TaskPriority.SCHEDULED.value
 
 
+class _Slot:
+    """Per-acquisition handle returned by ``_PrioritySemaphore.acquire``.
+
+    Holds metadata about the current holder so the semaphore can
+    coordinate preemption when a higher-priority waiter arrives:
+
+      - ``priority``: the holder's priority value. Used by acquire()
+        to decide whether a new waiter outranks the current holder.
+      - ``preempt_requested``: set by acquire() when a higher-priority
+        waiter joins. The holder's code path is expected to check
+        this event at safe checkpoints (between LLM rounds in the
+        agent loop) and yield by returning early. See
+        ``core/agent.py:_run_with_history`` for the consumer.
+
+    The event is one-shot for the duration of one acquisition. On
+    release, the slot is dropped and the next acquirer gets a fresh
+    slot with a clean event.
+    """
+
+    __slots__ = ("priority", "preempt_requested")
+
+    def __init__(self, priority: int) -> None:
+        self.priority = priority
+        self.preempt_requested = asyncio.Event()
+
+
 class _PrioritySemaphore:
-    """A priority-aware async semaphore.
+    """A priority-aware async semaphore with preemption signaling.
 
     Built from scratch because ``asyncio.Semaphore`` is strictly FIFO
     and exposes no way to insert a higher-priority waiter ahead of
@@ -80,11 +115,19 @@ class _PrioritySemaphore:
     ``LLM_BURST`` slot.
 
     Semantics:
-      - When acquired below capacity: immediate, in_use += 1.
+      - When acquired below capacity: immediate, in_use += 1. The
+        returned slot is recorded as a current holder so later
+        higher-priority waiters can signal it.
       - When at capacity: caller's future is pushed onto a min-heap
         keyed by ``(priority, seq)``. ``release()`` pops the highest-
         priority waiter (lowest priority number) and transfers the
         slot — in_use stays put, so the next free acquire still blocks.
+      - **Preemption signaling**: when a new acquire() arrives with
+        higher priority than ANY current holder, that holder's
+        ``preempt_requested`` event fires. The holder yields at its
+        next safe checkpoint (between rounds in the agent loop) and
+        releases. The semaphore itself does not interrupt — yielding
+        is cooperative.
       - A waiter cancelled mid-await leaves a "tombstone" entry on the
         heap; ``release()`` skips done futures and continues to the
         next live one. No proactive cleanup needed (heap stays bounded
@@ -92,7 +135,7 @@ class _PrioritySemaphore:
       - Same-priority callers serialize FIFO via the ``seq`` tiebreaker.
     """
 
-    __slots__ = ("capacity", "_in_use", "_seq", "_waiters")
+    __slots__ = ("capacity", "_in_use", "_seq", "_waiters", "_holders")
 
     def __init__(self, capacity: int) -> None:
         if capacity < 1:
@@ -101,11 +144,28 @@ class _PrioritySemaphore:
         self._in_use = 0
         self._seq = 0
         self._waiters: list[tuple[int, int, asyncio.Future[None]]] = []
+        # Current holders. List (not set) so multiple holders at
+        # cap > 1 each have their own slot. Cleared on release —
+        # see release() for the lookup pattern.
+        self._holders: list[_Slot] = []
 
-    async def acquire(self, priority: int = _DEFAULT_PRIORITY) -> None:
+    async def acquire(self, priority: int = _DEFAULT_PRIORITY) -> _Slot:
+        # Signal preemption to any LOWER-priority holders BEFORE we
+        # join the wait queue. The holder yields at its next safe
+        # checkpoint, releases, and our wait future fires earlier
+        # than it would have under cooperative-only release.
+        # NOTE: lower priority *number* = higher priority. So we
+        # signal holders whose priority > ours.
+        for holder in self._holders:
+            if priority < holder.priority:
+                holder.preempt_requested.set()
+
         if self._in_use < self.capacity:
             self._in_use += 1
-            return
+            slot = _Slot(priority)
+            self._holders.append(slot)
+            return slot
+
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[None] = loop.create_future()
         self._seq += 1
@@ -118,8 +178,25 @@ class _PrioritySemaphore:
                 fut.cancel()
             raise
         # Slot transferred to us by release(); no in_use bump needed.
+        slot = _Slot(priority)
+        self._holders.append(slot)
+        return slot
 
-    def release(self) -> None:
+    def release(self, slot: _Slot | None = None) -> None:
+        """Release the slot held by this acquisition.
+
+        ``slot`` argument identifies which holder is releasing — at
+        cap > 1 there may be multiple. If None (legacy callers
+        before the slot-return API), removes an arbitrary holder.
+        """
+        if slot is not None:
+            try:
+                self._holders.remove(slot)
+            except ValueError:
+                pass  # slot already released or never registered
+        elif self._holders:
+            self._holders.pop()
+
         # Skip cancelled tombstones; transfer the slot to the highest-
         # priority live waiter. Falls through to decrementing in_use
         # only if the heap is empty (or only tombstones remain).
@@ -139,6 +216,11 @@ class _PrioritySemaphore:
         # Count live (non-cancelled) waiters — cancelled futures are
         # tombstones that don't represent real demand.
         return sum(1 for _, _, fut in self._waiters if not fut.done())
+
+    @property
+    def holders(self) -> list[_Slot]:
+        """Current holders. Diagnostic; do not mutate."""
+        return list(self._holders)
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +454,7 @@ class TaskResourceManager:
         self,
         resources: list[TaskResource],
         priority: int = _DEFAULT_PRIORITY,
-    ) -> AsyncIterator[None]:
+    ) -> "AsyncIterator[dict[TaskResource, _Slot]]":
         """Acquire all declared resources, in canonical order so two
         tasks declaring overlapping sets can't deadlock.
 
@@ -393,27 +475,34 @@ class TaskResourceManager:
         if unknown:
             raise KeyError(f"unknown resource(s): {unknown}")
 
-        acquired: list[TaskResource] = []
+        acquired: list[tuple[TaskResource, _Slot]] = []
         try:
             for resource in ordered:
                 self._waiters[resource] += 1
                 try:
-                    await self._semaphores[resource].acquire(priority)
+                    slot = await self._semaphores[resource].acquire(priority)
                 finally:
                     self._waiters[resource] -= 1
-                acquired.append(resource)
+                acquired.append((resource, slot))
             async with self._running_lock:
                 self._running_count += 1
             try:
-                yield
+                # Yield a {resource: slot} map so callers can read
+                # ``slot.preempt_requested`` when a higher-priority
+                # waiter arrives. Backwards compatible: callers that
+                # use ``async with mgr.acquire([...]):`` without an
+                # ``as`` clause simply ignore the yielded value.
+                yield {res: slot for res, slot in acquired}
             finally:
                 async with self._running_lock:
                     self._running_count = max(0, self._running_count - 1)
         finally:
             # Release in reverse order — symmetric, doesn't change
             # priority ordering but makes traces easier to read.
-            for resource in reversed(acquired):
-                self._semaphores[resource].release()
+            # Pass the slot back so the semaphore removes exactly
+            # this holder (at cap > 1 there can be several).
+            for resource, slot in reversed(acquired):
+                self._semaphores[resource].release(slot)
 
     def is_busy(self) -> bool:
         """True if any task is currently running. Used by the user-

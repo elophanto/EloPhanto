@@ -547,3 +547,81 @@ class TestPhaseBPrioritySemaphore:
         release_holder.set()
         await asyncio.gather(h, s)
         assert ran == ["survivor"]
+
+    @pytest.mark.asyncio
+    async def test_preempt_event_signaled_to_holder(self) -> None:
+        """Holder receives a preempt_requested event when a strictly
+        higher-priority caller arrives. The holder is NOT aborted —
+        it's just notified, and yields cooperatively at its own safe
+        checkpoint (Phase B principle 2)."""
+        from core.task_resources import TaskPriority, TaskResource, TaskResourceManager
+
+        mgr = TaskResourceManager(capacities={TaskResource.AGENT_LOOP: 1})
+
+        observed: dict[str, Any] = {}
+        holder_started = asyncio.Event()
+        release_holder = asyncio.Event()
+
+        async def holder() -> None:
+            async with mgr.acquire(
+                [TaskResource.AGENT_LOOP], priority=TaskPriority.MIND.value
+            ) as slots:
+                slot = slots[TaskResource.AGENT_LOOP]
+                observed["before"] = slot.preempt_requested.is_set()
+                holder_started.set()
+                await release_holder.wait()
+                observed["after"] = slot.preempt_requested.is_set()
+
+        async def user() -> None:
+            async with mgr.acquire(
+                [TaskResource.AGENT_LOOP], priority=TaskPriority.USER.value
+            ):
+                pass
+
+        h = asyncio.create_task(holder())
+        await asyncio.wait_for(holder_started.wait(), timeout=1.0)
+        # User arrives at higher priority; holder's slot should be signaled.
+        u = asyncio.create_task(user())
+        await asyncio.sleep(0.02)
+        release_holder.set()
+        await asyncio.gather(h, u)
+
+        assert observed["before"] is False
+        assert observed["after"] is True
+
+    @pytest.mark.asyncio
+    async def test_preempt_event_not_signaled_for_lower_priority(self) -> None:
+        """Lower-priority waiter must NOT request preemption — that
+        would invert the policy and let low-pri callers nudge high-pri
+        holders to yield."""
+        from core.task_resources import TaskPriority, TaskResource, TaskResourceManager
+
+        mgr = TaskResourceManager(capacities={TaskResource.AGENT_LOOP: 1})
+
+        observed: dict[str, Any] = {}
+        holder_started = asyncio.Event()
+        release_holder = asyncio.Event()
+
+        async def holder() -> None:
+            async with mgr.acquire(
+                [TaskResource.AGENT_LOOP], priority=TaskPriority.USER.value
+            ) as slots:
+                slot = slots[TaskResource.AGENT_LOOP]
+                holder_started.set()
+                await release_holder.wait()
+                observed["after"] = slot.preempt_requested.is_set()
+
+        async def mind() -> None:
+            async with mgr.acquire(
+                [TaskResource.AGENT_LOOP], priority=TaskPriority.MIND.value
+            ):
+                pass
+
+        h = asyncio.create_task(holder())
+        await asyncio.wait_for(holder_started.wait(), timeout=1.0)
+        m = asyncio.create_task(mind())
+        await asyncio.sleep(0.02)
+        release_holder.set()
+        await asyncio.gather(h, m)
+
+        assert observed["after"] is False

@@ -466,6 +466,12 @@ class AgentResponse:
     content: str
     steps_taken: int
     tool_calls_made: list[str] = field(default_factory=list)
+    # Set when the loop yielded AGENT_LOOP at a safe checkpoint because
+    # a higher-priority caller was waiting. Distinguishes "task ended
+    # early because something else needed to run" from "task ended
+    # because it got stuck" — autonomous mind / cadence callers can
+    # resume on the next cycle rather than treating it as failure.
+    preempted: bool = False
 
 
 class _FilteredRegistry:
@@ -647,6 +653,16 @@ class Agent:
 
         # Live progress callback (set by CLI for step-by-step visibility)
         self._on_step: Callable[[int, str, str, dict[str, Any]], None] | None = None
+
+        # Cooperative preemption signal — set by ``_PrioritySemaphore``
+        # on the AGENT_LOOP slot when a higher-priority caller arrives.
+        # ``_run_with_history`` checks this between rounds and yields
+        # cleanly if set: returns a partial response marked as
+        # preempted, releases AGENT_LOOP, and lets the foreground
+        # task proceed within the next 5-15s instead of 60-180s.
+        # See ``_run_with_history`` for the consumer and
+        # ``core/task_resources.py:_Slot`` for the producer.
+        self._current_preempt_event: asyncio.Event | None = None
 
         # Conversation history across turns (user + assistant messages only)
         self._conversation_history: list[dict[str, Any]] = []
@@ -2319,7 +2335,19 @@ class Agent:
 
         async with self._resources.acquire(
             [TaskResource.AGENT_LOOP], priority=TaskPriority.USER.value
-        ):
+        ) as _slots:
+            # Capture preempt event so _run_with_history can yield if a
+            # higher-priority caller arrives. USER is the highest
+            # priority, so this event will never fire in practice — but
+            # we wire it for symmetry with run() and so the contract
+            # holds if priorities are ever reordered.
+            _agent_loop_slot = _slots.get(TaskResource.AGENT_LOOP)
+            self._current_preempt_event = (
+                _agent_loop_slot.preempt_requested
+                if _agent_loop_slot is not None
+                else None
+            )
+
             # Temporarily override callbacks for this session
             prev_approval = self._executor._approval_callback
             prev_step = self._on_step
@@ -2338,22 +2366,27 @@ class Agent:
             # resources (VAULT_WRITE / LLM_BURST) around each tool
             # invocation. Closes automatically on exit, releasing any
             # session-held resources.
-            with execution_context(source=TaskSource.USER, in_agent_loop=True):
-                async with run_scope(self._resources, priority=TaskPriority.USER.value):
-                    try:
-                        response = await self._run_with_history(
-                            goal,
-                            session.conversation_history,
-                            session.append_conversation_turn,
-                            authority=authority,
-                            session=session,
-                        )
-                        session.touch()
-                        return response
-                    finally:
-                        # Restore previous callbacks
-                        self._executor._approval_callback = prev_approval
-                        self._on_step = prev_step
+            try:
+                with execution_context(source=TaskSource.USER, in_agent_loop=True):
+                    async with run_scope(
+                        self._resources, priority=TaskPriority.USER.value
+                    ):
+                        try:
+                            response = await self._run_with_history(
+                                goal,
+                                session.conversation_history,
+                                session.append_conversation_turn,
+                                authority=authority,
+                                session=session,
+                            )
+                            session.touch()
+                            return response
+                        finally:
+                            # Restore previous callbacks
+                            self._executor._approval_callback = prev_approval
+                            self._on_step = prev_step
+            finally:
+                self._current_preempt_event = None
 
     # Single source→priority mapping. The only place in the codebase
     # that decides priority from source. Callers pass a TaskSource;
@@ -2480,25 +2513,40 @@ class Agent:
 
         async with self._resources.acquire(
             [TaskResource.AGENT_LOOP], priority=effective_priority
-        ):
-            # in_agent_loop flag prevents reentrant runs (e.g. via the
-            # delegate tool) from trying to re-acquire AGENT_LOOP and
-            # self-deadlocking. Source stays whatever the caller set
-            # (mind / scheduled / etc.) — we're only flipping the
-            # reentrance flag here, not redefining the work origin.
-            with execution_context(in_agent_loop=True):
-                # Open the resource lease scope so the executor can
-                # acquire BROWSER / DESKTOP session-lazily and per-call
-                # resources around tool calls. Auto-closes on exit.
-                async with run_scope(self._resources, priority=effective_priority):
-                    return await self._run_with_history(
-                        goal,
-                        self._conversation_history,
-                        self._append_conversation_turn,
-                        max_steps_override=max_steps_override,
-                        authority=AuthorityLevel.OWNER,
-                        is_user_input=is_user_input,
-                    )
+        ) as _slots:
+            # Capture the AGENT_LOOP slot so the loop body can check
+            # ``slot.preempt_requested`` between rounds. When a higher-
+            # priority caller (USER chat / deadline-priority schedule)
+            # joins the wait queue, the semaphore sets this event;
+            # the loop yields at the next safe checkpoint instead of
+            # finishing its whole 60-180s cycle. See ``_run_with_history``.
+            _agent_loop_slot = _slots.get(TaskResource.AGENT_LOOP)
+            self._current_preempt_event = (
+                _agent_loop_slot.preempt_requested
+                if _agent_loop_slot is not None
+                else None
+            )
+            try:
+                # in_agent_loop flag prevents reentrant runs (e.g. via
+                # the delegate tool) from trying to re-acquire
+                # AGENT_LOOP and self-deadlocking. Source stays
+                # whatever the caller set (mind / scheduled / etc.) —
+                # we're only flipping the reentrance flag here.
+                with execution_context(in_agent_loop=True):
+                    # Open the resource lease scope so the executor
+                    # can acquire BROWSER / DESKTOP session-lazily and
+                    # per-call resources around tool calls.
+                    async with run_scope(self._resources, priority=effective_priority):
+                        return await self._run_with_history(
+                            goal,
+                            self._conversation_history,
+                            self._append_conversation_turn,
+                            max_steps_override=max_steps_override,
+                            authority=AuthorityLevel.OWNER,
+                            is_user_input=is_user_input,
+                        )
+            finally:
+                self._current_preempt_event = None
 
     async def run_isolated(
         self,
@@ -2983,6 +3031,24 @@ class Agent:
                             "context: %s",
                             _pending[:80],
                         )
+
+            # Cooperative preemption (G): if a higher-priority caller
+            # is waiting on AGENT_LOOP, the _Slot's preempt_requested
+            # event has been set. Yield at this safe checkpoint —
+            # between rounds, after any in-flight tool call has
+            # finished — so the foreground task can run. We do not
+            # interrupt a single round mid-tool-call; that would
+            # corrupt browser state and split conversation turns.
+            if (
+                self._current_preempt_event is not None
+                and self._current_preempt_event.is_set()
+            ):
+                stagnation_reason = "preempted by higher-priority task"
+                logger.info(
+                    "[preempt] yielding AGENT_LOOP at step %d for higher-priority caller",
+                    step,
+                )
+                break
 
             if max_time and (_time.monotonic() - start_time) > max_time:
                 stagnation_reason = (
@@ -3745,6 +3811,7 @@ class Agent:
             content=max_steps_msg,
             steps_taken=step,
             tool_calls_made=tool_calls_made,
+            preempted=stagnation_reason == "preempted by higher-priority task",
         )
 
     def _append_conversation_turn(self, user_msg: str, assistant_msg: str) -> None:
