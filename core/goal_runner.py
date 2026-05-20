@@ -182,6 +182,17 @@ class GoalRunner:
 
         start_time = time.monotonic()
         checkpoints_since_eval = 0
+        # Revision-without-progress counter. Increments on every
+        # revise_plan call; resets every time a checkpoint actually
+        # completes. If we revise more than this many times without
+        # ANY forward progress, the plan is producing self-
+        # contradictory revisions (observed on AlphaScala 2026-05-20:
+        # 4+ revisions in 4h, each saying "Day 1 incomplete BUT
+        # checkpoint 8 says Day 1 is already verified") and grinding
+        # the loop further is pure cost. Pause the goal so the
+        # operator can inspect or supersede.
+        revisions_without_progress = 0
+        _MAX_REVISIONS_WITHOUT_PROGRESS = 3
 
         await self._broadcast_event(
             EventType.GOAL_STARTED,
@@ -238,6 +249,10 @@ class GoalRunner:
 
                 if success:
                     checkpoints_since_eval += 1
+                    # Reset revision-without-progress counter on any
+                    # forward step. As long as SOMETHING is landing,
+                    # we don't worry about how many revisions it took.
+                    revisions_without_progress = 0
                     await self._broadcast_event(
                         EventType.GOAL_CHECKPOINT_COMPLETE,
                         {
@@ -266,9 +281,26 @@ class GoalRunner:
                     if goal:
                         evaluation = await self._gm.evaluate_progress(goal)
                         if evaluation.revision_needed:
+                            revisions_without_progress += 1
                             logger.info(
-                                "Goal %s needs revision: %s", goal_id, evaluation.reason
+                                "Goal %s needs revision (%d/%d without progress): %s",
+                                goal_id,
+                                revisions_without_progress,
+                                _MAX_REVISIONS_WITHOUT_PROGRESS,
+                                evaluation.reason,
                             )
+                            if (
+                                revisions_without_progress
+                                > _MAX_REVISIONS_WITHOUT_PROGRESS
+                            ):
+                                await self._pause_goal(
+                                    goal_id,
+                                    f"Plan revised {revisions_without_progress} "
+                                    f"times without any checkpoint completing — "
+                                    f"likely self-contradictory revisions. "
+                                    f"Operator should inspect, supersede, or cancel.",
+                                )
+                                return
                             await self._gm.revise_plan(goal, evaluation.reason)
 
                 # Brief pause between checkpoints
@@ -319,9 +351,22 @@ class GoalRunner:
                     self._make_broadcast_approval()
                 )
 
+            # GoalRunner is BACKGROUND goal execution — must NOT acquire
+            # AGENT_LOOP at USER priority. The previous `agent.run(prompt)`
+            # defaulted to is_user_input=True → priority 0 (USER), which
+            # made the autonomous goal-runner compete with operator chat
+            # for the top slot and starved MIND + cadence schedules.
+            # On the AlphaScala instance 2026-05-20 a 13-checkpoint goal
+            # at USER priority preempted MIND on every wakeup (13 of 14
+            # cycles preempted within seconds) and starved SCHEDULED_CADENCE
+            # for 1h57m. submit_task(TaskSource.GOAL, …) routes through
+            # the canonical source→priority table and lands at GOAL=5
+            # (lowest), as the enum doc always intended.
+            from core.execution_context import TaskSource
+
             try:
                 response = await asyncio.wait_for(
-                    self._agent.run(prompt),
+                    self._agent.submit_task(TaskSource.GOAL, prompt),
                     timeout=self._config.max_time_per_checkpoint_seconds,
                 )
             finally:

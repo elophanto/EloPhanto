@@ -79,19 +79,26 @@ class Migration:
 
 _MIGRATIONS: list[Migration] = [
     # Phase 3 arbiter (docs/75-AUTONOMOUS-MIND-V2.md).
+    # Originally added with enabled: false (operator opt-in). Flipped
+    # to enabled: true on 2026-05-20 after the AlphaScala log review
+    # showed the legacy free-form prompt produces analysis-paralysis
+    # loops in production. Existing operators get the working default
+    # on next ./update.sh; flip to false locally if you need the old
+    # behavior as an escape hatch.
     Migration(
         id="arbiter-2026-05",
         key_path="autonomous_mind.arbiter",
         banner=(
             "Phase 3 scored-candidate arbiter for the autonomous mind. "
-            "Default OFF; flip arbiter.enabled to true to activate. "
-            "Grep '[arbiter]' in logs/latest.log to audit the ranked "
-            "menu the mind saw each wakeup."
+            "Default ON since 2026-05-20 (legacy prompt produced "
+            "analysis-paralysis loops). Grep '[arbiter]' in "
+            "logs/latest.log to audit the ranked menu the mind saw "
+            "each wakeup."
         ),
         # No parent key — just the arbiter sub-block. The migrator
         # adds the right amount of indent for the actual insert point.
         inner_yaml="""arbiter:
-  enabled: false
+  enabled: true
   top_k: 5
   # Linear combiner — see core/mind_arbiter.py:ArbiterWeights for
   # the meaning of each. Tune to shift WHICH KIND of work rises
@@ -342,6 +349,4 @@ def migrate_cmd(config_path: str | None, check: bool, yes: bool) -> None:
         )
         sys.exit(2)
 
-    console.print(
-        "\n[green]Done.[/green] Restart EloPhanto to pick up the new config."
-    )
+    console.print("\n[green]Done.[/green] Restart EloPhanto to pick up the new config.")
