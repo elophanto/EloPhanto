@@ -38,6 +38,15 @@ class GoalCreateTool(BaseTool):
                     "type": "string",
                     "description": "The goal to achieve",
                 },
+                "mission_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Parent this goal under a mission "
+                        "(durable drive). Use mission_list to see the "
+                        "available slugs. Goals parented under a mission "
+                        "bump that mission's momentum on completion."
+                    ),
+                },
             },
             "required": ["goal"],
         }
@@ -55,7 +64,12 @@ class GoalCreateTool(BaseTool):
             return ToolResult(success=False, error="Goal text is required")
 
         try:
-            goal = await self._goal_manager.create_goal(goal_text)
+            mission_id = params.get("mission_id")
+            if mission_id:
+                mission_id = mission_id.strip() or None
+            goal = await self._goal_manager.create_goal(
+                goal_text, mission_id=mission_id
+            )
             checkpoints = await self._goal_manager.decompose(goal)
 
             if not checkpoints:

@@ -1066,12 +1066,16 @@ class EloPhantoDashboard(App):
     }
     #chat {
         height: 1fr;
+        width: 1fr;
         padding: 0 1;
         background: #f9f8f4;
         color: #1c1a16;
+        overflow-x: hidden;
+        scrollbar-gutter: stable;
     }
     #feed-header {
         height: 1;
+        width: 1fr;
         padding: 0 1;
         background: #f9f8f4;
         border-top: solid #d4cfc5;
@@ -1079,9 +1083,12 @@ class EloPhantoDashboard(App):
     }
     #events {
         height: 5;
+        width: 1fr;
         background: #f9f8f4;
         color: #1c1a16;
         padding: 0 1;
+        overflow-x: hidden;
+        scrollbar-gutter: stable;
     }
 #input-bar {
         height: 3;
@@ -1185,8 +1192,13 @@ class EloPhantoDashboard(App):
                 chat_log.can_focus = False  # let terminal handle mouse/selection
                 yield chat_log
                 yield Static("", id="feed-header", markup=True)
+                # wrap=True so a long event line cannot force a
+                # horizontal scrollbar / push the chat panel narrower
+                # (observed 2026-05-20: long arbiter-score lines made
+                # the chat content render at ~85 cols on a 150-col
+                # terminal). See screenshot in the transcript.
                 yield RichLog(
-                    id="events", highlight=True, markup=True, wrap=False, max_lines=50
+                    id="events", highlight=True, markup=True, wrap=True, max_lines=50
                 )
         with Vertical(id="input-bar"):
             yield Input(
@@ -1253,13 +1265,17 @@ class EloPhantoDashboard(App):
         # them alone.
         self._suppress_mouse_tracking()
         # Textual re-enables mouse tracking whenever certain widgets
-        # mount, refocus, or handle a paste — so a one-shot disable on
-        # mount is not enough. Re-send the disable sequences every
-        # 500ms. Cheap (a few stdout bytes), and bounded — Textual's
-        # tick scheduler stops with the app. This is the load-bearing
-        # fix for "mouse moves keep leaking SGR codes into the input"
-        # that survived multiple reported attempts before this one.
-        self.set_interval(0.5, self._suppress_mouse_tracking)
+        # mount, refocus, or handle a paste. Re-send the disable
+        # sequences periodically. The earlier 500ms cadence was load-
+        # bearing for SGR-leak prevention but BROKE Shift+drag text
+        # selection in the terminal — every half-second the terminal
+        # received the mouse-disable codes mid-drag, which some
+        # emulators interpret as "abort selection". 5s is the
+        # compromise: selection drags shorter than 5s work; SGR codes
+        # have at most a 5s leak window after Textual re-enables.
+        # If you tighten this back down, *test text selection* in the
+        # actual operator terminal first. See 2026-05-20 transcript.
+        self.set_interval(5.0, self._suppress_mouse_tracking)
 
     @work(exclusive=True)
     async def _connect_gateway(self, url: str) -> None:

@@ -383,3 +383,63 @@ class TestProviderTrackerIntegration:
         router = LLMRouter(self._make_config())
         assert router.provider_tracker.get_provider_stats() == {}
         assert router.provider_tracker.get_recent_events() == []
+
+
+class TestCostTrackerPersistence:
+    """Regression guard for the empty-llm_usage bug fixed in
+    docs/75-AUTONOMOUS-MIND-V2.md §1.4. CostTracker.record() pushes into
+    an in-memory ring; flush(db) is what actually persists. Prior to
+    the fix, no caller ever invoked flush() — the table sat empty for
+    the entire process lifetime, hiding the cost of tail loops."""
+
+    @pytest.mark.asyncio
+    async def test_flush_inserts_records_into_llm_usage(self, tmp_path) -> None:
+        from core.database import Database
+        from core.router import CostTracker
+
+        db = Database(str(tmp_path / "test.db"))
+        await db.initialize()
+
+        tracker = CostTracker()
+        tracker.record(
+            provider="ollama",
+            model="qwen3-coder",
+            input_tokens=100,
+            output_tokens=50,
+            cost=0.001,
+            task_type="planning",
+        )
+        tracker.record(
+            provider="openai",
+            model="gpt-5",
+            input_tokens=200,
+            output_tokens=80,
+            cost=0.01,
+            task_type="reasoning",
+        )
+
+        await tracker.flush(db)
+
+        rows = await db.execute("SELECT * FROM llm_usage ORDER BY id")
+        assert len(rows) == 2
+        assert rows[0]["provider"] == "ollama"
+        assert rows[0]["cost_usd"] == 0.001
+        assert rows[1]["provider"] == "openai"
+        assert rows[1]["input_tokens"] == 200
+        # Ring drained after flush — second flush should be a no-op.
+        await tracker.flush(db)
+        rows = await db.execute("SELECT * FROM llm_usage")
+        assert len(rows) == 2
+
+    @pytest.mark.asyncio
+    async def test_flush_no_op_on_empty_ring(self, tmp_path) -> None:
+        from core.database import Database
+        from core.router import CostTracker
+
+        db = Database(str(tmp_path / "test.db"))
+        await db.initialize()
+
+        tracker = CostTracker()
+        await tracker.flush(db)  # must not raise
+        rows = await db.execute("SELECT * FROM llm_usage")
+        assert rows == []

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import inspect
 import json
 import logging
@@ -611,6 +612,7 @@ class Agent:
         self._document_store: Any = None  # DocumentStore
         self._context_store: Any = None  # ContextStore (RLM Phase 2)
         self._goal_manager: Any = None  # GoalManager, set during initialize
+        self._mission_manager: Any = None  # MissionManager, set during initialize
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._ego_manager: Any = None  # EgoManager, set during initialize
         self._affect_manager: Any = None  # AffectManager, set during initialize
@@ -619,6 +621,7 @@ class Agent:
         self._email_monitor: Any = None  # EmailMonitor, set during initialize
         self._mcp_manager: Any = None  # MCPClientManager, set during initialize
         self._dataset_builder: Any = None  # DatasetBuilder, set during initialize
+        self._usage_flush_task: asyncio.Task[None] | None = None
         self._goal_runner: Any = None  # GoalRunner, set during initialize
         self._swarm_manager: Any = None  # SwarmManager, set during initialize
         self._organization_manager: Any = (
@@ -1028,6 +1031,40 @@ class Agent:
                 self._inject_goal_deps()
                 logger.info("Goal system ready")
 
+                # Missions — durable drives the mind works toward
+                # across many goals. See docs/75-AUTONOMOUS-MIND-V2.md
+                # §Phase 2. Always initialized when the goal system
+                # is up, since the two tiers are designed together.
+                from core.mission_manager import MissionManager
+
+                self._mission_manager = MissionManager(db=self._db)
+                self._inject_mission_deps()
+
+                # Goal-completion → mission momentum hook (Phase 2.8).
+                # When a goal whose mission_id is set completes, bump
+                # the parent mission's momentum. Hooks are fire-and-
+                # forget per goal_manager's contract — a touch failure
+                # cannot affect goal persistence.
+                async def _touch_mission_on_goal_complete(goal_id: str) -> None:
+                    if not self._goal_manager or not self._mission_manager:
+                        return
+                    g = await self._goal_manager.get_goal(goal_id)
+                    if not g or not g.mission_id:
+                        return
+                    await self._mission_manager.touch(g.mission_id, bump=1.0)
+                    logger.info(
+                        "[mission] touched %s after goal %s completed",
+                        g.mission_id,
+                        goal_id,
+                    )
+
+                self._goal_manager.add_completion_hook(_touch_mission_on_goal_complete)
+
+                # Seed runs LATER (after IdentityManager initializes) so
+                # identity-supplied missions take precedence over the
+                # built-in defaults. See call below the identity init.
+                logger.info("Mission system ready")
+
                 # Initialize GoalRunner for autonomous background execution
                 if self._config.goals.auto_continue:
                     from core.goal_runner import GoalRunner
@@ -1101,6 +1138,13 @@ class Agent:
                 await self._identity_manager.load_or_create()
                 self._inject_identity_deps()
                 logger.info("Identity system ready")
+
+                # Now that identity is loaded, seed missions. Idempotent:
+                # if the table already has rows (e.g. operator pre-seeded
+                # or this is a subsequent boot), the call returns early.
+                # See ``_seed_default_missions`` — identity.missions takes
+                # precedence over built-in defaults when present.
+                await self._seed_default_missions()
             except Exception as e:
                 logger.warning(f"Identity system setup failed: {e}")
 
@@ -1577,6 +1621,17 @@ class Agent:
             except Exception as e:
                 logger.debug("Fingerprint initialization failed: %s", e)
 
+        # Periodic LLM usage flush. CostTracker.record() pushes into
+        # an in-memory ring; flush(db) drains it into the llm_usage
+        # table. Before this hook the flush was never called — the
+        # table sat empty for the entire process lifetime, hiding the
+        # cost of any tail loop (e.g. the 36h mind reconciliation
+        # observed 2026-05-18 → 2026-05-20, where llm_usage had 0 rows
+        # despite ~70 mind wakeups). 60s cadence trades worst-case
+        # 60s of in-memory records on crash for not paying a DB write
+        # per LLM call. See docs/75-AUTONOMOUS-MIND-V2.md §1.4.
+        self._usage_flush_task = asyncio.create_task(self._periodic_usage_flush())
+
         # Self-learning dataset collection (opt-in)
         if self._config.self_learning.enabled:
             try:
@@ -1591,8 +1646,45 @@ class Agent:
             except Exception as e:
                 logger.debug("Dataset collection setup failed: %s", e)
 
+    async def _periodic_usage_flush(self) -> None:
+        """Drain CostTracker / ProviderTracker rings into llm_usage.
+
+        Runs forever at 60s cadence. Cost flush inserts rows; provider
+        flush updates the same rows with transparency columns
+        (finish_reason, latency_ms, fallback_from, suspected_truncated)
+        — order matters. Both flushes are individually try-wrapped so a
+        single bad record can't kill the loop.
+        """
+        FLUSH_INTERVAL_SEC = 60.0
+        while True:
+            try:
+                await asyncio.sleep(FLUSH_INTERVAL_SEC)
+                try:
+                    await self._router.cost_tracker.flush(self._db)
+                except Exception as e:
+                    logger.debug("cost_tracker.flush failed: %s", e)
+                try:
+                    await self._router.provider_tracker.flush(self._db)
+                except Exception as e:
+                    logger.debug("provider_tracker.flush failed: %s", e)
+            except asyncio.CancelledError:
+                # Final drain on shutdown so we don't lose the last batch
+                try:
+                    await self._router.cost_tracker.flush(self._db)
+                    await self._router.provider_tracker.flush(self._db)
+                except Exception:
+                    pass
+                raise
+
     async def shutdown(self) -> None:
         """Clean up all subsystems gracefully."""
+        if self._usage_flush_task:
+            try:
+                self._usage_flush_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._usage_flush_task
+            except Exception as e:
+                logger.debug("Usage flush task shutdown error: %s", e)
         if self._p2p_listener:
             try:
                 await self._p2p_listener.stop()
@@ -1910,6 +2002,95 @@ class Agent:
 
         adapter.on_reasoning_chunk = _on_chunk
 
+    def _inject_mission_deps(self) -> None:
+        """Inject mission manager into mission tools.
+
+        Mirrors ``_inject_goal_deps`` — each tool gets a single
+        attribute set after registry has the instance. Idempotent.
+        """
+        for tool_name in (
+            "mission_list",
+            "mission_create",
+            "mission_status",
+            "mission_touch",
+            "mission_update",
+        ):
+            tool = self._registry.get(tool_name)
+            if tool and self._mission_manager:
+                tool._mission_manager = self._mission_manager
+
+    async def _seed_default_missions(self) -> None:
+        """First-run seeding of missions from identity (Phase 2.6).
+
+        If the missions table is empty AND identity has a
+        ``missions`` field, materialize each as an active mission.
+        Idempotent — once rows exist, this is a no-op. The mission
+        IDs are stable slugs so dream-phase prompts and operator
+        commands can reference them by name. See
+        docs/75-AUTONOMOUS-MIND-V2.md §2.5 / §2.6.
+        """
+        if not self._mission_manager:
+            return
+        try:
+            existing = await self._mission_manager.list_missions(status=None, limit=1)
+            if existing:
+                return
+            seeds = await self._default_mission_seeds()
+            for slug, title, desc, weight in seeds:
+                await self._mission_manager.create(
+                    title=title,
+                    description=desc,
+                    priority_weight=weight,
+                    mission_id=slug,
+                )
+            logger.info(f"Seeded {len(seeds)} default missions")
+        except Exception as e:
+            logger.warning(f"Mission seeding failed: {e}")
+
+    async def _default_mission_seeds(self) -> list[tuple[str, str, str, float]]:
+        """Return the missions to seed on first boot.
+
+        EloPhanto is a generic AI agent. Missions are durable
+        *operator-defined* drives — they describe what this specific
+        operator's instance is for. The codebase MUST NOT ship any
+        operator-specific missions by default; doing so would prime
+        every fresh install with someone else's business goals.
+
+        Two legitimate sources, in priority order:
+
+          1. ``Identity.missions`` — when the operator pre-seeds
+             missions via identity config, they win and are returned
+             as-is.
+          2. Empty list — no built-in fallback. The operator defines
+             missions via ``elophanto mission create`` (or the setup
+             wizard prompt). The mind handles "no missions yet"
+             cleanly via the Phase 1 FORCE-DREAM gate.
+
+        Returns (slug, title, description, weight).
+        """
+        identity_missions: list[Any] = []
+        try:
+            if self._identity_manager:
+                identity = await self._identity_manager.get_identity()
+                identity_missions = getattr(identity, "missions", []) or []
+        except Exception:
+            identity_missions = []
+
+        if identity_missions:
+            out: list[tuple[str, str, str, float]] = []
+            for entry in identity_missions:
+                if isinstance(entry, dict):
+                    slug = str(entry.get("id") or entry.get("slug") or "").strip()
+                    title = str(entry.get("title") or slug).strip()
+                    desc = str(entry.get("description", "")).strip()
+                    weight = float(entry.get("priority_weight", 1.0))
+                    if slug and title:
+                        out.append((slug, title, desc, weight))
+            if out:
+                return out
+
+        return []
+
     def _inject_goal_deps(self) -> None:
         """Inject goal manager and goal runner into goal tools."""
         for tool_name in ("goal_create", "goal_status", "goal_manage"):
@@ -1937,6 +2118,8 @@ class Agent:
             dream_tool._project_root = self._config.project_root
             if self._goal_manager:
                 dream_tool._goal_manager = self._goal_manager
+            if self._mission_manager:
+                dream_tool._mission_manager = self._mission_manager
             if self._identity_manager:
                 dream_tool._identity_manager = self._identity_manager
             if self._affect_manager is not None:

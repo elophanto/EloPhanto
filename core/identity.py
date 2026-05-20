@@ -81,6 +81,13 @@ class Identity:
     curiosities: list[str] = field(default_factory=list)
     boundaries: list[str] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
+    # Durable drives the autonomous mind works toward across many
+    # goals. Each entry is a dict {id, title, description,
+    # priority_weight}. Phase 2 of docs/75-AUTONOMOUS-MIND-V2.md.
+    # When non-empty on first run, ``Agent._seed_default_missions``
+    # uses this list verbatim instead of the built-in defaults so
+    # operators can ship their own mission set via identity config.
+    missions: list[dict[str, Any]] = field(default_factory=list)
     personality: dict[str, Any] = field(default_factory=dict)
     communication_style: str = ""
     initial_thoughts: str | None = None

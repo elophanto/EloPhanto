@@ -142,6 +142,86 @@ class TestCountWorkableGoals:
         mind._agent._goal_manager = None  # type: ignore[attr-defined]
         assert await mind._count_workable_goals() == 999
 
+    @pytest.mark.asyncio
+    async def test_stale_active_checkpoint_not_workable(
+        self,
+        mind: AutonomousMind,
+        goal_manager: GoalManager,
+        router: AsyncMock,
+    ) -> None:
+        """A goal whose only remaining checkpoint is `active` but older
+        than STALE_CKPT_HOURS counts as 0 workable AND appears in the
+        stale list. This is the v2 fix for the 36h reconciliation loop
+        observed 2026-05-18 → 2026-05-20."""
+        import json
+        from datetime import UTC, datetime, timedelta
+
+        router.complete.return_value = _FakeLLMResponse(
+            json.dumps(
+                [
+                    {
+                        "order": 1,
+                        "title": "S",
+                        "description": "d",
+                        "success_criteria": "s",
+                    }
+                ]
+            )
+        )
+        goal = await goal_manager.create_goal("Stuck goal")
+        await goal_manager.decompose(goal)
+
+        # Force the only checkpoint to be active with started_at 24h ago.
+        stale_iso = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+        await goal_manager._db.execute_insert(
+            "UPDATE goal_checkpoints SET status='active', started_at=? "
+            "WHERE goal_id=?",
+            (stale_iso, goal.goal_id),
+        )
+
+        workable, stale = await mind._workable_goals_status()
+        assert workable == 0
+        assert len(stale) == 1
+        assert stale[0]["goal_id"] == goal.goal_id
+
+    @pytest.mark.asyncio
+    async def test_recently_active_checkpoint_is_workable(
+        self,
+        mind: AutonomousMind,
+        goal_manager: GoalManager,
+        router: AsyncMock,
+    ) -> None:
+        """An `active` checkpoint younger than the threshold is still
+        workable — the agent is mid-flight, don't kick to dream."""
+        import json
+        from datetime import UTC, datetime, timedelta
+
+        router.complete.return_value = _FakeLLMResponse(
+            json.dumps(
+                [
+                    {
+                        "order": 1,
+                        "title": "S",
+                        "description": "d",
+                        "success_criteria": "s",
+                    }
+                ]
+            )
+        )
+        goal = await goal_manager.create_goal("Mid-flight goal")
+        await goal_manager.decompose(goal)
+
+        fresh_iso = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
+        await goal_manager._db.execute_insert(
+            "UPDATE goal_checkpoints SET status='active', started_at=? "
+            "WHERE goal_id=?",
+            (fresh_iso, goal.goal_id),
+        )
+
+        workable, stale = await mind._workable_goals_status()
+        assert workable == 1
+        assert stale == []
+
 
 # ---------------------------------------------------------------------------
 # Goal-completion hook wiring — finishing a goal must shorten the next

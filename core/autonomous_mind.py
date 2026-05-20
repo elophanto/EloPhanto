@@ -15,9 +15,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from core.config import AutonomousMindConfig
 from core.protocol import EventType, event_message
@@ -56,6 +56,82 @@ def _append_action_log(project_root: Path, entry: str) -> None:
     ts = datetime.now(UTC).strftime("%H:%M")
     with open(path, "a", encoding="utf-8") as f:
         f.write(f"{ts}  {entry}\n")
+
+
+# Patterns that mean the LLM is narrating its choice instead of
+# describing what it did. When the response starts with one of these,
+# the first line is meta-commentary not useful as a summary.
+_NARRATION_PREFIXES: tuple[str, ...] = (
+    "picked candidate",
+    "picking candidate",
+    "i pick",
+    "i'll pick",
+    "i will pick",
+    "i chose",
+    "i choose",
+    "i'll choose",
+    "going with candidate",
+    "selecting candidate",
+    "candidate",
+    "i selected",
+)
+
+
+def _derive_action_summary(
+    tool_uses: list[dict[str, Any]],
+    response_content: str,
+    max_chars: int = 120,
+) -> str:
+    """Build a useful mind action summary.
+
+    Priority order:
+
+      1. Successful tool calls — what the agent actually DID this
+         cycle. Renders as ``"tool_a + tool_b + tool_c"`` for the
+         first three distinct tools. This is the ground truth of the
+         work performed and the right thing to show in the operator's
+         activity log.
+
+      2. First non-narration line of the LLM reply — only when no
+         tool calls happened (the agent answered the cycle in pure
+         prose, which is rare but possible). Skips lines that start
+         with "Picked candidate N because…" or similar meta-prose.
+
+      3. ``"(no output)"`` — fallback.
+
+    Why not just take the LLM reply's first line: the arbiter prompt
+    asks the model to pick from a menu, and despite explicit
+    instruction to not narrate the pick, models still sometimes lead
+    with "Picked candidate 2…". That string was surfacing in the
+    operator's dashboard as if it were the agent's accomplishment.
+    Ground truth is what tools ran. See 2026-05-20 transcript.
+    """
+    successful = [
+        t["tool"] for t in tool_uses if t.get("status") == "ok" and t.get("tool")
+    ]
+    seen: list[str] = []
+    for t in successful:
+        if t not in seen:
+            seen.append(t)
+        if len(seen) >= 3:
+            break
+    if seen:
+        summary = " + ".join(seen)
+        if len(successful) > len(seen):
+            summary += f" (+{len(successful) - len(seen)} more)"
+        return summary[:max_chars]
+
+    if response_content:
+        for raw in response_content.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            lowered = line.lower()
+            if any(lowered.startswith(p) for p in _NARRATION_PREFIXES):
+                continue
+            return line[:max_chars]
+
+    return "(no output)"
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +211,59 @@ LAST WAKEUP: {last_wakeup} — {last_action}
 UTC NOW: {utc_now}
 
 Based on your current state, what is the highest-value action right now? Do it.
+"""
+
+
+_ARBITER_PROMPT = """\
+You are EloPhanto in autonomous mode. The arbiter has scored your options
+from real state — missions, goals, reflexes, and your dream-phase lens.
+Your job this cycle is to PICK ONE and DO IT.
+
+WHO YOU ARE:
+{identity_anchor}
+
+RULES:
+1. Pick exactly ONE candidate from the menu below. Execute it within
+   {max_rounds} tool rounds. NEVER skip the action.
+2. The menu is ranked. The top candidate is *usually* the right call —
+   reasons to deviate: the top is gated on something you know is
+   blocked, or a lower-rank candidate is a 30-second win you can finish
+   first.
+3. **Do NOT narrate the pick in your reply text.** Do not start with
+   "Picked candidate N because…" or any meta-commentary. Begin by
+   making the first tool call for your chosen action. Brief reasoning
+   (one line) can go into update_scratchpad if useful — never as the
+   visible reply line.
+4. If the candidate has a mission_id, set it on any goal you create
+   (goal_create supports mission_id) so momentum bookkeeping fires
+   when the goal completes.
+5. Update your scratchpad with what you did and what's next — call
+   update_scratchpad before finishing.
+6. Set your next wakeup with set_next_wakeup based on urgency. Don't
+   waste compute.
+7. NEVER REPEAT PAST WORK. The arbiter de-duplicates by action key,
+   but you still have to check [RECENT] before posting / publishing.
+8. NEVER create a new email address. Use the existing one from your
+   identity beliefs.
+
+CANDIDATE MENU (top {top_k} of {total_candidates}):
+{candidate_menu}
+
+CURRENT STATE:
+{state_snapshot}
+
+SCRATCHPAD:
+{scratchpad}
+
+RECENT EVENTS:
+{events}
+
+BUDGET: ${budget_remaining:.4f} remaining (${budget_spent:.4f} spent today)
+LAST WAKEUP: {last_wakeup} — {last_action}
+UTC NOW: {utc_now}
+
+Begin by making the first tool call for the action you chose. No prose
+preamble.
 """
 
 
@@ -853,8 +982,10 @@ class AutonomousMind:
             cost = self._agent._router.cost_tracker.task_total
             self._spent_today_usd += cost
 
-            content = (response.content or "")[:500]
-            action_summary = content.split("\n")[0][:120] if content else "(no output)"
+            action_summary = _derive_action_summary(
+                tool_uses=_tool_uses,
+                response_content=response.content or "",
+            )
             self._last_action = (
                 f"[AutoLoop:{tag}:{iterations_run + 1}] {action_summary}"
             )
@@ -1008,8 +1139,18 @@ class AutonomousMind:
         self._last_wakeup_time = datetime.now(UTC).strftime("%H:%M UTC")
         cycle_start = time.monotonic()
 
-        # Build the prompt (async — queries real state from all managers)
-        prompt = await self._build_prompt()
+        # Build the prompt (async — queries real state from all managers).
+        # When the arbiter is enabled (Phase 3 — docs/75-AUTONOMOUS-MIND-V2.md),
+        # generate a scored candidate menu instead of the legacy free-form
+        # state snapshot. The legacy path stays available so the rollout is
+        # reversible by flipping config.autonomous_mind.arbiter.enabled.
+        if (
+            getattr(self._config, "arbiter", None) is not None
+            and self._config.arbiter.enabled
+        ):
+            prompt = await self._build_arbiter_prompt()
+        else:
+            prompt = await self._build_prompt()
 
         # Broadcast wakeup event with rich context
         daily_budget = self._daily_budget()
@@ -1119,9 +1260,19 @@ class AutonomousMind:
             cost = self._agent._router.cost_tracker.task_total
             self._spent_today_usd += cost
 
-            # Extract action summary from response
+            # Truncated response content for parent-reporting payload.
+            # The dashboard action summary is derived separately below
+            # so meta-commentary ("Picked candidate 2…") doesn't get
+            # surfaced as the agent's accomplishment.
             content = (response.content or "")[:500]
-            action_summary = content.split("\n")[0][:120] if content else "(no output)"
+
+            # Action summary: prefer what the agent ACTUALLY DID
+            # (tool calls executed) over the LLM's reply prose. Tool
+            # calls are the ground truth of what happened this cycle.
+            action_summary = _derive_action_summary(
+                tool_uses=_tool_uses,
+                response_content=response.content or "",
+            )
             self._last_action = action_summary
 
             # Log action
@@ -1172,25 +1323,98 @@ class AutonomousMind:
     # Prompt building
     # ------------------------------------------------------------------
 
-    async def _count_workable_goals(self) -> int:
-        """Return the count of goals that are either active or planning.
+    # Phase 1 (docs/75-AUTONOMOUS-MIND-V2.md): a goal whose only
+    # remaining checkpoint is an active one that hasn't moved in
+    # >STALE_CKPT_HOURS is not workable. The previous version of this
+    # helper counted any goal with status='active' as workable, which
+    # let one stuck checkpoint (last_active 36h with the artifact
+    # already produced) starve the dream phase for ~70 wakeups.
+    _STALE_CKPT_HOURS: ClassVar[int] = 12
 
-        Used by ``_build_prompt`` to decide whether to force dream phase.
-        Defensive — returns a non-zero sentinel (999) on any error so a
-        DB hiccup never trips a false 'FORCE-DREAM' directive.
+    async def _workable_goals_status(self) -> tuple[int, list[dict[str, Any]]]:
+        """Return (workable_count, stale_summaries).
+
+        A goal is *workable* if its parent row is in {active, planning}
+        AND it has at least one checkpoint that is either:
+          - status='pending' (clearly more to do), or
+          - status='active' with started_at within the last
+            STALE_CKPT_HOURS (still being worked on).
+
+        A goal whose only remaining checkpoint is `active` but older
+        than STALE_CKPT_HOURS is considered *stale*. Stale goals are
+        excluded from the workable count (so the FORCE-DREAM gate can
+        trip) AND surfaced via the second return value so the mind
+        prompt can name them explicitly — the mind should close them
+        via goal_status, not silently ignore them.
+
+        Defensive — on DB error returns (999, []) so a hiccup never
+        trips a false FORCE-DREAM.
         """
         try:
             gm = getattr(self._agent, "_goal_manager", None)
             if gm is None:
-                return 999
-            active = await gm.list_goals(status="active", limit=1)
-            if active:
-                return len(active)
-            planning = await gm.list_goals(status="planning", limit=1)
-            return len(planning)
+                return (999, [])
+            workable = 0
+            stale: list[dict[str, Any]] = []
+            now = datetime.now(UTC)
+            cutoff = now - timedelta(hours=self._STALE_CKPT_HOURS)
+            cutoff_iso = cutoff.isoformat()
+            db = gm._db  # noqa: SLF001 — internal collaborator
+            for status in ("active", "planning"):
+                goals = await gm.list_goals(status=status, limit=20)
+                for g in goals:
+                    rows = await db.execute(
+                        "SELECT status, started_at FROM goal_checkpoints "
+                        "WHERE goal_id = ? ORDER BY checkpoint_order",
+                        (g.goal_id,),
+                    )
+                    # No checkpoints yet — a freshly-created planning
+                    # goal (decompose still pending) or an active goal
+                    # mid-decompose. Counts as workable; the next action
+                    # is goal_decompose, not dream.
+                    if not rows:
+                        workable += 1
+                        continue
+                    has_workable_ckpt = False
+                    oldest_active: str | None = None
+                    for row in rows:
+                        ck_status = row["status"]
+                        ck_started = row["started_at"]
+                        if ck_status == "pending":
+                            has_workable_ckpt = True
+                            break
+                        if ck_status == "active":
+                            if ck_started and ck_started > cutoff_iso:
+                                has_workable_ckpt = True
+                                break
+                            if ck_started and (
+                                oldest_active is None or ck_started < oldest_active
+                            ):
+                                oldest_active = ck_started
+                    if has_workable_ckpt:
+                        workable += 1
+                    elif oldest_active is not None:
+                        stale.append(
+                            {
+                                "goal_id": g.goal_id,
+                                "goal": g.goal[:80],
+                                "stale_since": oldest_active,
+                            }
+                        )
+            return (workable, stale)
         except Exception as e:
-            logger.debug("workable goals count failed: %s", e)
-            return 999
+            logger.debug("workable goals status failed: %s", e)
+            return (999, [])
+
+    async def _count_workable_goals(self) -> int:
+        """Back-compat shim — returns just the count.
+
+        Existing callers that only need the gate decision keep working;
+        new callers should use ``_workable_goals_status`` to also get
+        the stale-goal list.
+        """
+        count, _ = await self._workable_goals_status()
+        return count
 
     async def _build_state_snapshot(self) -> tuple[str, str]:
         """Query all managers to build a real state snapshot for the mind.
@@ -1416,13 +1640,33 @@ class AutonomousMind:
         # instead. This gate makes the constraint mechanical: the
         # state_snapshot itself is rewritten with a [FORCE-DREAM]
         # marker that the LLM can't dismiss as soft guidance.
-        workable = await self._count_workable_goals()
+        workable, stale = await self._workable_goals_status()
+
+        # Stuck-checkpoint section. When a goal has an `active`
+        # checkpoint that hasn't moved in >STALE_CKPT_HOURS the mind
+        # has almost certainly already produced the artifact and just
+        # forgot to call goal_status. Naming the goals here gives the
+        # mind the exact IDs and dates so it can close them this cycle
+        # instead of repeating "bounded reconciliation" indefinitely.
+        if stale:
+            lines = ["[STUCK-CHECKPOINTS] You have goals whose last active"]
+            lines.append("checkpoint hasn't moved in >12h. The artifact is almost")
+            lines.append("certainly already produced — close them with goal_status")
+            lines.append("(status='completed') BEFORE doing anything else:")
+            for s in stale[:8]:
+                lines.append(
+                    f"  - goal_id={s['goal_id']} stale_since={s['stale_since']}"
+                )
+                lines.append(f"    goal: {s['goal']}")
+            state_snapshot = "\n".join(lines) + "\n\n" + state_snapshot
+
         if workable == 0:
             state_snapshot = (
-                "[FORCE-DREAM] Zero active and zero planning goals. This "
-                f"cycle MUST call goal_dream(focus='{_dream_focus_for_today()}') followed by "
-                "goal_create. No exploration, no email, no file reads. "
-                "Dream → Decide → Create — nothing else.\n\n"
+                "[FORCE-DREAM] Zero workable goals (no pending checkpoints, "
+                "no recent activity on active checkpoints). This cycle MUST "
+                f"call goal_dream(focus='{_dream_focus_for_today()}') followed by "
+                "goal_create — UNLESS [STUCK-CHECKPOINTS] above lists goals "
+                "to close first. Dream → Decide → Create.\n\n"
             ) + state_snapshot
 
         # Budget
@@ -1441,6 +1685,107 @@ class AutonomousMind:
             last_action=self._last_action,
             utc_now=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
             dream_focus=_dream_focus_for_today(),
+        )
+
+    async def _build_arbiter_prompt(self) -> str:
+        """Build the Phase 3 arbiter prompt.
+
+        Pulls candidates from every generator, scores them, and
+        renders a ranked menu in place of the legacy state-snapshot
+        free-form prompt. The mind LLM picks one and executes it.
+
+        Falls through to the legacy ``_build_prompt`` if the arbiter
+        produces zero candidates — that should never happen in
+        practice (the dream generator always returns a candidate)
+        but the fall-through means a generator-side regression can't
+        leave the mind without a prompt.
+        """
+        from core.mind_arbiter import ArbiterWeights, arbitrate, render_menu
+        from core.mind_candidates import CandidateContext, collect_all
+
+        # Build live mission_id → weight map so the arbiter can apply
+        # the mission_weight bonus without each generator carrying it.
+        mission_weight_map: dict[str, float] = {}
+        if self._agent._mission_manager is not None:
+            try:
+                missions = await self._agent._mission_manager.list_missions()
+                mission_weight_map = {m.mission_id: m.priority_weight for m in missions}
+            except Exception as e:
+                logger.debug("arbiter: mission map unavailable: %s", e)
+
+        ctx = CandidateContext(
+            goal_manager=self._agent._goal_manager,
+            mission_manager=self._agent._mission_manager,
+            identity_manager=self._agent._identity_manager,
+            affect_manager=self._agent._affect_manager,
+            ego_manager=self._agent._ego_manager,
+            dream_focus=_dream_focus_for_today(),
+            mission_weight_map=mission_weight_map,
+        )
+
+        all_candidates = await collect_all(ctx)
+        if not all_candidates:
+            logger.warning(
+                "arbiter produced 0 candidates; falling back to legacy prompt"
+            )
+            return await self._build_prompt()
+
+        weights = ArbiterWeights.from_config_dict(self._config.arbiter.weights)
+        scored = arbitrate(
+            all_candidates,
+            weights,
+            mission_weights=mission_weight_map,
+            top_k=self._config.arbiter.top_k,
+        )
+        menu = render_menu(scored)
+
+        # Side-channel observability: every arbiter wakeup logs the
+        # menu so operators can `grep '[arbiter]'` the log and audit
+        # what the mind saw + picked. Phase 4 will surface this in
+        # the dashboard.
+        logger.info(
+            "[arbiter] focus=%s candidates=%d top_k=%d top1=%.2f",
+            ctx.dream_focus,
+            len(all_candidates),
+            len(scored),
+            scored[0].score if scored else 0.0,
+        )
+        for sc in scored:
+            logger.info(
+                "[arbiter]   %s score=%.2f  %s",
+                sc.candidate.source,
+                sc.score,
+                sc.candidate.action_spec[:120],
+            )
+
+        # Lightweight state + scratchpad + events; the arbiter shrank
+        # the prompt by replacing the wall-of-context with the menu.
+        scratchpad = _read_scratchpad(self._project_root)
+        if not scratchpad.strip():
+            scratchpad = "(empty — initialize your working memory)"
+        events_text = "(none)"
+        if self._pending_events:
+            events_text = "\n".join(f"- {e}" for e in self._pending_events[-10:])
+            self._pending_events.clear()
+        state_snapshot, identity_anchor = await self._build_state_snapshot()
+
+        daily_budget = self._daily_budget()
+        remaining = max(0, daily_budget - self._spent_today_usd)
+
+        return _ARBITER_PROMPT.format(
+            max_rounds=self._config.max_rounds_per_wakeup,
+            top_k=len(scored),
+            total_candidates=len(all_candidates),
+            candidate_menu=menu,
+            identity_anchor=identity_anchor,
+            state_snapshot=state_snapshot[:3000],
+            scratchpad=scratchpad[:3000],
+            events=events_text,
+            budget_remaining=remaining,
+            budget_spent=self._spent_today_usd,
+            last_wakeup=self._last_wakeup_time,
+            last_action=self._last_action,
+            utc_now=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         )
 
     # ------------------------------------------------------------------
