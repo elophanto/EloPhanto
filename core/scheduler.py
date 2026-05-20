@@ -13,6 +13,7 @@ import uuid
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -109,6 +110,7 @@ class TaskScheduler:
         resource_manager: TaskResourceManager | None = None,
         queue_depth_cap: int = 50,
         registry: Any = None,
+        stop_file_path: Path | None = None,
     ) -> None:
         self._db = db
         self._task_executor = task_executor
@@ -131,6 +133,10 @@ class TaskScheduler:
         # with tests + any caller that constructs scheduler without
         # registry). Agent injects it at startup.
         self._registry = registry
+        # Operator kill-switch sentinel path (typically
+        # ``<data_dir>/STOP``). When present, _run_one skips dispatch.
+        # See ``cli/stop_cmd.py``.
+        self._stop_file_path: Path | None = stop_file_path
         # Direct-tool runs aren't queued (they bypass the action queue
         # entirely) but we still track them to support cancel-on-delete.
         self._direct_running: dict[str, asyncio.Task[Any]] = {}
@@ -912,6 +918,14 @@ class TaskScheduler:
         """
         if self._paused:
             logger.info("Scheduler paused — skipping execution of %s", schedule_id)
+            return
+
+        # Operator kill switch — `data/STOP` sentinel file. See
+        # cli/stop_cmd.py + core/agent.py:_stop_file_present.
+        if self._stop_file_path is not None and self._stop_file_path.exists():
+            logger.warning(
+                "[stop] scheduler skipping %s (data/STOP present)", schedule_id
+            )
             return
 
         schedule = await self.get_schedule(schedule_id)

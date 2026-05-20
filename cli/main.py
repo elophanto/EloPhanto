@@ -22,6 +22,7 @@ from cli.polymarket_cmd import polymarket_cmd
 from cli.rollback_cmd import rollback_cmd
 from cli.schedule_cmd import schedule_cmd
 from cli.skills_cmd import skills_cmd
+from cli.stop_cmd import resume_cmd, stop_cmd
 from cli.telegram_cmd import telegram_cmd
 from cli.update_cmd import update_cmd
 from cli.vault_cmd import vault_cmd
@@ -51,6 +52,8 @@ cli.add_command(affect_cmd, "affect")
 cli.add_command(polymarket_cmd, "polymarket")
 cli.add_command(mission_cmd, "mission")
 cli.add_command(config_cmd, "config")
+cli.add_command(stop_cmd, "stop")
+cli.add_command(resume_cmd, "resume")
 
 
 if __name__ == "__main__":

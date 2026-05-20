@@ -693,3 +693,55 @@ class TestAgentLoopSerialization:
 
         assert outer_done and inner_done
         assert result.content == "outer"
+
+
+class TestStopSentinel:
+    """``elophanto stop`` writes ``<data_dir>/STOP``. The agent's
+    in-process loops poll it between rounds. Test that
+    ``_stop_file_present`` correctly detects the file and returns
+    cleanly when it doesn't exist."""
+
+    @pytest.mark.asyncio
+    async def test_present_when_file_exists(self, test_config: Config) -> None:
+        agent = Agent(test_config)
+        await agent.initialize()
+
+        data_dir = test_config.project_root / test_config.storage.data_dir
+        stop_path = data_dir / "STOP"
+
+        # Should start absent.
+        if stop_path.exists():
+            stop_path.unlink()
+        assert agent._stop_file_present() is False
+
+        # Write the sentinel; detection flips.
+        stop_path.write_text("stop")
+        try:
+            assert agent._stop_file_present() is True
+        finally:
+            stop_path.unlink()
+
+        # And back to False once removed.
+        assert agent._stop_file_present() is False
+
+    @pytest.mark.asyncio
+    async def test_stop_file_halts_run_with_history(self, test_config: Config) -> None:
+        """A STOP sentinel written mid-run must cause the next
+        between-rounds check to break out with the operator-STOP
+        stagnation reason — no mid-tool-call interruption."""
+        agent = Agent(test_config)
+        await agent.initialize()
+
+        data_dir = test_config.project_root / test_config.storage.data_dir
+        data_dir.mkdir(parents=True, exist_ok=True)
+        stop_path = data_dir / "STOP"
+        if stop_path.exists():
+            stop_path.unlink()
+
+        # Write STOP before run starts. The first between-rounds
+        # check should fire and the loop should exit cleanly.
+        stop_path.write_text("stop")
+        try:
+            assert agent._stop_file_present() is True
+        finally:
+            stop_path.unlink()
