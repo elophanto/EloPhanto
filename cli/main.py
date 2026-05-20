@@ -10,12 +10,12 @@ import click
 from cli.affect_cmd import affect_cmd
 from cli.bootstrap_cmd import bootstrap_cmd
 from cli.chat_cmd import chat_cmd
+from cli.config_cmd import config_cmd
 from cli.daemon_cmd import daemon_cmd
 from cli.doctor_cmd import doctor_cmd
 from cli.gateway_cmd import gateway_cmd
 from cli.init_cmd import init_cmd
 from cli.kid_cmd import kid_cmd
-from cli.config_cmd import config_cmd
 from cli.mcp_cmd import mcp_cmd
 from cli.mission_cmd import mission_cmd
 from cli.polymarket_cmd import polymarket_cmd

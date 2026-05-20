@@ -343,5 +343,5 @@ def migrate_cmd(config_path: str | None, check: bool, yes: bool) -> None:
         sys.exit(2)
 
     console.print(
-        f"\n[green]Done.[/green] Restart EloPhanto to pick up the new config."
+        "\n[green]Done.[/green] Restart EloPhanto to pick up the new config."
     )

@@ -225,7 +225,7 @@ class Executor:
         # VAULT_WRITE / LLM_BURST are acquired around just this call.
         try:
             logger.info(f"Executing tool '{tool_name}' with params: {params}")
-            tool_resources = getattr(tool, "resources", frozenset())
+            tool_resources: frozenset[Any] = getattr(tool, "resources", frozenset())
             if tool_resources:
                 result = await self._execute_with_resources(
                     tool, params, tool_resources
