@@ -960,23 +960,31 @@ class TaskScheduler:
             result = await executor_task
             content = getattr(result, "content", str(result))
             steps = getattr(result, "steps_taken", 0)
+            preempted = getattr(result, "preempted", False)
 
             completed_at = datetime.now(UTC).isoformat()
+            # Cadence schedules (SCHEDULED_CADENCE priority) can be
+            # preempted by USER messages — record as 'preempted' so the
+            # operator can tell at-a-glance that the run was cut short
+            # by foreground work rather than failing. Deadline schedules
+            # (SCHEDULED priority) outrank everything except USER and
+            # will only preempt to USER chat.
+            status_label = "preempted" if preempted else "completed"
             await self._db.execute_insert(
                 """UPDATE schedule_runs
-                   SET completed_at = ?, status = 'completed',
+                   SET completed_at = ?, status = ?,
                        result = ?, steps_taken = ?
                    WHERE id = ?""",
-                (completed_at, content[:5000], steps, run_id),
+                (completed_at, status_label, content[:5000], steps, run_id),
             )
             await self._db.execute_insert(
                 """UPDATE scheduled_tasks
-                   SET last_run_at = ?, last_status = 'completed',
+                   SET last_run_at = ?, last_status = ?,
                        last_result = ?, updated_at = ?
                    WHERE id = ?""",
-                (completed_at, content[:1000], completed_at, schedule_id),
+                (completed_at, status_label, content[:1000], completed_at, schedule_id),
             )
-            logger.info(f"Scheduled task '{schedule.name}' completed")
+            logger.info(f"Scheduled task '{schedule.name}' {status_label}")
 
             # Notify connected channels
             if self._result_notifier:

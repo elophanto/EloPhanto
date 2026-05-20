@@ -836,6 +836,20 @@ class AutonomousMind:
                 )
                 return
 
+            # Preemption (G): higher-priority caller arrived and we
+            # yielded at a safe checkpoint. Not a failure — don't
+            # advance the iteration counter, don't bill it against
+            # the daily budget like a normal cycle. Just reschedule
+            # soon and let the foreground task run.
+            if getattr(response, "preempted", False):
+                logger.info(
+                    "[autoloop:%s] preempted by higher-priority task; "
+                    "rescheduling without advancing iteration",
+                    tag,
+                )
+                self._next_wakeup_sec = 30.0
+                return
+
             cost = self._agent._router.cost_tracker.task_total
             self._spent_today_usd += cost
 
@@ -1092,6 +1106,13 @@ class AutonomousMind:
                     "Mind think cycle skipped — resource held by "
                     "another task. Will retry next wakeup."
                 )
+                return
+
+            # Preemption (G): yielded for a higher-priority caller.
+            # See AutoLoop sibling above for rationale.
+            if getattr(response, "preempted", False):
+                logger.info("[mind] think cycle preempted; will reschedule soon")
+                self._next_wakeup_sec = 30.0
                 return
 
             # Track cost
