@@ -246,6 +246,51 @@ class TestVerifySignature:
         sig = sk.sign(b"hi").signature
         assert verify_signature(b"hi", sig, url_safe) is True
 
+    def test_accepts_base64url_pubkey_with_dash_and_underscore(self):
+        """Regression test for the 2026-05-20 CI flake. ``signing_pair``
+        is randomized, so the urlsafe form of the public key only
+        contains ``-`` or ``_`` ~50% of the time — the bug only fires
+        when those chars are present. Pin a deterministic 32-byte key
+        whose urlsafe encoding is GUARANTEED to contain both ``-`` and
+        ``_`` so the bug can't hide behind randomness again.
+
+        The bug: ``base64.b64decode`` with default ``validate=False``
+        silently drops non-alphabet chars, so feeding a url-safe key
+        to standard b64decode produced a 30-byte garbage result that
+        bypassed the fallback to ``_b64url_decode``. Fixed by passing
+        ``validate=True`` so b64decode raises and the fallback fires.
+        """
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
+
+        from core.jobs import verify_signature
+
+        # 32-byte seed found by deterministic search to produce a
+        # pubkey whose urlsafe encoding triggers ``b64decode`` (with
+        # default ``validate=False``) to SILENTLY drop the ``-`` /
+        # ``_`` chars and return a 30-byte result. Without the fix
+        # this seed exercises the exact path that broke CI on
+        # 2026-05-20. Don't change the seed without re-verifying the
+        # silent-garbage property — random seeds hit this path only
+        # ~10% of the time.
+        seed = bytes.fromhex(
+            "4c0878d30cb81425ca9e3706a721097220b48ccbdbc8f9c7ebf5e17061f3064f"
+        )
+        sk = Ed25519PrivateKey.from_private_bytes(seed)
+        raw_pub = sk.public_key().public_bytes_raw()
+        url_safe = base64.urlsafe_b64encode(raw_pub).rstrip(b"=").decode("ascii")
+        # Sanity: the chosen key must actually have - or _ in its url-safe
+        # form, otherwise the regression test isn't exercising the bug.
+        assert ("-" in url_safe) or ("_" in url_safe), (
+            f"chosen seed produced url-safe pubkey without divergent chars: "
+            f"{url_safe} — pick a different seed"
+        )
+
+        msg = b"hi"
+        sig = sk.sign(msg)
+        assert verify_signature(msg, sig, url_safe) is True
+
 
 # ---------------------------------------------------------------------------
 # verify_envelope — end-to-end happy path + every rejection branch
