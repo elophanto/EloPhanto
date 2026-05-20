@@ -144,8 +144,17 @@ def verify_signature(
         # Pubkey may be base64 (standard) per the spec config example.
         # Defensive: also accept base64url in case someone copies a
         # URL-safe variant. Padding tolerated either way.
+        #
+        # ``validate=True`` is load-bearing here. Without it
+        # ``base64.b64decode`` SILENTLY DROPS non-alphabet chars
+        # (i.e. ``-`` and ``_`` from a url-safe pubkey), which
+        # ~10% of the time produces a 30-byte garbage result that
+        # passes through to verify() and fails — instead of raising
+        # so the fallback to ``_b64url_decode`` can fire. Cost us a
+        # flaky CI run on 2026-05-20. Strict mode → raise → fall
+        # through → urlsafe path handles it correctly.
         try:
-            raw_key = base64.b64decode(pubkey_b64)
+            raw_key = base64.b64decode(pubkey_b64, validate=True)
         except (ValueError, binascii.Error):
             raw_key = _b64url_decode(pubkey_b64)
 
