@@ -945,6 +945,11 @@ class Agent:
                     resource_manager=self._resources,
                     queue_depth_cap=self._config.scheduler.queue_depth_cap,
                     registry=self._registry,
+                    stop_file_path=(
+                        self._config.project_root
+                        / self._config.storage.data_dir
+                        / "STOP"
+                    ),
                 )
                 await self._scheduler.start()
             except Exception as e:
@@ -3274,6 +3279,27 @@ class Agent:
                             _pending[:80],
                         )
 
+            # Operator kill switch — `data/STOP` sentinel file
+            # written by `elophanto stop`. Checked between rounds so a
+            # runaway agent.run() can be halted from any terminal:
+            #
+            #     elophanto stop          # writes data/STOP
+            #     elophanto resume        # removes it
+            #
+            # The same file is also checked by the autonomous mind
+            # before each wakeup and by the scheduler before each
+            # dispatch — see core/autonomous_mind.py and
+            # core/scheduler.py for those sites. Together they make
+            # one CLI call halt every in-flight loop at its next
+            # safe checkpoint.
+            if self._stop_file_present():
+                stagnation_reason = "operator STOP file present"
+                logger.warning(
+                    "[stop] data/STOP detected at step %d; halting agent.run()",
+                    step,
+                )
+                break
+
             # Cooperative preemption (G): if a higher-priority caller
             # is waiting on AGENT_LOOP, the _Slot's preempt_requested
             # event has been set. Yield at this safe checkpoint —
@@ -4055,6 +4081,24 @@ class Agent:
             tool_calls_made=tool_calls_made,
             preempted=stagnation_reason == "preempted by higher-priority task",
         )
+
+    def _stop_file_present(self) -> bool:
+        """Return True when the operator kill-switch file exists.
+
+        Conventional path: ``<data_dir>/STOP`` (e.g. ``data/STOP``).
+        Written by ``elophanto stop``, removed by ``elophanto resume``.
+        Checked between rounds in ``_run_with_history``, before mind
+        wakeups in ``AutonomousMind._think_safe``, and before scheduler
+        dispatch in ``TaskScheduler._run_one``. Cheap (one Path.exists),
+        so the per-round check is fine even for tight inner loops.
+        """
+        try:
+            data_dir = self._config.project_root / self._config.storage.data_dir
+            return (data_dir / "STOP").exists()
+        except Exception:
+            # Defensive — never let a path lookup error stop a healthy
+            # agent. If we can't read the FS, treat it as "no stop".
+            return False
 
     def _append_conversation_turn(self, user_msg: str, assistant_msg: str) -> None:
         """Store a user/assistant pair in conversation history for context continuity."""

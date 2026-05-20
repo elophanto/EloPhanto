@@ -707,6 +707,16 @@ class AutonomousMind:
                     )
                     continue
 
+                # Operator kill switch — `data/STOP` sentinel file.
+                # Treats STOP as paused for the lifetime of the file:
+                # mind sleeps, doesn't think, doesn't burn LLM budget.
+                # `elophanto resume` removes the file. See
+                # core/agent.py:_stop_file_present for the source of
+                # truth.
+                if self._agent._stop_file_present():
+                    logger.warning("[stop] mind skipping cycle (data/STOP present)")
+                    continue
+
                 # Budget check
                 if not self._check_budget():
                     self._next_wakeup_sec = min(
