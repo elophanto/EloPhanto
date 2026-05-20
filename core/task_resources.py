@@ -454,7 +454,7 @@ class TaskResourceManager:
         self,
         resources: list[TaskResource],
         priority: int = _DEFAULT_PRIORITY,
-    ) -> "AsyncIterator[dict[TaskResource, _Slot]]":
+    ) -> AsyncIterator[dict[TaskResource, _Slot]]:
         """Acquire all declared resources, in canonical order so two
         tasks declaring overlapping sets can't deadlock.
 

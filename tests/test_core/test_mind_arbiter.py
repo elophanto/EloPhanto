@@ -258,8 +258,8 @@ class TestMissionMomentumGenerator:
     @pytest.mark.asyncio
     async def test_proposes_one_candidate_per_neglected_mission(self, tmp_path) -> None:
         from core.database import Database
-        from core.mission_manager import MissionManager
         from core.mind_candidates import CandidateContext, from_mission_momentum
+        from core.mission_manager import MissionManager
 
         db = Database(str(tmp_path / "t.db"))
         await db.initialize()
@@ -276,8 +276,8 @@ class TestMissionMomentumGenerator:
     @pytest.mark.asyncio
     async def test_never_touched_gets_strong_stale_bonus(self, tmp_path) -> None:
         from core.database import Database
-        from core.mission_manager import MissionManager
         from core.mind_candidates import CandidateContext, from_mission_momentum
+        from core.mission_manager import MissionManager
 
         db = Database(str(tmp_path / "t.db"))
         await db.initialize()
@@ -328,9 +328,9 @@ class TestEndToEndArbiter:
         must surface DREAM or MISSION_MOMENTUM at the top — never an
         empty menu, never "bounded reconciliation"."""
         from core.database import Database
-        from core.mission_manager import MissionManager
         from core.mind_arbiter import ArbiterWeights, arbitrate
         from core.mind_candidates import CandidateContext, collect_all
+        from core.mission_manager import MissionManager
 
         db = Database(str(tmp_path / "t.db"))
         await db.initialize()
