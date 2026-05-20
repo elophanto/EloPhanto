@@ -588,6 +588,75 @@ class TestAgentLoopSerialization:
         assert max_concurrent == 1
 
     @pytest.mark.asyncio
+    async def test_scheduled_blocks_while_user_holds_agent_loop(
+        self, test_config: Config
+    ) -> None:
+        """Regression for the 2026-05-20 AlphaScala incident.
+
+        Operator reported "scheduler is firing while browser is in
+        use — destroying everything". Forensic read of the log
+        showed the scheduled task was correctly BLOCKED on AGENT_LOOP,
+        but the misleading ``[sched-task] starting`` log fired before
+        the acquire and made it look concurrent.
+
+        This test pins the actual semantics: a USER ``submit_task``
+        call holding AGENT_LOOP forces a concurrent SCHEDULED
+        ``submit_task`` to wait until the USER call releases — there
+        is no path where both run ``_run_with_history`` at the same
+        time.
+        """
+        import asyncio
+
+        from core.execution_context import TaskSource
+
+        agent = Agent(test_config)
+        await agent.initialize()
+
+        order: list[str] = []
+        user_in = asyncio.Event()
+        release_user = asyncio.Event()
+
+        async def fake_history(*args, **kw):
+            # Identify which source is currently in the loop. The
+            # source contextvar gets set by submit_task's
+            # ``execution_context(source=...)`` before agent.run() so
+            # we can read it here.
+            from core.execution_context import current_context
+
+            src = current_context().source
+            order.append(src.name if src else "UNKNOWN")
+            if src == TaskSource.USER:
+                user_in.set()
+                await release_user.wait()
+            await asyncio.sleep(0.01)
+            return type("R", (), {"content": "ok", "steps_taken": 1})()
+
+        with patch.object(agent, "_run_with_history", side_effect=fake_history):
+            # USER task starts, enters _run_with_history, parks on
+            # release_user.
+            t_user = asyncio.create_task(
+                agent.submit_task(TaskSource.USER, "user goal")
+            )
+            await asyncio.wait_for(user_in.wait(), timeout=1.0)
+            # SCHEDULED task starts AFTER USER is inside the loop.
+            # It must block on AGENT_LOOP until USER releases.
+            t_sched = asyncio.create_task(
+                agent.submit_task(TaskSource.SCHEDULED, "sched goal")
+            )
+            # Give the scheduler a generous window to (incorrectly)
+            # enter _run_with_history if the gate were broken.
+            await asyncio.sleep(0.1)
+            # If gating works, only USER has entered _run_with_history.
+            assert order == [
+                "USER"
+            ], f"SCHEDULED leaked through AGENT_LOOP while USER held it: {order}"
+            # Let USER finish; SCHEDULED then proceeds in turn.
+            release_user.set()
+            await asyncio.gather(t_user, t_sched)
+
+        assert order == ["USER", "SCHEDULED"]
+
+    @pytest.mark.asyncio
     async def test_run_isolated_reentry_does_not_deadlock(
         self, test_config: Config
     ) -> None:

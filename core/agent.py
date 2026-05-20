@@ -2516,9 +2516,29 @@ class Agent:
         # (principle 3).
         from core.task_resources import TaskPriority, TaskResource
 
+        # `[agent_loop]` lifecycle logs — see agent.run() for the
+        # full design rationale and grep recipe.
+        _pre_status = self._resources.status_dict().get(
+            TaskResource.AGENT_LOOP.value, {}
+        )
+        if _pre_status.get("in_use", 0) >= 1:
+            logger.info(
+                "[agent_loop] WAIT  src=USER in_use=%d waiters=%d cap=%d",
+                _pre_status["in_use"],
+                _pre_status.get("waiters", 0),
+                _pre_status.get("capacity", 1),
+            )
+        _wait_start = _time.monotonic()
+
         async with self._resources.acquire(
             [TaskResource.AGENT_LOOP], priority=TaskPriority.USER.value
         ) as _slots:
+            _wait_elapsed = _time.monotonic() - _wait_start
+            _hold_start = _time.monotonic()
+            logger.info(
+                "[agent_loop] ACQ   src=USER waited=%.2fs",
+                _wait_elapsed,
+            )
             # Capture preempt event so _run_with_history can yield if a
             # higher-priority caller arrives. USER is the highest
             # priority, so this event will never fire in practice — but
@@ -2570,6 +2590,10 @@ class Agent:
                             self._on_step = prev_step
             finally:
                 self._current_preempt_event = None
+                logger.info(
+                    "[agent_loop] REL   src=USER held=%.2fs",
+                    _time.monotonic() - _hold_start,
+                )
 
     # Single source→priority mapping. The only place in the codebase
     # that decides priority from source. Callers pass a TaskSource;
@@ -2694,9 +2718,39 @@ class Agent:
 
         from core.task_resources import run_scope
 
+        # `[agent_loop]` lifecycle logs — single grep target proves
+        # the gating works (or surfaces a bug). For every agent.run()
+        # call we emit:
+        #   WAIT  — when blocked behind an existing holder
+        #   ACQ   — when the AGENT_LOOP slot is taken (with wait time)
+        #   REL   — when released (with hold time)
+        # Operators can ``grep '\[agent_loop\]' logs/latest.log`` and
+        # share the result; the sequence makes overlap impossible to
+        # hide. See 2026-05-20 AlphaScala incident.
+        _pre_status = self._resources.status_dict().get(
+            TaskResource.AGENT_LOOP.value, {}
+        )
+        _pri_label = TaskPriority(effective_priority).name
+        if _pre_status.get("in_use", 0) >= 1:
+            logger.info(
+                "[agent_loop] WAIT  src=%s in_use=%d waiters=%d cap=%d",
+                _pri_label,
+                _pre_status["in_use"],
+                _pre_status.get("waiters", 0),
+                _pre_status.get("capacity", 1),
+            )
+        _wait_start = _time.monotonic()
+
         async with self._resources.acquire(
             [TaskResource.AGENT_LOOP], priority=effective_priority
         ) as _slots:
+            _wait_elapsed = _time.monotonic() - _wait_start
+            _hold_start = _time.monotonic()
+            logger.info(
+                "[agent_loop] ACQ   src=%s waited=%.2fs",
+                _pri_label,
+                _wait_elapsed,
+            )
             # Capture the AGENT_LOOP slot so the loop body can check
             # ``slot.preempt_requested`` between rounds. When a higher-
             # priority caller (USER chat / deadline-priority schedule)
@@ -2730,6 +2784,11 @@ class Agent:
                         )
             finally:
                 self._current_preempt_event = None
+                logger.info(
+                    "[agent_loop] REL   src=%s held=%.2fs",
+                    _pri_label,
+                    _time.monotonic() - _hold_start,
+                )
 
     async def run_isolated(
         self,
@@ -4061,10 +4120,27 @@ class Agent:
         # cascading SKIP-permissions; without this log we needed to grep
         # the live DB to spot it.
         _tracked_tool_calls: list[str] = []
+        # Log AGENT_LOOP state at dispatch time. If the slot is busy
+        # this scheduled task is about to BLOCK on the semaphore inside
+        # submit_task → agent.run() → acquire(AGENT_LOOP). The
+        # previous "starting" log fired BEFORE the acquire and gave
+        # operators the false impression that the scheduled task was
+        # running in parallel with the holder. See 2026-05-20 incident
+        # where an AlphaScala user task held AGENT_LOOP for 4+ min
+        # and the operator could not tell from the logs that the
+        # scheduled monitoring task was correctly waiting.
+        from core.task_resources import TaskResource
+
+        _agent_loop_status = self._resources.status_dict().get(
+            TaskResource.AGENT_LOOP.value, {}
+        )
+        _in_use = _agent_loop_status.get("in_use", 0)
+        _waiters = _agent_loop_status.get("waiters", 0)
         logger.info(
-            "[sched-task] starting (goal len=%d, head=%r)",
-            len(goal),
-            goal[:200].replace("\n", " "),
+            "[agent_loop] SCHED dispatch in_use=%d waiters=%d head=%r",
+            _in_use,
+            _waiters,
+            goal[:80].replace("\n", " "),
         )
         _start_ts = _time.monotonic()
 
