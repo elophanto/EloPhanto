@@ -204,6 +204,29 @@ _RAISED = "#e8e4dc"  # header / input bar — elevated          (oklch 0.94 0.00
 _BORDER = "#d4cfc5"  # dividers           — warm separator    (oklch 0.88 0.005 80)
 
 
+def _read_dashboard_flag(flag_key: str, default: bool) -> bool:
+    """Read ``dashboard.<flag_key>`` (bool) from config.yaml in CWD.
+
+    Used by ``run_dashboard`` to pick up per-feature toggles without
+    needing the full Config loader (which pulls in providers, vault,
+    etc. and slows app startup). Returns ``default`` on any failure.
+    """
+    try:
+        from pathlib import Path as _Path
+
+        import yaml as _yaml
+
+        cfg = _Path("config.yaml")
+        if not cfg.exists():
+            return default
+        raw = _yaml.safe_load(cfg.read_text("utf-8")) or {}
+        block = raw.get("dashboard") or {}
+        val = block.get(flag_key, default)
+        return bool(val) if isinstance(val, bool | int) else default
+    except Exception:
+        return default
+
+
 def _read_agent_name_from_config() -> str:
     """Read ``agent.name`` from config.yaml in the current working dir.
 
@@ -333,6 +356,14 @@ class _State:
     # Event feed (newest last, rendered newest-first)
     events: deque = field(default_factory=lambda: deque(maxlen=50))
 
+    # Monotonic timestamp of the last sign of agent life — set
+    # whenever ANY agent_thought, tool call, mind event, or scheduled
+    # event arrives. The mascot reads this so it can show "thinking"
+    # at boot before mind_state has been pushed by the gateway, or
+    # while reasoning chunks are streaming between tool calls. See
+    # cli/dashboard/mascot.py:_ACTIVITY_FRESH_SECONDS.
+    last_activity_ts: float = 0.0
+
     # ── Helpers ──────────────────────────────────────────────────────────
 
     def session_elapsed(self) -> str:
@@ -406,6 +437,106 @@ class _SidePanel(Static):
             self.update(f"{self._hdr()}\n{body}")
         else:
             self.update(self._hdr())
+
+
+class _MascotPanel(_SidePanel):
+    """ASCII mascot — single-glance agent status at the top of the sidebar.
+
+    Skips the standard header/body layout from ``_SidePanel`` because
+    the face IS the header. State mapping logic lives in
+    ``cli/dashboard/mascot.py`` so the dashboard module stays focused
+    on layout and the mascot rules can be unit-tested standalone.
+    See the 2026-05-21 design discussion in the transcript for why
+    we picked a TUI-native mascot over openhuman's desktop overlay.
+
+    Animation: the panel runs a fast ``set_interval`` (~250ms) that
+    bumps ``self._frame`` and repaints. Each face state has a list
+    of frames in ``cli/dashboard/mascot.py:_FACES`` and is indexed
+    by ``frame % len(frames)`` so we never go out of bounds and
+    callers don't have to think about cycle length.
+    """
+
+    def __init__(self, state: _State) -> None:
+        super().__init__("", state, id="panel-mascot")
+        self._frame: int = 0
+        self._anim_handle: Any = None
+        # Anticipation between state transitions — when the face
+        # changes, the panel renders a single "closed-eye" frame
+        # before opening into the new state. Counter holds the
+        # number of remaining transition frames (0 = no transition,
+        # 1+ = render closed for this many more frames). Implements
+        # Disney's anticipation principle in TUI form.
+        self._last_face: str = ""
+        self._transition_remaining: int = 0
+
+    def on_mount(self) -> None:
+        """Start the animation tick once the panel is on screen."""
+        from cli.dashboard.mascot import FRAME_TICK_MS
+
+        # set_interval is part of the Textual Widget base; uses the
+        # app's event loop so we don't spin our own task.
+        self._anim_handle = self.set_interval(
+            FRAME_TICK_MS / 1000.0, self._on_anim_tick
+        )
+
+    def _on_anim_tick(self) -> None:
+        self._frame = (self._frame + 1) % 10_000
+        self.repaint()
+
+    def _recent_event_signals(self) -> tuple[bool, bool]:
+        """Scan the last ~5 events for error / success markers.
+
+        Events are Rich-markup strings. We look for ``[red]`` or
+        ``✖`` / ``failed`` / ``error`` to flag error; ``✓`` / ``✔`` /
+        ``completed`` / ``CP `` (checkpoint complete) to flag success.
+        Returns (recent_error, recent_success).
+        """
+        recent_error = False
+        recent_success = False
+        for raw in list(self._st.events)[:5]:
+            lowered = raw.lower()
+            if ("[red]" in raw) or ("✖" in raw) or ("error" in lowered):
+                recent_error = True
+            if ("✓" in raw) or ("✔" in raw) or (" cp " in lowered):
+                recent_success = True
+        return recent_error, recent_success
+
+    def repaint(self) -> None:
+        from cli.dashboard.mascot import MascotInputs, decide_face, render_face
+
+        s = self._st
+        recent_error, recent_success = self._recent_event_signals()
+        inputs = MascotInputs(
+            mind_state=s.mind_state,
+            has_current_tool=bool(s.current_tool),
+            current_tool_start=s.current_tool_start,
+            ego_mood=s.ego_mood,
+            ego_coherence=s.ego_coherence,
+            recent_error=recent_error,
+            recent_success=recent_success,
+            last_activity_ts=s.last_activity_ts,
+        )
+        face = decide_face(inputs)
+        # Anticipation: when the decided face changes, kick off a
+        # brief closed-eye transition before settling into the new
+        # face. Two frames at 250ms = 500ms blink; enough for the eye
+        # to register but quick enough not to feel laggy.
+        if face != self._last_face and self._last_face:
+            self._transition_remaining = 2
+        self._last_face = face
+
+        show_closed = self._transition_remaining > 0
+        if show_closed:
+            self._transition_remaining -= 1
+
+        self.update(
+            render_face(
+                face,
+                agent_name=s.agent_name,
+                frame=self._frame,
+                show_closed=show_closed,
+            )
+        )
 
 
 class _AgentPanel(_SidePanel):
@@ -1117,6 +1248,15 @@ class EloPhantoDashboard(App):
         padding: 0 1 1 1;
         color: #78746e;
     }
+    #panel-mascot {
+        /* The mascot is the sidebar's identity — center it horizontally
+         * within the panel so the face sits in the middle of the
+         * sidebar, with the label + agent name lines balanced below.
+         * Padding gives breathing room above/below the box. */
+        content-align-horizontal: center;
+        text-align: center;
+        padding: 1 0 1 0;
+    }
     """
 
     BINDINGS = [
@@ -1133,8 +1273,14 @@ class EloPhantoDashboard(App):
         gateway_url: str = "ws://127.0.0.1:18789",
         *,
         digest_seed: dict | None = None,
+        mascot_enabled: bool = True,
     ) -> None:
         super().__init__()
+        # Mascot panel toggle — drawn at the top of the sidebar when
+        # True (default). Operators who find it noisy can disable via
+        # dashboard.mascot.enabled in config.yaml; we read that flag
+        # in cli/chat_cmd.py when constructing the App.
+        self._mascot_enabled = mascot_enabled
         # Pre-seed state.agent_name from config.yaml so the digest
         # greeting (which renders on_mount, BEFORE the gateway
         # connection sends state) shows the operator's chosen name.
@@ -1175,10 +1321,13 @@ class EloPhantoDashboard(App):
         yield _Header(self._state)
         with Horizontal(id="body"):
             with VerticalScroll(id="sidebar"):
-                # Order matters — primary state first, ambient state
-                # second, activity third, infra/gateway last. The
-                # Footer panel anchors the bottom regardless of how
-                # tall the panels above it grow.
+                # Order matters — mascot first (single-glance status,
+                # the face IS the dashboard's identity), primary state
+                # second, ambient state third, activity fourth, infra
+                # last. The Footer panel anchors the bottom regardless
+                # of how tall the panels above it grow.
+                if self._mascot_enabled:
+                    yield _MascotPanel(self._state)
                 yield _AgentPanel(self._state)
                 yield _MindPanel(self._state)
                 yield _GoalsPanel(self._state)
@@ -1330,6 +1479,10 @@ class EloPhantoDashboard(App):
 
     def on__tick(self, message: _Tick) -> None:
         # Refresh panels that show elapsed time
+        if self._mascot_enabled:
+            # Mascot face depends on current_tool freshness + ego_mood,
+            # both of which change between ticks. Cheap to repaint.
+            self._repaint_panel("panel-mascot")
         self._repaint_panel("panel-agent")
         self._repaint_panel("panel-mind")
         self._repaint_header()
@@ -1343,6 +1496,15 @@ class EloPhantoDashboard(App):
             self.run_worker(self._request_status(), exclusive=False)
 
     def _dispatch(self, msg: GatewayMessage) -> None:
+        # Every gateway message (response, event, approval, error) is
+        # a sign of agent life — bump ``last_activity_ts`` so the
+        # mascot can read "active" even when mind_state stays
+        # ``unknown`` (mind disabled / not started on this instance).
+        # See cli/dashboard/mascot.py:_ACTIVITY_FRESH_SECONDS. 2026-05-21
+        # bug: chat-only sessions kept the mascot 'sleeping' because
+        # the previous bump was in _on_event only, but chat replies
+        # come in as RESPONSE not EVENT.
+        self._state.last_activity_ts = _time.monotonic()
         if msg.type == MessageType.RESPONSE:
             reply_to = msg.data.get("reply_to", "")
             future = self._pending.get(reply_to)
@@ -1447,6 +1609,9 @@ class EloPhantoDashboard(App):
 
     def _on_event(self, msg: GatewayMessage) -> None:
         event = msg.data.get("event", "")
+        # ``last_activity_ts`` is bumped in ``_dispatch`` for ALL
+        # gateway messages (not just events), so chat-only sessions
+        # also light up the mascot.
 
         if event == "step_progress":
             tool_name = msg.data.get("tool_name", "")
@@ -2193,6 +2358,14 @@ def should_use_dashboard() -> bool:
 
 
 async def run_dashboard(gateway_url: str) -> None:
-    """Run the Textual dashboard app (async entry point)."""
-    app = EloPhantoDashboard(gateway_url=gateway_url)
+    """Run the Textual dashboard app (async entry point).
+
+    Reads ``dashboard.mascot_enabled`` from config.yaml so operators
+    can disable the mascot panel without code changes. Default True.
+    """
+    mascot_enabled = _read_dashboard_flag("mascot_enabled", default=True)
+    app = EloPhantoDashboard(
+        gateway_url=gateway_url,
+        mascot_enabled=mascot_enabled,
+    )
     await app.run_async()

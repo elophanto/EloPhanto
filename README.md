@@ -269,6 +269,7 @@ Slack Adapter ─────┘                   ▼
 - **Desktop GUI control** — pixel-level control of any desktop application via screenshot + pyautogui. Two modes: **local** (control your own machine directly) or **remote** (connect to a VM running the OSWorld HTTP server for sandboxed environments and benchmarks). 9 tools: connect, screenshot, click, type, scroll, drag, cursor, shell, file. Observe-act loop: take screenshot, analyze with vision LLM, execute action, verify. Works with Excel, Photoshop, Finder, Terminal, any native app. Based on [OSWorld](https://github.com/xlang-ai/OSWorld) architecture
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat with multi-conversation history, tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
+- **Terminal dashboard mascot** — small ASCII character at the top of the sidebar whose face mirrors agent state at a glance: sleep / idle / thinking / working / happy / concerned / humbled. State-coloured eyes (purple = thinking, blue = working, green = happy, red = concerned, amber = humbled, grey = sleep/idle), per-state animation (pupils rotate while thinking, mouth flexes while calling tools, eyes blink in idle, brief eyes-close on every state transition). Reads from existing state signals — `mind_state`, current tool freshness, `ego_mood`, `ego_coherence`, recent events, and a `last_activity_ts` stamped on every gateway message. Disable via `dashboard.mascot_enabled: false`. See [docs/77-DASHBOARD-MASCOT.md](docs/77-DASHBOARD-MASCOT.md)
 - **VS Code extension** — IDE-integrated chat sidebar that connects to the gateway as another channel. Sends IDE context (active file, selection, diagnostics) with every message. Tool approvals via native VS Code notifications. Chat history, new chat, streaming responses. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Same conversation across all channels
 - **Multi-channel gateway** — WebSocket control plane with CLI, Web, VS Code, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **Cross-machine peers** — agents on different machines can find and talk to each other. TLS (`wss://`) encrypts the wire, verified-peers gate (Ed25519 IDENTIFY handshake + TOFU known-hosts ledger) flips trust from "URL+token" to "must complete handshake," loopback always exempt so local CLI/Web/VSCode adapters keep working. Tailscale-based discovery (`agent_discover` tool) finds peer agents on your tailnet without sharing URLs out-of-band. See [docs/67-AGENT-PEERS.md](docs/67-AGENT-PEERS.md)
@@ -364,7 +365,7 @@ EloPhanto/
 ├── tests/               # Test suite (2080+ tests)
 ├── setup.sh             # One-command install
 ├── update.sh            # One-command update (pull + deps + config migrate)
-└── docs/                # Full specification (76+ docs)
+└── docs/                # Full specification (77+ docs)
 ```
 
 </details>
