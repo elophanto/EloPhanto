@@ -92,29 +92,41 @@ _CLOSED_FRAME = (
 )
 
 
-def _f(eyes: str, mouth: str) -> str:
-    """Compose a 6-line face frame from an ``eyes`` template and a
-    ``mouth`` template.
+_BLANK_ROW = "           "  # 11 spaces — empty inner row
 
-    Both inputs are the INNER 11-char content of the eye / mouth
-    row (between the side borders). The function wraps each with
-    ``│ … │`` borders and adds the top/bottom borders + blank rows.
+
+def _f(
+    eyes: str, mouth: str, *, top: str = _BLANK_ROW, bottom: str = _BLANK_ROW
+) -> str:
+    """Compose a 6-line face frame from inner-row templates.
+
+    Inputs are the INNER 11-char content of each row (between the
+    side borders). Function wraps each with ``│ … │`` borders and
+    adds the top/bottom box borders.
+
+    Top + bottom rows default to blank but accept content so floating
+    elements (Z drift in sleep, thought dots in thinking) can live
+    in the space above/below the face proper.
 
     The ``{e}`` placeholder is preserved in the eye row so
     ``render_face`` can interpolate the state color at draw time.
     """
-    assert (
-        _visible_len(eyes) == 11
-    ), f"eyes inner content must be 11 visible chars, got {_visible_len(eyes)}: {eyes!r}"
-    assert (
-        _visible_len(mouth) == 11
-    ), f"mouth inner content must be 11 visible chars, got {_visible_len(mouth)}: {mouth!r}"
+    for label, content in (
+        ("top", top),
+        ("eyes", eyes),
+        ("mouth", mouth),
+        ("bottom", bottom),
+    ):
+        assert _visible_len(content) == 11, (
+            f"{label} inner content must be 11 visible chars, "
+            f"got {_visible_len(content)}: {content!r}"
+        )
     return (
         "╭───────────╮\n"
-        "│           │\n"
+        f"│{top}│\n"
         f"│{eyes}│\n"
         f"│{mouth}│\n"
-        "│           │\n"
+        f"│{bottom}│\n"
         "╰───────────╯"
     )
 
@@ -138,66 +150,128 @@ def _visible_len(s: str) -> int:
 
 _FACES: dict[MascotFace, list[str]] = {
     # sleep — closed eyes (gentle arc), small mouth dash, Z drifts
-    # across the empty top row of the face. Six frames at 250ms tick
-    # = 1.5s cycle.
+    # diagonally upward across the empty top row (right→left, then
+    # repeats). Eyes always closed, mouth a small line.
+    # 8 frames @ 250ms = 2s cycle.
     "sleep": [
-        _f("  ‿     ‿  ", "     —     "),
-        _f("  ‿     ‿  ", "     —     "),
-        _f("  ‿     ‿  ", "     —     "),
-        _f("  ‿     ‿  ", "     —     "),
-        _f("  ‿     ‿  ", "     —     "),
-        _f("  ‿     ‿  ", "     —     "),
+        _f("  ‿     ‿  ", "     —     ", top="         z "),
+        _f("  ‿     ‿  ", "     —     ", top="        z  "),
+        _f("  ‿     ‿  ", "     —     ", top="       Z   "),
+        _f("  ‿     ‿  ", "     —     ", top="      Z    "),
+        _f("  ‿     ‿  ", "     —     ", top="     z     "),
+        _f("  ‿     ‿  ", "     —     ", top="    z      "),
+        _f("  ‿     ‿  ", "     —     ", top=_BLANK_ROW),
+        _f("  ‿     ‿  ", "     —     ", top=_BLANK_ROW),
     ],
-    # idle — alert eyes, soft smile, natural blink one in eight
-    # frames (~2s at 250ms tick).
+    # idle — alert eyes that occasionally look around, blink, and
+    # twitch the mouth between neutral and a tiny smile. 12 frames
+    # @ 250ms = 3s cycle, feels properly alive.
     "idle": [
+        # forward gaze, soft smile
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ‿     "),
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ‿     "),
+        # quick blink
+        _f("  -     -  ", "     ‿     "),
+        # back to forward gaze
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ‿     "),
+        # glance left (both pupils shift left within the eye)
+        _f("  [{e}]◐[/]     [{e}]◐[/]  ", "     ‿     "),
+        _f("  [{e}]◐[/]     [{e}]◐[/]  ", "     ‿     "),
+        # back to forward
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ‿     "),
-        _f("  ‿     ‿  ", "     ‿     "),
-        _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ‿     "),
+        # mouth shifts to neutral briefly
+        _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     -     "),
+        # glance right
+        _f("  [{e}]◑[/]     [{e}]◑[/]  ", "     -     "),
+        _f("  [{e}]◑[/]     [{e}]◑[/]  ", "     ‿     "),
+        # back to forward, soft smile
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ‿     "),
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ‿     "),
     ],
-    # thinking — pupils rotate through 8 phases. Reads as a smooth
-    # roll rather than tick-tock.
+    # thinking — pupils rotate through 8 phases AND thought dots
+    # accumulate in the bottom row (· → ·· → ··· → cycle). Reads as
+    # a smooth roll plus ambient "ideas streaming". 12 frames @ 250ms
+    # = 3s cycle.
     "thinking": [
-        _f("  [{e}]◔[/]     [{e}]◔[/]  ", "     ·     "),
-        _f("  [{e}]◓[/]     [{e}]◓[/]  ", "     ·     "),
-        _f("  [{e}]◑[/]     [{e}]◑[/]  ", "     ·     "),
-        _f("  [{e}]◒[/]     [{e}]◒[/]  ", "     ·     "),
-        _f("  [{e}]◔[/]     [{e}]◔[/]  ", "     ·     "),
-        _f("  [{e}]◓[/]     [{e}]◓[/]  ", "     ·     "),
-        _f("  [{e}]◑[/]     [{e}]◑[/]  ", "     ·     "),
-        _f("  [{e}]◒[/]     [{e}]◒[/]  ", "     ·     "),
+        _f("  [{e}]◔[/]     [{e}]◔[/]  ", "     ·     ", bottom=_BLANK_ROW),
+        _f("  [{e}]◓[/]     [{e}]◓[/]  ", "     ·     ", bottom="     ·     "),
+        _f("  [{e}]◑[/]     [{e}]◑[/]  ", "     ·     ", bottom="    · ·    "),
+        _f("  [{e}]◒[/]     [{e}]◒[/]  ", "     ·     ", bottom="   · · ·   "),
+        _f("  [{e}]◔[/]     [{e}]◔[/]  ", "     ·     ", bottom="    · ·    "),
+        _f("  [{e}]◓[/]     [{e}]◓[/]  ", "     ·     ", bottom="     ·     "),
+        _f("  [{e}]◑[/]     [{e}]◑[/]  ", "     ·     ", bottom=_BLANK_ROW),
+        _f("  [{e}]◒[/]     [{e}]◒[/]  ", "     ·     ", bottom=_BLANK_ROW),
+        _f("  [{e}]◔[/]     [{e}]◔[/]  ", "     ·     ", bottom="     ·     "),
+        _f("  [{e}]◓[/]     [{e}]◓[/]  ", "     ·     ", bottom="    · ·    "),
+        _f("  [{e}]◑[/]     [{e}]◑[/]  ", "     ·     ", bottom="   · · ·   "),
+        _f("  [{e}]◒[/]     [{e}]◒[/]  ", "     ·     ", bottom="    · ·    "),
     ],
-    # working — focused stare, mouth opens/closes (calling tools).
+    # working — focused stare, mouth opens/closes like the agent is
+    # speaking through tools. Eyes occasionally look down ("at the
+    # work") then back up. 8 frames @ 250ms = 2s cycle.
     "working": [
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     o     "),
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     O     "),
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     o     "),
+        _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ◍     "),
+        # eyes look down briefly — focus shifts
+        _f("  [{e}]◒[/]     [{e}]◒[/]  ", "     o     "),
+        _f("  [{e}]◒[/]     [{e}]◒[/]  ", "     O     "),
+        _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     o     "),
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ·     "),
     ],
-    # happy — squint-bounce, smile widens briefly. Held longer on
-    # the squint frame so the resting expression reads as content.
+    # happy — squint, full smile, a tiny laugh (mouth opens briefly),
+    # then occasional wink. 10 frames @ 250ms = 2.5s cycle.
     "happy": [
         _f("  [{e}]^[/]     [{e}]^[/]  ", "     ◡     "),
         _f("  [{e}]⌒[/]     [{e}]⌒[/]  ", "     ◡     "),
+        # mouth opens — laugh moment
+        _f("  [{e}]^[/]     [{e}]^[/]  ", "     ◯     "),
+        _f("  [{e}]⌒[/]     [{e}]⌒[/]  ", "     ◡     "),
         _f("  [{e}]^[/]     [{e}]^[/]  ", "     ◡     "),
+        _f("  [{e}]^[/]     [{e}]^[/]  ", "     ◡     "),
+        # wink (left eye closes briefly)
+        _f("  -     [{e}]^[/]  ", "     ◡     "),
+        _f("  [{e}]^[/]     [{e}]^[/]  ", "     ◡     "),
+        _f("  [{e}]⌒[/]     [{e}]⌒[/]  ", "     ◡     "),
         _f("  [{e}]^[/]     [{e}]^[/]  ", "     ◡     "),
     ],
-    # concerned — wide alert eyes, frown.
+    # concerned — wide alert eyes that DART nervously left/right,
+    # mouth quivers between frown and a thin worried line. 8 frames
+    # @ 250ms = 2s cycle.
     "concerned": [
+        # forward, frown
+        _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ◠     "),
+        # dart left
+        _f("  [{e}]◐[/]     [{e}]◐[/]  ", "     ◠     "),
+        # back to center, mouth thins
+        _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     -     "),
+        # dart right
+        _f("  [{e}]◑[/]     [{e}]◑[/]  ", "     ◠     "),
+        # forward, frown deepens
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ◠     "),
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ◠     "),
-        _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ◠     "),
+        # small blink (stress)
+        _f("  -     -  ", "     ◠     "),
         _f("  [{e}]◉[/]     [{e}]◉[/]  ", "     ◠     "),
     ],
-    # humbled — single frame, downcast eyes. The stillness IS the
-    # affect.
+    # humbled — eyes downcast. Mostly still, but with a single
+    # occasional micro-blink so it doesn't read as frozen / dead.
+    # 12 frames, only one varies, blink visible roughly every 3s.
     "humbled": [
         _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        _f("  [{e}]╮[/]     [{e}]╭[/]  ", "     ⌣     "),
+        # slow blink — the only motion
+        _f("  -     -  ", "     ⌣     "),
     ],
 }
 
