@@ -241,16 +241,20 @@ class TestRendering:
             assert frame_count(face) >= 1, f"face {face!r} has no frames"
 
     def test_animated_states_have_multiple_frames(self) -> None:
-        """The animated states should actually animate. humbled is
-        intentionally a single frame — its stillness is the affect."""
-        assert frame_count("sleep") > 1
-        assert frame_count("idle") > 1
-        assert frame_count("thinking") > 1
-        assert frame_count("working") > 1
-        assert frame_count("happy") > 1
-        assert frame_count("concerned") > 1
-        # humbled is intentionally still
-        assert frame_count("humbled") == 1
+        """Every state should actually animate. Humbled used to be a
+        single frame but operator feedback (2026-05-21) wanted the
+        mascot 'super-alive', so even humbled now has a rare blink
+        — distinguishes living-but-quiet from frozen / dead."""
+        for face in (
+            "sleep",
+            "idle",
+            "thinking",
+            "working",
+            "happy",
+            "concerned",
+            "humbled",
+        ):
+            assert frame_count(face) > 1, f"{face!r} should have multiple frames"
 
     def test_frame_index_wraps_cleanly(self) -> None:
         """Callers pass a monotonically increasing counter; render
