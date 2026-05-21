@@ -556,3 +556,16 @@ replicate:
   default_aspect_ratio: "1:1"             # 1:1, 16:9, 9:16, 4:3, 3:4
   default_format: "jpg"                   # jpg, png
   default_output_mode: "local"            # url | local (recommended: URLs expire after ~12h)
+
+# --- Dashboard ---
+# Terminal dashboard rendered when launching `elophanto chat`. Read by
+# cli/dashboard/app.py only (the dashboard runs out-of-process from
+# the Agent), so changes here take effect on next dashboard launch
+# without restarting the gateway.
+dashboard:
+  # ASCII mascot at the top of the sidebar — single-glance face whose
+  # expression mirrors agent state (sleep/idle/thinking/working/
+  # happy/concerned/humbled). State mapping lives in
+  # cli/dashboard/mascot.py. Disable if you find it noisy on small
+  # terminals.
+  mascot_enabled: true
