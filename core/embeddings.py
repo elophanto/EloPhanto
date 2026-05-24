@@ -63,6 +63,27 @@ class OllamaEmbedder:
             results.append(result)
         return results
 
+    async def embed_batch_resilient(
+        self, texts: list[str], model: str = "nomic-embed-text"
+    ) -> list[EmbeddingResult | None]:
+        """Like ``embed_batch`` but never raises — returns ``None`` for
+        texts that fail. Mirrors :meth:`OpenRouterEmbedder.embed_batch_resilient`
+        so the indexer can call the same method on either embedder.
+        """
+        out: list[EmbeddingResult | None] = []
+        for i, text in enumerate(texts):
+            try:
+                out.append(await self.embed(text, model))
+            except Exception as e:
+                logger.warning(
+                    "Ollama embedding failed for text %d/%d: %s",
+                    i + 1,
+                    len(texts),
+                    str(e)[:120],
+                )
+                out.append(None)
+        return out
+
     async def detect_model(
         self, primary: str = "nomic-embed-text", fallback: str = "mxbai-embed-large"
     ) -> tuple[str, int]:
@@ -155,33 +176,135 @@ class OpenRouterEmbedder:
             dimensions=len(vector),
         )
 
+    # Retry policy for batch embedding. The OpenRouter Gemini-embedding
+    # endpoint returns malformed responses (`'data'` missing, 200-with-
+    # error-envelope) intermittently — 14 such failures in a 9.5h
+    # production log on 2026-05-22. Each unindexed lesson silently
+    # disappears from `knowledge_search`, which compounds over weeks.
+    # 3 attempts with exponential backoff catches the transient case;
+    # callers can fall back to per-chunk on persistent failure.
+    _BATCH_RETRY_ATTEMPTS = 3
+    _BATCH_RETRY_BASE_DELAY_SEC = 0.5
+
     async def embed_batch(
         self, texts: list[str], model: str | None = None
     ) -> list[EmbeddingResult]:
-        """Embed multiple texts. Uses batch input when possible."""
+        """Embed multiple texts. Uses batch input when possible.
+
+        Retries up to ``_BATCH_RETRY_ATTEMPTS`` times on transient
+        upstream failures (non-200 responses OR 200-with-malformed-
+        envelope where ``data`` key is missing). The malformed-200
+        case is what bites us in production — OpenRouter occasionally
+        returns the inner provider error in the body with a 200 status,
+        which the previous code subscripted with ``data["data"]`` and
+        crashed via ``KeyError: 'data'``.
+
+        Callers wanting "do not lose any chunk" semantics should catch
+        the final RuntimeError and call ``embed`` on each text
+        individually as a fallback path.
+        """
+        import asyncio
+
         model = model or self._default_model
-        response = await self._client.post(
-            f"{self._base_url}/embeddings",
-            headers=self._headers(),
-            json={"model": model, "input": texts},
-            timeout=15.0,
-        )
+        last_err: Exception | None = None
+        for attempt in range(self._BATCH_RETRY_ATTEMPTS):
+            try:
+                response = await self._client.post(
+                    f"{self._base_url}/embeddings",
+                    headers=self._headers(),
+                    json={"model": model, "input": texts},
+                    timeout=15.0,
+                )
 
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"OpenRouter embedding failed ({response.status_code}): "
-                f"{response.text[:200]}"
+                if response.status_code != 200:
+                    raise RuntimeError(
+                        f"OpenRouter embedding failed ({response.status_code}): "
+                        f"{response.text[:200]}"
+                    )
+
+                data: dict[str, Any] = response.json()
+                # Same defensive check as single-text ``embed`` — the
+                # upstream provider sometimes returns a 200 with an
+                # error envelope instead of a well-formed payload.
+                if "data" not in data:
+                    err = data.get("error") or data
+                    raise RuntimeError(
+                        f"OpenRouter batch embedding response missing 'data' "
+                        f"(likely upstream error): {str(err)[:200]}"
+                    )
+
+                items = data["data"]
+                if not isinstance(items, list) or len(items) != len(texts):
+                    raise RuntimeError(
+                        f"OpenRouter batch returned {len(items) if isinstance(items, list) else '?'} "
+                        f"items for {len(texts)} inputs: {str(data)[:200]}"
+                    )
+
+                return [
+                    EmbeddingResult(
+                        vector=item["embedding"],
+                        model=model,
+                        dimensions=len(item["embedding"]),
+                    )
+                    for item in items
+                ]
+            except Exception as e:
+                last_err = e
+                if attempt == self._BATCH_RETRY_ATTEMPTS - 1:
+                    break
+                delay = self._BATCH_RETRY_BASE_DELAY_SEC * (2**attempt)
+                logger.debug(
+                    "OpenRouter batch embedding attempt %d/%d failed (%s); "
+                    "retrying in %.1fs",
+                    attempt + 1,
+                    self._BATCH_RETRY_ATTEMPTS,
+                    str(e)[:120],
+                    delay,
+                )
+                await asyncio.sleep(delay)
+        assert last_err is not None
+        raise last_err
+
+    async def embed_batch_resilient(
+        self, texts: list[str], model: str | None = None
+    ) -> list[EmbeddingResult | None]:
+        """Like ``embed_batch`` but never raises — returns ``None`` in
+        positions where embedding failed even after retry + per-text
+        fallback. Used by ``KnowledgeIndexer`` so a single bad batch
+        doesn't lose an entire file's chunks.
+
+        Strategy:
+          1. Try the batch endpoint (with internal retries).
+          2. On persistent batch failure, fall back to per-text
+             ``embed`` calls so chunks that CAN embed still do.
+          3. Per-text failures degrade to ``None`` in the result list;
+             caller decides whether to skip or hold.
+        """
+        try:
+            results = await self.embed_batch(texts, model=model)
+            return list(results)
+        except Exception as batch_err:
+            logger.warning(
+                "Batch embedding failed after %d attempts (%s); falling back "
+                "to per-text embedding for %d texts.",
+                self._BATCH_RETRY_ATTEMPTS,
+                str(batch_err)[:120],
+                len(texts),
             )
 
-        data: dict[str, Any] = response.json()
-        return [
-            EmbeddingResult(
-                vector=item["embedding"],
-                model=model,
-                dimensions=len(item["embedding"]),
-            )
-            for item in data["data"]
-        ]
+        out: list[EmbeddingResult | None] = []
+        for i, text in enumerate(texts):
+            try:
+                out.append(await self.embed(text, model=model))
+            except Exception as e:
+                logger.warning(
+                    "Per-text embedding fallback failed for text %d/%d: %s",
+                    i + 1,
+                    len(texts),
+                    str(e)[:120],
+                )
+                out.append(None)
+        return out
 
     async def detect_model(
         self, primary: str | None = None, fallback: str | None = None

@@ -916,7 +916,7 @@ wheels = [
 
 [[package]]
 name = "elophanto"
-version = "2026.5.20.2"
+version = "2026.5.22"
 source = { editable = "." }
 dependencies = [
     { name = "agentmail" },
