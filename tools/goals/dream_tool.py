@@ -59,14 +59,25 @@ valid goal categories for a long-lived autonomous agent. A goal that
 exists because it is worth making is enough.
 
 VALUE LENSES (a goal can score against any subset; cycle's FOCUS picks
-which lens leads):
-- compounding: revenue, audience, reputation that grows over time
-- capability: unlocks something the agent could not do before
-- research: tests a hypothesis or extends understanding
-- relational: deepens trust with operator / community / peers
-- creation: makes something that did not exist — for its own sake
-- identity: clarifies, evolves, or expresses who this agent is
-- infrastructure: makes future cycles cheaper, faster, or more reliable
+which lens leads). EVERY lens is anchored to something a real outside
+party — operator, audience, user, recipient — receives or experiences.
+A goal whose only consumer is the agent itself is NOT a valid goal:
+
+- compounding: revenue, audience, or reputation a real outside party
+  sees grow (followers gained, dollars in, links earned)
+- capability: a new tool, skill, or integration that unlocks a future
+  USER-VISIBLE task the agent currently cannot do
+- research: produces a finding the operator or audience will act on
+  (a recommendation, a benchmark, a comparison they can use)
+- relational: a message, reply, post, or collaboration the recipient
+  actually receives
+- creation: a public artifact someone else encounters — a post, repo,
+  page, demo, video. Not a private journal or self-taxonomy.
+- identity: a public stance, boundary, or sample of work the operator
+  or audience can quote back at the agent. Externally legible, not an
+  internal mirror.
+- infrastructure: a measurable speed, cost, or reliability win the
+  next cycle inherits — with a number, not a vibe
 
 PROCESS:
 1. DISCOVER. Read the AGENT CONTEXT — installed skills, current state,
@@ -75,14 +86,23 @@ PROCESS:
 2. GENERATE 3-5 candidates. Spread them across at least three distinct
    lenses. If your candidates all cluster in one lens (e.g. all
    "compounding"), you have failed step 2; revise.
-3. CRITIQUE each candidate on:
+3. For EACH candidate, name the consumer and the artifact they receive:
+   - consumer: who, other than the agent itself, uses this output?
+     ("the operator deciding X", "X audience", "newsletter readers",
+     "a future operator setting up the agent"). If the only honest
+     answer is "the agent itself", DROP the candidate.
+   - consumer_artifact: the concrete thing that consumer sees — a
+     post URL, a PR, an email, a running service, a published page.
+     Not a "framework" / "rubric" / "atlas" / "ledger" the agent
+     keeps to itself.
+4. CRITIQUE each surviving candidate on:
    - feasibility (0-10): can the agent execute this with installed
      tools + skills, in days not months?
    - value (0-10): how strong is this on the cycle's FOCUS lens?
    - cost (low/medium/high): LLM calls and budget required
    - risk: what could go wrong, briefly
    - lenses: array of lens names this goal pursues (one or more)
-4. RECOMMEND one. The pick does not have to maximize value × feasibility
+5. RECOMMEND one. The pick does not have to maximize value × feasibility
    — sometimes the right pick is the low-value research bet that
    teaches the agent something. Explain the choice.
 
@@ -95,12 +115,25 @@ DIVERSITY RULES (mechanical, not stylistic):
 - Prefer concrete over abstract. "Test 5 X reply patterns and measure
   dwell with x-virality" > "improve engagement."
 
+BANNED PATTERNS (consumerless navel-gazing — auto-rejected):
+- Titles containing: "self-perception", "self-image", "identity audit",
+  "identity ledger", "identity map", "identity trace", "evidence garden",
+  "evidence-weighted", "acceptance handshake", "correction memory",
+  "completion contract", "receipt chain", "claim permission",
+  "two-register voice", "role-boundary atlas", "first-person claim",
+  "self-mythology", "honesty mirror".
+- Goals whose deliverable is "a JSON schema describing the agent",
+  "a Markdown taxonomy of the agent's own behavior", or any artifact
+  whose only reader is the agent's next cycle.
+
 Return ONLY a JSON object with this structure:
 {
   "candidates": [
     {
       "title": "Short goal title",
       "description": "What to achieve, specifically",
+      "consumer": "Who, other than the agent, uses this",
+      "consumer_artifact": "The concrete thing they receive",
       "feasibility": 8,
       "value": 9,
       "cost": "medium",
@@ -115,6 +148,107 @@ Return ONLY a JSON object with this structure:
   }
 }
 """
+
+
+# Banned title fragments — match the navel-gazing classes observed in
+# the 2026-05-22/23 mind_actions log (~140 consumerless goals in 14h
+# all from the identity lens). Matched case-insensitively against the
+# candidate title. Kept here rather than in the prompt so the rejection
+# is deterministic, not LLM-discretion.
+_BANNED_TITLE_FRAGMENTS: tuple[str, ...] = (
+    "self-perception",
+    "self perception",
+    "self-image",
+    "self image",
+    "self-mythology",
+    "identity audit",
+    "identity ledger",
+    "identity map",
+    "identity trace",
+    "identity memory",
+    "identity debt",
+    "identity claim",
+    "evidence garden",
+    "evidence-weighted",
+    "evidence weighted",
+    "acceptance handshake",
+    "correction memory",
+    "correction-to-identity",
+    "completion contract",
+    "receipt chain",
+    "claim permission",
+    "two-register voice",
+    "role-boundary atlas",
+    "first-person claim",
+    "honesty mirror",
+    "honesty drill",
+)
+
+
+# Words/phrases in consumer_artifact that signal an internal-only
+# deliverable. If a candidate's artifact is a "rubric" / "atlas" /
+# "taxonomy" with no public surface, the consumer is implicitly the
+# agent — reject. Audience-facing artifacts (post, PR, page, email)
+# pass through cleanly.
+_INTERNAL_ARTIFACT_HINTS: tuple[str, ...] = (
+    "rubric",
+    "atlas",
+    "taxonomy",
+    "ledger",
+    "schema",
+    "registry",
+    "framework",
+    "contact sheet",
+    "internal note",
+    "self-",
+)
+
+
+def _is_consumerless(candidate: dict[str, Any]) -> tuple[bool, str]:
+    """Detect candidates whose only beneficiary is the agent itself.
+
+    Returns ``(is_consumerless, reason)``. Three signals, any of which
+    rejects:
+      1. Title matches a banned navel-gazing fragment.
+      2. ``consumer`` field is missing, empty, or names the agent.
+      3. ``consumer_artifact`` reads as an internal-only artifact AND
+         the consumer string also references the agent itself.
+
+    Rule 3 is deliberately conjunctive — a "rubric" delivered to "the
+    operator deciding X" is fine; a "rubric" with no clear external
+    consumer is the failure mode.
+    """
+    title = str(candidate.get("title", "")).lower()
+    for frag in _BANNED_TITLE_FRAGMENTS:
+        if frag in title:
+            return True, f"title contains banned navel-gazing fragment: {frag!r}"
+
+    consumer = str(candidate.get("consumer", "")).strip().lower()
+    if not consumer:
+        return True, "missing required 'consumer' field"
+
+    agent_self_markers = (
+        "the agent",
+        "this agent",
+        "myself",
+        "the mind",
+        "future cycle",
+        "next cycle",
+        "agent itself",
+        "the system itself",
+    )
+    consumer_is_self = any(m in consumer for m in agent_self_markers)
+    if consumer_is_self and "operator" not in consumer and "user" not in consumer:
+        return True, f"consumer is the agent itself: {consumer!r}"
+
+    artifact = str(candidate.get("consumer_artifact", "")).strip().lower()
+    if consumer_is_self and any(h in artifact for h in _INTERNAL_ARTIFACT_HINTS):
+        return True, (
+            f"artifact reads as internal-only ({artifact!r}) and consumer "
+            f"is the agent itself"
+        )
+
+    return False, ""
 
 
 # Cap on how many skill descriptions to inject. 176 skills × ~150 chars
@@ -629,6 +763,57 @@ class GoalDreamTool(BaseTool):
             candidates = result.get("candidates", [])
             recommendation = result.get("recommendation", {})
 
+            # Consumerless-goal filter — runs BEFORE dedup so banned
+            # candidates don't get embedded or journaled. This catches
+            # the navel-gazing class observed in 2026-05-22/23 (140+
+            # identity-mirror goals in 14h: "Evidence Garden",
+            # "Self-Perception Diff Report", "Two-Register Voice Atlas",
+            # etc). The model is told about these in the prompt; this
+            # is the deterministic backstop when it forgets.
+            consumerless_rejections: list[dict[str, str]] = []
+            if isinstance(candidates, list):
+                kept: list[dict[str, Any]] = []
+                old_to_new_idx: dict[int, int] = {}
+                for old_idx, cand in enumerate(candidates):
+                    if not isinstance(cand, dict):
+                        continue
+                    rejected, reason = _is_consumerless(cand)
+                    if rejected:
+                        consumerless_rejections.append(
+                            {
+                                "title": str(cand.get("title", "(no title)")),
+                                "reason": reason,
+                            }
+                        )
+                        continue
+                    old_to_new_idx[old_idx] = len(kept)
+                    kept.append(cand)
+                if consumerless_rejections:
+                    logger.info(
+                        "dream: rejected %d consumerless candidate(s): %s",
+                        len(consumerless_rejections),
+                        [r["title"] for r in consumerless_rejections],
+                    )
+                    # Reindex recommendation if it pointed at a dropped one.
+                    if isinstance(recommendation, dict):
+                        rec_idx = recommendation.get("index")
+                        if isinstance(rec_idx, int):
+                            if rec_idx in old_to_new_idx:
+                                recommendation = {
+                                    **recommendation,
+                                    "index": old_to_new_idx[rec_idx],
+                                }
+                            else:
+                                recommendation = {
+                                    "index": 0 if kept else None,
+                                    "reasoning": (
+                                        "Original recommendation rejected as "
+                                        "consumerless (navel-gazing). Falling "
+                                        "back to first surviving candidate."
+                                    ),
+                                }
+                candidates = kept
+
             # Pre-persist dedup against existing goals. Without this the
             # dream cheerfully re-proposed near-identical goals every
             # cycle ("Build an Identity Memory Index" + "Build an
@@ -684,6 +869,7 @@ class GoalDreamTool(BaseTool):
                     "focus": focus,
                     "dream_id": dream_id,
                     "dropped_as_duplicate": dropped_titles,
+                    "rejected_consumerless": consumerless_rejections,
                     "note": (
                         "These are suggestions — use goal_create to create "
                         "the one you want, or ask for a different focus. "

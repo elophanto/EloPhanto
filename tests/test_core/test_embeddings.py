@@ -184,6 +184,90 @@ class TestOpenRouterEmbedder:
         assert "X-Title" in headers
 
 
+class TestBatchResilience:
+    @pytest.mark.asyncio
+    async def test_batch_retries_on_missing_data_key(self) -> None:
+        """embed_batch retries when OpenRouter returns 200 with no 'data' key.
+
+        Mirrors the production failure mode observed 14× in the
+        2026-05-22 log: Gemini-embedding returns 200 with an error
+        envelope instead of the embeddings payload.
+        """
+        client = OpenRouterEmbedder(api_key="test-key")
+        client._BATCH_RETRY_BASE_DELAY_SEC = 0.0  # speed up the test
+        fake_vecs = [[0.1] * 3072, [0.2] * 3072]
+
+        bad = MagicMock()
+        bad.status_code = 200
+        bad.json.return_value = {"error": {"message": "upstream timeout"}}
+        bad.text = "{}"
+        good = _openrouter_response(fake_vecs)
+
+        mock_instance = AsyncMock()
+        mock_instance.post.side_effect = [bad, good]
+        client._client = mock_instance
+
+        results = await client.embed_batch(["t1", "t2"])
+
+        assert len(results) == 2
+        assert mock_instance.post.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_batch_resilient_falls_back_per_text(self) -> None:
+        """embed_batch_resilient falls back to per-text on persistent batch failure."""
+        client = OpenRouterEmbedder(api_key="test-key")
+        client._BATCH_RETRY_BASE_DELAY_SEC = 0.0
+        fake_vec = [0.5] * 3072
+
+        bad = MagicMock()
+        bad.status_code = 200
+        bad.json.return_value = {"error": "boom"}
+        bad.text = "{}"
+        good_single = _openrouter_response([fake_vec])
+
+        mock_instance = AsyncMock()
+        # 3 batch attempts fail, then 2 per-text calls succeed
+        mock_instance.post.side_effect = [bad, bad, bad, good_single, good_single]
+        client._client = mock_instance
+
+        results = await client.embed_batch_resilient(["t1", "t2"])
+
+        assert len(results) == 2
+        assert all(r is not None for r in results)
+        assert mock_instance.post.call_count == 5
+
+    @pytest.mark.asyncio
+    async def test_batch_resilient_returns_none_for_failed_chunk(self) -> None:
+        """embed_batch_resilient returns None where a per-text fallback also fails."""
+        client = OpenRouterEmbedder(api_key="test-key")
+        client._BATCH_RETRY_BASE_DELAY_SEC = 0.0
+        fake_vec = [0.5] * 3072
+
+        bad_batch = MagicMock()
+        bad_batch.status_code = 200
+        bad_batch.json.return_value = {"error": "boom"}
+        bad_batch.text = "{}"
+        good_single = _openrouter_response([fake_vec])
+        bad_single = MagicMock()
+        bad_single.status_code = 500
+        bad_single.text = "upstream 500"
+
+        mock_instance = AsyncMock()
+        mock_instance.post.side_effect = [
+            bad_batch,
+            bad_batch,
+            bad_batch,  # batch retry exhausted
+            good_single,  # text 1 succeeds
+            bad_single,  # text 2 fails
+        ]
+        client._client = mock_instance
+
+        results = await client.embed_batch_resilient(["t1", "t2"])
+
+        assert results[0] is not None
+        assert results[1] is None
+
+
 class TestCreateEmbedder:
     def test_creates_ollama_by_default(self, test_config) -> None:
         """Factory creates OllamaEmbedder when provider is 'ollama'."""

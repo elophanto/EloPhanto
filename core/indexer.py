@@ -568,17 +568,40 @@ class KnowledgeIndexer:
             )
             inserted.append((chunk_id, clean_content))
 
-        # Pass 2: batch-embed all chunks in one API call, then insert into vec table
+        # Pass 2: batch-embed all chunks, then insert into vec table.
+        # Uses ``embed_batch_resilient`` so an intermittent upstream
+        # failure on the batch endpoint (the OpenRouter Gemini
+        # "data missing" case observed 14× in a 9.5h production log on
+        # 2026-05-22) doesn't lose the whole file's index entries —
+        # chunks that succeed still get inserted; per-chunk failures
+        # come back as ``None`` and we skip just those.
         if self._db.vec_available and inserted:
             try:
                 texts = [content for _, content in inserted]
-                embeddings = await self._embedder.embed_batch(
+                embeddings = await self._embedder.embed_batch_resilient(
                     texts, self._embedding_model
                 )
+                indexed = 0
+                skipped = 0
                 for (chunk_id, _), embedding in zip(inserted, embeddings, strict=False):
+                    if embedding is None:
+                        skipped += 1
+                        continue
                     await self._db.execute_insert(
                         "INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",
                         (chunk_id, _serialize_vector(embedding.vector)),
+                    )
+                    indexed += 1
+                if skipped:
+                    logger.warning(
+                        "Embedded %d/%d chunks for %s (model=%s); %d chunks "
+                        "skipped due to embedding failure — keyword search will "
+                        "still find them, semantic search will not.",
+                        indexed,
+                        len(inserted),
+                        file_path,
+                        self._embedding_model,
+                        skipped,
                     )
             except Exception as e:
                 logger.error(
