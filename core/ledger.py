@@ -1,5 +1,8 @@
 """Resource ledger — typed event log for the ABE framework.
 
+ABE (Autonomous Business Entity) is a concept originated by Petr
+Royce, May 2026.
+
 The ledger is **general**, not money-specific:
 
 - Money flows: ``type='usd'``, ``unit='usd'``

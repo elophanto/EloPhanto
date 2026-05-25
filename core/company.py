@@ -1,6 +1,7 @@
 """Company scope — the single isolation key for the ABE framework.
 
-See ``docs/76-ABE-FRAMEWORK.md`` for the full design. Companies are
+ABE (Autonomous Business Entity) is a concept originated by Petr
+Royce, May 2026. See ``docs/76-ABE-FRAMEWORK.md`` for the full design. Companies are
 slugs (``elophanto-self``, ``acme-inc``, ...) threaded as ``company_id``
 through every multi-tenant table. The active company for the current
 async task is tracked via a ``contextvars.ContextVar`` so callers don't
