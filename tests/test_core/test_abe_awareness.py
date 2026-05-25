@@ -111,6 +111,41 @@ class TestAbeFrameworkAwarenessBlock:
         assert "project" in lowered or "different concept" in lowered
 
 
+class TestPersonalityShapeDoesNotCrashContext:
+    """Regression: a production DB had ``identity.personality`` as a
+    string instead of a dict. The original code called
+    ``personality.items()`` and crashed with AttributeError. The
+    outer try/except in Agent._build_prompt swallowed the failure,
+    so the system prompt landed with an EMPTY identity section —
+    no <self_model>, no <abe_framework>. The agent then answered
+    'what companies do we have?' from scratchpad memory because no
+    awareness block ever reached the LLM. This test pins the fix:
+    a string personality must NOT crash the context builder."""
+
+    @pytest.mark.asyncio
+    async def test_string_personality_does_not_crash(self, db: Database) -> None:
+        from core.identity import Identity
+
+        ident_cfg = IdentityConfig(enabled=True)
+        router = MagicMock()
+        im = IdentityManager(db=db, router=router, config=ident_cfg)
+        # Inject a synthetic identity with personality as a STRING
+        # (the production-DB shape that crashed the original code).
+        im._identity = Identity(
+            id="self",
+            created_at="2026-05-25",
+            updated_at="2026-05-25",
+            personality="thoughtful, careful",  # type: ignore[arg-type]
+        )
+        # Must not raise
+        ctx = await im.build_identity_context()
+        # And the personality should appear as-is, plus the ABE block
+        # should still land (the whole point of the fix is keeping the
+        # rest of the prompt intact when one field is the wrong shape).
+        assert "thoughtful, careful" in ctx
+        assert "<abe_framework>" in ctx
+
+
 class TestCanonicalSourceToolDescriptions:
     """The LLM picks tools partly from descriptions. The descriptions
     of `company_list`, `company_report`, and `role_list` must

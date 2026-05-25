@@ -555,7 +555,17 @@ class IdentityManager:
             top_values = identity.values[-_CONTEXT_CAPS["values"] :]
             parts.append(f"  <values>{', '.join(top_values)}</values>")
         if identity.personality:
-            traits = ", ".join(f"{k}: {v}" for k, v in identity.personality.items())
+            # Defensive: live DBs have rows where personality was stored as
+            # a string instead of a dict. Without this guard the entire
+            # identity context build crashes with AttributeError, gets
+            # swallowed by the outer try/except in Agent._build_prompt,
+            # and the LLM gets a system prompt with NO identity section
+            # at all — including no <abe_framework> block. Fall through
+            # to a plain string rendering when the shape is wrong.
+            if isinstance(identity.personality, dict):
+                traits = ", ".join(f"{k}: {v}" for k, v in identity.personality.items())
+            else:
+                traits = str(identity.personality)
             parts.append(f"  <personality>{traits}</personality>")
         if identity.communication_style:
             parts.append(

@@ -3045,8 +3045,14 @@ class Agent:
         try:
             if self._identity_manager:
                 identity_context = await self._identity_manager.build_identity_context()
-        except Exception:
-            pass
+        except Exception as e:
+            # 2026-05-25: this except previously swallowed a personality-
+            # shape AttributeError silently, which killed the entire
+            # identity injection (including the ABE awareness block) and
+            # caused the agent to answer "what companies do we have?"
+            # from scratchpad memory instead of calling company_list.
+            # Logging surfaces the next such failure so it can't hide.
+            logger.warning("identity context build failed: %s", e)
 
         try:
             if self._ego_manager:
