@@ -15,6 +15,25 @@
 > bottom before starting any new phase so the load-bearing constraints
 > (single identity, general ledger, reuse-first) stay in front of you.
 
+## Verification failure log
+
+Recording the verification gaps that surfaced after a phase was
+declared "done." Each entry is an institutional-memory artifact —
+the corresponding rule below is the durable lesson.
+
+| Date | Phase | Symptom | Root cause | Rule that would have caught it |
+|---|---|---|---|---|
+| 2026-05-25 | 1-7 | Operator-side CLI worked; chat-side agent had no ABE tools | Built CLI commands without matching agent tools; chat operator can't drive ABE | **Check operator surface AND agent surface before declaring a phase shipped** |
+| 2026-05-25 | Awareness fix (post-Phase 8) | Agent kept reconstructing "companies" from memory after the awareness-block patch | `personality.items()` crashed `build_identity_context` on the live DB (personality was a string, not a dict); `try/except: pass` in `Agent._build_prompt` swallowed it; entire identity injection was empty for production | **Test the fix against the live data shape, not just synthetic fixtures** + **silent excepts around prompt assembly hide production bugs** |
+| 2026-05-25 | 2/7/8 | `company_list` returned "not initialized" even after awareness fix; ABE init silently never ran in the agent process | `self._project_root` referenced in Agent init but Agent only sets `self._config.project_root` — AttributeError swallowed by a try/except at the goal-init outer boundary; role_manager, company_manager, and every ABE tool's deps stayed None | **Integration test that exercises `Agent.initialize()` end-to-end** + **silent try/except around init code is the same anti-pattern as around prompt assembly — convert ALL such swallows to logged warnings with exc_info=True** |
+
+**The unified pattern across all three**: silent partial-init or
+silent injection failure looks identical to "feature didn't ship"
+from the operator's seat. Synthetic-fixture unit tests pass; the
+agent's actual init path is the one that breaks. The fix in every
+case is logging + integration tests against `Agent.initialize()`,
+NOT a smarter unit test of the new code in isolation.
+
 ## Process rule (non-negotiable)
 
 **Before writing ANY code for a phase, do a detailed verification review
@@ -22,6 +41,12 @@ and expand that phase's section in this doc with the verified specifics.**
 
 What this means concretely, for every phase:
 
+0. **Grep for `try/except: pass` and `try/except Exception:` around any
+   code path the phase touches.** Silent excepts hide load-bearing
+   bugs that look exactly like "feature didn't ship" — see the
+   Verification failure log above. Convert every such swallow to
+   `logger.warning(..., exc_info=True)` BEFORE adding new logic
+   inside or near it.
 1. **Read the actual code** the phase touches — not what an audit said,
    not what feels right. Open `core/database.py`, `core/identity.py`,
    `core/mission_manager.py`, etc., and confirm constructor signatures,
