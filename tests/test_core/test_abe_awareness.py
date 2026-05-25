@@ -78,12 +78,41 @@ class TestAbeFrameworkAwarenessBlock:
             "company_pause",
             "company_resume",
             "company_set_product",
+            "company_onboard",
             "role_list",
             "role_show",
             "role_use",
             "role_sync",
         ):
             assert tool in ctx, f"awareness block must name {tool}"
+
+    @pytest.mark.asyncio
+    async def test_block_includes_drive_my_business_workflow(
+        self, db: Database
+    ) -> None:
+        """Phase 8.5 gap fix (2026-05-26): when the operator says
+        'drive my business', the LLM must reach for ``company_onboard``,
+        not respond conversationally. The awareness block must
+        explicitly name the canonical sequence so the LLM is steered
+        away from the previous failure mode of answering with vibes."""
+        ident_cfg = IdentityConfig(enabled=True)
+        router = MagicMock()
+        im = IdentityManager(db=db, router=router, config=ident_cfg)
+        await db.execute_insert(
+            "INSERT INTO identity (id, created_at, updated_at) "
+            "VALUES ('self', ?, ?)",
+            ("2026-05-26", "2026-05-26"),
+        )
+        await im.load_or_create()
+
+        ctx = await im.build_identity_context()
+        lowered = ctx.lower()
+        # Must name the canonical tool for the intent
+        assert "company_onboard" in lowered
+        # Must name the user-facing intent ("drive my business" or similar)
+        assert "drive" in lowered
+        # Must mention the load-bearing concern (persistent context)
+        assert "persist" in lowered or "inherit" in lowered
 
     @pytest.mark.asyncio
     async def test_block_warns_against_memory_reconstruction(

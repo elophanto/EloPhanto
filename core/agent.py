@@ -2114,6 +2114,7 @@ class Agent:
         """
         company_tool_names = (
             "company_set_product",
+            "company_onboard",
             "company_list",
             "company_report",
             "company_create",
@@ -2131,6 +2132,11 @@ class Agent:
                 tool._project_root = self._config.project_root
             if hasattr(tool, "_company_manager"):
                 tool._company_manager = self._company_manager
+            # company_onboard also writes a seed goal, so it needs
+            # the goal_manager too. Other tools that don't have the
+            # attribute skip silently via hasattr.
+            if hasattr(tool, "_goal_manager"):
+                tool._goal_manager = self._goal_manager
 
         role_tool_names = (
             "role_list",
