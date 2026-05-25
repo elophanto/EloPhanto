@@ -41,7 +41,7 @@ The combination is what makes the third week of running feel different from the 
 
 This is the realistic version of the framing — **not** the marketing pitch of "zero employees, infinite scale, 70% margins, unicorn exits". That version produces what the May 2026 logs called Evidence Gardens — endless self-referential artifacts about the agent itself. The actual goal is *one operator running a small focused company-of-agents that does one bounded thing and tracks its own books*.
 
-The architecture rests on six load-bearing decisions, frozen in [docs/76-ABE-FRAMEWORK.md](docs/76-ABE-FRAMEWORK.md):
+**See [docs/78-ABE-OPERATOR-GUIDE.md](docs/78-ABE-OPERATOR-GUIDE.md)** for the operator playbook (commands, files to edit, what to watch). The architecture rests on six load-bearing decisions, frozen in [docs/76-ABE-FRAMEWORK.md](docs/76-ABE-FRAMEWORK.md):
 
 - **One identity, role overlays** — EloPhanto stays a single evolving self; the CEO is not a separate persona, EloPhanto *plays* the CEO by default and switches into other roles (sales, support, ops, marketing) via system-prompt overlays + tool subsets per cycle. No N-identities, no N-agents.
 - **General typed ledger** — money is one resource flow, LLM tokens another, customer touches another, decisions another. Every meaningful action writes a typed `resource_ledger` event. This doubles as the **honest progress signal** that fixes the bounded-reconciliation loop: a cycle that produces zero ledger events made zero progress regardless of what the LLM narrates.
