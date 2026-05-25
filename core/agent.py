@@ -613,6 +613,12 @@ class Agent:
         self._context_store: Any = None  # ContextStore (RLM Phase 2)
         self._goal_manager: Any = None  # GoalManager, set during initialize
         self._mission_manager: Any = None  # MissionManager, set during initialize
+        self._role_manager: Any = (
+            None  # RoleManager (ABE Phase 2), set during initialize
+        )
+        self._company_manager: Any = (
+            None  # CompanyManager (ABE Phase 7), set during initialize
+        )
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._ego_manager: Any = None  # EgoManager, set during initialize
         self._affect_manager: Any = None  # AffectManager, set during initialize
@@ -1065,6 +1071,45 @@ class Agent:
 
                 self._goal_manager.add_completion_hook(_touch_mission_on_goal_complete)
 
+                # ABE Phase 2 (docs/76-ABE-FRAMEWORK.md) — RoleManager
+                # is constructed alongside missions because the two
+                # tiers cooperate (missions can carry owner_role).
+                # Sync roles/*.yaml into the DB on every boot so
+                # operator edits land without manual migration.
+                from core.company import CompanyManager
+                from core.role import RoleManager
+
+                roles_dir = self._project_root / "roles"
+                self._role_manager = RoleManager(db=self._db, roles_dir=roles_dir)
+                try:
+                    synced = await self._role_manager.sync_from_disk()
+                    logger.info("Role system ready (%d roles synced)", synced)
+                except Exception as e:
+                    logger.warning("role sync failed at startup: %s", e)
+                # ABE Phase 7 — CompanyManager handle for the mind
+                # (from_unproductized_companies) and the
+                # company_set_product tool. project_root passed in so
+                # data_dir helpers + product loaders find the right
+                # files. Backfill the seed data dir in case the agent
+                # runs before any CLI invocation.
+                self._company_manager = CompanyManager(
+                    db=self._db, project_root=self._project_root
+                )
+                try:
+                    self._company_manager.ensure_data_dir("elophanto-self")
+                except Exception as e:
+                    logger.debug("seed company data dir backfill skipped: %s", e)
+                # Inject db + project_root into company_set_product
+                # so the agent can call it at runtime. Idempotent.
+                self._inject_company_deps()
+                # Wire RoleManager into the subsystems that gate on
+                # the active role. None during the Phase 1-only window
+                # kept these inert; setting them here flips Phase 2 on.
+                if self._executor is not None:
+                    self._executor._role_manager = self._role_manager
+                if self._identity_manager is not None:
+                    self._identity_manager._role_manager = self._role_manager
+
                 # Seed runs LATER (after IdentityManager initializes) so
                 # identity-supplied missions take precedence over the
                 # built-in defaults. See call below the identity init.
@@ -1140,6 +1185,13 @@ class Agent:
                 # knowledge_chunks still has the stale text — agent
                 # quotes the old name on the next knowledge_search.
                 self._identity_manager._indexer = self._indexer
+                # ABE Phase 2: wire RoleManager so build_identity_context
+                # can append the active role's overlay to the system
+                # prompt. RoleManager was constructed earlier alongside
+                # missions but identity is built later — re-binding here
+                # closes the order gap. None-safe.
+                if self._role_manager is not None:
+                    self._identity_manager._role_manager = self._role_manager
                 await self._identity_manager.load_or_create()
                 self._inject_identity_deps()
                 logger.info("Identity system ready")
@@ -2023,6 +2075,19 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._mission_manager:
                 tool._mission_manager = self._mission_manager
+
+    def _inject_company_deps(self) -> None:
+        """Inject db + project_root into company tools (ABE Phase 7).
+
+        ``company_set_product`` needs both: db to check the slug
+        exists in the ``companies`` table, project_root to compute
+        the target YAML path. Idempotent — safe to call after every
+        registry refresh.
+        """
+        tool = self._registry.get("company_set_product")
+        if tool is not None:
+            tool._db = self._db
+            tool._project_root = self._project_root
 
     async def _seed_default_missions(self) -> None:
         """First-run seeding of missions from identity (Phase 2.6).

@@ -35,6 +35,63 @@ Most "AI agents" are stateless prompts wrapped in a CLI. Same cold-start every c
 
 The combination is what makes the third week of running feel different from the first. The agent isn't replaying templates — it has a self-image that has been hurt, recovered, and revised, and a felt state that changes by the minute. See [core/ego.py](core/ego.py), [core/affect.py](core/affect.py), and [docs/17-IDENTITY.md](docs/17-IDENTITY.md).
 
+### ABE (Autonomous Business Entities)
+
+**EloPhanto can run as a business, not just an agent.** An ABE is a small, focused company-of-roles that has a stated product, tracks its own books, manages a customer pipeline, and reports to the operator as a board — not as raw logs. One EloPhanto runtime can host multiple isolated ABEs, each a separate company with its own ledger, missions, customers, and wallet. The operator owns the vision; the agent runs the operation.
+
+This is the realistic version of the framing — **not** the marketing pitch of "zero employees, infinite scale, 70% margins, unicorn exits". That version produces what the May 2026 logs called Evidence Gardens — endless self-referential artifacts about the agent itself. The actual goal is *one operator running a small focused company-of-agents that does one bounded thing and tracks its own books*.
+
+The architecture rests on six load-bearing decisions, frozen in [docs/76-ABE-FRAMEWORK.md](docs/76-ABE-FRAMEWORK.md):
+
+- **One identity, role overlays** — EloPhanto stays a single evolving self; the CEO is not a separate persona, EloPhanto *plays* the CEO by default and switches into other roles (sales, support, ops, marketing) via system-prompt overlays + tool subsets per cycle. No N-identities, no N-agents.
+- **General typed ledger** — money is one resource flow, LLM tokens another, customer touches another, decisions another. Every meaningful action writes a typed `resource_ledger` event. This doubles as the **honest progress signal** that fixes the bounded-reconciliation loop: a cycle that produces zero ledger events made zero progress regardless of what the LLM narrates.
+- **`company_id` is the single isolation key** — threaded through sessions, missions, goals, scheduled tasks, llm_usage, payments, email, prospects. Default `'elophanto-self'` owns all pre-ABE rows; no separate tenancy / workspace / org abstraction.
+- **Mission IS the mandate** — the existing missions tier with `owner_role` becomes role-scoped mandates. CEO (= EloPhanto) creates a mission "grow qualified pipeline to 50/wk" with `owner_role='sales'`; the sales role's cycles operate against it; momentum decays with neglect.
+- **Roles are NOT plugins** — they're 20-line YAML files in `roles/<name>.yaml`. Config, not code.
+- **Product config = `companies/<slug>/company.yaml`** — one file per company declaring `what_we_sell`, price, fulfillment, channels, wallet, KPIs. Empty product → company refuses to activate (empty product = navel-gazing risk reborn).
+
+**Phase 1 shipped 2026-05-25**: companies + general ledger + cross-table mirrors (every LLM call, payment, and outbound email writes a typed ledger event under the active company) + one-shot historical backfill + operator-visible report.
+
+```bash
+elophanto company list                # all companies + active marker
+elophanto company create acme-inc     # new ABE
+elophanto company use acme-inc        # switch context — new writes attribute here
+elophanto company backfill            # one-shot import of historical rows (idempotent)
+elophanto company report              # revenue / spend / net / tokens / touches + last 10 events
+```
+
+**Phase 2 shipped 2026-05-25**: role personas as system-prompt overlays + tool subsets. Five roles seeded from `roles/*.yaml` (CEO, sales, support, ops, marketing). EloPhanto stays one evolving identity; roles are masks it wears per cycle. The executor denies tools outside the active role's allowlist BEFORE the generic permission check (role-deny short-circuits auto-approve modes). Missions get an `owner_role`; goals get an `assigned_to_role`. The arbiter surfaces a `from_role_neglect` candidate alongside missions so the agent rotates into the role it hasn't worked from recently.
+
+```bash
+elophanto role list                   # all roles + active marker + last-active-at
+elophanto role show sales             # full overlay + allowlist + KPI for one role
+elophanto role sync                   # re-read roles/*.yaml into DB (idempotent)
+elophanto role use sales              # scope this session to the SALES role
+elophanto role clear                  # back to default (playing CEO, full tools)
+```
+
+**Phase 7 shipped 2026-05-25**: agent self-bootstraps its ABE. New `company_set_product` tool (MODERATE permission, so the operator approves every write) lets the agent propose a `companies/<slug>/company.yaml` for any company that doesn't have one. The same banlist that fixed the dream-lens drift (`core/consumer_filter.py`, extracted from `tools/goals/dream_tool.py` so it's reusable) is now applied at tool level — agent-proposed `what_we_sell` can't drift back into "framework for documenting agent identity" patterns; refuses any text matching the banlist with a legible reason. The mind's arbiter sees one candidate per unproductized company ("draft a product for `<slug>`"), capped at 3 so a workspace with many empty ABEs doesn't drown the menu. Closes the read-only/write-only asymmetry of Phase 4: before this, the agent could only *read* product config; now it can *propose* changes based on what it learns from the ledger.
+
+**Phase 6 shipped 2026-05-25**: multi-company isolation primitives. `ClientConnection` carries `company_id`; `Gateway.broadcast(company_id=...)` filters fan-out by connection company so a per-company event doesn't reach every CLI. Scheduler dispatch sets the active company in the contextvar for each task's scope (restored on completion AND failure) so a task tagged `acme-inc` writes its ledger/email/payment rows under `acme-inc` even when the operator's CLI is scoped to a different company. `CompanyManager.create()` materializes `data/companies/<slug>/` so per-company file state has a stable home; the seed `elophanto-self` directory backfills on first run. Two pieces explicitly deferred with stated triggers: session UNIQUE constraint rebuild (only matters when multiple companies share channels) and `roles.scope='company'` enforcement (only matters when an operator wants per-company role overlays).
+
+**Phase 4 shipped 2026-05-25**: product config + arbiter role-rotation. Each company gets an optional `companies/<slug>/company.yaml` declaring `what_we_sell` (required — empty value = navel-gazing guard, treated as no product), price, fulfillment, channels, wallet, and KPIs (typed against ledger event types). The dream phase reads this and anchors goal ideation in a real business; the arbiter scores `from_role_neglect` candidates with a new `kpi_gap` term so the role whose actual ledger sums lag furthest behind its weekly targets gets the strongest rotation pull. `elophanto company report` shows the active product in the headline; missing product surfaces as a yellow warning so it's hard to miss.
+
+**Phase 3 shipped 2026-05-25**: pipeline (CRM) on existing tables. Zero new schema, zero new tools. `prospect_outreach` and `prospect_evaluate` now mirror positive status transitions (`evaluated`, `outreach_sent`, `replied`, `converted`) to the ledger as `pipeline_advance` events — attributed to the prospect's own company (its funnel), not the operator's currently-active company. Negative outcomes (`rejected`, `expired`) do NOT count, so the ledger sum is an honest funnel-progress signal. `elophanto company report` gains a "Pipeline advances (in)" headline row plus a "Pipeline by stage" table grouped by the existing prospect status enum.
+
+Sample report from the reference instance after backfill:
+
+```
+elophanto-self — EloPhanto (self) (active)
+
+  Revenue (in)              $0.00
+  Spend (out)              $10.92
+  Net                     $-10.92
+  LLM tokens (out)    649,111,508
+  Email touches (out)         178
+```
+
+**Phased rollout** (each phase requires a verification review against the live codebase + DB before any code lands — see the doc's process rule): Phase 2 — roles as overlays + `owner_role` on missions + `assigned_to_role` on goals. Phase 3 — CRM pipeline reusing existing `prospects` + `outreach_log` tables. Phase 4 — product YAML schema + arbiter role-rotation candidate source. Phase 5 — CompanyBoardPanel in the Textual dashboard. Phase 6 — multi-company isolation hardening (session UNIQUE rebuild, channel routing by company, per-company `data/<id>/` dirs).
+
 ### One entity, not a persona stable
 
 Other "agent platforms" host N character personas behind one engine — swap the SOUL.md, swap the bot, the box hosts the next character. EloPhanto is **structurally different**: this installation IS one agent. One identity. One wallet. One ego / affect / self-model that has been hurt and revised and grown over weeks. When you want more agents, you spawn another full EloPhanto — separate vault, separate wallet, separate self-model. **Peers, not personas.**
@@ -355,11 +412,20 @@ EloPhanto/
 │   ├── context_store.py # RLM ContextStore (indexed, queryable context)
 │   ├── organization.py  # Self-cloning specialist agents
 │   ├── autonomous_mind.py # Background thinking loop
+│   ├── company.py       # ABE company scope + contextvar
+│   ├── ledger.py        # ABE general resource ledger
+│   ├── ledger_backfill.py # ABE one-shot historical import
+│   ├── role.py          # ABE role personas (RoleManager)
+│   ├── role_context.py  # ABE active-role contextvar
+│   ├── product.py       # ABE product YAML loader
+│   ├── consumer_filter.py # Shared navel-gazing banlist (dream + ABE Phase 7)
 │   └── ...
 ├── channels/            # CLI, Telegram, Discord, Slack adapters
 ├── vscode-extension/    # VS Code extension (TypeScript + esbuild)
 ├── web/                 # Web dashboard (React + Vite + Tailwind)
 ├── tools/               # 200+ built-in tools (MCP servers add more at runtime)
+├── companies/           # ABE per-company product YAMLs (what_we_sell, price, KPIs)
+├── roles/               # ABE role-persona YAML files (ceo, sales, support, ops, marketing)
 ├── skills/              # 172+ bundled SKILL.md files (every one ships with a ## Verify gate)
 ├── bridge/browser/      # Node.js browser bridge (Playwright)
 ├── tests/               # Test suite (2080+ tests)
@@ -507,6 +573,15 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 ./start.sh skills list         # List available skills
 ./start.sh skills hub search Q # Search EloPhantoHub
 ./start.sh mcp list            # List MCP servers
+elophanto company list         # ABE: list companies + show active marker
+elophanto company create SLUG  # ABE: create a new Autonomous Business Entity
+elophanto company use SLUG     # ABE: set active company (persisted to ~/.elophanto/)
+elophanto company report       # ABE: revenue / spend / net / tokens / touches / events
+elophanto company backfill     # ABE: one-shot historical import → resource_ledger
+elophanto role list            # ABE: list role personas + active marker
+elophanto role sync            # ABE: re-read roles/*.yaml into DB (idempotent)
+elophanto role use NAME        # ABE: scope session to NAME (sales, support, ops, ...)
+elophanto role show NAME       # ABE: full overlay + allowlist + KPI for one role
 elophanto affect status        # Inspect current PAD state, label, recent events
 elophanto affect simulate <s>  # Smoke-test affect trajectory. 12 scenarios:
                                #   ego/tool: frustration | anger | escalation | burst |

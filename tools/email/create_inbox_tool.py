@@ -299,11 +299,16 @@ class EmailCreateInboxTool(BaseTool):
             )
 
     async def _log_event(self, inbox_id: str, context: str) -> None:
+        # 'system' direction — not mirrored to the ledger (inbox-create
+        # is admin, not a touch). company_id added for attribution only.
         if self._db:
             try:
+                from core.company import current_company_id
+
                 await self._db.execute_insert(
                     "INSERT INTO email_log (timestamp, tool_name, inbox_id, direction, "
-                    "status, task_context) VALUES (?, ?, ?, ?, ?, ?)",
+                    "status, task_context, company_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         datetime.now(UTC).isoformat(),
                         "email_create_inbox",
@@ -311,6 +316,7 @@ class EmailCreateInboxTool(BaseTool):
                         "system",
                         "created",
                         context,
+                        current_company_id(),
                     ),
                 )
             except Exception:

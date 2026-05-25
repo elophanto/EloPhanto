@@ -150,106 +150,17 @@ Return ONLY a JSON object with this structure:
 """
 
 
-# Banned title fragments — match the navel-gazing classes observed in
-# the 2026-05-22/23 mind_actions log (~140 consumerless goals in 14h
-# all from the identity lens). Matched case-insensitively against the
-# candidate title. Kept here rather than in the prompt so the rejection
-# is deterministic, not LLM-discretion.
-_BANNED_TITLE_FRAGMENTS: tuple[str, ...] = (
-    "self-perception",
-    "self perception",
-    "self-image",
-    "self image",
-    "self-mythology",
-    "identity audit",
-    "identity ledger",
-    "identity map",
-    "identity trace",
-    "identity memory",
-    "identity debt",
-    "identity claim",
-    "evidence garden",
-    "evidence-weighted",
-    "evidence weighted",
-    "acceptance handshake",
-    "correction memory",
-    "correction-to-identity",
-    "completion contract",
-    "receipt chain",
-    "claim permission",
-    "two-register voice",
-    "role-boundary atlas",
-    "first-person claim",
-    "honesty mirror",
-    "honesty drill",
+# Banlist + consumer-filter logic now live in ``core.consumer_filter``
+# so the ``company_set_product`` tool (ABE Phase 7) can apply the
+# same filter to operator-or-agent-proposed ``what_we_sell`` text.
+# Re-exports preserve any external code referencing the old names —
+# noqa F401 because ruff can't see that they're a public surface,
+# not a local-only import.
+from core.consumer_filter import (
+    _BANNED_TITLE_FRAGMENTS,  # noqa: F401  re-export
+    _INTERNAL_ARTIFACT_HINTS,  # noqa: F401  re-export
 )
-
-
-# Words/phrases in consumer_artifact that signal an internal-only
-# deliverable. If a candidate's artifact is a "rubric" / "atlas" /
-# "taxonomy" with no public surface, the consumer is implicitly the
-# agent — reject. Audience-facing artifacts (post, PR, page, email)
-# pass through cleanly.
-_INTERNAL_ARTIFACT_HINTS: tuple[str, ...] = (
-    "rubric",
-    "atlas",
-    "taxonomy",
-    "ledger",
-    "schema",
-    "registry",
-    "framework",
-    "contact sheet",
-    "internal note",
-    "self-",
-)
-
-
-def _is_consumerless(candidate: dict[str, Any]) -> tuple[bool, str]:
-    """Detect candidates whose only beneficiary is the agent itself.
-
-    Returns ``(is_consumerless, reason)``. Three signals, any of which
-    rejects:
-      1. Title matches a banned navel-gazing fragment.
-      2. ``consumer`` field is missing, empty, or names the agent.
-      3. ``consumer_artifact`` reads as an internal-only artifact AND
-         the consumer string also references the agent itself.
-
-    Rule 3 is deliberately conjunctive — a "rubric" delivered to "the
-    operator deciding X" is fine; a "rubric" with no clear external
-    consumer is the failure mode.
-    """
-    title = str(candidate.get("title", "")).lower()
-    for frag in _BANNED_TITLE_FRAGMENTS:
-        if frag in title:
-            return True, f"title contains banned navel-gazing fragment: {frag!r}"
-
-    consumer = str(candidate.get("consumer", "")).strip().lower()
-    if not consumer:
-        return True, "missing required 'consumer' field"
-
-    agent_self_markers = (
-        "the agent",
-        "this agent",
-        "myself",
-        "the mind",
-        "future cycle",
-        "next cycle",
-        "agent itself",
-        "the system itself",
-    )
-    consumer_is_self = any(m in consumer for m in agent_self_markers)
-    if consumer_is_self and "operator" not in consumer and "user" not in consumer:
-        return True, f"consumer is the agent itself: {consumer!r}"
-
-    artifact = str(candidate.get("consumer_artifact", "")).strip().lower()
-    if consumer_is_self and any(h in artifact for h in _INTERNAL_ARTIFACT_HINTS):
-        return True, (
-            f"artifact reads as internal-only ({artifact!r}) and consumer "
-            f"is the agent itself"
-        )
-
-    return False, ""
-
+from core.consumer_filter import is_consumerless as _is_consumerless
 
 # Cap on how many skill descriptions to inject. 176 skills × ~150 chars
 # = ~25KB, fine in absolute terms but lets the LLM glaze over the list.
@@ -696,6 +607,25 @@ class GoalDreamTool(BaseTool):
                     )
             except Exception as e:
                 logger.debug("dream: identity unavailable: %s", e)
+
+        # PRODUCT (ABE Phase 4) — what this company actually sells.
+        # Anchors the dream against a real business so the lens
+        # rotation doesn't drift back into self-referential artifacts.
+        # Empty / missing product = no block (silent skip — the
+        # navel-gazing guard is in the loader, not here).
+        try:
+            from core.company import current_company_id
+            from core.product import load_product
+
+            if self._project_root is not None:
+                product = load_product(self._project_root, current_company_id())
+                if product is not None:
+                    what = product.what_we_sell.strip().replace("\n", " ")
+                    if len(what) > 600:
+                        what = what[:600] + "…"
+                    context_parts.append(f"PRODUCT (this company sells): {what}")
+        except Exception as e:
+            logger.debug("dream: product context unavailable: %s", e)
 
         # GOAL STATE — active + recently completed (existing behavior).
         if self._goal_manager:

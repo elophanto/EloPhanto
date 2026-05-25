@@ -101,18 +101,35 @@ class CostTracker:
         return self.daily_total < daily_limit and self.task_total < task_limit
 
     async def flush(self, db: Any) -> None:
-        """Persist pending records to the llm_usage table."""
+        """Persist pending records to the llm_usage table.
+
+        Also mirrors each row to ``resource_ledger`` as two entries —
+        one ``type='tokens'`` and one ``type='usd'`` — attributed to
+        the current company (defaults to ``elophanto-self``). Ledger
+        write failures are swallowed: the llm_usage row is the source
+        of truth, the ledger is a denormalized read model. See
+        ``docs/76-ABE-FRAMEWORK.md`` §Phase 1.
+        """
         if not db or not self._pending_records:
             return
         from datetime import datetime
 
+        # Lazy imports to avoid cycle: router → ledger → database; and
+        # company so this still works in unit tests that don't bootstrap
+        # the whole stack.
+        from core.company import current_company_id
+        from core.ledger import LedgerEntry, ResourceLedger
+
+        ledger = ResourceLedger(db)
+
         for record in self._pending_records:
             try:
-                await db.execute_insert(
+                company_id = current_company_id()
+                usage_id = await db.execute_insert(
                     "INSERT INTO llm_usage "
                     "(model, provider, input_tokens, output_tokens, "
-                    "cost_usd, task_type, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "cost_usd, task_type, created_at, company_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         record["model"],
                         record["provider"],
@@ -121,10 +138,42 @@ class CostTracker:
                         record["cost"],
                         record["task_type"],
                         datetime.now(UTC).isoformat(),
+                        company_id,
                     ),
                 )
             except Exception:
-                pass  # Non-fatal
+                continue  # Non-fatal; skip ledger mirror for this record
+
+            # Ledger mirror — two rows per LLM call (tokens + cost).
+            # ResourceLedger.write itself swallows errors, so this block
+            # is safe even if the ledger table somehow isn't there yet.
+            total_tokens = float(record["input_tokens"] + record["output_tokens"])
+            note = f"{record['provider']}/{record['model']}"
+            await ledger.write(
+                LedgerEntry(
+                    company_id=company_id,
+                    direction="out",
+                    type="tokens",
+                    amount=total_tokens,
+                    unit="tok",
+                    source_table="llm_usage",
+                    source_id=usage_id,
+                    note=note,
+                )
+            )
+            await ledger.write(
+                LedgerEntry(
+                    company_id=company_id,
+                    direction="out",
+                    type="usd",
+                    amount=float(record["cost"]),
+                    unit="usd",
+                    source_table="llm_usage",
+                    source_id=usage_id,
+                    note=note,
+                )
+            )
+
         self._pending_records.clear()
 
 

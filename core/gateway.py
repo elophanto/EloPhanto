@@ -74,6 +74,14 @@ class ClientConnection:
     connected_at_monotonic: float = 0.0
     is_loopback: bool = False
 
+    # ABE Phase 6 (docs/76-ABE-FRAMEWORK.md). Which company this
+    # connection is operating under. Default ``elophanto-self`` keeps
+    # legacy clients (no per-company handshake) attributing to the
+    # original scope. Gateway.broadcast can optionally filter on this
+    # field so a per-company panel update only fans out to the
+    # connections that care.
+    company_id: str = "elophanto-self"
+
 
 class Gateway:
     """WebSocket control plane for EloPhanto."""
@@ -615,8 +623,19 @@ class Gateway:
         msg: GatewayMessage,
         session_id: str | None = None,
         exclude_client: str | None = None,
+        *,
+        company_id: str | None = None,
     ) -> None:
-        """Send a message to all clients, or only those subscribed to a session."""
+        """Send a message to all clients, or only those subscribed to a session.
+
+        ``company_id`` (ABE Phase 6, docs/76-ABE-FRAMEWORK.md) is an
+        optional filter — when set, only clients whose own
+        ``company_id`` matches receive the message. None = no filter
+        (broadcast to all matching the other criteria, the legacy
+        behaviour). Used by per-company panel updates so an event
+        scoped to ``acme-inc`` doesn't fan out to a CLI session
+        operating ``elophanto-self``.
+        """
         targets = (
             self._session_clients.get(session_id, set())
             if session_id
@@ -629,6 +648,8 @@ class Gateway:
                 continue
             client = self._clients.get(cid)
             if client and client.websocket:
+                if company_id is not None and client.company_id != company_id:
+                    continue
                 try:
                     await client.websocket.send(payload)
                 except Exception:

@@ -96,6 +96,14 @@ class Candidate:
     mission_id: str | None = None
     dedup_key: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # ABE Phase 4 (docs/76-ABE-FRAMEWORK.md). How far this candidate's
+    # role is from its declared KPI target, normalized to 0–1.
+    # 0.0 = role is meeting or exceeding all KPIs (no extra pull).
+    # 1.0 = role has zero progress against its targets (max pull).
+    # Computed by ``from_role_neglect`` from the role's ``kpi`` map +
+    # the ledger sums over the past 7 days. Default 0.0 so non-role
+    # candidates and legacy constructors are unaffected.
+    kpi_gap: float = 0.0
 
     def stable_dedup_key(self) -> str:
         """Return ``dedup_key`` if set, else a stable hash of
@@ -156,6 +164,15 @@ class ArbiterWeights:
     default — enough to break ties but not enough to overwhelm a
     genuinely better non-mission candidate."""
 
+    kpi_gap_weight: float = 0.4
+    """ABE Phase 4: per-unit-gap multiplier on a role candidate's
+    ``kpi_gap``. The score line is
+    ``score += kpi_gap_weight * kpi_gap * 10`` so a max-gap role
+    (1.0) earns +4 by default — comparable to a stale mission move
+    and enough to nudge the arbiter toward the role whose ledger
+    sums lag furthest behind its target. Set to 0 to disable
+    KPI-gap biasing without removing role candidates from the menu."""
+
     @classmethod
     def from_config_dict(cls, d: dict[str, Any] | None) -> ArbiterWeights:
         """Build weights from a config dict, falling back to defaults
@@ -171,6 +188,7 @@ class ArbiterWeights:
             affect_bias=float(d.get("affect_bias", defaults.affect_bias)),
             cost=float(d.get("cost", defaults.cost)),
             mission_weight=float(d.get("mission_weight", defaults.mission_weight)),
+            kpi_gap_weight=float(d.get("kpi_gap_weight", defaults.kpi_gap_weight)),
         )
 
 
@@ -205,6 +223,10 @@ def score_candidate(
     score -= weights.cost * c.cost
     if c.mission_id and mission_weights:
         score += weights.mission_weight * mission_weights.get(c.mission_id, 0.0)
+    # ABE Phase 4: KPI-gap term. Multiplier of 10 scales a 0–1 gap
+    # into 0–10 raw points before the weight multiplier — so default
+    # weights put a max-gap role at +4, on par with a stale mission.
+    score += weights.kpi_gap_weight * c.kpi_gap * 10
     return score
 
 

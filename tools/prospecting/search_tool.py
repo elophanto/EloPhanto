@@ -101,12 +101,18 @@ class ProspectSearchTool(BaseTool):
                     continue
 
             prospect_id = f"p_{uuid.uuid4().hex[:12]}"
+            # ABE Phase 3: thread company_id explicitly so a prospect
+            # created while a non-default company is active gets
+            # attributed there, not to elophanto-self via the column
+            # DEFAULT.
+            from core.company import current_company_id
+
             await self._db.execute_insert(
                 "INSERT INTO prospects "
                 "(prospect_id, source, platform, title, description, url, "
                 "contact_email, contact_name, budget_min, budget_max, "
-                "required_skills, status, priority, discovered_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 'medium', ?)",
+                "required_skills, status, priority, discovered_at, company_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 'medium', ?, ?)",
                 (
                     prospect_id,
                     p.get("source", "freelance"),
@@ -120,6 +126,7 @@ class ProspectSearchTool(BaseTool):
                     p.get("budget_max", 0),
                     json.dumps(p.get("required_skills", [])),
                     now,
+                    current_company_id(),
                 ),
             )
             saved_ids.append(prospect_id)

@@ -64,6 +64,11 @@ class Goal:
     # goal-completion hook bumps the mission's momentum. See
     # docs/75-AUTONOMOUS-MIND-V2.md §Phase 2.
     mission_id: str | None = None
+    # Optional role assignment (ABE Phase 2, docs/76-ABE-FRAMEWORK.md).
+    # When set, the autonomous mind biases candidate selection so this
+    # goal is preferred during cycles where the active role matches.
+    # None = goal works for any role (the CEO default).
+    assigned_to_role: str | None = None
 
 
 @dataclass
@@ -180,12 +185,18 @@ class GoalManager:
         session_id: str | None = None,
         *,
         mission_id: str | None = None,
+        assigned_to_role: str | None = None,
     ) -> Goal:
         """Create a new goal and persist it.
 
         ``mission_id`` optionally parents the goal under a mission
         (Phase 2). Unparented goals (mission_id=None) are still
         first-class — the missions tier is opt-in.
+
+        ``assigned_to_role`` (ABE Phase 2) optionally scopes the goal
+        to a role persona — e.g. ``assigned_to_role='sales'``. The
+        autonomous mind biases candidate selection accordingly. Null
+        means the goal works for any role (CEO default).
         """
         now = datetime.now(UTC).isoformat()
         g = Goal(
@@ -197,6 +208,7 @@ class GoalManager:
             created_at=now,
             updated_at=now,
             mission_id=mission_id,
+            assigned_to_role=assigned_to_role,
         )
         await self._persist_goal(g)
         return g
@@ -677,8 +689,9 @@ class GoalManager:
             INSERT INTO goals (goal_id, session_id, goal, status, plan_json,
                 context_summary, current_checkpoint, total_checkpoints,
                 attempts, max_attempts, llm_calls_used, cost_usd,
-                created_at, updated_at, completed_at, mission_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, completed_at, mission_id,
+                assigned_to_role)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(goal_id) DO UPDATE SET
                 status = excluded.status,
                 plan_json = excluded.plan_json,
@@ -690,7 +703,8 @@ class GoalManager:
                 cost_usd = excluded.cost_usd,
                 updated_at = excluded.updated_at,
                 completed_at = excluded.completed_at,
-                mission_id = excluded.mission_id
+                mission_id = excluded.mission_id,
+                assigned_to_role = excluded.assigned_to_role
             """,
             (
                 goal.goal_id,
@@ -709,6 +723,7 @@ class GoalManager:
                 goal.updated_at,
                 goal.completed_at,
                 goal.mission_id,
+                goal.assigned_to_role,
             ),
         )
 
@@ -799,6 +814,9 @@ class GoalManager:
             updated_at=row["updated_at"],
             completed_at=row["completed_at"],
             mission_id=row["mission_id"] if "mission_id" in row.keys() else None,
+            assigned_to_role=(
+                row["assigned_to_role"] if "assigned_to_role" in row.keys() else None
+            ),
         )
 
     @staticmethod

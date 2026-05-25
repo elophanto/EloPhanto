@@ -71,13 +71,19 @@ class ProspectEvaluateTool(BaseTool):
         prospect_id = params["prospect_id"]
         now = datetime.now(UTC).isoformat()
 
-        # Verify prospect exists
+        # Verify prospect exists. ABE Phase 3: also pull company_id so
+        # the pipeline_advance ledger event below can attribute to
+        # the prospect's own company without a second SELECT.
         rows = await self._db.fetch_all(
-            "SELECT prospect_id, title FROM prospects WHERE prospect_id = ?",
+            "SELECT prospect_id, title, company_id FROM prospects "
+            "WHERE prospect_id = ?",
             (prospect_id,),
         )
         if not rows:
             return ToolResult(success=False, error=f"Prospect {prospect_id} not found")
+        prospect_company_id = (
+            rows[0][2] if len(rows[0]) > 2 else None
+        ) or "elophanto-self"
 
         decision = params["decision"]
         new_status = (
@@ -100,6 +106,33 @@ class ProspectEvaluateTool(BaseTool):
                 prospect_id,
             ),
         )
+
+        # ABE Phase 3 — pipeline advance ledger mirror. Only the
+        # 'pursue' decision (status='evaluated') counts as a positive
+        # transition. 'skip' (rejected) and 'hold' (new) do not.
+        # Attribute to the prospect's own company (the funnel that
+        # advanced) — not the operator's currently-active company.
+        # Failures swallowed: prospects.status is the source of truth,
+        # ledger is a denormalized read model.
+        if new_status == "evaluated":
+            try:
+                from core.ledger import LedgerEntry, ResourceLedger
+
+                ledger = ResourceLedger(self._db)
+                await ledger.write(
+                    LedgerEntry(
+                        company_id=prospect_company_id,
+                        direction="in",
+                        type="pipeline_advance",
+                        amount=1.0,
+                        unit="count",
+                        source_table="prospects",
+                        source_id=None,  # prospect_id is TEXT, not int
+                        note=f"{prospect_id} → evaluated",
+                    )
+                )
+            except Exception:
+                pass
 
         return ToolResult(
             success=True,

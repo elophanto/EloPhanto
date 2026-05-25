@@ -239,6 +239,14 @@ class ToolRegistry:
         self.register(MissionTouchTool())
         self.register(MissionUpdateTool())
 
+        # Company tools (ABE Phase 7 — docs/76-ABE-FRAMEWORK.md).
+        # company_set_product lets the agent write a company's
+        # product.yaml with operator approval, closing the
+        # read-only/write-only asymmetry of Phase 4.
+        from tools.companies import CompanySetProductTool
+
+        self.register(CompanySetProductTool())
+
         # Identity tools
         from tools.identity.reflect_tool import IdentityReflectTool
         from tools.identity.status_tool import IdentityStatusTool

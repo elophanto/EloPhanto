@@ -54,6 +54,12 @@ class Mission:
     last_touched_at: str | None
     created_at: str
     updated_at: str
+    # ABE Phase 2 (docs/76-ABE-FRAMEWORK.md). Optional role that owns
+    # the mandate (e.g. owner_role='sales' for "grow pipeline to 50/wk").
+    # None = CEO/EloPhanto owns it directly. The autonomous mind's
+    # arbiter biases candidates of role X toward missions with the
+    # matching owner_role.
+    owner_role: str | None = None
 
     def staleness_hours(self, now: datetime | None = None) -> float:
         """How many hours since this mission was last touched.
@@ -107,19 +113,31 @@ class MissionManager:
         priority_weight: float = 1.0,
         *,
         mission_id: str | None = None,
+        owner_role: str | None = None,
     ) -> Mission:
         """Create a mission. ``mission_id`` is optional — supply a
         stable slug (e.g. ``alphascala-launch``) so seeds and config
         files can reference missions by name, fall back to a uuid for
-        ad-hoc missions."""
+        ad-hoc missions. ``owner_role`` (ABE Phase 2) optionally
+        attaches the mission to a role persona; null = CEO."""
         mid = mission_id or f"m_{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC).isoformat()
         await self._db.execute_insert(
             "INSERT INTO missions "
             "(mission_id, title, description, status, priority_weight, "
-            "momentum_score, last_touched_at, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, 0.0, NULL, ?, ?)",
-            (mid, title, description, STATUS_ACTIVE, priority_weight, now, now),
+            "momentum_score, last_touched_at, created_at, updated_at, "
+            "owner_role) "
+            "VALUES (?, ?, ?, ?, ?, 0.0, NULL, ?, ?, ?)",
+            (
+                mid,
+                title,
+                description,
+                STATUS_ACTIVE,
+                priority_weight,
+                now,
+                now,
+                owner_role,
+            ),
         )
         return Mission(
             mission_id=mid,
@@ -131,6 +149,7 @@ class MissionManager:
             last_touched_at=None,
             created_at=now,
             updated_at=now,
+            owner_role=owner_role,
         )
 
     async def get(self, mission_id: str) -> Mission | None:
@@ -284,6 +303,10 @@ class MissionManager:
 
     @staticmethod
     def _row_to_mission(row: Any) -> Mission:
+        # owner_role column is present only after the ABE Phase 2
+        # migration ran. Defensive lookup so legacy test fixtures
+        # that mock the row shape don't break.
+        owner_role = row["owner_role"] if "owner_role" in row.keys() else None
         return Mission(
             mission_id=row["mission_id"],
             title=row["title"],
@@ -294,4 +317,5 @@ class MissionManager:
             last_touched_at=row["last_touched_at"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            owner_role=owner_role,
         )

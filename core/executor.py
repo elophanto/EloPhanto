@@ -115,6 +115,12 @@ class Executor:
         # Typed `Any` to keep executor.py free of affect imports —
         # layering is one-way (executor writes to affect, never reads).
         self._affect_manager: Any = None
+        # ABE Phase 2: role gate handle — set by Agent after construction.
+        # When None, role gating is inert (every tool passes through to
+        # the standard permission check). When set, the executor consults
+        # the current_role contextvar before each call and denies tools
+        # outside the role's allowlist. See docs/76-ABE-FRAMEWORK.md.
+        self._role_manager: Any = None
 
         perms = _load_permissions(config.project_root)
         self._tool_overrides: dict[str, str] = perms.get("tool_overrides", {}) or {}
@@ -182,6 +188,41 @@ class Executor:
                 tool_call_id=tool_call_id,
                 error=f"Invalid parameters: {'; '.join(errors)}",
             )
+
+        # ABE Phase 2: role gate. Runs BEFORE the generic permission
+        # check so a role-deny short-circuits even when permission_mode
+        # would auto-approve. Inert when no role_manager is wired or no
+        # role is active (the default — EloPhanto plays CEO with no
+        # constraint). Lookup failures degrade open (logged at debug)
+        # so a broken role config can't paralyse tool execution.
+        if self._role_manager is not None:
+            from core.role import RoleManager
+            from core.role_context import current_role
+
+            role_name = current_role()
+            if role_name:
+                try:
+                    role = await self._role_manager.get(role_name)
+                except Exception as e:
+                    logger.debug("role gate: lookup of %r failed: %s", role_name, e)
+                    role = None
+                if role is not None and not RoleManager.is_tool_allowed(
+                    role, tool_name, getattr(tool, "group", None)
+                ):
+                    logger.info(
+                        "Tool '%s' denied by role gate (role=%s)",
+                        tool_name,
+                        role_name,
+                    )
+                    return ExecutionResult(
+                        tool_name=tool_name,
+                        tool_call_id=tool_call_id,
+                        denied=True,
+                        error=(
+                            f"Tool {tool_name!r} not in role "
+                            f"{role_name!r} allowlist"
+                        ),
+                    )
 
         # Permission check (per-call callback overrides instance-level)
         approved = self._check_permission(

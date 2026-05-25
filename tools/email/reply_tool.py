@@ -301,9 +301,15 @@ class EmailReplyTool(BaseTool):
         if not self._db:
             return
         try:
-            await self._db.execute_insert(
+            from core.company import current_company_id
+
+            from ._log import mirror_email_to_ledger
+
+            company_id = current_company_id()
+            row_id = await self._db.execute_insert(
                 "INSERT INTO email_log (timestamp, tool_name, inbox_id, direction, "
-                "subject, message_id, thread_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "subject, message_id, thread_id, status, company_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     datetime.now(UTC).isoformat(),
                     "email_reply",
@@ -313,7 +319,14 @@ class EmailReplyTool(BaseTool):
                     str(reply_id),
                     str(thread_id),
                     "sent",
+                    company_id,
                 ),
+            )
+            await mirror_email_to_ledger(
+                self._db,
+                email_log_id=row_id,
+                direction="outbound",
+                tool_name="email_reply",
             )
         except Exception:
             pass

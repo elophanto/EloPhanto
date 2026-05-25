@@ -55,6 +55,17 @@ class CandidateContext:
     # mission_weight bonus from this lookup so generators don't
     # have to know about scoring.
     mission_weight_map: dict[str, float] | None = None
+    # ABE Phase 2 (docs/76-ABE-FRAMEWORK.md). RoleManager handle so
+    # `from_role_neglect` can rank roles by last-active staleness.
+    # Optional — None disables the candidate source rather than
+    # crashing the wakeup. Same shape as the other optional managers.
+    role_manager: Any = None
+    # ABE Phase 7 (docs/76-ABE-FRAMEWORK.md). CompanyManager handle
+    # so `from_unproductized_companies` can flag companies whose
+    # product.yaml is missing. Optional — None disables the source.
+    # Also lets the generator read project_root for the loader.
+    company_manager: Any = None
+    project_root: Any = None  # Path | None
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +234,192 @@ async def from_mission_momentum(ctx: CandidateContext) -> list[Candidate]:
             )
     except Exception as e:
         logger.debug("from_mission_momentum failed: %s", e)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Role neglect (ABE Phase 2)
+# ---------------------------------------------------------------------------
+
+
+async def from_role_neglect(ctx: CandidateContext) -> list[Candidate]:
+    """One candidate per role, ranked by how long since last_active_at.
+
+    Mirrors ``from_mission_momentum``: roles the agent hasn't operated
+    from recently get a ``staleness_bonus`` so the arbiter is biased
+    toward rotating into them. Never-active roles get the strongest
+    bonus (rolling out a new role should not require operator nudging).
+
+    The candidate's action_spec is advisory — the arbiter winning this
+    candidate signals the wakeup loop to call
+    ``set_current_role(name)`` for the cycle, then re-run the other
+    generators (or simply work on whatever the role's allowlist
+    permits). See ``AutonomousMind._cycle`` wiring.
+
+    Caps at 5 candidates so a long role roster can't drown the menu.
+    """
+    if not ctx.role_manager:
+        return []
+    out: list[Candidate] = []
+    try:
+        from datetime import UTC, datetime, timedelta
+
+        # KPI-gap is computed against ledger sums over the past 7
+        # days. Pre-compute the cutoff once per cycle so all roles
+        # are measured against the same window. Lazy-import the
+        # ledger + company so this module stays usable in tests
+        # that don't bootstrap the whole stack.
+        seven_days_ago = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+        ledger = None
+        active_company = "elophanto-self"
+        try:
+            from core.company import current_company_id
+            from core.ledger import ResourceLedger
+
+            # The role_manager has a `_db` attribute (private but
+            # stable since Phase 2 — RoleManager is db-backed).
+            db = getattr(ctx.role_manager, "_db", None)
+            if db is not None:
+                ledger = ResourceLedger(db)
+                active_company = current_company_id()
+        except Exception as e:
+            logger.debug("from_role_neglect: ledger unavailable: %s", e)
+
+        ranked = await ctx.role_manager.list_by_neglect(limit=5)
+        for r in ranked:
+            if r.last_active_at is None:
+                stale_label = "never activated"
+                stale_bonus = 6.0
+            else:
+                # Reuse the mission-momentum scaling so the two
+                # neglect signals are commensurable: 24h → ~1.0,
+                # 7d → ~7.0, capped at 10.
+                try:
+                    t = datetime.fromisoformat(r.last_active_at)
+                    stale_h = max(
+                        0.0,
+                        (datetime.now(UTC) - t).total_seconds() / 3600.0,
+                    )
+                    stale_label = f"{stale_h:.0f}h since last active"
+                    stale_bonus = min(10.0, stale_h / 24.0)
+                except ValueError:
+                    stale_label = "unknown staleness"
+                    stale_bonus = 3.0
+
+            # ABE Phase 4: KPI gap. For each declared KPI on the
+            # role, compute (target - actual) / target where actual
+            # is the ledger sum of that type over the past 7d,
+            # attributed to the current company. Role's gap = mean
+            # across KPIs. Falls through to 0.0 if no KPIs declared
+            # or ledger lookup fails. The 0.0 default keeps role
+            # candidates rankable on staleness alone when product
+            # config is missing.
+            kpi_gap = 0.0
+            if ledger is not None and r.kpi:
+                gaps: list[float] = []
+                for kpi_type, target in r.kpi.items():
+                    try:
+                        target_f = float(target)
+                        if target_f <= 0:
+                            continue
+                        actual = await ledger.sum(
+                            active_company,
+                            type=kpi_type,
+                            direction="in",
+                            since=seven_days_ago,
+                        )
+                        gap = max(0.0, target_f - actual) / target_f
+                        gaps.append(min(1.0, gap))
+                    except Exception as e:
+                        logger.debug(
+                            "from_role_neglect: kpi=%s gap calc failed: %s",
+                            kpi_type,
+                            e,
+                        )
+                if gaps:
+                    kpi_gap = sum(gaps) / len(gaps)
+
+            out.append(
+                Candidate(
+                    source="role_neglect",
+                    action_spec=(
+                        f"Switch into the {r.name.upper()} role for this "
+                        f"cycle ({stale_label}; kpi_gap={kpi_gap:.2f}). "
+                        f"{r.description[:160]}"
+                    ),
+                    expected_value=4.5,
+                    feasibility=0.7,
+                    lens_match=0.4,
+                    cost=2.0,
+                    staleness_bonus=stale_bonus,
+                    kpi_gap=kpi_gap,
+                    dedup_key=f"role_switch:{r.name}",
+                    metadata={"role_name": r.name, "kpi_gap": kpi_gap},
+                )
+            )
+    except Exception as e:
+        logger.debug("from_role_neglect failed: %s", e)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Unproductized companies (ABE Phase 7)
+# ---------------------------------------------------------------------------
+
+
+async def from_unproductized_companies(
+    ctx: CandidateContext,
+) -> list[Candidate]:
+    """One candidate per company whose product.yaml is missing or
+    empty.
+
+    Closes the read-only/write-only asymmetry from Phase 4 — when
+    the dream phase sees no PRODUCT block for a company, the arbiter
+    sees a high-expected-value candidate "draft a product for
+    <slug>: propose what_we_sell, then call company_set_product".
+    The LLM, when this wins arbitration, calls the Phase 7 tool to
+    write the YAML (subject to operator approval).
+
+    Caps at the first 3 unproductized companies so a workspace with
+    a dozen empty ABEs doesn't drown the menu — the arbiter picks
+    one, the agent fixes one, next cycle the menu shrinks.
+    """
+    if not ctx.company_manager or not ctx.project_root:
+        return []
+    out: list[Candidate] = []
+    try:
+        from core.product import load_product
+
+        companies = await ctx.company_manager.list()
+        for c in companies:
+            if c.status != "active":
+                continue
+            if load_product(ctx.project_root, c.id) is not None:
+                continue  # already has a product
+            out.append(
+                Candidate(
+                    source="unproductized_company",
+                    action_spec=(
+                        f"Company '{c.id}' has no product config — draft "
+                        f"a 1-3 sentence what_we_sell naming a real "
+                        f"external consumer and concrete deliverable, "
+                        f"then call company_set_product(slug='{c.id}', "
+                        f"what_we_sell=...). Without a product the dream "
+                        f"phase has no business to anchor against."
+                    ),
+                    expected_value=7.0,
+                    feasibility=0.8,
+                    lens_match=0.5,
+                    cost=2.0,
+                    staleness_bonus=4.0,
+                    dedup_key=f"draft_product:{c.id}",
+                    metadata={"company_id": c.id},
+                )
+            )
+            if len(out) >= 3:
+                break
+    except Exception as e:
+        logger.debug("from_unproductized_companies failed: %s", e)
     return out
 
 
@@ -414,6 +611,8 @@ async def collect_all(ctx: CandidateContext) -> list[Candidate]:
     for gen in (
         from_workable_checkpoints,
         from_mission_momentum,
+        from_role_neglect,
+        from_unproductized_companies,
         from_dream,
         from_reflexes,
         from_external_signals,

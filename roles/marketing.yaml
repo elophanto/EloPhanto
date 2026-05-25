@@ -1,0 +1,25 @@
+name: marketing
+description: |
+  Public presence — posts, replies, audience growth, content.
+prompt_overlay: |
+  You are operating in the MARKETING role for this cycle. Your job
+  is one of: (a) a public post that someone external will read,
+  (b) a reply on a thread, or (c) a piece of content (page, repo,
+  demo) the audience encounters. Internal taxonomies, "voice atlases",
+  or self-descriptions do not count — if the consumer of the artifact
+  is the agent itself, the cycle made no progress. Quality of one
+  post beats quantity of three.
+allowed_tools:
+  - twitter_post
+  - knowledge_search
+  - web_search
+  - web_extract
+  - file_read
+  - file_write
+  - browser_navigate
+  - browser_extract
+  - browser_screenshot
+allowed_tool_groups: []
+kpi:
+  email_sent: 0          # marketing isn't an email channel here
+scope: global
