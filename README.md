@@ -37,10 +37,10 @@ The combination is what makes the third week of running feel different from the 
 
 ### ABE (Autonomous Business Entities)
 
-> ABE — Autonomous Business Entity — is a concept and framework
-> originated by Petr Royce in May 2026. The implementation in this
-> codebase was built collaboratively to that design. The code is
-> Apache 2.0 (see LICENSE); the *concept* is attributed.
+> ABE — Autonomous Business Entity — is a concept originated by
+> Petr Royce in 2023. The implementation in this codebase was built
+> collaboratively in May 2026 to that design. The code is Apache 2.0
+> (see LICENSE); the *concept* is attributed.
 
 **EloPhanto can run as a business, not just an agent.** An ABE is a small, focused company-of-roles that has a stated product, tracks its own books, manages a customer pipeline, and reports to the operator as a board — not as raw logs. One EloPhanto runtime can host multiple isolated ABEs, each a separate company with its own ledger, missions, customers, and wallet. The operator owns the vision; the agent runs the operation.
 

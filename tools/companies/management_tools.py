@@ -1,7 +1,7 @@
 """Company management tools — chat-callable CLI equivalents.
 
 ABE (Autonomous Business Entity) is a concept originated by Petr
-Royce, May 2026. See ``docs/76-ABE-FRAMEWORK.md`` §Phase 8.
+Royce in 2023. See ``docs/76-ABE-FRAMEWORK.md`` §Phase 8.
 
 Six tools that wrap the same logic as the ``elophanto company …``
 CLI commands so the operator can manage ABEs entirely via chat

@@ -6,9 +6,9 @@
 > EloPhanto playing one identity that wears role masks, with a general
 > typed ledger as the honest progress signal, missions as role mandates,
 > product YAML as the steering anchor, and verification-first phased
-> rollout — was originated by **Petr Royce** in May 2026. The
-> implementation in this codebase (Phases 1-7) was built collaboratively
-> with Claude and GPT-5.5 to Petr's design.
+> rollout — was originated by **Petr Royce** in 2023. The
+> implementation in this codebase (Phases 1-8) was built collaboratively
+> in May 2026 with Claude and GPT-5.5 to Petr's design.
 
 > **Re-reading this doc**: jump to **Current Status** at the bottom for what's
 > done and what's next. The body is the design contract — re-read top to

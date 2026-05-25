@@ -2,8 +2,9 @@
 
 **Status**: Active · **Owner**: Petr Royce + Claude · **First written**: 2026-05-25
 
-The Autonomous Business Entity (ABE) concept and framework were
-originated by **Petr Royce** in May 2026.
+The Autonomous Business Entity (ABE) concept was originated by
+**Petr Royce** in 2023. The implementation in this codebase
+was built collaboratively in May 2026 to that design.
 
 How to use the Autonomous Business Entity framework shipped in
 [`docs/76-ABE-FRAMEWORK.md`](76-ABE-FRAMEWORK.md). That doc is the
