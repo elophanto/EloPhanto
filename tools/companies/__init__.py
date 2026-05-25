@@ -14,10 +14,12 @@ from tools.companies.management_tools import (
     CompanyResumeTool,
     CompanyUseTool,
 )
+from tools.companies.onboard_tool import CompanyOnboardTool
 from tools.companies.set_product_tool import CompanySetProductTool
 
 __all__ = [
     "CompanySetProductTool",
+    "CompanyOnboardTool",
     "CompanyListTool",
     "CompanyReportTool",
     "CompanyCreateTool",

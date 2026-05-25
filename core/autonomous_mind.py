@@ -1145,7 +1145,32 @@ class AutonomousMind:
     # ------------------------------------------------------------------
 
     async def _think(self) -> None:
-        """One think cycle: build context, call agent, broadcast results."""
+        """One think cycle: build context, call agent, broadcast results.
+
+        ABE Phase 8.5 (gap fix 2026-05-26): re-read the persisted
+        company at the START of every cycle and pin it into the
+        contextvar for the cycle's duration. Without this, the mind
+        inherits whatever company was active when the AutonomousMind
+        object was first constructed (typically ``elophanto-self``)
+        and keeps writing ledger events / scheduling work / picking
+        candidates against that company — even after the operator
+        called ``company_use(slug='acme-inc')`` in chat. Reading the
+        sidecar each cycle means the mind always picks up the
+        operator's persistent selection. Falls through silently when
+        the sidecar is missing (default contextvar value applies).
+        """
+        try:
+            from core.company import (
+                read_persisted_current_company,
+                set_current_company,
+            )
+
+            persisted = read_persisted_current_company()
+            if persisted:
+                set_current_company(persisted)
+        except Exception as e:
+            logger.debug("mind: company contextvar refresh skipped: %s", e)
+
         self._last_wakeup_time = datetime.now(UTC).strftime("%H:%M UTC")
         cycle_start = time.monotonic()
 
@@ -1507,6 +1532,61 @@ class AutonomousMind:
         goal_text = "\n".join(sections) if sections else "(no active goals)"
         sections.clear()
 
+        # --- Active companies (ABE Phase 8.5 — gap fix 2026-05-26).
+        # Without this block the mind sees no company state and has
+        # no awareness of which ABE it's operating under, what the
+        # product is, or how the ledger is trending. Surfacing the
+        # active companies + product status + headline ledger sums
+        # gives the arbiter + dream phase real anchors per cycle.
+        companies_text = "(no companies tracked)"
+        try:
+            if getattr(self._agent, "_company_manager", None) is not None:
+                from core.company import current_company_id
+                from core.ledger import ResourceLedger
+                from core.product import load_product
+
+                ledger = ResourceLedger(self._agent._db)
+                companies = await self._agent._company_manager.list()
+                active_now = current_company_id()
+                rows: list[str] = []
+                for c in companies:
+                    if c.status != "active":
+                        continue
+                    product = (
+                        load_product(self._project_root, c.id)
+                        if self._project_root is not None
+                        else None
+                    )
+                    product_marker = (
+                        "productized" if product is not None else "no-product"
+                    )
+                    active_marker = " (active)" if c.id == active_now else ""
+                    try:
+                        usd_out = await ledger.sum(c.id, type="usd", direction="out")
+                        emails = await ledger.sum(
+                            c.id, type="email_sent", direction="out"
+                        )
+                        advances = await ledger.sum(
+                            c.id,
+                            type="pipeline_advance",
+                            direction="in",
+                        )
+                        ledger_summary = (
+                            f"spend=${usd_out:.2f} emails={int(emails)} "
+                            f"pipeline_advances={int(advances)}"
+                        )
+                    except Exception:
+                        ledger_summary = "(ledger sums unavailable)"
+                    rows.append(
+                        f"[COMPANY] {c.id}{active_marker} "
+                        f"({product_marker}) — {ledger_summary}"
+                    )
+                if rows:
+                    companies_text = "\n".join(rows[:5])
+        except Exception as e:
+            logger.debug("state snapshot: companies block skipped: %s", e)
+        sections.clear()
+
         # --- Scheduled tasks ---
         try:
             if self._agent._scheduler:
@@ -1633,7 +1713,7 @@ class AutonomousMind:
         except Exception:
             pass
 
-        parts = [goal_text, schedule_text, memory_text, knowledge_text]
+        parts = [companies_text, goal_text, schedule_text, memory_text, knowledge_text]
         if drift_text:
             parts.append(f"\nKNOWLEDGE DRIFT DETECTED:\n{drift_text}")
         if commune_text:

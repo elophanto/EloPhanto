@@ -246,6 +246,7 @@ class ToolRegistry:
         from tools.companies import (
             CompanyCreateTool,
             CompanyListTool,
+            CompanyOnboardTool,
             CompanyPauseTool,
             CompanyReportTool,
             CompanyResumeTool,
@@ -254,6 +255,7 @@ class ToolRegistry:
         )
 
         self.register(CompanySetProductTool())
+        self.register(CompanyOnboardTool())
         self.register(CompanyListTool())
         self.register(CompanyReportTool())
         self.register(CompanyCreateTool())
