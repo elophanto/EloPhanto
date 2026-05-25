@@ -63,6 +63,14 @@ class ScheduleEntry:
     # the original SCHEDULED priority (above MIND). Auto-detected from
     # the cron expression at create time via ``_is_cadence_cron``.
     cadence: bool = False
+    # ABE Phase 6 (docs/76-ABE-FRAMEWORK.md). Which company the task
+    # operates under. Defaults to ``elophanto-self`` (the column
+    # DEFAULT from Phase 1's migration). Scheduler activates this
+    # company in the contextvar around the task callback so the
+    # task's writes (llm_usage, payments, email, prospects, ledger)
+    # all attribute to the right company even when the operator's
+    # CLI is set to a different one.
+    company_id: str = "elophanto-self"
 
 
 @dataclass
@@ -965,6 +973,22 @@ class TaskScheduler:
             (schedule_id, now),
         )
 
+        # ABE Phase 6 (docs/76-ABE-FRAMEWORK.md). Set the active
+        # company for the scope of this task so its writes
+        # (llm_usage, payments, email, prospects, ledger) attribute
+        # to ``schedule.company_id`` even when the operator's CLI is
+        # currently scoped to a different company. The contextvar
+        # set lives inside the asyncio.create_task closure so it
+        # propagates through the entire task lifetime, and we reset
+        # it in the finally block below regardless of outcome.
+        from core.company import (
+            current_company_id,
+            reset_current_company,
+            set_current_company,
+        )
+
+        prev_company = current_company_id()
+        company_token = set_current_company(schedule.company_id)
         # Wrap executor in a tracked task so we can cancel it on delete/disable
         executor_task: asyncio.Task[Any] = asyncio.create_task(
             self._task_executor(schedule.task_goal, cadence=schedule.cadence)
@@ -1066,6 +1090,16 @@ class TaskScheduler:
                     await self.disable_schedule(schedule_id)
         finally:
             self._running_tasks.pop(schedule_id, None)
+            # ABE Phase 6: restore previous company scope. Reset
+            # regardless of outcome so a failed task can't leak its
+            # company context into subsequent unrelated work.
+            try:
+                reset_current_company(company_token)
+            except Exception:
+                # If reset somehow fails (e.g. wrong context), fall
+                # back to setting the previous slug explicitly. The
+                # contextvar default keeps everything sane either way.
+                set_current_company(prev_company)
 
     async def _load_from_db(self) -> list[ScheduleEntry]:
         """Load all schedules from the database."""
@@ -1101,6 +1135,7 @@ class TaskScheduler:
             direct_tool=_opt("direct_tool"),
             direct_params=_opt("direct_params"),
             cadence=bool(_opt("cadence") or 0),
+            company_id=_opt("company_id") or "elophanto-self",
         )
 
 

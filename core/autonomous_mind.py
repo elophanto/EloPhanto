@@ -1292,6 +1292,21 @@ class AutonomousMind:
                 self._recent_actions = self._recent_actions[-50:]
             _append_action_log(self._project_root, action_summary)
 
+            # ABE Phase 2: touch the active role so list_by_neglect
+            # ranks accurately. The role is whatever the operator (or,
+            # in Phase 4, the arbiter) set — the mind doesn't choose
+            # the role itself in Phase 2, it just records that the
+            # role was active this cycle. None-safe.
+            try:
+                from core.role_context import current_role
+
+                active_role = current_role()
+                rm = getattr(self._agent, "_role_manager", None)
+                if active_role and rm is not None:
+                    await rm.touch(active_role)
+            except Exception as e:
+                logger.debug("role touch at cycle end failed: %s", e)
+
             # Broadcast action with full details
             elapsed = time.monotonic() - cycle_start
             daily_budget = self._daily_budget()
@@ -1731,6 +1746,15 @@ class AutonomousMind:
             ego_manager=self._agent._ego_manager,
             dream_focus=_dream_focus_for_today(),
             mission_weight_map=mission_weight_map,
+            # ABE Phase 2 — enables from_role_neglect candidate source.
+            # None-safe; from_role_neglect returns [] when role_manager
+            # is missing, so legacy installs / test stubs don't break.
+            role_manager=getattr(self._agent, "_role_manager", None),
+            # ABE Phase 7 — enables from_unproductized_companies. Same
+            # None-safe contract: the generator returns [] when either
+            # company_manager or project_root is missing.
+            company_manager=getattr(self._agent, "_company_manager", None),
+            project_root=self._project_root,
         )
 
         all_candidates = await collect_all(ctx)

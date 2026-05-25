@@ -253,11 +253,16 @@ class EmailSendTool(BaseTool):
         if not self._db:
             return
         try:
+            from core.company import current_company_id
+
+            from ._log import mirror_email_to_ledger
+
+            company_id = current_company_id()
             if error:
-                await self._db.execute_insert(
+                row_id = await self._db.execute_insert(
                     "INSERT INTO email_log (timestamp, tool_name, inbox_id, direction, "
-                    "recipient, subject, message_id, status, error) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "recipient, subject, message_id, status, error, company_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         datetime.now(UTC).isoformat(),
                         "email_send",
@@ -268,12 +273,14 @@ class EmailSendTool(BaseTool):
                         message_id,
                         status,
                         error,
+                        company_id,
                     ),
                 )
             else:
-                await self._db.execute_insert(
+                row_id = await self._db.execute_insert(
                     "INSERT INTO email_log (timestamp, tool_name, inbox_id, direction, "
-                    "recipient, subject, message_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "recipient, subject, message_id, status, company_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         datetime.now(UTC).isoformat(),
                         "email_send",
@@ -283,7 +290,19 @@ class EmailSendTool(BaseTool):
                         subject,
                         message_id,
                         status,
+                        company_id,
                     ),
+                )
+            # Mirror to ledger — outbound only counts on success
+            # (failures are still logged in email_log for triage but
+            # shouldn't show up as a "touch" in the board view).
+            if not error:
+                await mirror_email_to_ledger(
+                    self._db,
+                    email_log_id=row_id,
+                    direction="outbound",
+                    tool_name="email_send",
+                    recipient=to_addr,
                 )
         except Exception:
             pass

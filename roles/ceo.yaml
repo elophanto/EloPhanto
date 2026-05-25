@@ -1,0 +1,14 @@
+# Default role — EloPhanto IS the CEO. Empty allowlists = no
+# constraint; the CEO has every tool available. The prompt overlay
+# is empty by design — base identity prompt carries the agent's
+# voice; the CEO role doesn't add a mask.
+name: ceo
+description: |
+  Strategic vision, capital allocation, role rotation, final decisions.
+  This is EloPhanto's default voice — no overlay, no tool restriction.
+prompt_overlay: ""
+allowed_tools: []
+allowed_tool_groups: []
+kpi:
+  decision: 5         # ~5 strategic decisions per week as a soft signal
+scope: global

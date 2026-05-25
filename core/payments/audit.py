@@ -34,14 +34,28 @@ class PaymentAuditor:
         fee_currency: str | None = None,
         error: str | None = None,
     ) -> int:
-        """Insert an audit record. Returns the row ID."""
+        """Insert an audit record. Returns the row ID.
+
+        Also mirrors to ``resource_ledger`` (one row, attributed to the
+        current company) so the board view's "spend" / "revenue" panels
+        can sum without having to know about payment_audit specifically.
+        Currency is normalized into the ``type`` field: USD becomes
+        ``type='usd'``; other currencies pass through as ``type=<lowercase>``
+        so a future board can sum them separately. Direction follows
+        ``payment_type``: 'outbound' → out, 'inbound' / 'received' → in.
+        See ``docs/76-ABE-FRAMEWORK.md`` §Phase 1.
+        """
+        from core.company import current_company_id
+        from core.ledger import LedgerEntry, ResourceLedger
+
         now = datetime.now(UTC).isoformat()
+        company_id = current_company_id()
         row_id: int = await self._db.execute_insert(
             "INSERT INTO payment_audit "
             "(timestamp, tool_name, amount, currency, recipient, payment_type, "
             "provider, chain, status, session_id, channel, task_context, "
-            "transaction_ref, fee_amount, fee_currency, error) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "transaction_ref, fee_amount, fee_currency, error, company_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 now,
                 tool_name,
@@ -59,7 +73,30 @@ class PaymentAuditor:
                 fee_amount,
                 fee_currency,
                 error,
+                company_id,
             ),
+        )
+
+        # Direction: outbound payments leave the wallet (out); inbound /
+        # received payments fill it (in). Anything else (e.g. 'check')
+        # defaults to 'out' — undercounting revenue is safer than
+        # overcounting, and we'll add labels as new payment_types appear.
+        ledger_direction = (
+            "in" if payment_type.lower() in ("inbound", "received", "in") else "out"
+        )
+        ledger_type = "usd" if currency.upper() == "USD" else currency.lower()
+        ledger = ResourceLedger(self._db)
+        await ledger.write(
+            LedgerEntry(
+                company_id=company_id,
+                direction=ledger_direction,
+                type=ledger_type,
+                amount=float(amount),
+                unit=ledger_type,
+                source_table="payment_audit",
+                source_id=row_id,
+                note=f"{tool_name} → {recipient}",
+            )
         )
         return row_id
 
@@ -82,7 +119,9 @@ class PaymentAuditor:
                 (status, error, audit_id),
             )
 
-    async def get_history(self, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
+    async def get_history(
+        self, limit: int = 50, status: str | None = None
+    ) -> list[dict[str, Any]]:
         """Query payment history."""
         if status:
             rows = await self._db.execute(
@@ -107,7 +146,9 @@ class PaymentAuditor:
     async def get_monthly_total(self) -> float:
         """Sum of executed amounts in the current calendar month."""
         now = datetime.now(UTC)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        month_start = now.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
         rows = await self._db.execute(
             "SELECT COALESCE(SUM(amount), 0) AS total FROM payment_audit "
             "WHERE status = 'executed' AND timestamp >= ?",

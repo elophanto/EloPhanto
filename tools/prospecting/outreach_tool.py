@@ -92,13 +92,20 @@ class ProspectOutreachTool(BaseTool):
         action = params["action"]
         now = datetime.now(UTC).isoformat()
 
-        # Verify prospect exists
+        # Verify prospect exists. ABE Phase 3: read its company_id at
+        # the same time so the pipeline_advance ledger event is
+        # attributed to the company that OWNS the prospect (the funnel
+        # advancing), not whatever company is currently active in the
+        # contextvar (which could be a different operator role context).
         rows = await self._db.fetch_all(
-            "SELECT prospect_id FROM prospects WHERE prospect_id = ?",
+            "SELECT prospect_id, company_id FROM prospects WHERE prospect_id = ?",
             (prospect_id,),
         )
         if not rows:
             return ToolResult(success=False, error=f"Prospect {prospect_id} not found")
+        prospect_company_id = (
+            rows[0][1] if len(rows[0]) > 1 else None
+        ) or "elophanto-self"
 
         # Check daily outreach limit (max 10 per day)
         if action == "email_sent":
@@ -117,13 +124,17 @@ class ProspectOutreachTool(BaseTool):
                     error=f"Daily outreach limit reached ({daily_count}/10). Try again tomorrow.",
                 )
 
-        # Insert outreach log entry
+        # Insert outreach log entry. ABE Phase 3: attribute to the
+        # prospect's company (its funnel is what activity is being
+        # logged for) — same rule as the ledger event below. This
+        # keeps the outreach history coherent if a prospect ever
+        # changes hands between companies.
         direction = "inbound" if action == "reply_received" else "outbound"
-        await self._db.execute_insert(
+        outreach_id = await self._db.execute_insert(
             "INSERT INTO outreach_log "
             "(prospect_id, action, channel, message_id, content_preview, "
-            "direction, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "direction, created_at, company_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 prospect_id,
                 action,
@@ -132,6 +143,7 @@ class ProspectOutreachTool(BaseTool):
                 params.get("content_preview", "")[:200],
                 direction,
                 now,
+                prospect_company_id,
             ),
         )
 
@@ -153,6 +165,35 @@ class ProspectOutreachTool(BaseTool):
                 f"UPDATE prospects SET {update_fields} WHERE prospect_id = ?",
                 tuple(update_params),
             )
+
+        # ABE Phase 3 — pipeline advance ledger mirror. Positive stage
+        # transitions (evaluated, outreach_sent, replied, converted)
+        # count as pipeline_advance events. Negative outcomes
+        # (rejected, expired) do NOT — those are pipeline shrinkage,
+        # not progress. Failures swallowed: outreach_log is the source
+        # of truth, ledger is a denormalized read model.
+        if new_status in ("evaluated", "outreach_sent", "replied", "converted"):
+            try:
+                from core.ledger import LedgerEntry, ResourceLedger
+
+                ledger = ResourceLedger(self._db)
+                await ledger.write(
+                    LedgerEntry(
+                        # Attribute to the prospect's company (its
+                        # funnel is what advanced) not the operator's
+                        # currently-active company.
+                        company_id=prospect_company_id,
+                        direction="in",
+                        type="pipeline_advance",
+                        amount=1.0,
+                        unit="count",
+                        source_table="outreach_log",
+                        source_id=outreach_id,
+                        note=f"{prospect_id} → {new_status}",
+                    )
+                )
+            except Exception:
+                pass
 
         return ToolResult(
             success=True,

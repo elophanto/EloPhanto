@@ -94,6 +94,12 @@ class Identity:
     version: int = 1
     created_at: str = ""
     updated_at: str = ""
+    # ABE Phase 2 (docs/76-ABE-FRAMEWORK.md). Persisted hint of the
+    # role EloPhanto was last operating in. Ephemeral by intent — the
+    # active role is the contextvar in ``core.role_context``; this
+    # column lets the dashboard / report show the last-known role
+    # across restarts without consulting that runtime state.
+    role_persona: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +221,11 @@ class IdentityManager:
         # without this, the file says the new name but the indexed
         # chunks still say the old one.
         self._indexer: Any = None
+        # ABE Phase 2: wired by Agent after construction so the
+        # role-overlay block in build_identity_context can fetch the
+        # active role's prompt overlay. None during Phase 1-only window
+        # keeps build_identity_context fully backwards-compatible.
+        self._role_manager: Any = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -564,6 +575,28 @@ class IdentityManager:
             if accounts:
                 acct_str = ", ".join(f"{k}: {v}" for k, v in accounts.items())
                 parts.append(f"  <accounts>{acct_str}</accounts>")
+
+        # ABE Phase 2: role overlay. When the contextvar names an
+        # active role AND we have a role_manager wired, append the
+        # role's prompt overlay so the LLM gets per-cycle role context
+        # without us having to mutate the identity row itself.
+        # Failures (missing role, lookup error) silently degrade to
+        # no overlay — base identity context is still valid.
+        try:
+            from core.role_context import current_role
+
+            role_name = current_role()
+            if role_name and self._role_manager is not None:
+                role = await self._role_manager.get(role_name)
+                if role is not None:
+                    parts.append(f"  <role>{role.name}</role>")
+                    if role.prompt_overlay:
+                        parts.append(
+                            f"  <role_overlay>{role.prompt_overlay}</role_overlay>"
+                        )
+        except Exception as e:
+            logger.debug("role overlay skipped: %s", e)
+
         parts.append("</self_model>")
 
         return "\n".join(parts)
@@ -720,8 +753,9 @@ updated: {now}
             "INSERT OR REPLACE INTO identity "
             "(id, creator, display_name, purpose, values_json, beliefs_json, "
             "curiosities_json, boundaries_json, capabilities_json, personality_json, "
-            "communication_style, initial_thoughts, version, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "communication_style, initial_thoughts, version, created_at, updated_at, "
+            "role_persona) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 identity.id,
                 "EloPhanto",  # Always immutable
@@ -738,6 +772,7 @@ updated: {now}
                 identity.version,
                 identity.created_at,
                 identity.updated_at,
+                identity.role_persona,
             ),
         )
 
@@ -785,6 +820,13 @@ updated: {now}
             version=row["version"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            # row["role_persona"] is present only after the Phase 2
+            # migration ran. sqlite3.Row's KeyError on missing keys
+            # would break legacy DBs in tests that mock the row shape —
+            # use a defensive lookup with default None.
+            role_persona=(
+                row["role_persona"] if "role_persona" in row.keys() else None
+            ),
         )
 
     async def _rewrite_self_narrative(self, old_name: str, new_name: str) -> None:

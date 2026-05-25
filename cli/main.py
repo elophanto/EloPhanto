@@ -10,6 +10,7 @@ import click
 from cli.affect_cmd import affect_cmd
 from cli.bootstrap_cmd import bootstrap_cmd
 from cli.chat_cmd import chat_cmd
+from cli.company_cmd import company_cmd
 from cli.config_cmd import config_cmd
 from cli.daemon_cmd import daemon_cmd
 from cli.doctor_cmd import doctor_cmd
@@ -19,6 +20,7 @@ from cli.kid_cmd import kid_cmd
 from cli.mcp_cmd import mcp_cmd
 from cli.mission_cmd import mission_cmd
 from cli.polymarket_cmd import polymarket_cmd
+from cli.role_cmd import role_cmd
 from cli.rollback_cmd import rollback_cmd
 from cli.schedule_cmd import schedule_cmd
 from cli.skills_cmd import skills_cmd
@@ -26,6 +28,40 @@ from cli.stop_cmd import resume_cmd, stop_cmd
 from cli.telegram_cmd import telegram_cmd
 from cli.update_cmd import update_cmd
 from cli.vault_cmd import vault_cmd
+
+
+def _load_persisted_company() -> None:
+    """Read ~/.elophanto/current_company once at CLI startup so the
+    operator's selected company carries across invocations. Silent
+    no-op if the file is missing or unreadable (default contextvar
+    value 'elophanto-self' applies)."""
+    try:
+        from core.company import read_persisted_current_company, set_current_company
+
+        slug = read_persisted_current_company()
+        if slug:
+            set_current_company(slug)
+    except Exception:
+        pass  # never block CLI startup on a sidecar-file issue
+
+
+def _load_persisted_role() -> None:
+    """Read ~/.elophanto/current_role once at startup so the operator's
+    scoped role survives across invocations. Silent no-op when missing
+    (default contextvar value ``None`` = playing CEO with no overlay).
+    ABE Phase 2 — mirrors the company-persistence pattern above."""
+    try:
+        from core.role_context import read_persisted_current_role, set_current_role
+
+        name = read_persisted_current_role()
+        if name:
+            set_current_role(name)
+    except Exception:
+        pass
+
+
+_load_persisted_company()
+_load_persisted_role()
 
 
 @click.group()
@@ -54,6 +90,8 @@ cli.add_command(mission_cmd, "mission")
 cli.add_command(config_cmd, "config")
 cli.add_command(stop_cmd, "stop")
 cli.add_command(resume_cmd, "resume")
+cli.add_command(company_cmd, "company")
+cli.add_command(role_cmd, "role")
 
 
 if __name__ == "__main__":

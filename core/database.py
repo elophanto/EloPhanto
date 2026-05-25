@@ -223,6 +223,75 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_missions_last_touched
         ON missions(last_touched_at)
     """,
+    # ABE framework (docs/76-ABE-FRAMEWORK.md) — companies + general
+    # resource ledger. `companies` is the single isolation key (a slug,
+    # not an int) threaded through every multi-tenant table via the
+    # company_id columns added in _MIGRATIONS below. `resource_ledger`
+    # is the general typed event log — money (`type='usd'`), LLM tokens
+    # (`type='tokens'`), email touches (`type='email_sent'`), pipeline
+    # advances (`type='pipeline_advance'`), decisions (`type='decision'`)
+    # all share this one table. Doubles as the honest progress signal:
+    # if a goal cycle produces zero ledger events, it made no progress
+    # regardless of what the LLM narrates.
+    """
+    CREATE TABLE IF NOT EXISTS companies (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active','paused','archived')),
+        product_yaml TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS resource_ledger (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+        type TEXT NOT NULL,
+        amount REAL NOT NULL,
+        unit TEXT NOT NULL,
+        source_table TEXT,
+        source_id INTEGER,
+        role_name TEXT,
+        note TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ledger_company_ts
+        ON resource_ledger(company_id, ts)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ledger_company_type
+        ON resource_ledger(company_id, type)
+    """,
+    # ABE Phase 2 (docs/76-ABE-FRAMEWORK.md) — role personas. A role
+    # is a system-prompt overlay + tool subset that EloPhanto switches
+    # into per cycle. NOT a separate identity — EloPhanto stays one
+    # evolving self and plays the CEO by default. Loaded from
+    # roles/<name>.yaml files on boot, mirrored into this table for
+    # query efficiency (the candidate generator ranks by neglect).
+    """
+    CREATE TABLE IF NOT EXISTS roles (
+        role_name TEXT PRIMARY KEY,
+        description TEXT NOT NULL DEFAULT '',
+        prompt_overlay TEXT NOT NULL DEFAULT '',
+        allowed_tools TEXT NOT NULL DEFAULT '[]',
+        allowed_tool_groups TEXT NOT NULL DEFAULT '[]',
+        kpi_json TEXT NOT NULL DEFAULT '{}',
+        scope TEXT NOT NULL DEFAULT 'global'
+            CHECK (scope IN ('global','company')),
+        last_active_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_roles_last_active
+        ON roles(last_active_at)
+    """,
     # Dream journal — every dream-phase ideation persists here so the next
     # cycle's dream can see what was already proposed (and not picked).
     # Kills the amnesia that caused dream to keep re-proposing the same
@@ -801,6 +870,29 @@ _MIGRATIONS = [
     # operator requests). FK is informational — SQLite enforces only
     # when foreign_keys pragma is on; we don't depend on cascade.
     "ALTER TABLE goals ADD COLUMN mission_id TEXT",
+    # ABE framework Phase 1 (docs/76-ABE-FRAMEWORK.md) — company_id
+    # column on every multi-tenant table. DEFAULT 'elophanto-self' so
+    # the 12,968 historical llm_usage rows (and all other live rows)
+    # attribute to the default company automatically, no backfill UPDATE
+    # required. Integrity enforced in app code; no REFERENCES clause
+    # (codebase convention: FK constraints are informational, see the
+    # mission_id comment above).
+    # ABE Phase 2 — role overlay on identity, owner_role on missions,
+    # assigned_to_role on goals. All nullable; null = "CEO" /
+    # EloPhanto-as-self. See docs/76-ABE-FRAMEWORK.md §Phase 2.
+    "ALTER TABLE identity ADD COLUMN role_persona TEXT",
+    "ALTER TABLE missions ADD COLUMN owner_role TEXT",
+    "ALTER TABLE goals    ADD COLUMN assigned_to_role TEXT",
+    "ALTER TABLE sessions         ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE missions         ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE goals            ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE scheduled_tasks  ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE llm_usage        ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE payment_audit    ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE payment_requests ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE email_log        ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE prospects        ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE outreach_log     ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
 ]
 
 
@@ -852,6 +944,21 @@ class Database:
                 self._conn.commit()
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # Seed default company for ABE framework (idempotent).
+        # The DEFAULT 'elophanto-self' on company_id columns makes the
+        # backfill free; this insert just makes sure the row that all
+        # those rows reference actually exists.
+        from datetime import UTC, datetime
+
+        now_iso = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            "INSERT OR IGNORE INTO companies "
+            "(id, name, status, created_at, updated_at) "
+            "VALUES ('elophanto-self', 'EloPhanto (self)', 'active', ?, ?)",
+            (now_iso, now_iso),
+        )
+        self._conn.commit()
 
         # Initialize FTS5 for session search
         self._init_fts5()
@@ -1104,6 +1211,18 @@ class Database:
                 return cursor.fetchall()
 
         return await asyncio.to_thread(_exec)
+
+    # Alias used by the prospect tools (tools/prospecting/*) that
+    # were originally written against a wrapper API. Without this
+    # alias every prospect tool call ends in `AttributeError:
+    # 'Database' object has no attribute 'fetch_all'` — consistent
+    # with the live DB having 0 prospect rows. ABE Phase 3 brings
+    # those tools to life; keeping the alias avoids breaking the
+    # existing call sites.
+    async def fetch_all(
+        self, sql: str, params: tuple[Any, ...] | list[Any] = ()
+    ) -> list[sqlite3.Row]:
+        return await self.execute(sql, params)
 
     async def execute_insert(
         self, sql: str, params: tuple[Any, ...] | list[Any] = ()
