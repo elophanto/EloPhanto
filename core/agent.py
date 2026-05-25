@@ -1079,7 +1079,18 @@ class Agent:
                 from core.company import CompanyManager
                 from core.role import RoleManager
 
-                roles_dir = self._project_root / "roles"
+                # ABE Phase 2/7/8 silent-failure fix (2026-05-25):
+                # Agent does NOT have ``self._project_root`` — only
+                # ``self._config.project_root``. The original Phase 2
+                # code used the wrong attribute, which raised
+                # AttributeError that the outer try/except swallowed
+                # at WARNING level, leaving role_manager,
+                # company_manager, and every ABE tool's dependencies
+                # all None in production. The CLI worked because it
+                # has its own process that constructs managers
+                # directly from config.project_root; the AGENT side
+                # silently never ran end-to-end until this fix.
+                roles_dir = self._config.project_root / "roles"
                 self._role_manager = RoleManager(db=self._db, roles_dir=roles_dir)
                 try:
                     synced = await self._role_manager.sync_from_disk()
@@ -1093,7 +1104,7 @@ class Agent:
                 # files. Backfill the seed data dir in case the agent
                 # runs before any CLI invocation.
                 self._company_manager = CompanyManager(
-                    db=self._db, project_root=self._project_root
+                    db=self._db, project_root=self._config.project_root
                 )
                 try:
                     self._company_manager.ensure_data_dir("elophanto-self")
@@ -1126,7 +1137,17 @@ class Agent:
                         config=self._config.goals,
                     )
             except Exception as e:
-                logger.warning(f"Goal system setup failed: {e}")
+                # 2026-05-25: this except previously hid an
+                # AttributeError on self._project_root that crashed
+                # role_manager + company_manager construction for 3
+                # phases. Logging at WARNING with exc_info so the
+                # next such failure surfaces with a real traceback
+                # — silent partial-init is the pattern that bit us.
+                logger.warning(
+                    "Goal/mission/role/company system setup failed: %s",
+                    e,
+                    exc_info=True,
+                )
 
         # Initialize autonomous mind
         if self._config.autonomous_mind.enabled:
@@ -2107,7 +2128,7 @@ class Agent:
             if hasattr(tool, "_db"):
                 tool._db = self._db
             if hasattr(tool, "_project_root"):
-                tool._project_root = self._project_root
+                tool._project_root = self._config.project_root
             if hasattr(tool, "_company_manager"):
                 tool._company_manager = self._company_manager
 

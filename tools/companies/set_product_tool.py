@@ -1,7 +1,7 @@
 """``company_set_product`` — agent-writable product YAML.
 
 ABE (Autonomous Business Entity) is a concept originated by Petr
-Royce, May 2026.
+Royce in 2023.
 
 Closes the read-only/write-only asymmetry of Phase 4: before this
 tool, the agent could *read* `companies/<slug>/company.yaml` but
