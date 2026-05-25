@@ -622,6 +622,16 @@ class ToolRegistry:
             "browser_type",
             "browser_evaluate",
             "tool_discover",
+            # ABE Phase 8.5 (docs/76-ABE-FRAMEWORK.md — Verification
+            # failure log row 5): without these in CORE the LLM never
+            # sees the canonical-source ABE tools and falls back to
+            # answering company/role questions from scratchpad memory
+            # — exactly the failure mode the awareness block was
+            # supposed to fix. Token cost: 4 schemas per LLM call.
+            "company_list",
+            "company_report",
+            "company_onboard",
+            "role_list",
         }
 
         _DEFERRED_TOOLS = {

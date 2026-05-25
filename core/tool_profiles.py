@@ -43,6 +43,24 @@ DEFAULT_PROFILES: dict[str, set[str]] = {
         "scheduling",
         "mind",
         "hub",
+        # ABE Phase 8.5 (docs/76-ABE-FRAMEWORK.md — Verification
+        # failure log row 5): without these in `full` the PROFILE-tier
+        # ABE management tools (company_create / company_use /
+        # company_pause / role_use / role_sync / role_show /
+        # company_set_product) are invisible to the LLM during
+        # planning tasks. The canonical entry points (company_list,
+        # company_report, company_onboard, role_list) are CORE-tier
+        # so they're always visible; everything else needs this
+        # profile entry.
+        "companies",
+        "roles",
+        # Same issue affected the mission tier (Phase 2 of mind v2,
+        # docs/75) and the existing prospecting toolset — both have
+        # PROFILE-tier tools but their groups weren't in any default
+        # profile. Adding here closes the same class of gap for the
+        # autonomous mind's planning surface.
+        "missions",
+        "prospecting",
     },
 }
 
