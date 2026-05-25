@@ -599,6 +599,53 @@ class IdentityManager:
 
         parts.append("</self_model>")
 
+        # ABE framework awareness (docs/76-ABE-FRAMEWORK.md). Tells the
+        # LLM that this agent runs inside an Autonomous Business Entity
+        # framework so it reaches for the structured tools (company_list,
+        # company_report, role_list) when the operator asks anything
+        # about "companies" or "roles" — NOT scan memory + reconstruct
+        # from goal history (the failure observed 2026-05-25 where the
+        # agent listed Happy Girlie / Scrape.ai / Horse Polo from memory
+        # instead of calling company_list and getting elophanto-self).
+        # Always present, not conditional — Phase 1 always seeds
+        # elophanto-self so there's always at least one ABE company.
+        parts.append(
+            "\n<abe_framework>\n"
+            "This agent runs inside the ABE (Autonomous Business Entity)\n"
+            "framework — docs/76-ABE-FRAMEWORK.md. Key facts the LLM\n"
+            "must internalize so it doesn't drift from old semantics:\n"
+            "\n"
+            "1. The word 'company' has a SPECIFIC STRUCTURED MEANING:\n"
+            "   a row in the `companies` table, scoping ledger events,\n"
+            "   prospects, sessions, scheduled tasks, etc. The canonical\n"
+            "   source is the `company_list` tool — call it whenever\n"
+            "   the operator asks about companies. Do NOT reconstruct\n"
+            "   from goal history or scratchpad memory; those are\n"
+            "   DIFFERENT concepts (project mentions, ideas tried) and\n"
+            "   confusing them with ABE companies is the documented\n"
+            "   failure mode.\n"
+            "\n"
+            "2. The word 'role' means a system-prompt overlay + tool\n"
+            "   allowlist (sales / support / ops / marketing / ceo).\n"
+            "   Canonical source: the `role_list` tool. The CEO role is\n"
+            "   the default (no constraint, full tools); switching into\n"
+            "   another role narrows what the operator + agent can do\n"
+            "   for the session.\n"
+            "\n"
+            "3. The `resource_ledger` table is the honest progress\n"
+            "   signal: a cycle that produces zero ledger events made\n"
+            "   no progress regardless of how it felt. `company_report`\n"
+            "   surfaces the headline numbers (revenue / spend / tokens /\n"
+            "   email touches / pipeline advances) — call it when asked\n"
+            "   how a company is doing.\n"
+            "\n"
+            "4. Available ABE tools (Phase 7-8): company_list,\n"
+            "   company_report, company_create, company_use,\n"
+            "   company_pause, company_resume, company_set_product,\n"
+            "   role_list, role_show, role_use, role_sync.\n"
+            "</abe_framework>"
+        )
+
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
