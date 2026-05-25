@@ -1331,6 +1331,7 @@ API) and `tests/test_tools/test_company_set_product.py`:
 
 ## Relation to other docs
 
+- [`docs/78-ABE-OPERATOR-GUIDE.md`](78-ABE-OPERATOR-GUIDE.md) — **operator playbook**: commands you run, files you edit, what to watch in `company report`, common failure modes
 - [`docs/17-IDENTITY.md`](17-IDENTITY.md) — identity manager EloPhanto uses; we extend it with `role_persona`, do not replace
 - [`docs/13-GOAL-LOOP.md`](13-GOAL-LOOP.md) — goals; we add `assigned_to_role`
 - [`docs/75-AUTONOMOUS-MIND-V2.md`](75-AUTONOMOUS-MIND-V2.md) — missions/arbiter; we add `owner_role` to missions and `from_role_neglect` to arbiter
