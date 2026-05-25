@@ -239,13 +239,41 @@ class ToolRegistry:
         self.register(MissionTouchTool())
         self.register(MissionUpdateTool())
 
-        # Company tools (ABE Phase 7 — docs/76-ABE-FRAMEWORK.md).
-        # company_set_product lets the agent write a company's
-        # product.yaml with operator approval, closing the
-        # read-only/write-only asymmetry of Phase 4.
-        from tools.companies import CompanySetProductTool
+        # Company tools (ABE Phase 7 + Phase 8 — docs/76-ABE-FRAMEWORK.md).
+        # Phase 7: company_set_product (write product YAML with approval).
+        # Phase 8: six management tools so the operator can drive ABE
+        # from chat without remembering CLI syntax.
+        from tools.companies import (
+            CompanyCreateTool,
+            CompanyListTool,
+            CompanyPauseTool,
+            CompanyReportTool,
+            CompanyResumeTool,
+            CompanySetProductTool,
+            CompanyUseTool,
+        )
 
         self.register(CompanySetProductTool())
+        self.register(CompanyListTool())
+        self.register(CompanyReportTool())
+        self.register(CompanyCreateTool())
+        self.register(CompanyUseTool())
+        self.register(CompanyPauseTool())
+        self.register(CompanyResumeTool())
+
+        # Role management tools (ABE Phase 8) — chat-callable
+        # equivalents of `elophanto role …` CLI commands.
+        from tools.roles import (
+            RoleListTool,
+            RoleShowTool,
+            RoleSyncTool,
+            RoleUseTool,
+        )
+
+        self.register(RoleListTool())
+        self.register(RoleShowTool())
+        self.register(RoleUseTool())
+        self.register(RoleSyncTool())
 
         # Identity tools
         from tools.identity.reflect_tool import IdentityReflectTool
