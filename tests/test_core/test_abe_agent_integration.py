@@ -92,6 +92,59 @@ class TestAbeAgentInitialization:
             ), f"{tool_name}._role_manager not injected"
 
     @pytest.mark.asyncio
+    async def test_abe_tools_visible_to_llm(self, test_config: Config) -> None:
+        """The load-bearing technical contract: the ABE tools must
+        actually reach the LLM's tool list. Phase 8.5 verification
+        round (2026-05-26) found that all 12 ABE tools were tier
+        PROFILE with groups (companies, roles) not in any default
+        profile — so the LLM never saw them. The fix promoted four
+        canonical entry points to CORE (always visible) and added
+        the groups to the `full` profile (visible during planning).
+        This test pins both legs so neither can silently regress.
+        """
+        from core.tool_profiles import (
+            DEFAULT_PROFILES,
+            filter_tools_by_profile,
+        )
+
+        agent = Agent(test_config)
+        await agent.initialize()
+        all_tools = list(agent._registry._tools.values())
+
+        # Leg 1: canonical entry points always visible (CORE tier)
+        core_names = {t.name for t in agent._registry.get_core_tools()}
+        for entry in (
+            "company_list",
+            "company_report",
+            "company_onboard",
+            "role_list",
+        ):
+            assert entry in core_names, (
+                f"{entry} must be CORE-tier — otherwise the LLM never "
+                f"sees the canonical-source tool for the operator's "
+                f"question and falls back to scratchpad memory."
+            )
+
+        # Leg 2: `full` profile includes the rest of the ABE surface
+        full = filter_tools_by_profile(all_tools, "full", DEFAULT_PROFILES)
+        full_names = {t.name for t in full}
+        for full_only in (
+            "company_create",
+            "company_use",
+            "company_pause",
+            "company_resume",
+            "company_set_product",
+            "role_show",
+            "role_use",
+            "role_sync",
+        ):
+            assert full_only in full_names, (
+                f"{full_only} must be in the `full` profile — the "
+                f"`companies` and `roles` groups need to be in "
+                f"DEFAULT_PROFILES['full']."
+            )
+
+    @pytest.mark.asyncio
     async def test_company_list_executes_after_init(self, test_config: Config) -> None:
         """The actual user-visible contract: after Agent.initialize(),
         calling company_list returns success (not the
