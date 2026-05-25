@@ -2077,17 +2077,50 @@ class Agent:
                 tool._mission_manager = self._mission_manager
 
     def _inject_company_deps(self) -> None:
-        """Inject db + project_root into company tools (ABE Phase 7).
+        """Inject deps into all ABE company + role tools (Phases 7-8).
 
-        ``company_set_product`` needs both: db to check the slug
-        exists in the ``companies`` table, project_root to compute
-        the target YAML path. Idempotent — safe to call after every
-        registry refresh.
+        - ``company_set_product`` (Phase 7) needs db + project_root.
+        - The six Phase 8 ``company_*`` management tools share the
+          same trio: db (for ledger queries), project_root (for
+          product loader + data dir), and company_manager (the
+          orchestration layer that wraps both).
+        - The four Phase 8 ``role_*`` tools need role_manager.
+
+        Idempotent — safe to call after every registry refresh.
+        Tools with no matching attribute are silently skipped so the
+        injector tolerates partial registry states (e.g. when a tool
+        gets removed in a future refactor without an injector update).
         """
-        tool = self._registry.get("company_set_product")
-        if tool is not None:
-            tool._db = self._db
-            tool._project_root = self._project_root
+        company_tool_names = (
+            "company_set_product",
+            "company_list",
+            "company_report",
+            "company_create",
+            "company_use",
+            "company_pause",
+            "company_resume",
+        )
+        for tool_name in company_tool_names:
+            tool = self._registry.get(tool_name)
+            if tool is None:
+                continue
+            if hasattr(tool, "_db"):
+                tool._db = self._db
+            if hasattr(tool, "_project_root"):
+                tool._project_root = self._project_root
+            if hasattr(tool, "_company_manager"):
+                tool._company_manager = self._company_manager
+
+        role_tool_names = (
+            "role_list",
+            "role_show",
+            "role_use",
+            "role_sync",
+        )
+        for tool_name in role_tool_names:
+            tool = self._registry.get(tool_name)
+            if tool is not None and hasattr(tool, "_role_manager"):
+                tool._role_manager = self._role_manager
 
     async def _seed_default_missions(self) -> None:
         """First-run seeding of missions from identity (Phase 2.6).

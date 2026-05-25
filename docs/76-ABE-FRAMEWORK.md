@@ -1180,6 +1180,65 @@ Create `tests/test_core/test_phase6_isolation.py`:
 
 ---
 
+### Phase 8 — Chat-driven ABE management — VERIFIED 2026-05-25
+
+**Verification failure recorded**: Phases 1-7 shipped CLI commands
+(`elophanto company …`, `elophanto role …`) without corresponding
+agent-callable tools. For an operator who lives in chat, that's
+half a feature — the agent can't be told *"create a company
+called acme-inc and switch to it"* because no tool exists.
+Phase 8 closes this gap.
+
+**Senior call recorded** (no operator question asked — pattern is
+established, no real tradeoff): full set of 10 tools; session-only
+contextvar by default with optional `persist: true` for the rare
+case of changing the operator's CLI default.
+
+#### Tools (10) — all in `tools/companies/` + `tools/roles/`
+
+| Tool | Tier | Reuses | Purpose |
+|---|---|---|---|
+| `company_list` | SAFE | `CompanyManager.list()` | List all companies + status + product status |
+| `company_report` | SAFE | `cli/company_cmd._report` logic | Structured headline + recent ledger events for one company |
+| `company_create` | MODERATE | `CompanyManager.create()` | New company row + data dir |
+| `company_use` | MODERATE | `core.company.set_current_company` | Session-only by default; `persist=true` writes sidecar |
+| `company_pause` | MODERATE | `CompanyManager.set_status()` | status='paused' |
+| `company_resume` | MODERATE | `CompanyManager.set_status()` | status='active' |
+| `role_list` | SAFE | `RoleManager.list_roles()` | All roles + active marker + last_active_at |
+| `role_show` | SAFE | `RoleManager.get()` | Full overlay + allowlist + KPI |
+| `role_use` | MODERATE | `core.role_context.set_current_role` | Session-only by default; `persist=true` writes sidecar |
+| `role_sync` | MODERATE | `RoleManager.sync_from_disk()` | Re-read roles/*.yaml into DB |
+
+`company_set_product` (Phase 7) already exists; Phase 8 adds the 10
+above. Total ABE-tool surface: 11.
+
+#### Schema delta
+
+**None.** All logic reuses Phases 1-7 managers.
+
+#### Existing-file edits
+
+1. `tools/companies/__init__.py` — re-export the 6 new company tools
+2. `core/registry.py` — register the 10 new tools alongside `CompanySetProductTool`
+3. `core/agent.py:_inject_company_deps()` — extend to inject `_db` + `_project_root` + `_company_manager` + `_role_manager` into all 11 tools (idempotent)
+
+#### Tests
+
+`tests/test_tools/test_abe_management_tools.py` — at least one round-trip per tool (create → list → report → use → pause → resume; sync → list_roles → show → use). ~15 tests.
+
+#### Phase 8 acceptance criteria
+
+- 15+ new tests pass; full regression green
+- Live smoke via chat: ask the agent "list all companies" → it calls `company_list` and reports cleanly; "switch to demo-co" → it calls `company_use(slug='demo-co')`, operator approves, the tool returns "active for this session"
+
+#### What Phase 8 does NOT include
+
+- ❌ A "switch role for one tool call only" mechanic (use + clear is fine)
+- ❌ A "company_delete" tool (operator territory; archive via pause)
+- ❌ Auto-detection of company_use intent from chat (no, the LLM picks the tool — that's how every other tool works)
+
+---
+
 ### Phase 7 — Agent self-bootstraps its ABE — VERIFIED 2026-05-25
 
 EloPhanto edits its own ABE config (with operator approval). Closes
@@ -1362,6 +1421,7 @@ API) and `tests/test_tools/test_company_set_product.py`:
 | 5 — Board view | ⬜ not started | ⬜ blocked on verification |
 | 6 — Multi-company isolation hardening | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 7 — Agent self-bootstraps its ABE | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
+| 8 — Chat-driven ABE management | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 
 **Phase 1 outcome (2026-05-25)**: shipped + visible. Live DB migrated
 (12,968 llm_usage rows attributed to `elophanto-self`); `companies` and
