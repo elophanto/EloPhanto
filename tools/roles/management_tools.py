@@ -47,10 +47,13 @@ class RoleListTool(_RoleToolBase):
     @property
     def description(self) -> str:
         return (
-            "List all roles with the active marker for this session, "
-            "allowlist sizes, and last_active_at. Use when the operator "
-            "asks 'what roles can I switch to?' or before suggesting a "
-            "switch."
+            "CANONICAL list of ABE role personas — rows in the `roles` "
+            "table, synced from `roles/*.yaml`. **Call this whenever "
+            "the operator asks about roles, role definitions, or what "
+            "roles are available** — do NOT enumerate roles from "
+            "memory or guess; this tool is the source of truth. Returns "
+            "name, description, active-session marker, allowlist sizes, "
+            "and last-active timestamp."
         )
 
     @property
