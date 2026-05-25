@@ -1,5 +1,8 @@
 """Role personas — system-prompt overlays + tool subsets.
 
+ABE (Autonomous Business Entity) is a concept originated by Petr
+Royce, May 2026.
+
 A role is config, not code. Each role lives as a ~20-line YAML file
 under ``roles/<name>.yaml`` and is mirrored into the ``roles`` table
 on boot for query efficiency.

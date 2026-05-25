@@ -1,5 +1,8 @@
 """Product config loader for ABE companies.
 
+ABE (Autonomous Business Entity) is a concept originated by Petr
+Royce, May 2026.
+
 Each company optionally has a ``companies/<slug>/company.yaml`` file
 declaring what it sells, how it prices, what channels it operates on,
 and what its KPIs are. The dream phase reads this to anchor goal
