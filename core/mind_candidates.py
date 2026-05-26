@@ -66,6 +66,12 @@ class CandidateContext:
     # Also lets the generator read project_root for the loader.
     company_manager: Any = None
     project_root: Any = None  # Path | None
+    # ABE Phase 10 (docs/76-ABE-FRAMEWORK.md). VoiceManager handle so
+    # `from_voiceless_companies` can flag companies that have product
+    # + exemplars but no voice.yaml — the operator dropped reference
+    # material and is waiting for the agent to extract a voice. None
+    # disables the source rather than crashing the wakeup.
+    voice_manager: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +429,80 @@ async def from_unproductized_companies(
     return out
 
 
+async def from_voiceless_companies(
+    ctx: CandidateContext,
+) -> list[Candidate]:
+    """One candidate per company that has exemplars but no voice.yaml.
+
+    Phase 10 closes the half-built case: operator dropped reference
+    posts/emails at data/companies/<slug>/exemplars/<channel>/*.md
+    but never asked the agent to extract a voice — so the draft tools
+    aren't lint-gated and the autonomous mind is one cycle away from
+    producing AI-slop. This generator surfaces a high-leverage
+    "run voice_extract for <slug>" candidate so the arbiter picks it
+    before the mind drifts into outreach.
+
+    Skips when:
+      - no VoiceManager (test fixtures, missing project_root)
+      - company already has voice.yaml (the contract is the gate)
+      - fewer than 2 exemplar files (voice_extract needs ≥2)
+
+    Caps at the first 3 voiceless companies — same shape as
+    `from_unproductized_companies` to avoid menu drowning.
+    """
+    if not ctx.company_manager or not ctx.voice_manager or not ctx.project_root:
+        return []
+    out: list[Candidate] = []
+    try:
+        companies = await ctx.company_manager.list()
+        for c in companies:
+            if c.status != "active":
+                continue
+            voice_path = ctx.voice_manager.voice_path(c.id)
+            if voice_path is None or voice_path.is_file():
+                continue  # already has a voice contract
+            exemplars_root = voice_path.parent / "exemplars"
+            if not exemplars_root.is_dir():
+                continue  # operator hasn't dropped exemplars yet
+            exemplar_count = sum(
+                1
+                for ch_dir in exemplars_root.iterdir()
+                if ch_dir.is_dir()
+                for _ in ch_dir.glob("*.md")
+            )
+            if exemplar_count < 2:
+                continue
+            out.append(
+                Candidate(
+                    source="voiceless_company",
+                    action_spec=(
+                        f"Company '{c.id}' has {exemplar_count} "
+                        f"operator-curated exemplars but no voice "
+                        f"contract — call voice_extract(company_id="
+                        f"'{c.id}') to propose a voice.yaml from "
+                        f"the exemplars. Without it the draft tools "
+                        f"have no lint gate and any outreach the "
+                        f"mind generates is one cycle from AI-slop."
+                    ),
+                    expected_value=8.0,
+                    feasibility=0.9,
+                    lens_match=0.5,
+                    cost=1.5,
+                    staleness_bonus=5.0,
+                    dedup_key=f"voice_extract:{c.id}",
+                    metadata={
+                        "company_id": c.id,
+                        "exemplar_count": exemplar_count,
+                    },
+                )
+            )
+            if len(out) >= 3:
+                break
+    except Exception as e:
+        logger.debug("from_voiceless_companies failed: %s", e)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Dream
 # ---------------------------------------------------------------------------
@@ -613,6 +693,7 @@ async def collect_all(ctx: CandidateContext) -> list[Candidate]:
         from_mission_momentum,
         from_role_neglect,
         from_unproductized_companies,
+        from_voiceless_companies,
         from_dream,
         from_reflexes,
         from_external_signals,

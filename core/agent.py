@@ -619,6 +619,9 @@ class Agent:
         self._company_manager: Any = (
             None  # CompanyManager (ABE Phase 7), set during initialize
         )
+        self._voice_manager: Any = (
+            None  # VoiceManager (ABE Phase 10), set in _inject_company_deps
+        )
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._ego_manager: Any = None  # EgoManager, set during initialize
         self._affect_manager: Any = None  # AffectManager, set during initialize
@@ -2131,7 +2134,25 @@ class Agent:
             "draft_approve",
             "draft_reject",
             "company_trust_set",
+            # ABE Phase 10 — voice tools share the same shape:
+            # voice_extract needs router + voice_manager; voice_show
+            # + voice_lint need voice_manager only. hasattr() guards
+            # do the per-tool wiring.
+            "voice_extract",
+            "voice_show",
+            "voice_lint",
         )
+        # Phase 10 — lazy-construct VoiceManager on first injection
+        # pass. The manager itself is cheap (no DB, no IO until a
+        # lint runs) so constructing it here is fine even when
+        # voice tools haven't been registered yet.
+        if (
+            getattr(self, "_voice_manager", None) is None
+            and self._config.project_root is not None
+        ):
+            from core.voice import VoiceManager
+
+            self._voice_manager = VoiceManager(self._config.project_root)
         for tool_name in company_tool_names:
             tool = self._registry.get(tool_name)
             if tool is None:
@@ -2147,6 +2168,10 @@ class Agent:
             # attribute skip silently via hasattr.
             if hasattr(tool, "_goal_manager"):
                 tool._goal_manager = self._goal_manager
+            if hasattr(tool, "_voice_manager"):
+                tool._voice_manager = getattr(self, "_voice_manager", None)
+            if hasattr(tool, "_router"):
+                tool._router = self._router
 
         role_tool_names = (
             "role_list",

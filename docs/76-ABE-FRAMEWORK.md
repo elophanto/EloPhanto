@@ -1437,6 +1437,103 @@ permission. Operator-controlled promotion.
 - ❌ Per-channel trust (one trust_state covers all outreach channels for the company; can split later if operator finds it limiting)
 - ❌ Draft analytics / AB testing across drafts (real but premature)
 - ❌ Voice training as a separate phase (operator just reads draft samples + approves; the voice IS the body of approved drafts)
+  - **Reversed 2026-05-26**: live test exposed that approve-only is too slow and too reactive to prevent AI-slop drafts in the first place. Voice learning promoted to Phase 10 with operator-curated exemplars + per-company `voice.yaml` + a lint pass that runs inside the draft tools.
+
+---
+
+### Phase 10 — Voice Learning (anti-slop quality layer) — VERIFIED 2026-05-26
+
+**Status**: verified, awaiting operator go-ahead before implementation. Verification pass on 2026-05-26 confirmed the design against `tools/drafts/draft_tools.py`, `core/agent.py:_inject_company_deps`, `core/executor.py` (ToolResult handling), `core/company.py:data_dir`, `core/registry.py:_CORE_TOOLS`, and a full grep for existing voice/style/tone modules. Deltas from the original stub are folded in below.
+
+**Why this exists.** Phase 9 stopped the agent from sending anything outbound without an operator-approved draft, but it didn't constrain the *content* of the draft. The live test on 2026-05-26 showed the agent producing generic "We help businesses leverage AI" hook patterns — exactly the AI-slop the operator named as the next failure mode. Operator framing: "we cannot be doing AI SLOP so it needs to always learn what to do and how. for example, for twitter I tell it to read posts from couple of users that i define and then to learn their style."
+
+Phase 10 makes the agent learn voice from operator-curated exemplars, persist a per-company voice profile, and self-lint every draft against it before it reaches the operator's queue. Drafts that fail the lint either auto-revise or surface the violations so the operator sees *why* this draft is being rejected, instead of approving slop because the alternative is a blank queue.
+
+#### Verification findings (deltas from the original stub)
+
+1. **Voice files live under the data dir, not the source dir.** Original stub said `companies/<slug>/voice.yaml` and `companies/<slug>/exemplars/...`. Verified `CompanyManager.data_dir()` ([core/company.py:115-120](core/company.py#L115-L120)) returns `data/companies/<slug>/` and `ensure_data_dir()` ([core/company.py:122-130](core/company.py#L122-L130)) materializes it. `companies/<slug>/company.yaml` is the *source* config (read by Phase 4's `load_product`); `voice.yaml` is *generated* (via `voice_extract` or operator-written) so it belongs alongside other runtime state in `data/companies/<slug>/`. Exemplars are also operator-curated runtime inputs — same dir.
+2. **Lint insertion is a single shared call site.** The three draft tools all funnel through `_write_draft()` at [tools/drafts/draft_tools.py:83-119](tools/drafts/draft_tools.py#L83-L119). Confirmed call sites: EmailDraftTool at line 203, OutreachDraftTool at line 277, PostDraftTool at line 350. The lint check goes in each `execute()` method AFTER the empty-body validation (lines 200-201, 273-274, 345-346) and BEFORE the `_write_draft()` call — one short block per tool, sharing a single `VoiceLinter` instance.
+3. **Draft-fail behavior: option (a) revise-once via ToolResult error.** Traced ToolResult handling in [core/agent.py:3850-3945](core/agent.py#L3850-L3945) — when a tool returns `ToolResult(success=False, error="...")`, the error string is wrapped as a JSON tool message and fed back to the LLM in the next planning cycle. The LLM naturally retries with a revised body; no explicit revise-loop orchestration code is needed. **The draft file is NEVER written on lint fail** — no garbage in the operator's queue. This is simpler than (b) persist-with-violations and matches the existing error pattern (e.g. Phase 9 trust-gate denies).
+4. **Violations surface as the tool error message, not as front-matter.** Phase 9 drafts use pure markdown with inline metadata ([tools/drafts/draft_tools.py:104-110](tools/drafts/draft_tools.py#L104-L110)) — there's no YAML front-matter to extend. The `voice_violations:` block in the original stub is dropped. Instead, the violations list is rendered into the `ToolResult.error` string so the LLM sees it and revises.
+5. **`_write_draft()` is sync; `voice_lint` will be sync too.** `_write_draft()` is a sync helper called from async `execute()` methods. `voice_lint` is pure (no DB, no LLM, no IO except reading the cached `voice.yaml`) so making it sync keeps it cheap and avoids needless `async` plumbing. The lint call from `execute()` is `result = self._voice_linter.lint(body, channel="email")`.
+6. **CORE-tier confirmed.** [core/registry.py:629-664](core/registry.py#L629-L664) lists 23 CORE tools today, including the Phase 9 trio (`email_draft`, `outreach_draft`, `post_draft` at lines 661-663). The same rationale ("if the gated action is CORE, the gating/quality layer must also be CORE so the LLM never needs to discover it") applies to all three voice tools. +3 schemas (~150 tokens/call) is the same cost the operator already accepted for Phase 9.
+7. **`load_voice()` must fail-soft.** If `data/companies/<slug>/voice.yaml` doesn't exist (which it won't for any company that hasn't done `voice_extract` yet), the linter must return `passed=True, violations=[]` — i.e. no voice = no restrictions. Otherwise Phase 10 breaks every existing company in `learning` state. This matches Phase 4's `load_product()` shape (returns `None` when missing).
+8. **No existing voice/style/tone code to collide with.** Grep found `tools/pumpfun/voice_tool.py` (real-time TTS for livestreams — unrelated) and 16 marketing skills (all knowledge docs, no extraction logic). No `b2c-marketing-voice` skill exists yet. Clean greenfield.
+9. **VoiceManager construction order.** `Agent.__init__` must construct `self._voice_manager = VoiceManager(db, project_root, company_manager)` BEFORE `_inject_company_deps()` runs. Mirror the existing pattern around `self._company_manager` in [core/agent.py](core/agent.py).
+10. **Exemplar file format.** No existing `exemplars/` convention in the repo. Format: one post/email per `.md` file with a small front-matter (`author`, `date`, `channel`, optional `notes`) followed by `---` and the raw body. `voice_extract` parses the front-matter for context and feeds the bodies to the LLM for pattern extraction.
+
+#### Design (VERIFIED)
+
+**Per-company voice profile** at `data/companies/<slug>/voice.yaml`:
+```yaml
+persona: "founder writing on Twitter as themselves"
+tone: ["direct", "concrete", "no-jargon"]
+length_target: { min_chars: 80, max_chars: 240 }
+allowed_hooks:
+  - "POV: <scenario>"
+  - "<Person> didn't believe me until I showed them <thing>"
+  - "I used to <wrong belief>. Then <concrete moment>. Now <new belief>."
+banned_phrases:
+  - "leverage"
+  - "unlock"
+  - "in today's fast-paced world"
+  - "are you tired of"
+banned_patterns:
+  - regex: "^(We|Our team) (help|are helping)"
+    reason: "self-focused hook — dead per b2c-marketing"
+cta_style: "soft — one line, no link spam"
+```
+
+**Operator-curated exemplars** at `data/companies/<slug>/exemplars/<channel>/*.md`. Operator drops 5–20 posts/emails from accounts whose voice the agent should learn (no scraping — operator pastes them in deliberately). Each file has a small front-matter (`author`, `date`, `channel`, optional `notes`) then `---` then the raw body. `voice_extract` reads these to *propose* a `voice.yaml` at `data/companies/<slug>/voice_proposed.yaml` for operator review.
+
+**Three new tools** (extending the Phase 9 draft system):
+
+1. `voice_extract` (SAFE, CORE-tier): reads `companies/<slug>/exemplars/<channel>/*.md`, asks the LLM to extract recurring hooks / banned phrases / tone, writes a *proposed* `voice.yaml` to `data/companies/<slug>/voice_proposed.yaml`. Operator promotes via `voice_approve` (or just renames the file).
+2. `voice_show` (SAFE, CORE-tier): prints the active `voice.yaml` for the current company. Cheap awareness fix — agent can re-read its own voice contract per cycle without re-extracting.
+3. `voice_lint` (SAFE, CORE-tier): takes `{text, channel}`, runs the active company's voice rules (banned phrases, banned regexes, length bounds, hook allowlist if non-empty), returns `{passed: bool, violations: [...], suggestions: [...]}`. Pure function, no LLM call — fast, deterministic, cheap to call repeatedly.
+
+**Draft tool integration**. `email_draft` / `outreach_draft` / `post_draft` (Phase 9) call `voice_lint` on the body BEFORE writing the draft file. On fail: return `ToolResult(success=False, error=...)` with the violations rendered into the error string. The LLM sees the error in the next planning cycle (verified at [core/agent.py:3850-3945](core/agent.py#L3850-L3945)) and revises naturally — no orchestration code, no garbage drafts on disk. Missing `voice.yaml` = lint always passes (fail-soft) so companies without a voice contract aren't blocked.
+
+**New skill** `b2c-marketing-voice` (inspired by ClawHub `jackfriks/b2c-marketing`, distilled to a local SKILL.md): the *meta*-prompt that tells the LLM what "good hook / bad hook" looks like before it drafts. Loaded automatically when active company has channel=`twitter` or `linkedin`. Distilled principles:
+- Another person + conflict + "showed them" + changed mind beats self-focused claims.
+- Concrete object/screenshot/number beats abstraction.
+- "POV:" framing puts reader inside the scene.
+- Generic CTAs ("DM me", "check link in bio") are dead; soft CTAs ("if this resonates...") work.
+
+**Awareness block addendum** (`core/identity.py`): new section telling the agent "you have a voice contract at `companies/<slug>/voice.yaml`; call `voice_show` before drafting; `voice_lint` is free, use it as a self-check."
+
+#### What Phase 10 will NOT include (until operator asks)
+
+- ❌ Automatic exemplar scraping from URLs (operator pastes deliberately — kept manual to avoid building yet another scraper)
+- ❌ Per-channel `voice.yaml` files (one per company, one channel-aware section per channel — splitting later if operator finds it limiting)
+- ❌ LLM-judged "is this slop?" classifier (deterministic lint first; classifier is a real but premature add-on)
+- ❌ Voice drift tracking / "are recent drafts converging or diverging from exemplars" telemetry (real, premature)
+- ❌ Cross-company voice transfer (each company starts fresh; copy/paste is fine for v1)
+
+#### Implementation plan (VERIFIED)
+
+**New files**:
+- `core/voice.py` (~200 LOC): `Voice` dataclass + `VoiceManager` (loads/caches `data/companies/<slug>/voice.yaml`, provides `lint(body, channel) -> LintResult`).
+- `tools/voice/extract_tool.py`, `tools/voice/show_tool.py`, `tools/voice/lint_tool.py` (~300 LOC total, SAFE permission, CORE tier).
+- `tools/voice/__init__.py` re-exports.
+- `skills/b2c-marketing-voice/SKILL.md` (~100 LOC distilled from ClawHub `jackfriks/b2c-marketing` — hook/CTA principles, anti-patterns).
+
+**Edits**:
+- [core/agent.py](core/agent.py): construct `self._voice_manager` in `__init__` before `_inject_company_deps`; add voice tools to the tool-name tuple in `_inject_company_deps` with `hasattr(tool, "_voice_manager")` guards.
+- [core/registry.py:629-664](core/registry.py#L629-L664): add `voice_extract`, `voice_show`, `voice_lint` to `_CORE_TOOLS`.
+- [tools/drafts/draft_tools.py](tools/drafts/draft_tools.py) lines 190-229, 264-299, 337-376: insert `voice_lint` call (3 short blocks); add `_voice_linter` attribute to the 3 draft tool classes.
+- [core/identity.py](core/identity.py) awareness block: add Section 7 — "you have a voice contract at `data/companies/<slug>/voice.yaml`; call `voice_show` before drafting; `voice_lint` is free, use it as a self-check before persisting." (Note: Phase 9 added Section 5 trust ladder + renamed-to-Section-6 drive-my-business. Phase 10 is Section 7.)
+
+**Tests** (~15-20 new):
+- `tests/test_core/test_voice.py`: voice.yaml round-trip, fail-soft on missing file, lint rule evaluation (banned phrases, regex patterns, length bounds, hook allowlist), channel filtering.
+- `tests/test_tools/test_voice_tools.py`: extract_tool reads exemplars + writes proposed yaml; show_tool prints active voice; lint_tool returns structured violations.
+- `tests/test_tools/test_drafts_voice_integration.py`: drafts pass when voice.yaml absent; drafts fail with informative error when banned phrase present; drafts succeed on revised body in same LLM cycle.
+
+**Scope estimate**: ~600 LOC new code, ~80 LOC edits, ~20 tests. One commit.
+
+#### Verification gate
+
+All 10 verification findings above were checked against the live codebase. Open questions: none. Awaiting explicit operator go-ahead before implementation per the process rule.
 
 ---
 
@@ -1610,7 +1707,7 @@ API) and `tests/test_tools/test_company_set_product.py`:
 
 ## Current Status
 
-**Last updated**: 2026-05-25
+**Last updated**: 2026-05-26
 
 | Phase | Verification | Implementation |
 |---|---|---|
@@ -1625,6 +1722,7 @@ API) and `tests/test_tools/test_company_set_product.py`:
 | 8 — Chat-driven ABE management | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 8.5 — End-to-end "drive my business" workflow | ✅ done 2026-05-26 | ✅ done 2026-05-26 |
 | 9 — Trust Ladder & Draft-Before-Act | ✅ done 2026-05-26 | ✅ done 2026-05-26 |
+| 10 — Voice Learning (anti-slop quality layer) | ✅ verified 2026-05-26 | ✅ done 2026-05-26 |
 
 **Phase 1 outcome (2026-05-25)**: shipped + visible. Live DB migrated
 (12,968 llm_usage rows attributed to `elophanto-self`); `companies` and
@@ -1744,6 +1842,47 @@ original sketch — verification deferred them with explicit reasoning
 (Phase 4's KPI-gap signal already biases the arbiter; KPI updates
 are operator territory; role evolution is months from value). 22
 new tests pass; full regression green; ruff + mypy clean.
+
+**Phase 10 outcome (2026-05-26)**: shipped. New `core/voice.py`
+(Voice dataclass + LengthBounds + BannedPattern + LintResult +
+`load_voice` + pure `lint_text` + `VoiceManager` with per-company
+cache and fail-soft `lint()`). Three new CORE-tier tools at
+`tools/voice/` — `voice_extract` (reads operator-curated exemplars
+at `data/companies/<slug>/exemplars/<channel>/*.md`, asks the LLM
+to distill a JSON proposal, writes `voice_proposed.yaml`),
+`voice_show` (prints the loaded contract or `has_voice=False`),
+`voice_lint` (deterministic gate, no LLM). The Phase 9 draft tools
+gained `_voice_check()` which runs lint on the body before
+`_write_draft()` and returns `ToolResult(success=False, error=...)`
+with the violations on fail — the LLM sees the error in the next
+planning cycle and revises naturally; no draft files written on
+fail. Awareness block got Section 7 (voice contract usage + the
+two-step `voice_show` → `voice_lint` self-check). New
+`skills/b2c-marketing-voice/SKILL.md` distills the anti-slop
+principles (four dead patterns / four winning shapes) so the
+skill router surfaces them when an outbound channel is in play.
+36 new tests pass; full 2360-test regression green; ruff clean
+(mypy 2 errors in `core/autonomous_mind.py` are pre-existing,
+unrelated to Phase 10).
+
+**Phase 10 — autonomous-mode wiring (same day)**: closed the two
+gaps the operator flagged after the initial ship. (1) Per-company
+`[COMPANY]` snapshot block now appends `voice=yes|none` next to
+`trust=<state>` ([core/autonomous_mind.py:1583-1604](core/autonomous_mind.py#L1583-L1604))
+so the mind sees voice-contract presence across every active
+company in one snapshot read, no extra tool call needed. (2) New
+candidate generator `from_voiceless_companies`
+([core/mind_candidates.py](core/mind_candidates.py)): one
+candidate per active company that has ≥2 exemplars at
+`data/companies/<slug>/exemplars/<channel>/*.md` but no
+`voice.yaml`. expected_value=8 / feasibility=0.9 / cost=1.5 /
+staleness_bonus=5 — strong enough to win arbitration against
+ordinary work when the operator has dropped reference material
+and is waiting for extraction. Capped at 3 to avoid menu drowning.
+Registered in `collect_all`; wired into `CandidateContext` via a
+new optional `voice_manager` field; injected at the autonomous
+wakeup site. 9 more tests pass; total 2369-test regression green;
+ruff clean.
 
 **Next action when resuming**: Phase 5 (board view) — the only
 remaining planned phase. Dashboard panel (`CompanyBoardPanel`)

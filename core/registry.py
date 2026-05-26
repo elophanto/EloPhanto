@@ -298,6 +298,17 @@ class ToolRegistry:
         self.register(DraftRejectTool())
         self.register(CompanyTrustSetTool())
 
+        # ABE Phase 10 (docs/76-ABE-FRAMEWORK.md): voice-learning
+        # quality layer on top of Phase 9 drafts. voice_lint gates
+        # every draft; voice_show is the agent's cheap read of its
+        # own contract; voice_extract proposes a voice.yaml from
+        # operator-curated exemplars.
+        from tools.voice import VoiceExtractTool, VoiceLintTool, VoiceShowTool
+
+        self.register(VoiceExtractTool())
+        self.register(VoiceShowTool())
+        self.register(VoiceLintTool())
+
         # Identity tools
         from tools.identity.reflect_tool import IdentityReflectTool
         from tools.identity.status_tool import IdentityStatusTool
@@ -661,6 +672,14 @@ class ToolRegistry:
             "email_draft",
             "outreach_draft",
             "post_draft",
+            # ABE Phase 10 — voice tools must be CORE for the same
+            # reason: if drafts are CORE then the lint that gates them
+            # and the show that reveals the contract must be visible
+            # too, or the LLM can't self-check before drafting. Token
+            # cost: 3 more (same as Phase 9 trio).
+            "voice_extract",
+            "voice_show",
+            "voice_lint",
         }
 
         _DEFERRED_TOOLS = {

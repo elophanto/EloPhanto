@@ -127,6 +127,9 @@ class _DraftAuthorBase(BaseTool):
 
     def __init__(self) -> None:
         self._project_root: Path | None = None
+        # ABE Phase 10 — optional VoiceManager. When unset (test
+        # fixtures, missing voice contract) the lint is skipped.
+        self._voice_manager: Any = None
 
     @property
     def group(self) -> str:
@@ -146,6 +149,27 @@ class _DraftAuthorBase(BaseTool):
                 error=f"{self.name} not initialized (missing project_root)",
             )
         return None
+
+    def _voice_check(
+        self, body: str, company_id: str, channel: str
+    ) -> ToolResult | None:
+        """ABE Phase 10 — lint the draft body against the company's
+        voice contract before writing. Returns a fail-ToolResult on
+        violation (the LLM sees it and can revise on the next planning
+        cycle). Fail-soft: no VoiceManager or no voice.yaml = pass."""
+        if self._voice_manager is None:
+            return None
+        result = self._voice_manager.lint(body, company_id=company_id, channel=channel)
+        if result.passed:
+            return None
+        msg = "voice lint failed: " + "; ".join(result.violations)
+        if result.suggestions:
+            msg += " | suggestions: " + "; ".join(result.suggestions)
+        msg += (
+            " | call voice_show to see the full contract, then revise "
+            "the body and re-call this draft tool."
+        )
+        return ToolResult(success=False, error=msg)
 
 
 class EmailDraftTool(_DraftAuthorBase):
@@ -199,6 +223,9 @@ class EmailDraftTool(_DraftAuthorBase):
         body = str(params["body"]).strip()
         if not body:
             return ToolResult(success=False, error="body must be non-empty")
+        voice_fail = self._voice_check(body, company_id, "email")
+        if voice_fail is not None:
+            return voice_fail
 
         path, draft_id = _write_draft(
             self._project_root,  # type: ignore[arg-type]
@@ -273,6 +300,9 @@ class OutreachDraftTool(_DraftAuthorBase):
         if not body:
             return ToolResult(success=False, error="body must be non-empty")
         channel = str(params.get("channel") or "email")
+        voice_fail = self._voice_check(body, company_id, "outreach")
+        if voice_fail is not None:
+            return voice_fail
 
         path, draft_id = _write_draft(
             self._project_root,  # type: ignore[arg-type]
@@ -344,6 +374,9 @@ class PostDraftTool(_DraftAuthorBase):
         content = str(params["content"]).strip()
         if not content:
             return ToolResult(success=False, error="content must be non-empty")
+        voice_fail = self._voice_check(content, company_id, "post")
+        if voice_fail is not None:
+            return voice_fail
 
         # Title from first line, capped
         first_line = content.splitlines()[0][:50]
