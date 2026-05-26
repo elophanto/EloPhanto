@@ -76,6 +76,16 @@ class EmailReplyTool(BaseTool):
         if not self._config:
             return ToolResult(success=False, error="Email not configured.")
 
+        # ABE Phase 9 trust gate — refuse live reply when company is
+        # in 'learning' state. Replies are still outbound communication
+        # so they get the same gate as fresh sends.
+        if self._db is not None:
+            from core.trust_gate import check_outreach_allowed
+
+            allowed, reason = await check_outreach_allowed(self._db, "email_reply")
+            if not allowed:
+                return ToolResult(success=False, error=reason)
+
         if self._config.provider == "smtp":
             return await self._execute_smtp(params)
         return await self._execute_agentmail(params)

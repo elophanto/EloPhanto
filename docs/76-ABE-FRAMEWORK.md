@@ -1275,6 +1275,171 @@ above. Total ABE-tool surface: 11.
 
 ---
 
+### Phase 9 — Trust Ladder & Draft-Before-Act — VERIFIED 2026-05-26
+
+#### Why this exists
+
+Live test of Phase 8.5 (the "drive my business" workflow) on
+2026-05-26 surfaced a load-bearing product gap: even with the
+canonical workflow firing correctly (research → company_set_product
+→ schedule_task → goal_create), the agent's instinct was to claim
+"10 prospects saved" and propose outreach without first earning
+operator trust on **voice, messaging, and cadence**. The substrate
+was enabling spam. Permission gates ask *"should I do this once?"*;
+the operator needs to ask *"should I let this agent's voice loose
+on this channel at all?"*
+
+The fix mirrors how an operator would onboard a new sales hire:
+agent learns → agent drafts → operator reviews voice + samples →
+operator promotes to trial (per-action approval) → operator
+promotes to operating (autonomous within budget).
+
+#### Frozen design decisions (the four senior calls)
+
+1. **Default trust state for new companies = `learning`.** Safest.
+   Live outreach is REFUSED in this state — agent must draft, not
+   send. Forces operator-in-the-loop for voice before any external
+   communication.
+2. **Existing `elophanto-self` migrates to `operating`** in a
+   one-shot. Without this the migration breaks existing scheduled
+   work + the user's current production flow. New trust state
+   defaults apply only to NEW companies.
+3. **Research tools stay open in `learning`.** `browser_navigate`,
+   `web_search`, `knowledge_search`, all read paths — fine. Only
+   outbound communication tools are gated. Research without
+   outreach is the whole point of the `learning` phase.
+4. **No auto-promotion.** `trial → operating` is operator-decided
+   via CLI/tool. Auto-promotion based on "N successful approvals"
+   adds complexity for a feature we don't know we need yet —
+   defer until operator says they want it.
+
+#### Trust states (frozen)
+
+| State | What it means | What's allowed | What's blocked |
+|---|---|---|---|
+| `learning` (default for new) | Agent is still figuring out voice + offer. Operator hasn't approved any live outreach yet. | All read/research tools (browser, web_search, knowledge_search, etc.). Drafts via new `*_draft` tools. company_set_product, schedule_task, goal_create. | Live outreach: `email_send`, `email_reply`, `prospect_outreach`, `twitter_post`. |
+| `trial` | Operator approved the voice/offer. Each live send still needs operator approval. | All read tools + drafts + live outreach AS LONG AS each call gets explicit approval per the existing MODERATE permission gate. | Nothing extra blocked beyond the per-call gate (this state is identical to today's MODERATE flow — but explicitly named so the agent + operator understand the phase). |
+| `operating` | Operator promoted the company to autonomous. | Everything within budget + permission_mode. | Nothing (standard permission_mode applies). |
+
+#### Schema delta (Phase 9)
+
+```sql
+ALTER TABLE companies ADD COLUMN trust_state TEXT NOT NULL DEFAULT 'learning'
+    CHECK (trust_state IN ('learning','trial','operating'));
+```
+
+One-shot seed migration on init (idempotent):
+
+```sql
+-- Default seed is operating so existing production schedules
+-- continue working without operator intervention.
+UPDATE companies SET trust_state = 'operating'
+    WHERE id = 'elophanto-self' AND trust_state = 'learning';
+```
+
+#### New code (Phase 9)
+
+**`core/trust_gate.py`** (~80 LOC) — shared gate helper:
+```python
+async def check_outreach_allowed(
+    db, tool_name: str, company_id: str | None = None
+) -> tuple[bool, str]:
+    """Return (allowed, reason). When False, the calling tool
+    must refuse and tell the LLM to draft instead."""
+    # Default to current_company_id() when no company_id passed.
+    # Reads companies.trust_state. learning → False, trial/operating → True.
+    # Failures degrade open (don't break legacy code paths).
+```
+
+**`tools/drafts/`** (~250 LOC across 4 files):
+- `email_draft_tool.py` — writes a markdown draft to
+  `companies/<slug>/drafts/email-<ts>-<id>.md`
+- `outreach_draft_tool.py` — same shape for prospect outreach
+- `post_draft_tool.py` — for twitter_post drafts
+- `__init__.py` — exports + registration
+
+Drafts include: target audience, channel, draft body, attribution
+to which company + role, awaiting operator approval marker.
+
+**`cli/drafts_cmd.py`** (~120 LOC) — `elophanto drafts {list,show,approve,reject}`.
+
+**Tool: `draft_approve(draft_id, [edits])`** (~80 LOC) — operator approves
+a draft. Optional `edits` lets operator amend the body before
+approving. Approval moves the draft to `companies/<slug>/drafts/approved/`
+and (in trial+ state) the next outreach call can reference the
+approved draft id.
+
+**Tool: `company_trust_set(slug, state, [reason])`** (~50 LOC) — MODERATE
+permission. Operator-controlled promotion.
+
+#### Existing-file edits
+
+1. **`core/database.py`** — add the `companies.trust_state` migration
+   (idempotent `ADD COLUMN`) + the seed UPDATE for `elophanto-self`.
+2. **`core/company.py`** — `Company` dataclass gets `trust_state: str`;
+   `_row_to_company` reads it; `CompanyManager` gets
+   `set_trust_state(slug, state)` and `get_trust_state(slug)` methods.
+3. **`tools/email/send_tool.py:execute`** — first call:
+   `gate_check(db, "email_send")`; on deny return ToolResult with
+   error pointing to `email_draft` tool.
+4. **`tools/email/reply_tool.py:execute`** — same gate.
+5. **`tools/prospecting/outreach_tool.py:execute`** — same gate.
+6. **`tools/publishing/twitter_tool.py:execute`** — same gate.
+7. **`core/identity.py:build_identity_context`** — new section 6
+   in the `<abe_framework>` block: "Trust ladder. For companies in
+   `learning` state, NEVER call email_send / email_reply /
+   prospect_outreach / twitter_post — they will refuse. Draft first
+   via `email_draft` / `outreach_draft` / `post_draft`, present to
+   operator, wait for `draft_approve` + trust promotion."
+8. **`core/autonomous_mind.py:_build_state_snapshot`** — extend the
+   `[COMPANY]` block to include `trust=<state>` so the mind always
+   knows the current trust state per company.
+9. **`cli/company_cmd.py:_report`** — show trust state in the report.
+
+#### Tests (Phase 9)
+
+`tests/test_core/test_trust_gate.py`:
+1. `learning` state refuses email_send / email_reply / prospect_outreach / twitter_post
+2. `trial` state allows them (subject to per-call approval, which is the existing MODERATE gate)
+3. `operating` state allows them (subject to permission_mode)
+4. Unknown state defaults to `learning` (fail safe)
+5. Missing company defaults to `learning` (fail safe)
+6. `elophanto-self` is `operating` after migration (the seed exception)
+7. `company_trust_set` MODERATE, changes state, idempotent
+
+`tests/test_tools/test_drafts.py`:
+8. `email_draft` writes a markdown draft to the right path
+9. Draft filename collisions handled (timestamp + uuid suffix)
+10. `draft_approve` moves draft to `approved/`
+11. `draft_reject` moves to `rejected/<ts>/`
+
+`tests/test_core/test_abe_awareness.py` extended:
+12. Awareness block names trust ladder + the 3 draft tools
+
+#### Acceptance criteria
+
+- 12 new tests pass; full regression green
+- `elophanto company report elophanto-self` shows `trust=operating`
+- `elophanto company create test-co` produces a company with
+  `trust=learning`
+- An agent attempting `email_send` for `test-co` gets back an error
+  pointing it at `email_draft`
+- `email_draft` produces a real markdown file the operator can read
+- `elophanto drafts list test-co` shows the pending draft
+- `elophanto drafts approve <id>` moves it to approved/
+- `elophanto company trust set test-co trial` promotes it; subsequent
+  `email_send` no longer refused at the trust gate (still subject to
+  permission_mode)
+
+#### What Phase 9 does NOT include
+
+- ❌ Auto-promotion based on N successful approvals (operator decides — kept manual to avoid complexity until operator asks)
+- ❌ Per-channel trust (one trust_state covers all outreach channels for the company; can split later if operator finds it limiting)
+- ❌ Draft analytics / AB testing across drafts (real but premature)
+- ❌ Voice training as a separate phase (operator just reads draft samples + approves; the voice IS the body of approved drafts)
+
+---
+
 ### Phase 7 — Agent self-bootstraps its ABE — VERIFIED 2026-05-25
 
 EloPhanto edits its own ABE config (with operator approval). Closes
@@ -1459,6 +1624,7 @@ API) and `tests/test_tools/test_company_set_product.py`:
 | 7 — Agent self-bootstraps its ABE | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 8 — Chat-driven ABE management | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 8.5 — End-to-end "drive my business" workflow | ✅ done 2026-05-26 | ✅ done 2026-05-26 |
+| 9 — Trust Ladder & Draft-Before-Act | ✅ done 2026-05-26 | ✅ done 2026-05-26 |
 
 **Phase 1 outcome (2026-05-25)**: shipped + visible. Live DB migrated
 (12,968 llm_usage rows attributed to `elophanto-self`); `companies` and

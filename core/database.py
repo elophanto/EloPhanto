@@ -893,6 +893,13 @@ _MIGRATIONS = [
     "ALTER TABLE email_log        ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
     "ALTER TABLE prospects        ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
     "ALTER TABLE outreach_log     ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    # ABE Phase 9 (docs/76-ABE-FRAMEWORK.md) — Trust Ladder. New
+    # companies default to 'learning' (live outreach refused;
+    # operator must approve drafts + promote). The seed
+    # `elophanto-self` is bumped to 'operating' in _init_sync after
+    # this migration runs, so existing production schedules keep
+    # working without intervention.
+    "ALTER TABLE companies ADD COLUMN trust_state TEXT NOT NULL DEFAULT 'learning'",
 ]
 
 
@@ -957,6 +964,16 @@ class Database:
             "(id, name, status, created_at, updated_at) "
             "VALUES ('elophanto-self', 'EloPhanto (self)', 'active', ?, ?)",
             (now_iso, now_iso),
+        )
+        # ABE Phase 9 — promote the seed company to 'operating' so
+        # the production system keeps working after the trust_state
+        # migration. New companies default to 'learning' (draft-only)
+        # per the schema DEFAULT; only `elophanto-self` is exempt
+        # because it predates the trust ladder and operator already
+        # trusts its established voice/cadence. Idempotent.
+        self._conn.execute(
+            "UPDATE companies SET trust_state = 'operating' "
+            "WHERE id = 'elophanto-self' AND trust_state = 'learning'"
         )
         self._conn.commit()
 

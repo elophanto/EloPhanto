@@ -42,7 +42,23 @@ async def _seed_prospect(
     status: str = "new",
 ) -> str:
     """Insert a prospect row directly (bypassing tools) for tests
-    that need a prospect to operate on."""
+    that need a prospect to operate on.
+
+    ABE Phase 9 compat: also INSERT the company row in `operating`
+    trust state when it's not `elophanto-self`. Without this the
+    Phase 9 trust gate refuses outreach (company defaults to
+    `learning` when missing, which is the right production
+    behavior — but these Phase 3 tests need the outreach path
+    open). Using `INSERT OR IGNORE` keeps the call idempotent
+    across tests that share `acme-inc`.
+    """
+    if company_id != "elophanto-self":
+        await db.execute_insert(
+            "INSERT OR IGNORE INTO companies "
+            "(id, name, status, trust_state, created_at, updated_at) "
+            "VALUES (?, ?, 'active', 'operating', '2026-05-25', '2026-05-25')",
+            (company_id, company_id),
+        )
     await db.execute_insert(
         "INSERT INTO prospects "
         "(prospect_id, source, platform, title, status, discovered_at, "

@@ -1,43 +1,29 @@
-# Product config for the default company.
-# See docs/76-ABE-FRAMEWORK.md §Phase 4.
-#
-# `what_we_sell` is REQUIRED and must be non-empty — an empty product
-# is the navel-gazing risk reborn (the dream phase would generate
-# "Self-Perception Diff Reports" again). The loader returns None when
-# this field is empty, and the dream phase silently skips the PRODUCT
-# block in that case.
-
-name: EloPhanto (self)
-
-what_we_sell: |
-  Open-source self-evolving AI agent — this codebase. The operator
-  (Petr Royce) sells bespoke automations, agent-building, consulting,
-  and the ABE framework itself: helping other operators turn their
-  EloPhanto into focused autonomous business entities. The agent
-  itself does research, drafting, prospect outreach, knowledge work,
-  and content; the operator finalises, ships, and bills.
-
+name: EloPhanto
+what_we_sell: 'EloPhanto sells paid autonomous AI-agent jobs to external buyers via
+  elophanto.com/hire: customers describe coding, research, browser automation, or
+  mixed operational tasks, pay 50,000 $ELO on Solana, and receive completed work by
+  email, usually within 24 hours. It also sells/markets the open-source local self-evolving
+  AI agent as the underlying product, with $ELO positioned as work-access/coordination
+  around scarce agent labor.'
 price:
-  amount: 0
-  currency: USD
-  model: project-based   # operator-negotiated per engagement
-
-fulfillment: |
-  Operator-mediated delivery. The agent generates artifacts (research
-  notes, drafts, code, posts, outbound emails); the operator reviews,
-  edits, and ships. Operator handles invoicing.
-
-channels: [cli, telegram, x]
-
-wallet:
-  chain: solana
-  # Address omitted — vault holds the actual key. The operator's
-  # `elophanto vault` is the source of truth; this field is advisory
-  # only and Phase 4 does not wire it to payment_audit.
-  address: ""
-
+  amount: 50000
+  currency: ELO
+  model: per_job
+  network: Solana mainnet
+fulfillment: Customer submits job details and email at https://elophanto.com/hire,
+  pays 50,000 $ELO, EloPhanto verifies/picks up the job, executes using local agent
+  tools, and replies to the customer by email within the advertised <24h turnaround.
+channels:
+- website
+- email
+- x
+- agent_commune
 kpis:
-  - type: pipeline_advance
-    target_weekly: 5
-  - type: email_sent
-    target_weekly: 20
+- type: pipeline_advance
+  target_weekly: 10
+- type: email_sent
+  target_weekly: 20
+- type: usd
+  target_weekly: 1
+- type: paid_job_completed
+  target_weekly: 3

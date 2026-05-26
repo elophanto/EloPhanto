@@ -15,7 +15,7 @@ import contextvars
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from core.database import Database
@@ -54,6 +54,20 @@ class Company:
     product_yaml: str | None
     created_at: str
     updated_at: str
+    # ABE Phase 9 (docs/76-ABE-FRAMEWORK.md). Trust ladder state:
+    #   'learning' (default for new) — agent must draft, NOT send.
+    #     Live outreach tools (email_send, email_reply,
+    #     prospect_outreach, twitter_post) refuse with a pointer
+    #     to the corresponding *_draft tool.
+    #   'trial' — operator approved voice; live outreach allowed
+    #     but each call still gates through MODERATE permission.
+    #   'operating' — autonomous within budget + permission_mode.
+    # The seed `elophanto-self` is bumped to 'operating' on init
+    # so existing production schedules keep working.
+    trust_state: str = "learning"
+
+
+VALID_TRUST_STATES: tuple[str, ...] = ("learning", "trial", "operating")
 
 
 # Where the CLI persists the operator's selected company between
@@ -115,32 +129,14 @@ class CompanyManager:
         target.mkdir(parents=True, exist_ok=True)
         return target
 
-    async def list(self) -> list[Company]:
-        rows = await self._db.execute(
-            "SELECT id, name, status, product_yaml, created_at, updated_at "
-            "FROM companies ORDER BY created_at"
-        )
-        return [
-            Company(
-                id=r["id"],
-                name=r["name"],
-                status=r["status"],
-                product_yaml=r["product_yaml"],
-                created_at=r["created_at"],
-                updated_at=r["updated_at"],
-            )
-            for r in rows
-        ]
-
-    async def get(self, company_id: str) -> Company | None:
-        rows = await self._db.execute(
-            "SELECT id, name, status, product_yaml, created_at, updated_at "
-            "FROM companies WHERE id = ?",
-            (company_id,),
-        )
-        if not rows:
-            return None
-        r = rows[0]
+    @staticmethod
+    def _row_to_company(r: Any) -> Company:
+        # Defensive read on trust_state — the column was added in
+        # Phase 9 (2026-05-26) so legacy test fixtures or pre-migration
+        # rows might not have it. Default to 'learning' to fail safe.
+        trust = (
+            r["trust_state"] if "trust_state" in r.keys() else "learning"
+        ) or "learning"
         return Company(
             id=r["id"],
             name=r["name"],
@@ -148,7 +144,53 @@ class CompanyManager:
             product_yaml=r["product_yaml"],
             created_at=r["created_at"],
             updated_at=r["updated_at"],
+            trust_state=trust,
         )
+
+    async def list(self) -> list[Company]:
+        rows = await self._db.execute(
+            "SELECT id, name, status, product_yaml, created_at, updated_at, "
+            "trust_state FROM companies ORDER BY created_at"
+        )
+        return [self._row_to_company(r) for r in rows]
+
+    async def get(self, company_id: str) -> Company | None:
+        rows = await self._db.execute(
+            "SELECT id, name, status, product_yaml, created_at, updated_at, "
+            "trust_state FROM companies WHERE id = ?",
+            (company_id,),
+        )
+        if not rows:
+            return None
+        return self._row_to_company(rows[0])
+
+    async def set_trust_state(self, company_id: str, state: str) -> bool:
+        """Operator-controlled trust ladder promotion (Phase 9).
+
+        Returns True on success, False when slug doesn't exist or
+        state isn't one of ``VALID_TRUST_STATES``. Idempotent — same
+        state in is a no-op success.
+        """
+        if state not in VALID_TRUST_STATES:
+            raise ValueError(
+                f"invalid trust_state {state!r}; expected one of "
+                f"{VALID_TRUST_STATES}"
+            )
+        company = await self.get(company_id)
+        if company is None:
+            return False
+        now_iso = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            "UPDATE companies SET trust_state = ?, updated_at = ? " "WHERE id = ?",
+            (state, now_iso, company_id),
+        )
+        return True
+
+    async def get_trust_state(self, company_id: str) -> str:
+        """Convenience for the trust gate. Falls through to 'learning'
+        when the company doesn't exist (fail safe — gate denies)."""
+        company = await self.get(company_id)
+        return company.trust_state if company else "learning"
 
     async def create(
         self,

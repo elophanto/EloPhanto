@@ -99,10 +99,24 @@ async def _dispatch(config, action: str, slug: str | None, name: str | None) -> 
         await _backfill(db)
     elif action == "report":
         await _report(db, mgr, slug, project_root=config.project_root)
+    elif action == "trust":
+        # `trust <slug> [state]` — show current trust_state if no
+        # state given, or promote/demote if state given. Phase 9.
+        # Operator forms:
+        #   elophanto company trust acme-inc         → show
+        #   elophanto company trust acme-inc trial   → set to trial
+        if slug is None:
+            console.print("[red]Usage:[/red] elophanto company trust <slug> [state]")
+            return
+        if name is None:
+            await _trust_show(mgr, slug)
+        else:
+            await _trust_set(mgr, slug, name)
     else:
         console.print(f"[red]Unknown action:[/red] {action}")
         console.print(
-            "Use: list | create | use | current | pause | resume | " "backfill | report"
+            "Use: list | create | use | current | pause | resume | "
+            "backfill | report | trust"
         )
 
 
@@ -170,6 +184,47 @@ async def _set_status(mgr: CompanyManager, slug: str, status: str) -> None:
     console.print(f"[green]Set[/green] {slug} → {status}")
 
 
+async def _trust_show(mgr: CompanyManager, slug: str) -> None:
+    """Show the current trust state of a company (Phase 9)."""
+    company = await mgr.get(slug)
+    if company is None:
+        console.print(f"[red]No such company:[/red] {slug}")
+        return
+    style = {
+        "learning": "yellow",
+        "trial": "cyan",
+        "operating": "green",
+    }.get(company.trust_state, "white")
+    console.print(
+        f"[cyan]{slug}[/cyan] trust: [{style}]{company.trust_state}[/{style}]"
+    )
+    if company.trust_state == "learning":
+        console.print(
+            "[dim]Live outreach (email_send / email_reply / "
+            "prospect_outreach / twitter_post) is REFUSED. Agent "
+            "must draft instead. Promote with:[/dim] "
+            f"elophanto company trust {slug} trial"
+        )
+
+
+async def _trust_set(mgr: CompanyManager, slug: str, state: str) -> None:
+    """Operator promotes / demotes a company's trust state (Phase 9)."""
+    try:
+        ok = await mgr.set_trust_state(slug, state)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        return
+    if not ok:
+        console.print(f"[red]No such company:[/red] {slug}")
+        return
+    style = {
+        "learning": "yellow",
+        "trial": "cyan",
+        "operating": "green",
+    }.get(state, "white")
+    console.print(f"[green]Set[/green] {slug} trust → [{style}]{state}[/{style}]")
+
+
 async def _backfill(db: Database) -> None:
     from core.ledger_backfill import backfill_ledger
 
@@ -216,10 +271,16 @@ async def _report(
 
     # Headline block
     console.print()
+    trust_style = {
+        "learning": "yellow",
+        "trial": "cyan",
+        "operating": "green",
+    }.get(company.trust_state, "white")
     console.print(
         f"[bold cyan]{company.id}[/bold cyan] — {company.name} "
         f"([{('green' if company.status == 'active' else 'yellow')}]"
-        f"{company.status}[/])"
+        f"{company.status}[/]) "
+        f"trust=[{trust_style}]{company.trust_state}[/{trust_style}]"
     )
 
     # ABE Phase 4: PRODUCT line. Surfaces the company's declared
