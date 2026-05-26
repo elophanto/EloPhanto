@@ -207,18 +207,11 @@ class CompanyPlanTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Generate a marketing strategy proposal for a company. "
-            "Reads the company's product + strategy_inputs from "
-            "company.yaml, calls the LLM with proven strategy "
-            "prompts (modes: standard | unconventional | guerrilla | "
-            "brand-awareness | controversial; focus: full | seo | "
-            "geo | content | paid | social | email | brand), and "
-            "writes the parsed JSON to data/companies/<slug>/"
-            "strategy/proposed/<timestamp>.yaml. "
-            "Call company_capabilities FIRST so the LLM context "
-            "knows what's available. Pure artifact generation — no "
-            "goals/missions are created until the operator runs "
-            "company_plan_apply on the proposal."
+            "Generate strategy proposal for a company via LLM. Reads "
+            "product + strategy_inputs from company.yaml. Writes "
+            "data/companies/<slug>/strategy/proposed/<ts>.yaml. Pure "
+            "artifact — no side effects until apply. See "
+            "strategy-pipeline skill."
         )
 
     @property

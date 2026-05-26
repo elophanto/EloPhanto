@@ -64,11 +64,9 @@ class VoiceExtractTool(BaseTool):
     def description(self) -> str:
         return (
             "Read operator-curated exemplars at data/companies/<slug>/"
-            "exemplars/<channel>/*.md and propose a voice.yaml. Writes "
-            "to data/companies/<slug>/voice_proposed.yaml — operator "
-            "reviews then promotes by renaming to voice.yaml. Requires "
-            "at least 2 exemplar files. The voice contract gates "
-            "every draft tool via voice_lint."
+            "exemplars/<channel>/*.md and propose voice_proposed.yaml. "
+            "Requires ≥2 files per channel. Operator promotes via "
+            "`elophanto voice approve`. See voice-extraction-workflow skill."
         )
 
     @property

@@ -63,14 +63,10 @@ class CompanySetStrategyInputsTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Capture the business context the strategy generator "
-            "needs: target_audience, competitors, current_challenges, "
-            "unique_selling_points, budget {type, amount, period}, "
-            "risk_tolerance (0-100), primary_goals, strategy_mode, "
-            "focus, timeline_hint. Updates the `strategy_inputs:` "
-            "section of companies/<slug>/company.yaml. Call this "
-            "after company_onboard and before company_plan — the "
-            "plan tool reads these inputs to build the LLM brief."
+            "Capture business context for company_plan: target_audience, "
+            "competitors, budget, risk_tolerance, primary_goals, "
+            "strategy_mode, focus. Updates strategy_inputs section of "
+            "company.yaml. MODERATE. See strategy-pipeline skill."
         )
 
     @property

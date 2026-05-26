@@ -52,20 +52,9 @@ class AgentStopTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Cancel the CURRENT chat action only. Use when the "
-            "operator asks you to stop, halt, pause, or abort the "
-            "thing you're currently doing. Affects ONLY this chat "
-            "session — autonomous mind, scheduler, and other "
-            "sessions stay running. No goals are cancelled, no "
-            "schedules disabled, no sentinel written. After calling, "
-            "your current loop will raise CancelledError at the next "
-            "await; the operator will see a 'Cancelling current "
-            "action' response. The operator can still send the next "
-            "message and you'll be ready to help. "
-            "If the operator genuinely wants the whole system to "
-            "halt (mind + scheduler + everything), tell them to "
-            "type `stop --hard` instead — that's the destructive "
-            "kill switch."
+            "Cancel the current chat action only (this session). Mind, "
+            "scheduler, other sessions unaffected. For full system "
+            "halt the operator types `stop --hard` in chat."
         )
 
     @property

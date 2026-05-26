@@ -22,12 +22,10 @@ class VoiceLintTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Check a draft body against the active company's voice "
-            "contract. Returns {passed, violations, suggestions}. "
-            "Pure / cheap — no LLM call. Run this BEFORE calling "
-            "email_draft / outreach_draft / post_draft so you don't "
-            "submit drafts that those tools will refuse. When no "
-            "voice.yaml exists for the company, lint always passes."
+            "Lint draft body against active company's voice contract. "
+            "Returns {passed, violations, suggestions}. Pure, no LLM "
+            "call. Fail-soft when no voice.yaml exists. See "
+            "voice-extraction-workflow skill."
         )
 
     @property

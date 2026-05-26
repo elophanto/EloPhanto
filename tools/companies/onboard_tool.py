@@ -63,17 +63,11 @@ class CompanyOnboardTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "**Canonical entry point when the operator says 'I have a "
-            "business on X.com' / 'drive my business' / 'I want to run "
-            "X'.** Bundles company_create + company_use(persist=true) + "
-            "company_set_product + optional seed goal into ONE "
-            "operator-approved call. Before calling, do quick research "
-            "on the business (browser_navigate + browser_extract on the "
-            "URL, or web_search '<domain> what do they sell') to fill in "
-            "`what_we_sell` accurately — that field anchors the dream "
-            "phase, an empty/wrong value causes drift. After this tool "
-            "returns success, the autonomous mind will inherit the new "
-            "company on its next wakeup and start operating it."
+            "Onboard a new ABE company. Bundles company_create + "
+            "persist sidecar + company_set_product + optional seed goal "
+            "into one call. Research the URL first (browser_navigate + "
+            "browser_extract) so what_we_sell is grounded. See "
+            "drive-business skill PATH A."
         )
 
     @property

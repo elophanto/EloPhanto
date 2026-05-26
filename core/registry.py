@@ -693,44 +693,35 @@ class ToolRegistry:
             "browser_type",
             "browser_evaluate",
             "tool_discover",
-            # ABE Phase 8.5 (docs/76-ABE-FRAMEWORK.md — Verification
-            # failure log row 5): without these in CORE the LLM never
-            # sees the canonical-source ABE tools and falls back to
-            # answering company/role questions from scratchpad memory
-            # — exactly the failure mode the awareness block was
-            # supposed to fix. Token cost: 4 schemas per LLM call.
+            # ABE CORE tier — kept tight after 2026-05-26 size audit.
+            # 65KB of tool schemas ship per LLM call at "full" profile;
+            # CORE adds on top of that, so each CORE entry pays a
+            # per-call tax. Keep only what the LLM MUST see in every
+            # context to answer / route correctly.
+            #
+            # IN: identity of ABE companies + the always-available
+            # draft fallback when live outreach is gated + the kill
+            # switch. OUT: workflow-specific tools (capabilities,
+            # plan, voice_*, role_list) that the LLM reaches for
+            # only when the relevant intent is in play — those show
+            # up via the "companies" / "roles" profile groups, which
+            # the planner classifies onto when the operator's request
+            # warrants them. If the LLM needs one and it's not in
+            # CORE, the recommended-skills mechanism + tool_discover
+            # surface it on demand.
             "company_list",
             "company_report",
             "company_onboard",
-            "role_list",
-            # ABE Phase 9 — draft tools must be CORE so when the
-            # trust gate refuses live outreach, the LLM can
-            # immediately see the draft alternative without
-            # discovering it. Same logic: don't hide the canonical
-            # fallback behind tool_discover. Token cost: 3 more.
+            # Phase 9 draft fallbacks — must stay visible because the
+            # trust gate refuses live outreach and points here; if the
+            # LLM has to discover them the operator gets a confusing
+            # "I can't send" loop.
             "email_draft",
             "outreach_draft",
             "post_draft",
-            # ABE Phase 10 — voice tools must be CORE for the same
-            # reason: if drafts are CORE then the lint that gates them
-            # and the show that reveals the contract must be visible
-            # too, or the LLM can't self-check before drafting. Token
-            # cost: 3 more (same as Phase 9 trio).
-            "voice_extract",
-            "voice_show",
-            "voice_lint",
-            # ABE Phase 11 — capabilities + plan are CORE so the LLM
-            # always sees the post-onboard pipeline; apply + approve
-            # stay PROFILE (called less often, MODERATE permission).
-            # set_strategy_inputs stays PROFILE (one-shot per
-            # company). Token cost: +2.
-            "company_capabilities",
-            "company_plan",
-            # Kill switch — must be CORE so the LLM can honor an
-            # operator's natural-language stop request from ANY profile
-            # without first calling tool_discover. One more schema
-            # (~60 tokens) — cheap insurance for the natural-language
-            # cancel path; deterministic `stop` is caught at gateway.
+            # Kill switch — operator's natural-language stop must work
+            # in any profile. Single schema (~60 tokens) is cheap
+            # insurance against runaway loops.
             "agent_stop",
         }
 

@@ -435,7 +435,13 @@ class SkillManager:
         if not self._skills:
             return ""
 
-        matched = self.match_skills(query, max_results=5) if query else []
+        # max_results=3: prompt-size audit (2026-05-26) showed 5 matches
+        # pushing the recommended XML to ~3.5KB for ABE-heavy queries
+        # (drive-business + strategy-pipeline + trust-ladder + voice +
+        # strategy-foundations all match). 3 keeps the most relevant +
+        # cuts ~1.5KB per turn. The LLM can still skill_read others
+        # from the <other_skills> one-liner list.
+        matched = self.match_skills(query, max_results=3) if query else []
 
         # No matches — minimal footprint (saves ~10K chars vs full XML)
         if not matched:
