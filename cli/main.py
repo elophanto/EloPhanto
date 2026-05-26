@@ -29,6 +29,7 @@ from cli.stop_cmd import resume_cmd, stop_cmd
 from cli.telegram_cmd import telegram_cmd
 from cli.update_cmd import update_cmd
 from cli.vault_cmd import vault_cmd
+from cli.voice_cmd import voice_cmd
 
 
 def _load_persisted_company() -> None:
@@ -94,6 +95,7 @@ cli.add_command(resume_cmd, "resume")
 cli.add_command(company_cmd, "company")
 cli.add_command(role_cmd, "role")
 cli.add_command(drafts_cmd, "drafts")
+cli.add_command(voice_cmd, "voice")
 
 
 if __name__ == "__main__":
