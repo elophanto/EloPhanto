@@ -102,6 +102,163 @@ operator running a small focused company-of-agents that does one bounded
 thing and tracks its own books. If the work starts drifting toward
 "AI replaces all employees" — stop and re-read this paragraph.
 
+## How it works end-to-end (chat → autonomous → outcome)
+
+This is the canonical path through every shipped phase. It traces
+one operator request ("drive my business at acme.com") from chat
+to a voice-compliant draft awaiting operator review, then through
+trust-ladder promotion to autonomous live outreach with ledger
+attribution. Phase numbers in `[]` mark which phase contributes
+each step.
+
+```mermaid
+flowchart TD
+    %% ─── Chat-driven onboarding ──────────────────────────────
+    OP[/"Operator chat: 'drive my business at acme.com'"/]
+    OP --> CO["company_onboard tool — [Phase 8.5]
+    one operator-approved call"]
+    CO --> RES["• browser_navigate → research product
+    • company_create → companies table row
+    • company_set_product → companies/acme-inc/company.yaml
+    • seed goal → goals table
+    • persist sidecar → ~/.elophanto/current_company"]
+    RES --> DD["data dir materialized [Phase 6]
+    data/companies/acme-inc/"]
+
+    %% ─── Autonomous wakeup ───────────────────────────────────
+    DD --> WAKE{{"Autonomous mind wakeup
+    (scheduler / interval)"}}
+    WAKE --> SNAP["_build_state_snapshot
+    [COMPANY] acme-inc (productized,
+    trust=learning, voice=none) — spend=… emails=…
+    [Phases 1, 9, 10]"]
+    SNAP --> ARB["Arbiter collect_all candidates"]
+    ARB --> C1["from_mission_momentum / role_neglect / dream / reflexes [legacy]"]
+    ARB --> C2["from_unproductized_companies [Phase 7]"]
+    ARB --> C3["from_voiceless_companies [Phase 10]
+    fires when exemplars/ present, no voice.yaml"]
+    ARB --> C4["from_workable_checkpoints [legacy]"]
+    C1 --> PICK
+    C2 --> PICK
+    C3 --> PICK
+    C4 --> PICK{{"Arbiter scores + picks
+    one winner per cycle"}}
+
+    %% ─── Winner: voice extract (if exemplars dropped) ────────
+    PICK -. "winner: voiceless_company" .-> VE["voice_extract
+    → LLM distills exemplars
+    → voice_proposed.yaml written
+    → operator renames to voice.yaml"]
+    VE --> WAKE
+
+    %% ─── Winner: outreach attempt ────────────────────────────
+    PICK -- "winner: outreach a prospect" --> LIVE["mind calls prospect_outreach
+    or email_send or twitter_post"]
+
+    %% ─── Trust gate (Phase 9) ────────────────────────────────
+    LIVE --> GATE{{"trust_gate.check_outreach_allowed
+    [Phase 9]
+    company.trust_state = ?"}}
+    GATE -- "learning" --> REFUSE["ToolResult error:
+    'use outreach_draft instead' "]
+    REFUSE --> DRAFT["mind calls outreach_draft / email_draft
+    / post_draft [Phase 9]"]
+    GATE -- "trial / operating" --> SEND
+
+    %% ─── Voice lint (Phase 10) ───────────────────────────────
+    DRAFT --> VLINT{{"_DraftAuthorBase._voice_check
+    VoiceManager.lint(body)
+    [Phase 10]"}}
+    VLINT -- "fail" --> VFAIL["ToolResult error:
+    'voice lint failed: leverage; too long'
+    → LLM revises body next cycle"]
+    VFAIL --> DRAFT
+    VLINT -- "pass / no voice.yaml" --> PERSIST["draft written to
+    companies/acme-inc/drafts/<kind>/pending/
+    → ledger NOT touched yet"]
+
+    %% ─── Operator review ─────────────────────────────────────
+    PERSIST --> REV[/"Operator reviews:
+    elophanto drafts list / show
+    elophanto drafts approve <id>
+    elophanto drafts reject <id> <reason>"/]
+    REV -- "approve" --> APP["draft_approve tool
+    → moves to drafts/<kind>/approved/"]
+    REV -- "reject" --> RJC["draft_reject
+    → drafts/<kind>/rejected/ with reason
+    → mind reads reason next cycle, revises"]
+    RJC --> WAKE
+
+    %% ─── Trust promotion ─────────────────────────────────────
+    APP --> PROMOTE[/"Operator: elophanto company trust
+    acme-inc trial (or operating)
+    → company_trust_set tool [Phase 9]"/]
+    PROMOTE --> WAKE
+
+    %% ─── Live send + ledger ──────────────────────────────────
+    SEND["live send happens
+    (email_send / prospect_outreach /
+    twitter_post)"]
+    SEND --> LEDGER["resource_ledger row written
+    type=pipeline_advance | email_out | usd_out
+    company_id=acme-inc [Phases 1, 3]"]
+    LEDGER --> REPORT["elophanto company report acme-inc
+    revenue / spend / pipeline / role activity
+    [Phases 1, 3, 4]"]
+    REPORT --> WAKE
+
+    %% ─── Styling ─────────────────────────────────────────────
+    classDef phase9 fill:#fde2e4,stroke:#c44,color:#000
+    classDef phase10 fill:#e0f7e9,stroke:#080,color:#000
+    classDef phase8_5 fill:#e2eafd,stroke:#06c,color:#000
+    classDef ledger fill:#fff3cd,stroke:#a80,color:#000
+    classDef operator fill:#f0f0f0,stroke:#666,color:#000
+    class GATE,REFUSE,DRAFT,APP,RJC,PROMOTE phase9
+    class C3,VE,VLINT,VFAIL phase10
+    class CO,RES phase8_5
+    class LEDGER,REPORT ledger
+    class OP,REV,PROMOTE operator
+```
+
+**Reading the diagram.** Three things are load-bearing:
+
+1. **Operator chat is the only entry point for new companies.** The
+   autonomous mind never invents a company — it operates the ones
+   the operator onboarded. (Phase 8.5 closed this gap: previously
+   the mind would respond conversationally instead of calling
+   `company_onboard`, leaving the operator with no ABE state.)
+
+2. **Two gates fire before any send hits the outside world**, in
+   strict order: the **trust gate** (red, Phase 9) decides whether
+   the company is even allowed to send live yet, and the **voice
+   lint** (green, Phase 10) decides whether the *content* matches
+   the operator-approved voice contract. A `learning` company can
+   only produce drafts; a `learning` company without a voice.yaml
+   produces drafts that bypass the lint (fail-soft) but the
+   operator can still reject — and rejection feedback flows back
+   into the next cycle.
+
+3. **Everything that happens lands in `resource_ledger`** (yellow):
+   live sends, payments, LLM cost, pipeline advances. The honest
+   progress signal — `company report` reads it directly — is the
+   single source of truth for "is this company actually doing
+   anything?"
+
+**Where each phase shows up:**
+
+| Phase | Where in the diagram |
+|---|---|
+| 1 | `resource_ledger` write at every send + `company report` |
+| 2 | role overlay applied to system prompt before each cycle (off-diagram, runs around the WAKE loop) |
+| 3 | `pipeline_advance` ledger rows on prospect status transitions |
+| 4 | product.yaml fuels dream PRODUCT block + arbiter KPI bias (off-diagram in `_dream_focus_for_today`) |
+| 6 | `data/companies/<slug>/` materialization + per-company contextvar |
+| 7 | `from_unproductized_companies` candidate + `company_set_product` |
+| 8 | the entire `elophanto company / role` CLI surface (off-diagram, parallel to chat) |
+| 8.5 | `company_onboard` + sidecar persistence so the mind inherits company context on next wakeup |
+| 9 | trust gate, draft tools, approve/reject, `company_trust_set` |
+| 10 | `from_voiceless_companies`, `voice_extract`, `_voice_check` lint, `voice=` in snapshot |
+
 ## Load-bearing design decisions
 
 These are the constraints. Every later choice must respect them.

@@ -257,6 +257,46 @@ class CompanyOnboardTool(BaseTool):
                 ),
             )
 
+        # Step 3.5 (ABE Phase 10): seed the voice exemplars directory
+        # so the operator has an obvious place to drop reference
+        # posts/emails. Without this, the workflow ("paste exemplars
+        # then run voice_extract") is discoverable only via docs. Two
+        # default channel subdirs (twitter, email) cover the common
+        # cases; operator can add more. README in the root explains
+        # the flow. All idempotent.
+        try:
+            exemplars_root = (
+                self._project_root / "data" / "companies" / slug / "exemplars"
+            )
+            for channel in ("twitter", "email"):
+                (exemplars_root / channel).mkdir(parents=True, exist_ok=True)
+            readme = exemplars_root / "README.md"
+            if not readme.is_file():
+                readme.write_text(
+                    f"# Voice exemplars for {name}\n\n"
+                    "Drop reference posts / emails here (one per `.md` "
+                    "file, raw body is fine) under the channel subdir "
+                    f"that matches: `twitter/`, `email/`, or any new "
+                    "channel you add (`linkedin/`, etc).\n\n"
+                    "Two or more files per channel are enough. Then "
+                    f"ask EloPhanto to run `voice_extract` for `{slug}` "
+                    "— it will distill the recurring patterns and "
+                    "propose a `voice.yaml` for review. Once you "
+                    f"approve it (`elophanto voice approve {slug}`), "
+                    "every draft for this company is lint-gated "
+                    "against your voice — no more AI slop.\n",
+                    encoding="utf-8",
+                )
+        except Exception as e:
+            # Non-fatal — the operator can mkdir the path manually.
+            logger.warning(
+                "company_onboard: exemplars dir seed failed (%s); "
+                "operator can mkdir data/companies/%s/exemplars/ "
+                "manually",
+                e,
+                slug,
+            )
+
         # Step 4: Optional seed goal so the agent has explicit first
         # work. Without this, a brand-new company depends on the
         # dream phase to invent direction, which is unreliable.

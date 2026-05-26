@@ -306,6 +306,53 @@ async def _report(
             "[dim] to anchor the dream phase)[/dim]"
         )
 
+    # ABE Phase 10: VOICE line. Surfaces whether the company has an
+    # operator-approved voice contract gating its drafts. Without
+    # voice.yaml the draft tools are fail-soft (any body lands as a
+    # draft) — the operator should know.
+    try:
+        from core.voice import load_voice
+
+        voice = load_voice(project_root, company.id)
+    except Exception:
+        voice = None
+    if voice is not None:
+        rule_count = (
+            len(voice.banned_phrases)
+            + len(voice.banned_patterns)
+            + (1 if voice.length_target.max_chars else 0)
+            + (1 if voice.length_target.min_chars else 0)
+            + (1 if voice.allowed_hooks else 0)
+        )
+        console.print(
+            f"[dim]Voice:[/dim] [green]configured[/green] "
+            f"([dim]{rule_count} rule(s); persona={voice.persona or '—'!r}[/dim])"
+        )
+    else:
+        exemplars_dir = project_root / "data" / "companies" / company.id / "exemplars"
+        ex_count = 0
+        if exemplars_dir.is_dir():
+            ex_count = sum(
+                1
+                for ch in exemplars_dir.iterdir()
+                if ch.is_dir()
+                for _ in ch.glob("*.md")
+            )
+        if ex_count >= 2:
+            console.print(
+                f"[yellow]Voice:[/yellow] [dim]not configured "
+                f"({ex_count} exemplar(s) ready — run[/dim] "
+                f"`elophanto voice extract {company.id}` [dim]to propose "
+                f"voice.yaml)[/dim]"
+            )
+        else:
+            console.print(
+                f"[yellow]Voice:[/yellow] [dim](not configured — drop "
+                f"exemplar posts/emails at[/dim] {exemplars_dir}/"
+                "<channel>/[dim] then run[/dim] "
+                f"`elophanto voice extract {company.id}`[dim])[/dim]"
+            )
+
     # ABE Phase 6: per-company data directory. Materialized on company
     # create (and for the default seed via the one-shot in _dispatch).
     # The line surfaces the location so the operator + tools opting

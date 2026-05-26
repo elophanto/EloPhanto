@@ -136,6 +136,29 @@ class TestHappyPath:
         assert result.success
         assert result.data["seed_goal_id"] is None
 
+    @pytest.mark.asyncio
+    async def test_seeds_exemplars_dir_with_readme(
+        self, tool: CompanyOnboardTool, tmp_path
+    ) -> None:
+        """Phase 10 — onboarding pre-creates the exemplars skeleton so
+        the operator has an obvious place to drop reference posts."""
+        result = await tool.execute(
+            {
+                "slug": "acme-inc",
+                "name": "Acme",
+                "what_we_sell": "Concrete deliverable for clients.",
+            }
+        )
+        assert result.success
+        exemplars = tmp_path / "data" / "companies" / "acme-inc" / "exemplars"
+        assert (exemplars / "twitter").is_dir()
+        assert (exemplars / "email").is_dir()
+        readme = exemplars / "README.md"
+        assert readme.is_file()
+        body = readme.read_text()
+        assert "voice_extract" in body
+        assert "elophanto voice approve acme-inc" in body
+
 
 class TestValidation:
     @pytest.mark.asyncio
