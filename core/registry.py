@@ -662,6 +662,16 @@ class ToolRegistry:
 
         self.register(ToolDiscoverTool())
 
+        # Kill switch — natural-language "cancel current action" path.
+        # The deterministic `stop` slash-command is caught at the
+        # gateway BEFORE the LLM sees it; this tool covers the case
+        # where the operator phrases the request in free-form
+        # natural language ("hold on stop that"). Scope: this chat
+        # session only — no sentinel write, no mind/scheduler impact.
+        from tools.system.stop_tool import AgentStopTool
+
+        self.register(AgentStopTool())
+
         # ── Tier overrides ─────────────────────────────────────────
         # All tools default to ToolTier.PROFILE (tier 1).
         # Override specific tools to CORE (tier 0) or DEFERRED (tier 2).
@@ -716,6 +726,12 @@ class ToolRegistry:
             # company). Token cost: +2.
             "company_capabilities",
             "company_plan",
+            # Kill switch — must be CORE so the LLM can honor an
+            # operator's natural-language stop request from ANY profile
+            # without first calling tool_discover. One more schema
+            # (~60 tokens) — cheap insurance for the natural-language
+            # cancel path; deterministic `stop` is caught at gateway.
+            "agent_stop",
         }
 
         _DEFERRED_TOOLS = {
