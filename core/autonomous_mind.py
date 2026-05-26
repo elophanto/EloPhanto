@@ -1581,9 +1581,23 @@ class AutonomousMind:
                     # always knows whether live outreach is allowed
                     # for each company. learning = drafts only.
                     trust = getattr(c, "trust_state", "operating")
+                    # ABE Phase 10: surface voice contract presence
+                    # so the mind can see at a glance which companies
+                    # have a voice gate and which don't. yes = drafts
+                    # will be lint-gated; none = no contract yet
+                    # (operator-curated exemplars + voice_extract can
+                    # produce one).
+                    voice_marker = "voice=none"
+                    try:
+                        vm = getattr(self._agent, "_voice_manager", None)
+                        if vm is not None and vm.get(c.id) is not None:
+                            voice_marker = "voice=yes"
+                    except Exception:
+                        pass
                     rows.append(
                         f"[COMPANY] {c.id}{active_marker} "
-                        f"({product_marker}, trust={trust}) — "
+                        f"({product_marker}, trust={trust}, "
+                        f"{voice_marker}) — "
                         f"{ledger_summary}"
                     )
                 if rows:
@@ -1840,6 +1854,10 @@ class AutonomousMind:
             # company_manager or project_root is missing.
             company_manager=getattr(self._agent, "_company_manager", None),
             project_root=self._project_root,
+            # ABE Phase 10 — enables from_voiceless_companies. None-
+            # safe; the generator returns [] when voice_manager is
+            # missing (test fixtures with no project_root).
+            voice_manager=getattr(self._agent, "_voice_manager", None),
         )
 
         all_candidates = await collect_all(ctx)
