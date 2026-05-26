@@ -72,6 +72,11 @@ class CandidateContext:
     # material and is waiting for the agent to extract a voice. None
     # disables the source rather than crashing the wakeup.
     voice_manager: Any = None
+    # ABE Phase 11 (docs/76-ABE-FRAMEWORK.md). StrategyManager handle
+    # so `from_unplanned_companies`, `from_blocked_strategy_days`, and
+    # `from_buildable_blockers` can read strategy state without each
+    # generator re-opening the filesystem. None disables those sources.
+    strategy_manager: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +508,203 @@ async def from_voiceless_companies(
     return out
 
 
+async def from_unplanned_companies(
+    ctx: CandidateContext,
+) -> list[Candidate]:
+    """One candidate per productized company without an active strategy.
+
+    Phase 11: a company with a `company.yaml` but no
+    `data/companies/<slug>/strategy/active/strategy.yaml` is in the
+    "I know what we sell but not how to drive it" state. Surface a
+    high-leverage candidate so the arbiter picks it before the mind
+    drifts into dream-phase ideation. Caps at 3 to avoid menu drowning.
+    """
+    if not ctx.company_manager or not ctx.strategy_manager or not ctx.project_root:
+        return []
+    out: list[Candidate] = []
+    try:
+        from core.product import load_product
+
+        companies = await ctx.company_manager.list()
+        for c in companies:
+            if c.status != "active":
+                continue
+            if load_product(ctx.project_root, c.id) is None:
+                continue  # un-productized — different candidate generator handles this
+            if ctx.strategy_manager.has_active(c.id):
+                continue  # already planned
+            out.append(
+                Candidate(
+                    source="unplanned_company",
+                    action_spec=(
+                        f"Company '{c.id}' is productized but has no "
+                        f"active strategy. Sequence: "
+                        f"1) `company_capabilities(company_id='{c.id}')` "
+                        f"to audit what's available; "
+                        f"2) ensure strategy_inputs are captured via "
+                        f"`company_set_strategy_inputs`; "
+                        f"3) call `company_plan(company_id='{c.id}')` "
+                        f"to generate a proposal; "
+                        f"4) operator runs `company_plan_apply` to "
+                        f"materialize mission + goals + voice seed."
+                    ),
+                    expected_value=8.0,
+                    feasibility=0.85,
+                    lens_match=0.5,
+                    cost=2.0,
+                    staleness_bonus=4.0,
+                    dedup_key=f"strategy_plan:{c.id}",
+                    metadata={"company_id": c.id},
+                )
+            )
+            if len(out) >= 3:
+                break
+    except Exception as e:
+        logger.debug("from_unplanned_companies failed: %s", e)
+    return out
+
+
+async def from_blocked_strategy_days(
+    ctx: CandidateContext,
+) -> list[Candidate]:
+    """One candidate per company with an active strategy + unresolved
+    blockers older than 3 days. Phase 11: keeps blocked strategies
+    from sitting in `learning` state indefinitely — surfaces the
+    operator-resolvable items + the build-able ones."""
+    if not ctx.company_manager or not ctx.strategy_manager or not ctx.project_root:
+        return []
+    from core.strategy import load_blockers
+
+    out: list[Candidate] = []
+    try:
+        now = datetime.now(UTC)
+        companies = await ctx.company_manager.list()
+        for c in companies:
+            if c.status != "active":
+                continue
+            if not ctx.strategy_manager.has_active(c.id):
+                continue
+            blockers = load_blockers(ctx.project_root, c.id)
+            unresolved = [b for b in blockers if not b.is_resolved()]
+            if not unresolved:
+                continue
+            # Check active strategy age (proxy: archive dir if non-empty
+            # else file mtime). Cheap: just read mtime of active file.
+            active_path = ctx.strategy_manager.active_path(c.id)
+            if active_path is None:
+                continue
+            try:
+                mtime = datetime.fromtimestamp(active_path.stat().st_mtime, tz=UTC)
+                age_days = (now - mtime).total_seconds() / 86400.0
+            except OSError:
+                age_days = 0.0
+            if age_days < 3.0:
+                continue
+            out.append(
+                Candidate(
+                    source="blocked_strategy",
+                    action_spec=(
+                        f"Company '{c.id}' has {len(unresolved)} unresolved "
+                        f"blocker(s) on its active strategy "
+                        f"({age_days:.0f}d old). Review with `elophanto "
+                        f"company blockers {c.id}`; resolve operator-"
+                        f"actionable items (`resolution=ask`), or invoke "
+                        f"the build path for `resolution=build` items."
+                    ),
+                    expected_value=7.0,
+                    feasibility=0.7,
+                    lens_match=0.5,
+                    cost=1.5,
+                    staleness_bonus=6.0,
+                    dedup_key=f"blockers_review:{c.id}",
+                    metadata={
+                        "company_id": c.id,
+                        "unresolved": len(unresolved),
+                        "age_days": age_days,
+                    },
+                )
+            )
+            if len(out) >= 3:
+                break
+    except Exception as e:
+        logger.debug("from_blocked_strategy_days failed: %s", e)
+    return out
+
+
+async def from_buildable_blockers(
+    ctx: CandidateContext,
+) -> list[Candidate]:
+    """One candidate per buildable blocker — items with
+    `resolution_proposal='build'` and `build_method` set. The mind
+    can invoke `self_create_plugin` or `skill_promote` to fill the
+    gap. CRITICAL permission gates the actual build, so operator
+    still approves per invocation."""
+    if not ctx.company_manager or not ctx.strategy_manager or not ctx.project_root:
+        return []
+    from core.strategy import load_blockers
+
+    out: list[Candidate] = []
+    try:
+        companies = await ctx.company_manager.list()
+        for c in companies:
+            if c.status != "active":
+                continue
+            if not ctx.strategy_manager.has_active(c.id):
+                continue
+            blockers = load_blockers(ctx.project_root, c.id)
+            for b in blockers:
+                if b.is_resolved():
+                    continue
+                if b.resolution_proposal != "build" or not b.build_method:
+                    continue
+                action: str
+                if b.build_method == "self_create_plugin":
+                    hint = b.build_hint or b.description
+                    action = (
+                        f"Build the missing capability for blocker "
+                        f"`{b.id}` ({b.description}). Call "
+                        f"`self_create_plugin(goal={hint!r})`. "
+                        f"Operator will approve via CRITICAL permission. "
+                        f"On success the new tool registers and unblocks "
+                        f"tactics: {', '.join(b.affected_tactics) or '(none)'}."
+                    )
+                elif b.build_method == "skill_promote":
+                    action = (
+                        f"Build the missing skill for blocker "
+                        f"`{b.id}` ({b.description}). Identify 2-30 "
+                        f"lesson files relevant to "
+                        f"`{b.build_hint or 'the capability'}` and call "
+                        f"`skill_promote`. Operator approves via "
+                        f"MODERATE permission."
+                    )
+                else:
+                    continue
+                out.append(
+                    Candidate(
+                        source="buildable_blocker",
+                        action_spec=action,
+                        expected_value=9.0,
+                        feasibility=0.6,
+                        lens_match=0.5,
+                        cost=4.0,
+                        staleness_bonus=5.0,
+                        dedup_key=f"build_blocker:{c.id}:{b.id}",
+                        metadata={
+                            "company_id": c.id,
+                            "blocker_id": b.id,
+                            "build_method": b.build_method,
+                        },
+                    )
+                )
+                if len(out) >= 3:
+                    break
+            if len(out) >= 3:
+                break
+    except Exception as e:
+        logger.debug("from_buildable_blockers failed: %s", e)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Dream
 # ---------------------------------------------------------------------------
@@ -694,6 +896,9 @@ async def collect_all(ctx: CandidateContext) -> list[Candidate]:
         from_role_neglect,
         from_unproductized_companies,
         from_voiceless_companies,
+        from_unplanned_companies,
+        from_blocked_strategy_days,
+        from_buildable_blockers,
         from_dream,
         from_reflexes,
         from_external_signals,

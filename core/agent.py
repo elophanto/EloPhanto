@@ -622,6 +622,9 @@ class Agent:
         self._voice_manager: Any = (
             None  # VoiceManager (ABE Phase 10), set in _inject_company_deps
         )
+        self._strategy_manager: Any = (
+            None  # StrategyManager (ABE Phase 11), set in _inject_company_deps
+        )
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._ego_manager: Any = None  # EgoManager, set during initialize
         self._affect_manager: Any = None  # AffectManager, set during initialize
@@ -2141,6 +2144,15 @@ class Agent:
             "voice_extract",
             "voice_show",
             "voice_lint",
+            # ABE Phase 11 — strategy pipeline tools. Capabilities
+            # needs registry + vault + project_root. plan/apply/approve
+            # need strategy_manager + (apply also needs mission/goal/
+            # scheduler). set_strategy_inputs needs project_root.
+            "company_capabilities",
+            "company_plan",
+            "company_plan_apply",
+            "company_plan_approve",
+            "company_set_strategy_inputs",
         )
         # Phase 10 — lazy-construct VoiceManager on first injection
         # pass. The manager itself is cheap (no DB, no IO until a
@@ -2153,6 +2165,15 @@ class Agent:
             from core.voice import VoiceManager
 
             self._voice_manager = VoiceManager(self._config.project_root)
+        # Phase 11 — lazy-construct StrategyManager. Same shape as
+        # VoiceManager: cheap, no IO until called.
+        if (
+            getattr(self, "_strategy_manager", None) is None
+            and self._config.project_root is not None
+        ):
+            from core.strategy import StrategyManager
+
+            self._strategy_manager = StrategyManager(self._config.project_root)
         for tool_name in company_tool_names:
             tool = self._registry.get(tool_name)
             if tool is None:
@@ -2172,6 +2193,17 @@ class Agent:
                 tool._voice_manager = getattr(self, "_voice_manager", None)
             if hasattr(tool, "_router"):
                 tool._router = self._router
+            # Phase 11 — strategy pipeline injections
+            if hasattr(tool, "_strategy_manager"):
+                tool._strategy_manager = getattr(self, "_strategy_manager", None)
+            if hasattr(tool, "_registry"):
+                tool._registry = self._registry
+            if hasattr(tool, "_vault"):
+                tool._vault = getattr(self, "_vault", None)
+            if hasattr(tool, "_mission_manager"):
+                tool._mission_manager = self._mission_manager
+            if hasattr(tool, "_scheduler"):
+                tool._scheduler = getattr(self, "_scheduler", None)
 
         role_tool_names = (
             "role_list",

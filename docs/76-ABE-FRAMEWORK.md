@@ -1694,6 +1694,277 @@ All 10 verification findings above were checked against the live codebase. Open 
 
 ---
 
+### Phase 11 — Strategic Planning & Capability Audit — VERIFIED 2026-05-26
+
+**Status**: verified, awaiting operator go-ahead before implementation. Verification pass on 2026-05-26 confirmed the design against `core/vault.py`, `core/registry.py`, `core/mission_manager.py`, `core/goal_manager.py`, `core/scheduler.py`, `core/database.py` (goals schema), `tools/goals/dream_tool.py` (LLM router pattern), `tools/self_dev/creator.py` (self-build path), `tools/knowledge/skill_promote_tool.py`, and the Phase 10 pattern. 14 verification findings folded in; 6 operator decisions recorded.
+
+**Why this exists.** Phase 8.5 closed the "drive my business" intent so the agent calls `company_onboard` instead of just chatting back. Phase 9 + 10 stopped AI-slop drafts from reaching the operator. But after onboarding, the agent still has no strategy — one seed goal and a daily wakeup that drifts back to dream-phase ideation. The operator framed the gap on 2026-05-26: *"shouldn't there be a step where it creates some initial strategy? each day should be different. also it should know if it needs some access to the site, social media, if it has everything... for true autonomousness."*
+
+Phase 11 makes the agent produce a real marketing strategy after onboarding (LLM-driven, schema mirrors the operator's proven `tmp/strategy.js` prompt from their other app), audits its own capabilities against what the strategy requires, surfaces blockers with **three resolution paths per blocker** (ask operator / build the missing tool autonomously / defer), and atomically materializes the strategy into mission + goals + schedules + voice seed. The 30-day-of-different-things property emerges from the strategy's `tactics[]` array becoming distinct goals with `tactic_meta` packed in `plan_json`, not from a hard-coded theme rotation.
+
+**Operator decisions captured (2026-05-26)**:
+1. **4 tools** (not bundled) — quality demands separation: `company_capabilities` / `company_plan` / `company_plan_apply` / `company_plan_approve`.
+2. **LLM-decided duration** — no fixed 30-day. The strategy schema's `timeline.month1/2/3` covers most cases; the LLM picks based on business type + operator-provided horizon.
+3. **Versioned strategy files** — `data/companies/<slug>/strategy/{proposed,active,archive}/<ISO_timestamp>.yaml`. New strategies don't overwrite; old ones move to archive.
+4. **Port `tmp/strategy.js` 1:1** to keep schema portable + maintain provenance with the operator's other app. Extend with 5 EloPhanto-specific fields (see below).
+5. **Extend `companies/<slug>/company.yaml`** with a `strategy_inputs:` section instead of new sidecar files.
+6. **Existing goal structure reused** — tactics-as-goals pack the extra fields into `plan_json` as `{checkpoints:[...], tactic_meta:{...}}`. No schema migration.
+
+#### Verification findings (deltas from initial proposal)
+
+1. **Vault has full programmatic introspection.** `Vault.list_keys()` / `Vault.subset()` ([core/vault.py:162-197](core/vault.py#L162-L197)) work without operator prompting — assuming the vault was unlocked at agent boot. The capability audit checks the unlock state first; when locked, the credentials section reports "vault locked — skipped" rather than prompting. No new vault APIs needed.
+2. **Tool registry — small helper needed.** `ToolRegistry` ([core/registry.py:14-106](core/registry.py)) exposes `all_tools()` but no `list_by_group()`. Add one ~5-LOC helper so the audit reports cleanly per channel without filter sprawl. Phase 11 adds: `def list_by_group(self, group: str) -> list[BaseTool]`.
+3. **Skill discovery is a filesystem walk.** `HubClient` ([core/hub.py:53-100+](core/hub.py)) handles install/search against the remote registry but no `list_installed_skills()` API. Mirror the pattern from `tools/goals/dream_tool.py:226-259` — walk `project_root/skills/<slug>/SKILL.md`. Phase 11 doesn't need a new hub API.
+4. **Mission / Goal / Schedule create APIs are mature.** `MissionManager.create(title, description, priority_weight, *, mission_id, owner_role)` ([core/mission_manager.py:109-150](core/mission_manager.py)). `GoalManager.create_goal(...)` accepts `mission_id`, `assigned_to_role`, `plan_json` (Phase 11 packs tactic_meta here). `TaskScheduler` registers `ScheduleEntry(cron_expression, task_goal, direct_tool, direct_params, company_id)` ([core/scheduler.py:31-73](core/scheduler.py)). `company_plan_apply` injects all three via `_inject_company_deps`.
+5. **No new goal column needed.** `goals` table has `plan_json TEXT` ([core/database.py:166-182](core/database.py)) for checkpoints. Phase 11 extends the JSON shape to `{checkpoints:[...], tactic_meta:{priority, channel, budget, expectedImpact, riskLevel, timeToImpact, dependencies:[], successMetrics, inspiredBy}}`. Schema-additive, no migration. Backward compatible — pre-Phase-11 goals have `plan_json={checkpoints:[...]}` and `tactic_meta` is treated as `{}`.
+6. **Voice mapping — clean for hooks, lossy for CTAs, channel-scoping deferred.** `strategy.creativeDirections[].hookTemplates` → `voice_proposed.yaml.allowed_hooks` is a clean 1:1 union. `ctaVariants` → `cta_style` collapses to one string (lossy but tolerable). `bestForChannels[]` is lost in v1 — Phase 10 already deferred per-channel voice. When the strategy is multi-channel, `voice_proposed.yaml` is the union of hooks across all angles; refinement waits for Phase 12 if operator asks.
+7. **LLM router pattern is dream_tool's verbatim.** [tools/goals/dream_tool.py:679-692](tools/goals/dream_tool.py#L679-L692): `await self._router.complete(messages=[{system}, {user}], task_type="planning", temperature=0.7)` → strip code fences → `json.loads`. Phase 11 adds ONE retry on `JSONDecodeError` because strategy output is ~5x larger than dream's; a single malformed trailing-comma shouldn't waste the whole call.
+8. **Self-building infrastructure exists and is production-grade.** `self_create_plugin` ([tools/self_dev/creator.py:106-300](tools/self_dev/creator.py)) — CRITICAL permission, full pipeline: research → design → implement → test (pytest, 3 retries) → review → deploy + git commit. `skill_promote` ([tools/knowledge/skill_promote_tool.py:109-298](tools/knowledge/skill_promote_tool.py)) — MODERATE, LLM-distills lessons into `SKILL.md`. Both LLM-generate + register, not just scaffold. The "build it" resolution path for blockers is therefore real, not aspirational. **Caveat**: neither has a draft-before-deploy mode; CRITICAL permission is the only gate.
+9. **MODERATE permission routes through the executor approval callback** in both autonomous and chat modes ([core/executor.py:100-150](core/executor.py)). No special-casing — `company_plan_apply` and `company_plan_approve` are MODERATE and will pause for operator approval per call.
+10. **State snapshot insertion point is the same as Phase 10's.** [core/autonomous_mind.py:1583-1604](core/autonomous_mind.py#L1583-L1604) — add `strategy=<active|pending|none>` and `blockers=N` markers next to the existing `trust=`, `voice=` markers. One small edit.
+11. **Candidate generator pattern is `from_voiceless_companies`'s.** Phase 11 adds three: `from_unplanned_companies` (productized + no strategy.yaml → propose `company_plan`), `from_blocked_strategy_days` (strategy active + unresolved blockers older than N days → propose blocker review), `from_buildable_blockers` (strategy has a blocker with `resolution_proposal=build` → invoke `self_create_plugin` / `skill_promote`). Registered in `core/mind_candidates.py:collect_all`.
+12. **Strategy inputs land in `company.yaml`, not a sidecar.** A new tool `company_set_strategy_inputs` extends `companies/<slug>/company.yaml` with a `strategy_inputs:` section (audience, competitors, budget, risk, channels, goals). One file per company beats two. Mirrors `company_set_product` separation: product = what we sell, strategy_inputs = business context the planner needs.
+13. **Versioned strategy layout — directories, not numeric versions.** `data/companies/<slug>/strategy/proposed/<ISO_timestamp>.yaml` for fresh LLM output, `active/strategy.yaml` (regular file copied from a proposal at approve time — no symlinks for cross-platform sanity), `archive/<ISO_timestamp>.yaml` for prior approved strategies. New `company_plan` calls write to `proposed/`; `company_plan_apply` copies the chosen proposal to `active/` and moves the previous active to `archive/`. Strategies compose over time (operator note: "job does not end in 14 days; new strategy will appear").
+14. **No existing strategy / planning module to collide with.** Grep confirms zero `core/strategy.py`, no `tools/strategy/`, no `plan_*` tools. `dream_tool.py` is ongoing ideation (different concept). Clean greenfield.
+
+#### Design (VERIFIED)
+
+##### File layout
+
+```
+companies/<slug>/company.yaml                            # source — product + strategy_inputs (Phase 4+11)
+data/companies/<slug>/
+  voice.yaml                                              # Phase 10
+  voice_proposed.yaml                                     # Phase 10
+  exemplars/<channel>/*.md                                # Phase 10
+  capabilities.md                                         # Phase 11 — read-only synthesis from audit
+  blockers.md                                             # Phase 11 — operator-visible blocker list
+  blockers.yaml                                           # Phase 11 — structured (audit-tool readable)
+  strategy/
+    proposed/<2026-05-26T143000Z>.yaml                    # Phase 11 — LLM output, not yet approved
+    active/strategy.yaml                                  # Phase 11 — in-force; read by everything
+    archive/<2026-05-25T100000Z>.yaml                     # Phase 11 — superseded prior strategies
+drafts/<kind>/{pending,approved,rejected}/                # Phase 9
+```
+
+##### `company.yaml` extension (Phase 4 schema + Phase 11 additions)
+
+```yaml
+# existing Phase 4 fields
+name: "AlphaScala"
+what_we_sell: "..."
+price: {...}
+fulfillment: "..."
+channels: ["twitter", "blog"]
+kpis: [...]
+
+# Phase 11 additions (written by company_set_strategy_inputs)
+strategy_inputs:
+  target_audience: "early-stage technical founders shipping AI products"
+  competitors: ["..."]
+  current_challenges: "..."
+  unique_selling_points: "..."
+  budget:
+    type: "organic"        # organic | mixed | paid
+    amount: 0              # USD per period
+    period: "monthly"
+  risk_tolerance: 60       # 0-100, matches strategy.js scale
+  primary_goals: ["Brand Awareness", "Thought Leadership"]
+  strategy_mode: "standard" # standard | unconventional | guerrilla | brand-awareness | controversial
+  focus: "content"          # full | geo | seo | content | paid | social | email | brand
+  timeline_hint: "3-month rolling"
+```
+
+##### Strategy YAML schema (mirrors `tmp/strategy.js` 1:1, plus 5 EloPhanto-specific fields)
+
+```yaml
+# direct port of tmp/strategy.js output (verbatim)
+assumptions: [...]
+inputsToConfirm: [...]
+strategyName: "..."
+tagline: "..."
+strategicInsight: "..."
+overview: "..."
+coreMessage: "..."
+positioningStatement: "..."
+audienceSegments: [{name, whoTheyAre, jobToBeDone, topPainPoints, topObjections, messageAngle, proofToUse}]
+offerAndFunnel:
+  primaryOffer: "..."
+  valueProps: [...]
+  funnelStages: [{stage, goal, primaryChannels, keyAssets, primaryCTA}]
+tactics: [{priority, name, description, channel, budget, timeline, expectedImpact, riskLevel, timeToImpact, dependencies, implementation, successMetrics, inspiredBy}]
+contentIdeas: [...]
+creativeDirections: [{angleName, hookTemplates, proofPoints, ctaVariants, bestForChannels}]
+metrics: [...]
+risks: [{risk, mitigation}]
+experimentRoadmap: [{hypothesis, test, primaryMetric, duration, successCriteria, priority}]
+measurementPlan: {northStarMetric, supportingKPIs, trackingSetup, reportingCadence, attributionNotes}
+timeline: {month1, month2, month3}
+budgetAllocation: {} OR resourceAllocation: {}   # mutually exclusive based on budget.type
+quickWins: [...]
+longTermPlays: [...]
+projectedROI: {conservative, realistic, optimistic}
+
+# EloPhanto-specific extensions (Phase 11)
+vault_requirements:       # ["smtp_alphascala", "twitter_session", ...]
+  - key: "twitter_session"
+    needed_for_tactics: ["t1", "t3"]
+    resolution_proposal: "ask"   # ask | build | defer
+    note: "Operator must log in and capture browser session via vault add"
+tool_requirements:        # ["email_send", "twitter_post", "linkedin_post"]
+  - tool_name: "linkedin_post"
+    needed_for_tactics: ["t5"]
+    resolution_proposal: "build"
+    build_method: "self_create_plugin"
+    build_hint: "Selenium-based LinkedIn poster, similar to twitter_post pattern"
+voice_seed:               # extracted from creativeDirections — feeds voice_proposed.yaml
+  hookTemplates: ["POV: ...", "I used to..."]
+  banned_phrases: ["leverage", "synergy"]
+  tone: ["direct", "concrete"]
+  cta_style: "soft — one line"
+agent_role_assignments:   # advisory — arbiter still rotates by KPI/staleness
+  sales: ["t1", "t3"]
+  content: ["t2", "t4", "t5"]
+execution_priority: "staged"   # immediate | staged | experimental
+```
+
+##### Tactics-as-goals mapping (no schema change)
+
+For each `tactic` in the strategy:
+
+```
+goal_row = {
+  goal_id: <uuid>,
+  goal: tactic.description,
+  status: "planning",
+  mission_id: <strategy_mission_id>,        # one mission per company per strategy version
+  assigned_to_role: <from agent_role_assignments[tactic.id]>,
+  plan_json: {
+    checkpoints: tactic.implementation[] mapped to checkpoint objects,
+    tactic_meta: {
+      strategy_id: <strategy timestamp>,
+      tactic_id: t<priority>,
+      priority: tactic.priority,
+      channel: tactic.channel,
+      budget: tactic.budget,
+      timeline: tactic.timeline,
+      expectedImpact: tactic.expectedImpact,
+      riskLevel: tactic.riskLevel,
+      timeToImpact: tactic.timeToImpact,
+      dependencies: tactic.dependencies,
+      successMetrics: tactic.successMetrics,
+      inspiredBy: tactic.inspiredBy
+    }
+  }
+}
+```
+
+##### Blocker resolution loop
+
+`company_plan_apply` writes `blockers.yaml` with one entry per detected gap:
+
+```yaml
+blockers:
+  - id: "b001"
+    type: "missing_vault_credential" | "missing_tool" | "missing_skill" | "voice_conflict" | "budget_constraint"
+    description: "..."
+    affected_tactics: ["t1", "t3"]
+    resolution_proposal: "ask" | "build" | "defer"
+    build_method: "self_create_plugin" | "skill_promote" | null    # only when proposal="build"
+    build_hint: "..."                                                # input the build tool would receive
+    resolved_at: null
+    resolved_by: null
+    resolved_method: null
+```
+
+Detection rules (deterministic, runs inside `company_plan_apply`):
+- **`missing_vault_credential`**: `strategy.vault_requirements[].key not in vault.list_keys()` → always `proposal="ask"` (security boundary)
+- **`missing_tool`**: `strategy.tool_requirements[].tool_name not in registry.all_tools()` → `proposal="build"` if `build_method` set in strategy; else `"ask"`
+- **`missing_skill`**: tactic mentions a skill not in `skills/<slug>/` filesystem walk → `proposal="build"` if `skill_promote` viable (lessons exist), else `"ask"`
+- **`voice_conflict`**: `strategy.creativeDirections.hookTemplates` triggers a violation against current `voice.yaml`'s `banned_phrases` → `proposal="ask"` (operator decides which wins)
+- **`budget_constraint`**: `strategy.budget > company.runway_estimate` → `proposal="ask"`
+
+The autonomous mind's `from_buildable_blockers` generator picks `proposal="build"` rows where dependencies are met and the build budget allows; invokes the build tool with operator approval via CRITICAL permission.
+
+##### CLI surface
+
+```bash
+elophanto company capabilities <slug>            # print capabilities.md
+elophanto company plan <slug>                    # render active strategy.yaml
+elophanto company plan list <slug>               # show proposed/active/archive
+elophanto company plan show <slug> <timestamp>   # print a specific version
+elophanto company blockers                       # list across all companies
+elophanto company blockers <slug>                # this company
+elophanto company blockers resolve <id> <method> # mark a blocker resolved
+```
+
+Plus the LLM-callable tools list above (`company_capabilities`, `company_plan`, `company_plan_apply`, `company_plan_approve`).
+
+##### State snapshot extension
+
+```
+[COMPANY] alphascala* (productized, trust=trial, voice=yes, strategy=active, blockers=2) — spend=… emails=… pipeline_advances=…
+```
+
+##### Candidate generators (3 new)
+
+- `from_unplanned_companies` → ev=8, cost=2, staleness=4. Fires when productized + no `strategy/active/strategy.yaml`. Proposes: "call `company_plan` for <slug>". Cap 3.
+- `from_blocked_strategy_days` → ev=7, cost=1.5, staleness=6. Fires when strategy active + unresolved blockers > 3 days old. Proposes: "review blockers for <slug>".
+- `from_buildable_blockers` → ev=9, cost=4, staleness=5. Fires when a blocker has `resolution_proposal="build"` and dependencies are met. Proposes invoking `self_create_plugin` / `skill_promote` for that blocker.
+
+#### Implementation plan (VERIFIED)
+
+**New files** (~1,500 LOC):
+- `core/strategy.py` (~250 LOC) — `Strategy` dataclass + `Blocker` dataclass + `StrategyManager` (load active, list versions, copy proposed→active, archive prior, validate schema)
+- `core/capability_audit.py` (~150 LOC) — pure read-only synthesis: vault keys + tools by group + skills walk → `CapabilityMap` + `capabilities.md` renderer
+- `tools/strategy/__init__.py`
+- `tools/strategy/audit_tool.py` (~150 LOC) — `company_capabilities` (SAFE, CORE)
+- `tools/strategy/plan_tool.py` (~400 LOC) — `company_plan` (SAFE, CORE) — ports `tmp/strategy.js` system + user prompts to Python verbatim
+- `tools/strategy/apply_tool.py` (~350 LOC) — `company_plan_apply` (MODERATE, PROFILE) — strategy → mission + goals + schedules + voice_proposed + blockers; runs blocker detection
+- `tools/strategy/approve_tool.py` (~100 LOC) — `company_plan_approve` (MODERATE, PROFILE) — finalize stage
+- `tools/companies/set_strategy_inputs_tool.py` (~100 LOC) — `company_set_strategy_inputs` (MODERATE)
+- `cli/strategy_cmd.py` (~250 LOC) — `elophanto company plan/blockers/capabilities` (plus a top-level alias if needed)
+
+**Edits** (~200 LOC):
+- `core/registry.py` — register 5 new tools; add `list_by_group()` helper; add 4 tools to `_CORE_TOOLS` set (the audit + plan + 2 more)
+- `core/agent.py` — extend `_inject_company_deps` with audit/plan/apply/approve injection; lazy-construct `StrategyManager`
+- `core/autonomous_mind.py` — add `strategy=`, `blockers=` to `[COMPANY]` snapshot block
+- `core/mind_candidates.py` — add 3 new generators; register in `collect_all`; extend `CandidateContext` with `strategy_manager` field
+- `tools/companies/onboard_tool.py` — `next_step` extended to mention `company_set_strategy_inputs` then `company_plan` as the post-onboard sequence
+- `core/identity.py` — awareness block Section 8 (Phase 11 workflow: capabilities → plan → apply → approve, blocker resolution paths)
+- `cli/main.py` — register `strategy_cmd`
+- `tools/companies/__init__.py` — re-export `CompanySetStrategyInputsTool`
+
+**Tests** (~40 new):
+- `tests/test_core/test_strategy.py` — Strategy/Blocker dataclasses, StrategyManager load/list/promote/archive, schema validation, fail-soft on missing
+- `tests/test_core/test_capability_audit.py` — CapabilityMap synthesis, missing-vault-key detection, missing-tool detection, missing-skill detection
+- `tests/test_tools/test_strategy_tools.py` — 4 tools end-to-end with FakeRouter (mirrors voice_tools test pattern)
+- `tests/test_tools/test_strategy_apply.py` — strategy → mission/goals/schedules creation; tactic_meta packing into plan_json; voice_proposed.yaml written; blockers.yaml written
+- `tests/test_core/test_strategy_autonomous.py` — 3 new candidate generators
+- `tests/test_cli/test_strategy_cmd.py` — CLI surface
+
+**Skill** (~150 LOC):
+- `skills/strategy-foundations/SKILL.md` — distills the strategy.js system-prompt principles (PESO/RACE/STDC/JTBD frameworks, the 5 agency philosophy points, mode/focus matrix) so the strategy generator has structured grounding. The strategy tool itself includes this content inline (port verbatim), but the skill makes the principles available to other tools (dream, post_draft).
+
+**Total scope**: ~1,900 LOC across new + edits. ~40 new tests. One coherent commit (or split into two: core+tools, then CLI+integration if it gets too large).
+
+#### What Phase 11 does NOT include (deferred)
+
+- ❌ Per-channel voice profiles (Phase 10 deferral stands; voice_proposed merges all `creativeDirections` hooks)
+- ❌ Strict role locking from `agent_role_assignments` (advisory only; arbiter still rotates)
+- ❌ Auto-invocation of `self_create_plugin` without CRITICAL approval (operator approves per build)
+- ❌ Cross-company strategy reuse / templates (each strategy is per-company per-time)
+- ❌ Auto-detecting needed vault keys from tactic content (the strategy LLM must populate `vault_requirements` explicitly; no implicit inference)
+- ❌ A/B testing strategies (one active at a time; the `experimentRoadmap` field captures intent but execution is serial)
+- ❌ Strategy diff view between versions (operator reads two YAML files; UI deferred)
+- ❌ Budget enforcement / runway calculation (the `budget_constraint` blocker type uses operator-provided figures; no automatic ledger-based runway computation in Phase 11 — handled by Phase 1's report)
+
+#### Verification gate
+
+All 14 verification findings above checked against the live codebase. 6 operator decisions captured. Open questions: none. Awaiting explicit operator go-ahead before implementation per the process rule.
+
+---
+
 ### Phase 7 — Agent self-bootstraps its ABE — VERIFIED 2026-05-25
 
 EloPhanto edits its own ABE config (with operator approval). Closes
@@ -1880,6 +2151,7 @@ API) and `tests/test_tools/test_company_set_product.py`:
 | 8.5 — End-to-end "drive my business" workflow | ✅ done 2026-05-26 | ✅ done 2026-05-26 |
 | 9 — Trust Ladder & Draft-Before-Act | ✅ done 2026-05-26 | ✅ done 2026-05-26 |
 | 10 — Voice Learning (anti-slop quality layer) | ✅ verified 2026-05-26 | ✅ done 2026-05-26 |
+| 11 — Strategic Planning & Capability Audit | ✅ verified 2026-05-26 | ✅ done 2026-05-26 |
 
 **Phase 1 outcome (2026-05-25)**: shipped + visible. Live DB migrated
 (12,968 llm_usage rows attributed to `elophanto-self`); `companies` and
@@ -2040,6 +2312,38 @@ Registered in `collect_all`; wired into `CandidateContext` via a
 new optional `voice_manager` field; injected at the autonomous
 wakeup site. 9 more tests pass; total 2369-test regression green;
 ruff clean.
+
+**Phase 11 outcome (2026-05-26)**: shipped. `core/strategy.py` +
+`core/capability_audit.py` (Strategy/Blocker dataclasses, fail-soft
+load_strategy, StrategyManager with versioned proposed/active/archive
+artifacts; CapabilityMap synthesis from vault + registry +
+filesystem). Four new tools: `company_capabilities` (SAFE, CORE,
+read-only audit + writes `capabilities.md`), `company_plan` (SAFE,
+CORE, LLM-driven generation with the `tmp/strategy.js` prompts
+ported verbatim plus 5 EloPhanto extensions —
+`vault_requirements`, `tool_requirements`, `voice_seed`,
+`agent_role_assignments`, `execution_priority`), `company_plan_apply`
+(MODERATE, atomically promotes proposed→active + creates mission +
+goals with `tactic_metadata` + schedules + `voice_proposed.yaml` +
+`blockers.yaml`), and `company_plan_approve` (MODERATE finalize
+gate). Plus `company_set_strategy_inputs` (MODERATE) for capturing
+business context into `company.yaml`. One additive schema migration:
+`ALTER TABLE goals ADD COLUMN tactic_metadata TEXT NOT NULL
+DEFAULT '{}'`. Awareness block Section 8 documents the post-onboard
+sequence + 3-path blocker resolution loop (ask/build/defer). Three
+new candidate generators wire autonomous mode:
+`from_unplanned_companies`, `from_blocked_strategy_days`,
+`from_buildable_blockers` (the last one closes the autonomy loop —
+the mind invokes `self_create_plugin` / `skill_promote` on
+build-able blockers, CRITICAL permission gates each call).
+`_build_state_snapshot` extended with `strategy=` and `blockers=N`.
+`elophanto strategy` CLI surface for operator review
+(list/show/proposed/archive/capabilities/blockers/blockers resolve).
+New skill `strategy-foundations` distills the agency principles
+(PESO/RACE/STDC/JTBD, anti-slop strategy shapes). Registry helper
+`list_by_group()` added. Onboard's `next_step` now points the LLM
+at the full Phase 11 pipeline. 70 new tests; full 2452-test
+regression green; ruff clean.
 
 **Next action when resuming**: Phase 5 (board view) — the only
 remaining planned phase. Dashboard panel (`CompanyBoardPanel`)
