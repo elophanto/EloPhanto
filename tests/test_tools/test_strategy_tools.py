@@ -19,7 +19,7 @@ from tools.strategy.apply_tool import (
 )
 from tools.strategy.approve_tool import CompanyPlanApproveTool
 from tools.strategy.audit_tool import CompanyCapabilitiesTool
-from tools.strategy.plan_tool import CompanyPlanTool
+from tools.strategy.plan_tool import CompanyPlanTool, _build_operational_context
 
 
 @dataclass
@@ -181,6 +181,118 @@ class TestCompanyPlan:
         assert r.success is False
 
 
+# ── Operational context ─────────────────────────────────────────────
+
+
+class TestOperationalContext:
+    """Pins the broader-review fix from 2026-05-26 — when the live test
+    showed strategies narrowing to only what_we_sell, the plan tool
+    gained a deterministic operational-context builder that surfaces
+    every active surface so the LLM addresses them all."""
+
+    @pytest.mark.asyncio
+    async def test_empty_db_returns_empty_context(self, tmp_path) -> None:
+        from core.database import Database
+
+        db = Database(str(tmp_path / "test.db"))
+        await db.initialize()
+        ctx = await _build_operational_context(db, "no-such-company")
+        assert ctx == ""  # No surfaces → no operational block
+
+    @pytest.mark.asyncio
+    async def test_surfaces_active_schedules(self, tmp_path) -> None:
+        from datetime import UTC, datetime
+
+        from core.database import Database
+
+        db = Database(str(tmp_path / "test.db"))
+        await db.initialize()
+        now = datetime.now(UTC).isoformat()
+        # Two enabled schedules for company-1, one disabled, one for another co
+        await db.execute_insert(
+            "INSERT INTO scheduled_tasks (id, name, task_goal, cron_expression, "
+            "enabled, company_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 1, 'co-1', ?, ?)",
+            ("s1", "X growth", "Post daily", "0 9 * * *", now, now),
+        )
+        await db.execute_insert(
+            "INSERT INTO scheduled_tasks (id, name, task_goal, cron_expression, "
+            "enabled, company_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 1, 'co-1', ?, ?)",
+            ("s2", "Pumpfun monitor", "Keep live", "*/5 * * * *", now, now),
+        )
+        await db.execute_insert(
+            "INSERT INTO scheduled_tasks (id, name, task_goal, cron_expression, "
+            "enabled, company_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 0, 'co-1', ?, ?)",
+            ("s3", "Disabled task", "x", "* * * * *", now, now),
+        )
+        ctx = await _build_operational_context(db, "co-1")
+        assert "ACTIVE SCHEDULES (2)" in ctx
+        assert "X growth" in ctx
+        assert "Pumpfun monitor" in ctx
+        assert "Disabled task" not in ctx
+        # Forces the LLM to address all surfaces
+        assert "respect / extend these" in ctx
+
+    @pytest.mark.asyncio
+    async def test_surfaces_ledger_activity(self, tmp_path) -> None:
+        from datetime import UTC, datetime
+
+        from core.database import Database
+
+        db = Database(str(tmp_path / "test.db"))
+        await db.initialize()
+        now = datetime.now(UTC).isoformat()
+        for amount, ltype, direction in [
+            (50.0, "usd", "in"),
+            (10.0, "usd", "out"),
+            (3.0, "pipeline_advance", "in"),
+        ]:
+            await db.execute_insert(
+                "INSERT INTO resource_ledger "
+                "(company_id, type, amount, direction, unit, source_table, "
+                "source_id, note, ts) "
+                "VALUES ('co-1', ?, ?, ?, 'unit', 't', 1, '', ?)",
+                (ltype, amount, direction, now),
+            )
+        ctx = await _build_operational_context(db, "co-1")
+        assert "LEDGER SUMS (last 7 days)" in ctx
+        assert "usd (in)" in ctx
+        assert "pipeline_advance" in ctx
+
+    @pytest.mark.asyncio
+    async def test_other_company_isolated(self, tmp_path) -> None:
+        from datetime import UTC, datetime
+
+        from core.database import Database
+
+        db = Database(str(tmp_path / "test.db"))
+        await db.initialize()
+        now = datetime.now(UTC).isoformat()
+        await db.execute_insert(
+            "INSERT INTO scheduled_tasks (id, name, task_goal, cron_expression, "
+            "enabled, company_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 1, 'other-co', ?, ?)",
+            ("s1", "Other co task", "x", "* * * * *", now, now),
+        )
+        ctx = await _build_operational_context(db, "co-1")
+        # Schedule belongs to a different company — must not leak.
+        assert "Other co task" not in ctx
+
+    @pytest.mark.asyncio
+    async def test_no_db_safe(self) -> None:
+        # The plan tool guards `_db is None` separately, but the builder
+        # itself should also not crash if given a broken db (defensive).
+        class BadDB:
+            async def execute(self, *args, **kwargs):
+                raise RuntimeError("DB broken")
+
+        ctx = await _build_operational_context(BadDB(), "co-1")
+        # All four sections caught their own exceptions — empty string is fine.
+        assert ctx == ""
+
+
 # ── Blocker detection ────────────────────────────────────────────────
 
 
@@ -307,7 +419,7 @@ class FakeGoalManager:
 
 class FakeScheduleEntry:
     def __init__(self, sid: str) -> None:
-        self.schedule_id = sid
+        self.id = sid
 
 
 class FakeScheduler:

@@ -353,8 +353,23 @@ class TaskScheduler:
 
     @staticmethod
     def _validate_trigger(expr: str) -> None:
-        """Validate either a 5-field cron OR an interval like '30s'/'5m'/'2h'."""
+        """Validate cron / interval / one-shot trigger syntax.
+
+        Accepted formats:
+        - ``once@<ISO8601 datetime>`` — one-shot schedule (DateTrigger).
+          Stored by ``create_once_schedule`` so the entry round-trips
+          through the DB and re-adds correctly at scheduler restart.
+        - ``30s`` / ``5m`` / ``2h`` / ``1d`` — interval (IntervalTrigger).
+        - 5-field cron string ``M H DOM MON DOW`` — standard cron.
+        """
         expr = expr.strip()
+        if expr.startswith("once@"):
+            iso = expr.removeprefix("once@").strip()
+            try:
+                datetime.fromisoformat(iso)
+            except ValueError as e:
+                raise ValueError(f"Invalid once@ datetime '{iso}': {e}") from e
+            return
         # Interval syntax: '30s', '5m', '2h', '1d' — sub-minute cadence
         # support. Used for direct-tool fast-path crons that need to
         # fire more often than 1/min.
@@ -695,14 +710,25 @@ class TaskScheduler:
           but the trade-off is documented in SKILL + cron docs.
         """
         expr = schedule.cron_expression.strip()
-        m = re.fullmatch(r"(\d+)\s*([smhd])", expr)
-        if m:
-            n = int(m.group(1))
-            unit = m.group(2)
-            kwargs = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}[unit]
-            trigger = IntervalTrigger(**{kwargs: n})
+        trigger: Any
+        if expr.startswith("once@"):
+            # One-shot deadline schedule (created by create_once_schedule).
+            # Stored as ``once@<isoformat>`` so the entry round-trips
+            # through the DB; rehydrate to DateTrigger on (re)start.
+            iso = expr.removeprefix("once@").strip()
+            run_at = datetime.fromisoformat(iso)
+            trigger = DateTrigger(run_date=run_at)
         else:
-            trigger = CronTrigger.from_crontab(expr)
+            m = re.fullmatch(r"(\d+)\s*([smhd])", expr)
+            if m:
+                n = int(m.group(1))
+                unit = m.group(2)
+                kwargs = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}[
+                    unit
+                ]
+                trigger = IntervalTrigger(**{kwargs: n})
+            else:
+                trigger = CronTrigger.from_crontab(expr)
         job_id = f"schedule_{schedule.id}"
         self._scheduler.add_job(
             self._enqueue_for_execution,
