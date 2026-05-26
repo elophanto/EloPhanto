@@ -22,13 +22,9 @@ class VoiceShowTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Show the active voice contract for a company (persona, "
-            "tone, banned phrases, length bounds, allowed hooks). "
-            "Returns 'no voice contract' when the company hasn't run "
-            "voice_extract yet. Call this BEFORE drafting so your "
-            "draft matches the operator-approved style; voice_lint is "
-            "the cheap deterministic check you should also run before "
-            "calling email_draft / outreach_draft / post_draft."
+            "Show the active voice contract for a company. Returns "
+            "has_voice=False when none. Call before drafting. See "
+            "voice-extraction-workflow skill."
         )
 
     @property

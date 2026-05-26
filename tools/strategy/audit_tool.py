@@ -39,15 +39,10 @@ class CompanyCapabilitiesTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Audit what the agent CAN do — read vault keys (when "
-            "unlocked), registered tools by group, installed skills "
-            "— and write the snapshot to data/companies/<slug>/"
-            "capabilities.md. Read-only synthesis; no side effects "
-            "beyond the markdown write. Call this BEFORE company_plan "
-            "so the strategy generator knows what's actually "
-            "available vs what would need to be built. The structured "
-            "data is returned in the ToolResult so company_plan_apply "
-            "can use it for blocker detection."
+            "Audit agent capabilities (vault keys, registered tools by "
+            "group, installed skills) and write capabilities.md. Call "
+            "before company_plan so the strategy is grounded in what's "
+            "actually available. See strategy-pipeline skill."
         )
 
     @property

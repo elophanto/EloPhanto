@@ -353,16 +353,11 @@ class CompanyPlanApplyTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Promote a proposed strategy to active and fan it out "
-            "into a mission + goals + schedules + voice seed + "
-            "blockers. Reads the proposal from data/companies/<slug>/"
-            "strategy/proposed/<timestamp>.yaml (default: newest), "
-            "runs the blocker-detection pass against current "
-            "capabilities, writes blockers.yaml + blockers.md + "
-            "voice_proposed.yaml, then atomically materializes the "
-            "tactics as goals under one mission with per-timeline "
-            "schedules. MODERATE — operator approves per call so the "
-            "side effects are visible before commit."
+            "Promote a proposed strategy to active. Atomically creates "
+            "mission + goals (with tactic_meta) + schedules + "
+            "voice_proposed.yaml + blockers.yaml. Archives prior "
+            "active. MODERATE — operator approves the fan-out. See "
+            "strategy-pipeline skill."
         )
 
     @property

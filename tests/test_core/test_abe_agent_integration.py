@@ -111,13 +111,18 @@ class TestAbeAgentInitialization:
         await agent.initialize()
         all_tools = list(agent._registry._tools.values())
 
-        # Leg 1: canonical entry points always visible (CORE tier)
+        # Leg 1: canonical entry points always visible (CORE tier).
+        # CORE-tier list audited 2026-05-26 — kept tight after the
+        # 65 KB tool-schema-per-call profiling: only the entry points
+        # the LLM MUST see to route correctly stay CORE. Role tools
+        # + workflow-specific tools (capabilities / plan / voice) drop
+        # to PROFILE — they ship under the "companies" / "roles" groups
+        # which the planner activates on relevant intents.
         core_names = {t.name for t in agent._registry.get_core_tools()}
         for entry in (
             "company_list",
             "company_report",
             "company_onboard",
-            "role_list",
         ):
             assert entry in core_names, (
                 f"{entry} must be CORE-tier — otherwise the LLM never "
@@ -134,6 +139,7 @@ class TestAbeAgentInitialization:
             "company_pause",
             "company_resume",
             "company_set_product",
+            "role_list",
             "role_show",
             "role_use",
             "role_sync",

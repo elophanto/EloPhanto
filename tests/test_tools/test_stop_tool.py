@@ -105,5 +105,7 @@ class TestSchema:
         # halt. Pin the language in the description.
         desc = AgentStopTool().description.lower()
         assert "current chat action" in desc
-        assert "stay running" in desc
+        # Trimmed 2026-05-26 — must still signal scope and the
+        # hard-stop escape hatch.
+        assert "unaffected" in desc or "stay running" in desc
         assert "stop --hard" in desc

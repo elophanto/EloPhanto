@@ -47,12 +47,9 @@ class CompanyPlanApproveTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Operator-facing finalize step for a freshly applied "
-            "strategy. Confirms the active strategy is in place, "
-            "summarizes unresolved blockers, and touches the strategy "
-            "mission so it jumps to the top of the arbiter ranking on "
-            "the next wakeup. Call this AFTER company_plan_apply and "
-            "AFTER reviewing blockers + voice_proposed."
+            "Operator finalize after company_plan_apply. Touches the "
+            "strategy mission so arbiter ranks it high next wakeup. "
+            "Reports unresolved blocker count. MODERATE."
         )
 
     @property

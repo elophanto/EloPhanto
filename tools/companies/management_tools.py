@@ -63,20 +63,9 @@ class CompanyListTool(_CompanyToolBase):
     @property
     def description(self) -> str:
         return (
-            "CANONICAL source for the list of ABE-tracked companies — "
-            "rows in the `companies` table, the structured scope under "
-            "which ledger events, prospects, sessions, and scheduled "
-            "tasks attribute. **Call this FIRST whenever the operator "
-            "asks about companies.** Do NOT reconstruct a 'companies' "
-            "answer from scratchpad memory, goal history, or knowledge "
-            "search — those refer to project mentions / business "
-            "concepts the agent has worked on, which is a DIFFERENT "
-            "concept and confusing them is a known failure mode. If "
-            "you want to ALSO mention historical project concepts as a "
-            "separate view, say so explicitly ('ABE-tracked: X. "
-            "Historical project mentions in memory: Y, Z'). Returns "
-            "slug, name, status, active-session marker, and whether "
-            "each company has a product.yaml defined."
+            "CANONICAL list of ABE-tracked companies. Call FIRST when "
+            "asked about companies; do NOT reconstruct from memory. "
+            "Returns slug, name, status, active marker, has_product."
         )
 
     @property
@@ -125,16 +114,9 @@ class CompanyReportTool(_CompanyToolBase):
     @property
     def description(self) -> str:
         return (
-            "CANONICAL report for an ABE company: headline numbers "
-            "(revenue, spend, net, LLM tokens, email touches, pipeline "
-            "advances), product line, pipeline-by-stage counts, and "
-            "the last N ledger events. **Call this when the operator "
-            "asks how a company is doing, what it spent, what its "
-            "pipeline looks like, or any 'state of X' question** — "
-            "do NOT estimate from memory or goal completion notes; "
-            "the ledger is the truth, this tool reads it directly. "
-            "Defaults to the active company; pass slug to inspect a "
-            "specific one."
+            "CANONICAL state of an ABE company: revenue, spend, net, "
+            "tokens, email touches, pipeline. Reads ledger directly — "
+            "call for 'how is X doing' / 'state of X'."
         )
 
     @property
