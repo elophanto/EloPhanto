@@ -773,6 +773,8 @@ async def _chat_gateway(cfg: Any) -> None:
     )
     await gateway.start()
     agent._gateway = gateway  # Enable scheduled task notifications
+    # Re-inject kill-switch deps now that the gateway is live.
+    agent._inject_kill_switch_deps()
     # Stream Codex chain-of-thought summaries to the dashboard's main
     # chat so operators see the agent thinking, not just waiting.
     agent.wire_codex_streaming()
@@ -1054,6 +1056,16 @@ async def _chat_loop(config_path: str | None, profile: str = "") -> None:
             stats.context_messages = len(agent._conversation_history)
             console.print(_build_session_stats_panel(stats, cfg))
             continue
+
+        # Direct-mode CLI is single-task — there's never a separate
+        # in-flight session to "stop" while the input prompt is
+        # waiting (prompts only return after the previous task is
+        # done). To cancel a running task, use Ctrl+C — the
+        # asyncio.CancelledError catch below handles it. For full
+        # system halt (mind + scheduler + everything), use
+        # `elophanto stop` from another terminal (writes the
+        # data/STOP sentinel). The gateway-based chat path has its
+        # own stop intercept that cancels per-session tasks.
 
         # Execute task (cancellable with Ctrl+C)
         try:

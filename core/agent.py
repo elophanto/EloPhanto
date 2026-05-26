@@ -1532,6 +1532,9 @@ class Agent:
 
         # Initialize tool_discover meta-tool (deferred tool loading)
         self._inject_discover_deps()
+        # Wire agent_stop / agent_resume so the LLM (and the gateway
+        # slash-command intercept) can write the STOP sentinel.
+        self._inject_kill_switch_deps()
 
         # Initialize parent channel adapter (child agents connecting to master)
         if self._config.parent_channel.enabled:
@@ -2663,6 +2666,15 @@ class Agent:
         if discover_tool:
             discover_tool._registry = self._registry
             discover_tool._activated_tools = self._activated_tools
+
+    def _inject_kill_switch_deps(self) -> None:
+        """Inject the gateway reference into agent_stop so the LLM
+        tool can find + cancel the current session's run_session
+        task. Idempotent; safe to call when gateway is still None
+        (direct-mode agents) — the tool refuses cleanly in that case."""
+        tool = self._registry.get("agent_stop")
+        if tool is not None and hasattr(tool, "_gateway"):
+            tool._gateway = self._gateway
 
     def set_approval_callback(
         self, callback: Callable[[str, str, dict[str, Any]], bool]

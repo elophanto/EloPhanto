@@ -210,6 +210,9 @@ async def _run_gateway(
 
     await gateway.start()
     agent._gateway = gateway  # Enable scheduled task notifications
+    # Re-inject kill-switch deps now that the gateway is live so the
+    # agent_stop LLM tool can find the in-flight run-tasks dict.
+    agent._inject_kill_switch_deps()
     # Stream Codex chain-of-thought summaries to the dashboard's main
     # chat so operators see the agent thinking, not just waiting.
     agent.wire_codex_streaming()

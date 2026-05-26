@@ -41,18 +41,21 @@ from rich.console import Console
 
 from core.config import load_config
 from core.database import Database
+from core.kill_switch import (
+    clear_sentinel,
+    resolve_data_dir,
+    stop_file_path,
+    write_sentinel,
+)
 
 console = Console()
 
 
 def _stop_file_path(config_path: str | None) -> Path:
     cfg = load_config(config_path)
-    data_dir = Path(cfg.database.db_path).parent
-    if not data_dir.is_absolute():
-        data_dir = cfg.project_root / data_dir
-    # Tolerate legacy configs where db_path is just "data/elophanto.db".
+    data_dir = resolve_data_dir(cfg)
     data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir / "STOP"
+    return stop_file_path(data_dir)
 
 
 @click.command("stop")
@@ -92,14 +95,15 @@ def stop_cmd(
         cancel_goals = True
         cancel_schedules = True
 
-    stop_path = _stop_file_path(config_path)
-    if stop_path.exists():
-        console.print(f"[yellow]Already stopped (sentinel at {stop_path})[/yellow]")
-    else:
-        stop_path.write_text(
-            "Created by `elophanto stop`. Remove with `elophanto resume`.\n"
+    cfg = load_config(config_path)
+    data_dir = resolve_data_dir(cfg)
+    result = write_sentinel(data_dir)
+    if result.already_stopped:
+        console.print(
+            f"[yellow]Already stopped (sentinel at {result.sentinel_path})[/yellow]"
         )
-        console.print(f"[green]✓[/green] STOP sentinel written: {stop_path}")
+    else:
+        console.print(f"[green]✓[/green] STOP sentinel written: {result.sentinel_path}")
         console.print(
             "  Mind, scheduler, and agent.run loops will halt at their "
             "next safe checkpoint."
@@ -120,12 +124,13 @@ def resume_cmd(config_path: str | None) -> None:
     next cycle. Does NOT auto-resume cancelled goals or re-enable
     disabled schedules (those require explicit operator action so a
     careless resume doesn't restart the same runaway state)."""
-    stop_path = _stop_file_path(config_path)
-    if not stop_path.exists():
+    cfg = load_config(config_path)
+    data_dir = resolve_data_dir(cfg)
+    result = clear_sentinel(data_dir)
+    if not result.was_stopped:
         console.print("[dim]No STOP sentinel — nothing to clear.[/dim]")
         return
-    stop_path.unlink()
-    console.print(f"[green]✓[/green] STOP sentinel removed: {stop_path}")
+    console.print(f"[green]✓[/green] STOP sentinel removed: {result.sentinel_path}")
     console.print(
         "  Mind will think on its next wakeup; scheduler will dispatch "
         "queued / cron-fired tasks."
@@ -135,6 +140,8 @@ def resume_cmd(config_path: str | None) -> None:
 async def _do_db_cancels(
     config_path: str | None, cancel_goals: bool, cancel_schedules: bool
 ) -> None:
+    from core.kill_switch import cancel_active_goals, disable_enabled_schedules
+
     cfg = load_config(config_path)
     db_path = Path(cfg.database.db_path)
     if not db_path.is_absolute():
@@ -143,26 +150,8 @@ async def _do_db_cancels(
     await db.initialize()
 
     if cancel_goals:
-        # active + planning are the running-or-runnable states.
-        # paused/cancelled/completed/failed are already terminal.
-        rows = await db.execute(
-            "SELECT goal_id FROM goals WHERE status IN ('active', 'planning')"
-        )
-        from datetime import UTC, datetime
-
-        now = datetime.now(UTC).isoformat()
-        for r in rows:
-            await db.execute_insert(
-                "UPDATE goals SET status='cancelled', updated_at=? " "WHERE goal_id=?",
-                (now, r["goal_id"]),
-            )
-        console.print(f"[green]✓[/green] cancelled {len(rows)} active/planning goal(s)")
-
+        n = await cancel_active_goals(db)
+        console.print(f"[green]✓[/green] cancelled {n} active/planning goal(s)")
     if cancel_schedules:
-        rows = await db.execute("SELECT id FROM scheduled_tasks WHERE enabled=1")
-        for r in rows:
-            await db.execute_insert(
-                "UPDATE scheduled_tasks SET enabled=0 WHERE id=?",
-                (r["id"],),
-            )
-        console.print(f"[green]✓[/green] disabled {len(rows)} enabled schedule(s)")
+        n = await disable_enabled_schedules(db)
+        console.print(f"[green]✓[/green] disabled {n} enabled schedule(s)")

@@ -139,6 +139,12 @@ class Gateway:
         # plan boundary (Phase C of docs/74-CONCURRENCY-MIGRATION.md).
         self._inflight_sessions: set[str] = set()
 
+        # Per-session asyncio.Task for the in-flight run_session(). Lets
+        # a "stop" chat command from any channel cancel JUST the current
+        # agent.run for that session — autonomous mind, scheduler, and
+        # other sessions stay running. See _maybe_handle_kill_command.
+        self._inflight_run_tasks: dict[str, asyncio.Task[Any]] = {}
+
         # Optional kid manager hook — set externally by Agent.initialize()
         # when kids are enabled. Intercepts inbound chat from
         # channel="kid-agent" so kid responses don't pollute the parent's
@@ -884,6 +890,25 @@ class Gateway:
         # Store authority for observability
         session.metadata["authority_level"] = authority.value
 
+        # Deterministic kill-switch intercept — operator types "stop",
+        # "/stop", "halt", "kill", "pause" → cancels JUST the in-flight
+        # agent.run for this session. Autonomous mind + scheduler +
+        # other sessions stay running. "stop --hard" / "stop --all" /
+        # "stop --cancel-goals" / "stop --cancel-schedules" still writes
+        # the data/STOP sentinel for full system halt (explicit
+        # destructive flag — never the default). "resume" / "/resume"
+        # / "go" / "continue" / "unpause" clears the sentinel if set.
+        # Runs after session creation so we can target the right task
+        # but BEFORE the in-flight queueing check so "stop" doesn't
+        # get queued as a pending message.
+        try:
+            handled = await self._maybe_handle_kill_command(client, msg, session)
+        except Exception as e:
+            logger.warning("kill_switch intercept failed: %s", e)
+            handled = False
+        if handled:
+            return
+
         # Subscribe client to session events
         if session.session_id not in self._session_clients:
             self._session_clients[session.session_id] = set()
@@ -994,17 +1019,34 @@ class Gateway:
             )
             return
 
-        # Run agent with session isolation
+        # Run agent with session isolation. Wrap as a task so an
+        # incoming "stop" chat command (handled in
+        # _maybe_handle_kill_command) can cancel just this session's
+        # run without writing the data/STOP sentinel.
         self._inflight_sessions.add(session.session_id)
-        try:
-            agent_response = await self._agent.run_session(
+        run_task: asyncio.Task[Any] = asyncio.create_task(
+            self._agent.run_session(
                 goal=content,
                 session=session,
                 approval_callback=session_approval_callback,
                 on_step=on_step,
                 authority=authority,
             )
-
+        )
+        self._inflight_run_tasks[session.session_id] = run_task
+        try:
+            try:
+                agent_response = await run_task
+            except asyncio.CancelledError:
+                # Operator typed "stop" — _maybe_handle_kill_command
+                # cancelled this task and already sent the cancellation
+                # response on the websocket. Clean up and bail out
+                # without sending a second response.
+                logger.info(
+                    "session %s: agent.run cancelled via chat stop",
+                    session.session_id[:8],
+                )
+                return
             # ── Send response FIRST before any DB work ───────────────────────
             # DB inserts after agent completion can block if a background task
             # (lesson extraction, directive detection, etc.) holds a write lock.
@@ -1138,6 +1180,7 @@ class Gateway:
             # messages are sitting in the buffer, the next run_session
             # call drains them on its first iteration).
             self._inflight_sessions.discard(session.session_id)
+            self._inflight_run_tasks.pop(session.session_id, None)
 
     async def _request_approval(
         self,
@@ -1166,6 +1209,148 @@ class Gateway:
             return False
         finally:
             self._pending_approvals.pop(req.id, None)
+
+    async def _maybe_handle_kill_command(
+        self,
+        client: ClientConnection,
+        msg: GatewayMessage,
+        session: Any,
+    ) -> bool:
+        """Intercept stop/resume slash-commands BEFORE the LLM sees them.
+
+        Default ``stop`` (no flags) cancels the in-flight ``run_session``
+        task for THIS session only — autonomous mind, scheduler, and
+        other sessions keep running. This is the "cancel current
+        action" semantic operators expect when typing stop in chat.
+
+        Flagged ``stop`` (``--hard``, ``--all``, ``--cancel-goals``,
+        ``--cancel-schedules``) writes the ``data/STOP`` sentinel +
+        optional DB cancels — the destructive "halt everything"
+        semantic. Explicit flag required.
+
+        ``resume`` clears the sentinel if present (no effect on the
+        current session task).
+
+        Returns ``True`` when handled (caller skips the normal chat
+        path); ``False`` otherwise.
+        """
+        from core.kill_switch import (
+            clear_sentinel,
+            hard_stop,
+            parse_kill_command,
+            resolve_data_dir,
+        )
+
+        content = ""
+        if msg.data and isinstance(msg.data, dict):
+            content = str(msg.data.get("content") or "")
+        verb, flags = parse_kill_command(content)
+        if verb is None:
+            return False
+
+        session_id = session.session_id
+
+        if verb == "stop":
+            wants_hard = (
+                flags.get("hard")
+                or flags.get("cancel_goals")
+                or flags.get("cancel_schedules")
+            )
+            if not wants_hard:
+                # Default "stop": cancel the current run_session task for
+                # this session only. Mind / scheduler / other sessions
+                # untouched. No sentinel written.
+                task = self._inflight_run_tasks.get(session_id)
+                if task is None or task.done():
+                    body = (
+                        "Nothing currently running for this session — "
+                        "nothing to stop. (To halt the autonomous mind "
+                        "+ scheduler too, use `stop --hard`.)"
+                    )
+                else:
+                    task.cancel()
+                    body = (
+                        "✅ Cancelling current action. Autonomous mind, "
+                        "scheduler, and other sessions keep running. Send "
+                        "your next message any time."
+                    )
+                await client.websocket.send(
+                    response_message(session_id, body, done=True).to_json()
+                )
+                return True
+
+            # Hard stop — operator explicitly asked for the destructive
+            # halt. Write sentinel + optional DB cancels.
+            try:
+                data_dir = resolve_data_dir(self._agent._config)
+            except Exception as e:
+                await client.websocket.send(
+                    error_message(
+                        f"hard stop: could not resolve data dir ({e})",
+                        session_id,
+                    ).to_json()
+                )
+                return True
+            result = await hard_stop(
+                data_dir=data_dir,
+                db=self._agent._db,
+                cancel_goals=bool(flags.get("cancel_goals") or flags.get("hard")),
+                cancel_schedules=bool(
+                    flags.get("cancel_schedules") or flags.get("hard")
+                ),
+            )
+            lines = []
+            if result.already_stopped:
+                lines.append(
+                    f"⚠️  Already hard-stopped (sentinel at {result.sentinel_path})."
+                )
+            else:
+                lines.append(f"✅  HARD STOP. Sentinel written: {result.sentinel_path}")
+                lines.append(
+                    "Mind, scheduler, and any in-flight agent.run on ANY "
+                    "session will halt at their next safe checkpoint."
+                )
+            if result.cancelled_goals:
+                lines.append(
+                    f"✅  Cancelled {result.cancelled_goals} active/planning goal(s)."
+                )
+            if result.disabled_schedules:
+                lines.append(
+                    f"✅  Disabled {result.disabled_schedules} enabled schedule(s)."
+                )
+            lines.append("Send `resume` to clear the sentinel.")
+            await client.websocket.send(
+                response_message(session_id, "\n".join(lines), done=True).to_json()
+            )
+            return True
+
+        if verb == "resume":
+            try:
+                data_dir = resolve_data_dir(self._agent._config)
+            except Exception as e:
+                await client.websocket.send(
+                    error_message(
+                        f"resume: could not resolve data dir ({e})", session_id
+                    ).to_json()
+                )
+                return True
+            resume_result = clear_sentinel(data_dir)
+            if not resume_result.was_stopped:
+                body = "No STOP sentinel — nothing to clear."
+            else:
+                body = (
+                    f"✅  STOP sentinel removed: {resume_result.sentinel_path}\n"
+                    "Mind will think on its next wakeup; scheduler will "
+                    "dispatch on its next tick. Cancelled goals + "
+                    "disabled schedules stay that way unless you "
+                    "re-enable them manually."
+                )
+            await client.websocket.send(
+                response_message(session_id, body, done=True).to_json()
+            )
+            return True
+
+        return False
 
     async def _handle_approval_response(
         self, client: ClientConnection, msg: GatewayMessage
