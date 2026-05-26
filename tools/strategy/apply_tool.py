@@ -548,7 +548,7 @@ class CompanyPlanApplyTool(BaseTool):
                             f"(execution_priority={execution_priority})"
                         ),
                     )
-                    created_schedule_ids.append(sched.schedule_id)
+                    created_schedule_ids.append(sched.id)
                 except Exception as e:
                     logger.warning("schedule create failed for %s: %s", month_key, e)
 

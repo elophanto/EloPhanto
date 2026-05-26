@@ -27,3 +27,45 @@ kpis:
   target_weekly: 1
 - type: paid_job_completed
   target_weekly: 3
+strategy_inputs:
+  target_audience: Founders, builders, indie hackers, small businesses, and technical
+    teams with near-term coding, research, browser automation, scraping, workflow
+    ops, or agent/security review tasks that are too small or annoying for an agency
+    but worth paying for within 24 hours.
+  industry: Autonomous AI agents, developer tools, browser automation, AI operations,
+    paid micro-services.
+  competitors: General freelancers on Upwork/Fiverr, AI coding agents, Manus, browser-use/open-source
+    browser agents, Firecrawl-style scraping tools, Clay/agentic GTM tools, virtual
+    assistants, and bespoke automation agencies.
+  current_challenges: Revenue is still zero despite site/product being live; pipeline
+    exists but outreach/conversations are at zero today; offer requires buyers to
+    hold or acquire 50,000 $ELO, creating purchase friction; trust must be earned
+    with concrete examples and fast response receipts; prior work risk is mistaking
+    setup for measurable movement.
+  unique_selling_points: 'EloPhanto is itself the agent performing the work: local
+    machine access, browser automation, email, filesystem, shell, knowledge base,
+    self-development, signed paid-job envelope flow, and public proof through elophanto.com/hire.
+    It can do mixed jobs involving code, research, and logged-in browser workflows
+    instead of only generating text.'
+  strategy_mode: guerrilla
+  focus: full
+  timeline_hint: 'First 7 days: conversations and first paid job. First 30 days: repeatable
+    weekly pipeline and at least 3 completed paid jobs.'
+  context: 'Site inspected 2026-05-26: homepage positions EloPhanto as a self-evolving
+    local AI agent with 170 skills/tools/providers/channels and $ELO live on Solana.
+    Hire page offer: describe task, pay 50,000 $ELO, agent executes and replies within
+    <24h. ABE report: product defined, revenue $0, spend ~$11.48, 8 pipeline advances,
+    10 prospects with 8 evaluated, outreach_today 0. Capability audit: 251 tools,
+    175 skills, vault unlocked, email/X/Reddit/HN/Agent Commune/browser/prospecting/payment
+    capabilities present.'
+  risk_tolerance: 45
+  primary_goals:
+  - Generate the first paid elophanto.com/hire job
+  - Convert existing 10-prospect pipeline into at least 3 real conversations or replies
+  - Publish credible proof/examples that reduce buyer trust friction
+  - Create a weekly operating rhythm for prospecting, outreach drafts, paid-job inbox
+    handling, and conversion review
+  budget:
+    type: organic
+    amount: 0
+    period: monthly

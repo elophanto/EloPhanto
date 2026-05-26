@@ -342,6 +342,9 @@ Return a comprehensive marketing strategy as a single JSON object with this ENHA
 
 {allocation_note}
 
+SURFACE COVERAGE (CRITICAL):
+When the user prompt's PRIOR RESEARCH & CONTEXT contains an OPERATIONAL CONTEXT block (active schedules / ledger sums / prospect funnel / active missions), the strategy MUST address every distinct surface listed there, not just the company's primary `what_we_sell`. A multi-surface business (e.g. a paid-jobs offering PLUS a token economy PLUS a public X/livestream growth loop) needs tactics that cover EACH surface, with explicit allocation across them in `budgetAllocation` / `resourceAllocation`. A strategy that ignores 4 of 5 active surfaces and calls it done is wrong — flag it as `inputsToConfirm` if you genuinely can't reconcile, but the default expectation is comprehensive coverage. Identify each surface from the OPERATIONAL CONTEXT block and name it as a `funnelStages.primaryChannels` entry or its own tactic.
+
 ABE EXTENSIONS (EloPhanto-specific — populate when relevant):
 - vault_requirements: every credential the strategy assumes the operator has stored (SMTP keys, social-platform sessions, API tokens). Each entry needs a `key` (vault key name in snake_case), `needed_for_tactics` (tactic ids it gates), and a `resolution_proposal` of "ask" (operator provides), "build" (only if the *credential itself* can be auto-generated, rare), or "defer". Be exhaustive — missing vault entries become operator blockers.
 - tool_requirements: tools/connectors the strategy assumes exist (e.g. linkedin_post). For each, propose "build" with `build_method: "self_create_plugin"` and a one-sentence `build_hint`, OR "ask" if it's a third-party integration the operator must provide, OR "defer" if the tactic can be skipped.

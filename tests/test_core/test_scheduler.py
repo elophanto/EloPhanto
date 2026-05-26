@@ -578,6 +578,23 @@ class TestDirectTool:
             TaskScheduler._validate_trigger("garbage")
 
     @pytest.mark.asyncio
+    async def test_once_at_trigger_syntax_accepted(self) -> None:
+        """Pins the 2026-05-26 fix: ``create_once_schedule`` stores
+        ``cron_expression='once@<isoformat>'`` so the entry round-trips
+        through the DB. Before the fix, scheduler restart called
+        ``_add_job`` on every enabled row, which only handled cron /
+        interval — the ``once@`` rows blew up with 'Wrong number of
+        fields; got 1, expected 5' and APScheduler bailed at init,
+        silently disabling ALL schedules. _validate_trigger + _add_job
+        now both recognize ``once@<isoformat>``."""
+        from datetime import UTC, datetime, timedelta
+
+        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        TaskScheduler._validate_trigger(f"once@{future}")
+        with pytest.raises(ValueError):
+            TaskScheduler._validate_trigger("once@not-a-datetime")
+
+    @pytest.mark.asyncio
     async def test_agent_loop_path_unchanged_for_no_direct_tool(
         self, db: Database
     ) -> None:
@@ -611,15 +628,15 @@ class TestCadenceDetection:
     @pytest.mark.parametrize(
         "expr",
         [
-            "*/5 * * * *",      # every 5 minutes
-            "*/15 * * * *",     # every 15 minutes
-            "0 */1 * * *",      # every hour on the hour
-            "0 */3 * * *",      # every 3 hours
-            "* * * * *",        # every minute
-            "30s",              # interval shorthand seconds
-            "5m",               # interval shorthand minutes
-            "2h",               # interval shorthand hours
-            "1d",               # interval shorthand days
+            "*/5 * * * *",  # every 5 minutes
+            "*/15 * * * *",  # every 15 minutes
+            "0 */1 * * *",  # every hour on the hour
+            "0 */3 * * *",  # every 3 hours
+            "* * * * *",  # every minute
+            "30s",  # interval shorthand seconds
+            "5m",  # interval shorthand minutes
+            "2h",  # interval shorthand hours
+            "1d",  # interval shorthand days
         ],
     )
     def test_cadence_patterns(self, expr: str) -> None:
@@ -628,11 +645,11 @@ class TestCadenceDetection:
     @pytest.mark.parametrize(
         "expr",
         [
-            "0 9 * * *",        # 09:00 daily — deadline
-            "30 14 * * *",      # 14:30 daily — deadline
-            "0 9 * * 1",        # Monday 09:00 — deadline
-            "0 0 1 * *",        # 1st of month — deadline
-            "0 9,17 * * *",     # specific hours — deadline
+            "0 9 * * *",  # 09:00 daily — deadline
+            "30 14 * * *",  # 14:30 daily — deadline
+            "0 9 * * 1",  # Monday 09:00 — deadline
+            "0 0 1 * *",  # 1st of month — deadline
+            "0 9,17 * * *",  # specific hours — deadline
         ],
     )
     def test_deadline_patterns(self, expr: str) -> None:
@@ -650,6 +667,7 @@ class TestCadencePersistence:
     async def test_cadence_auto_flagged_on_create(self, db: Database) -> None:
         """Schedules with ``*/N`` cron get cadence=True; clock-targeted
         ones get cadence=False. Round-trips through the DB."""
+
         async def exec_noop(goal: str, **kwargs: Any) -> Any:
             return type("R", (), {"content": "", "steps_taken": 0})()
 
@@ -690,9 +708,7 @@ class TestCadencePersistence:
         async def exec_noop(goal: str, **kwargs: Any) -> Any:
             return type("R", (), {"content": "", "steps_taken": 0})()
 
-        s = TaskScheduler(
-            db=db, task_executor=exec_noop, registry=_StubRegistry()
-        )
+        s = TaskScheduler(db=db, task_executor=exec_noop, registry=_StubRegistry())
         entry = await s.create_schedule(
             name="cadence cron but direct",
             task_goal="",

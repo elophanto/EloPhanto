@@ -68,11 +68,129 @@ def _strategy_inputs_from_company(
     }
 
 
+async def _build_operational_context(db: Any, company_id: str) -> str:
+    """Render existing per-company operational state into a context
+    string the LLM strategy generator can ground on.
+
+    The 2026-05-26 live test exposed that the strategy generator,
+    given only ``company.yaml.what_we_sell``, focused narrowly on
+    that one surface and ignored everything else the agent was
+    actually doing for the company (X growth schedules, livestream
+    cadence, polymarket monitor, prospect funnel state, ledger
+    activity). Result: a strategy that addressed 1 of 5 surfaces
+    and called it done. Operator feedback: *"the review part is
+    not good enough"*.
+
+    This function answers "what is this company actually doing
+    right now?" — enabled schedules, recent ledger sums by type,
+    prospect status distribution, active missions. The LLM
+    receives this context BEFORE the planning call so the
+    resulting strategy is a plan for the WHOLE business surface,
+    not just ``what_we_sell``.
+
+    Pure read-only. Best-effort: any query that fails returns its
+    section empty rather than crashing the plan call.
+    """
+    parts: list[str] = []
+
+    # 1. Enabled schedules (cadence + deadline) — these reveal what
+    # operational surfaces the agent is currently maintaining.
+    try:
+        rows = await db.execute(
+            "SELECT name, cron_expression, task_goal, direct_tool "
+            "FROM scheduled_tasks WHERE enabled = 1 AND company_id = ? "
+            "ORDER BY name",
+            (company_id,),
+        )
+        if rows:
+            parts.append(
+                f"ACTIVE SCHEDULES ({len(rows)}) — surfaces the agent "
+                "already operates for this company. The strategy should "
+                "respect / extend these, not ignore them:"
+            )
+            for r in rows[:20]:
+                goal_snip = (r["task_goal"] or "").splitlines()[0][:80]
+                tool_hint = f" → {r['direct_tool']}" if r["direct_tool"] else ""
+                parts.append(
+                    f"  - [{r['cron_expression']}] {r['name']}{tool_hint}: {goal_snip}"
+                )
+            if len(rows) > 20:
+                parts.append(f"  - …and {len(rows) - 20} more.")
+            parts.append("")
+    except Exception:
+        pass
+
+    # 2. Recent ledger activity (last 7 days) — honest progress signal
+    # per type. Strategy generator should plan around revenue gaps,
+    # spend ratios, and existing channels with momentum.
+    try:
+        rows = await db.execute(
+            "SELECT type, direction, SUM(amount) AS total, COUNT(*) AS n "
+            "FROM resource_ledger "
+            "WHERE company_id = ? "
+            "AND date(ts) >= date('now', '-7 days') "
+            "GROUP BY type, direction "
+            "ORDER BY total DESC",
+            (company_id,),
+        )
+        if rows:
+            parts.append("LEDGER SUMS (last 7 days) — what's actually moving:")
+            for r in rows:
+                parts.append(
+                    f"  - {r['type']} ({r['direction']}): "
+                    f"{r['total']:.2f} ({r['n']} events)"
+                )
+            parts.append("")
+    except Exception:
+        pass
+
+    # 3. Prospect status distribution — funnel health snapshot.
+    try:
+        rows = await db.execute(
+            "SELECT status, COUNT(*) AS n FROM prospects "
+            "WHERE company_id = ? GROUP BY status ORDER BY n DESC",
+            (company_id,),
+        )
+        if rows:
+            parts.append("PROSPECT FUNNEL:")
+            for r in rows:
+                parts.append(f"  - {r['status']}: {r['n']}")
+            parts.append("")
+    except Exception:
+        pass
+
+    # 4. Active missions — multiple in-flight initiatives the
+    # strategy should acknowledge rather than overwrite.
+    try:
+        rows = await db.execute(
+            "SELECT title, momentum_score FROM missions "
+            "WHERE company_id = ? AND status = 'active' "
+            "ORDER BY momentum_score DESC LIMIT 10",
+            (company_id,),
+        )
+        if rows:
+            parts.append("ACTIVE MISSIONS:")
+            for r in rows:
+                parts.append(f"  - {r['title']} (momentum={r['momentum_score']:.2f})")
+            parts.append("")
+    except Exception:
+        pass
+
+    if not parts:
+        return ""
+    return (
+        "OPERATIONAL CONTEXT (deterministic snapshot of current state — "
+        "the strategy must address ALL these surfaces, not just "
+        "what_we_sell):\n\n" + "\n".join(parts)
+    )
+
+
 class CompanyPlanTool(BaseTool):
     def __init__(self) -> None:
         self._project_root: Any = None
         self._router: Any = None
         self._strategy_manager: Any = None
+        self._db: Any = None
 
     @property
     def name(self) -> str:
@@ -146,8 +264,33 @@ class CompanyPlanTool(BaseTool):
             )
 
         prompt_inputs = _strategy_inputs_from_company(company_yaml)
-        if params.get("context"):
-            prompt_inputs["context"] = str(params["context"])
+
+        # Build deterministic operational context (active schedules +
+        # ledger sums + prospect funnel + missions) so the LLM plans
+        # for the WHOLE business surface, not just what_we_sell. Live
+        # test 2026-05-26 showed strategies narrowing to one surface
+        # when this context wasn't injected — operator feedback:
+        # "the review part is not good enough".
+        operational_block = ""
+        if self._db is not None:
+            try:
+                operational_block = await _build_operational_context(
+                    self._db, company_id
+                )
+            except Exception as e:
+                logger.warning("operational context build failed: %s", e)
+                operational_block = ""
+
+        agent_context = str(params.get("context") or "")
+        merged_context_parts: list[str] = []
+        if operational_block:
+            merged_context_parts.append(operational_block)
+        if agent_context:
+            merged_context_parts.append(
+                "AGENT-PROVIDED CONTEXT (from prior research):\n" + agent_context
+            )
+        if merged_context_parts:
+            prompt_inputs["context"] = "\n\n".join(merged_context_parts)
         mode = str(
             params.get("override_strategy_mode")
             or prompt_inputs.get("strategyMode")
