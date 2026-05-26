@@ -88,6 +88,15 @@ class ToolRegistry:
             if t.tier == ToolTier.DEFERRED
         ]
 
+    def list_by_group(self, group: str) -> list[BaseTool]:
+        """Return all registered tools whose ``group`` attribute matches
+        ``group``. Used by the Phase 11 capability audit to list which
+        channels the agent has working tools for. Stable order: by name."""
+        return sorted(
+            (t for t in self._tools.values() if getattr(t, "group", "") == group),
+            key=lambda t: t.name,
+        )
+
     def discover_tools(self, query: str) -> list[BaseTool]:
         """Fuzzy-match *query* against all registered tools.
 
@@ -308,6 +317,26 @@ class ToolRegistry:
         self.register(VoiceExtractTool())
         self.register(VoiceShowTool())
         self.register(VoiceLintTool())
+
+        # ABE Phase 11 (docs/76-ABE-FRAMEWORK.md): Strategic Planning
+        # & Capability Audit. Four tools form the post-onboard
+        # pipeline: capabilities → set_strategy_inputs (separate file)
+        # → plan → apply → approve.
+        from tools.companies.set_strategy_inputs_tool import (
+            CompanySetStrategyInputsTool,
+        )
+        from tools.strategy import (
+            CompanyCapabilitiesTool,
+            CompanyPlanApplyTool,
+            CompanyPlanApproveTool,
+            CompanyPlanTool,
+        )
+
+        self.register(CompanyCapabilitiesTool())
+        self.register(CompanyPlanTool())
+        self.register(CompanyPlanApplyTool())
+        self.register(CompanyPlanApproveTool())
+        self.register(CompanySetStrategyInputsTool())
 
         # Identity tools
         from tools.identity.reflect_tool import IdentityReflectTool
@@ -680,6 +709,13 @@ class ToolRegistry:
             "voice_extract",
             "voice_show",
             "voice_lint",
+            # ABE Phase 11 — capabilities + plan are CORE so the LLM
+            # always sees the post-onboard pipeline; apply + approve
+            # stay PROFILE (called less often, MODERATE permission).
+            # set_strategy_inputs stays PROFILE (one-shot per
+            # company). Token cost: +2.
+            "company_capabilities",
+            "company_plan",
         }
 
         _DEFERRED_TOOLS = {

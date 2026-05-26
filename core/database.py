@@ -900,6 +900,13 @@ _MIGRATIONS = [
     # this migration runs, so existing production schedules keep
     # working without intervention.
     "ALTER TABLE companies ADD COLUMN trust_state TEXT NOT NULL DEFAULT 'learning'",
+    # ABE Phase 11 (docs/76-ABE-FRAMEWORK.md) — Strategic Planning.
+    # Strategy tactics become goals; the tactic's per-row metadata
+    # (priority/channel/budget/expectedImpact/riskLevel/dependencies/
+    # successMetrics/inspiredBy/strategy_id/tactic_id) packs into this
+    # JSON column. Default '{}' so pre-Phase-11 goals stay valid and
+    # the existing `Goal.plan = list[checkpoints]` semantics stay intact.
+    "ALTER TABLE goals ADD COLUMN tactic_metadata TEXT NOT NULL DEFAULT '{}'",
 ]
 
 

@@ -1594,10 +1594,27 @@ class AutonomousMind:
                             voice_marker = "voice=yes"
                     except Exception:
                         pass
+                    # ABE Phase 11: strategy presence + unresolved-blocker
+                    # count. active = strategy.yaml in force; none = no
+                    # strategy yet (productized companies should run
+                    # company_plan). blockers=N when strategy active and
+                    # unresolved blockers remain.
+                    strategy_marker = "strategy=none"
+                    blockers_marker = ""
+                    try:
+                        sm = getattr(self._agent, "_strategy_manager", None)
+                        if sm is not None and sm.has_active(c.id):
+                            strategy_marker = "strategy=active"
+                            n_block = sm.blocker_count(c.id)
+                            if n_block > 0:
+                                blockers_marker = f", blockers={n_block}"
+                    except Exception:
+                        pass
                     rows.append(
                         f"[COMPANY] {c.id}{active_marker} "
                         f"({product_marker}, trust={trust}, "
-                        f"{voice_marker}) — "
+                        f"{voice_marker}, {strategy_marker}"
+                        f"{blockers_marker}) — "
                         f"{ledger_summary}"
                     )
                 if rows:
@@ -1669,7 +1686,7 @@ class AutonomousMind:
                 rows = await self._agent._db.execute(
                     "SELECT COUNT(*) as cnt FROM knowledge_chunks"
                 )
-                count = rows[0]["cnt"] if rows else 0
+                count: int = int(rows[0]["cnt"]) if rows else 0  # type: ignore[index]
                 if count > 0:
                     knowledge_text = f"[KNOWLEDGE] {count} chunks indexed"
 
@@ -1858,6 +1875,11 @@ class AutonomousMind:
             # safe; the generator returns [] when voice_manager is
             # missing (test fixtures with no project_root).
             voice_manager=getattr(self._agent, "_voice_manager", None),
+            # ABE Phase 11 — enables from_unplanned_companies,
+            # from_blocked_strategy_days, from_buildable_blockers.
+            # None-safe; all three generators return [] when
+            # strategy_manager is missing.
+            strategy_manager=getattr(self._agent, "_strategy_manager", None),
         )
 
         all_candidates = await collect_all(ctx)

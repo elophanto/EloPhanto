@@ -1,0 +1,242 @@
+"""company_plan — LLM-driven strategy generation (Phase 11).
+
+Reads ``companies/<slug>/company.yaml`` for product + strategy_inputs,
+calls the LLM with the ported ``tmp/strategy.js`` prompts (system +
+user), writes the parsed strategy JSON to
+``data/companies/<slug>/strategy/proposed/<ISO_timestamp>.yaml``.
+
+Pure artifact generation — no goals/missions/schedules created here.
+That's ``company_plan_apply``'s job.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+from tools.base import BaseTool, PermissionLevel, ToolResult
+from tools.strategy._prompts import build_system_prompt, build_user_prompt
+
+logger = logging.getLogger(__name__)
+
+
+def _load_company_yaml(project_root: Path, company_id: str) -> dict[str, Any]:
+    path = project_root / "companies" / company_id / "company.yaml"
+    if not path.is_file():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning("company_plan: company.yaml parse failed (%s): %s", path, e)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _strategy_inputs_from_company(
+    company_yaml: dict[str, Any],
+) -> dict[str, Any]:
+    """Pull the strategy_inputs section + relevant product fields
+    into the param shape that build_user_prompt expects."""
+    si = company_yaml.get("strategy_inputs") or {}
+    if not isinstance(si, dict):
+        si = {}
+    budget = si.get("budget") or {}
+    if not isinstance(budget, dict):
+        budget = {}
+    return {
+        "businessName": company_yaml.get("name") or "",
+        "productDescription": company_yaml.get("what_we_sell") or "",
+        "industry": si.get("industry") or "",
+        "targetAudience": si.get("target_audience") or "",
+        "uniqueSellingPoints": si.get("unique_selling_points") or "",
+        "competitors": si.get("competitors") or "",
+        "currentChallenges": si.get("current_challenges") or "",
+        "budget": budget.get("amount") or 0,
+        "budgetPeriod": budget.get("period") or "monthly",
+        "budgetType": budget.get("type") or "mixed",
+        "strategyMode": si.get("strategy_mode") or "standard",
+        "focus": si.get("focus") or "full",
+        "goals": si.get("primary_goals") or [],
+        "riskTolerance": si.get("risk_tolerance") or 50,
+        "channels": company_yaml.get("channels") or [],
+        "timeline": si.get("timeline_hint") or "",
+        "context": si.get("context") or "",
+    }
+
+
+class CompanyPlanTool(BaseTool):
+    def __init__(self) -> None:
+        self._project_root: Any = None
+        self._router: Any = None
+        self._strategy_manager: Any = None
+
+    @property
+    def name(self) -> str:
+        return "company_plan"
+
+    @property
+    def group(self) -> str:
+        return "companies"
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    @property
+    def description(self) -> str:
+        return (
+            "Generate a marketing strategy proposal for a company. "
+            "Reads the company's product + strategy_inputs from "
+            "company.yaml, calls the LLM with proven strategy "
+            "prompts (modes: standard | unconventional | guerrilla | "
+            "brand-awareness | controversial; focus: full | seo | "
+            "geo | content | paid | social | email | brand), and "
+            "writes the parsed JSON to data/companies/<slug>/"
+            "strategy/proposed/<timestamp>.yaml. "
+            "Call company_capabilities FIRST so the LLM context "
+            "knows what's available. Pure artifact generation — no "
+            "goals/missions are created until the operator runs "
+            "company_plan_apply on the proposal."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "company_id": {"type": "string"},
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Optional prior research / capability audit "
+                        "summary the LLM should ground the strategy in."
+                    ),
+                },
+                "override_strategy_mode": {"type": "string"},
+                "override_focus": {"type": "string"},
+            },
+        }
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if self._project_root is None or self._router is None:
+            return ToolResult(
+                success=False,
+                error="company_plan not initialized (project_root + router)",
+            )
+        if self._strategy_manager is None:
+            return ToolResult(
+                success=False,
+                error="company_plan not initialized (missing strategy_manager)",
+            )
+        from core.company import current_company_id
+
+        company_id = str(params.get("company_id") or current_company_id())
+        company_yaml = _load_company_yaml(self._project_root, company_id)
+        if not company_yaml:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"company.yaml missing or empty for {company_id} — "
+                    "run company_onboard first."
+                ),
+            )
+
+        prompt_inputs = _strategy_inputs_from_company(company_yaml)
+        if params.get("context"):
+            prompt_inputs["context"] = str(params["context"])
+        mode = str(
+            params.get("override_strategy_mode")
+            or prompt_inputs.get("strategyMode")
+            or "standard"
+        )
+        focus = str(
+            params.get("override_focus") or prompt_inputs.get("focus") or "full"
+        )
+        budget = float(prompt_inputs.get("budget") or 0)
+        risk = int(prompt_inputs.get("riskTolerance") or 50)
+
+        system_prompt = build_system_prompt(
+            strategy_mode=mode,
+            focus=focus,
+            budget_type=str(prompt_inputs.get("budgetType") or "mixed"),
+            budget=budget,
+            budget_period=str(prompt_inputs.get("budgetPeriod") or "monthly"),
+            risk_tolerance=risk,
+            context=str(prompt_inputs.get("context") or ""),
+        )
+        user_prompt = build_user_prompt(inputs=prompt_inputs)
+
+        # One retry on JSONDecodeError — strategy output is large (~5x
+        # dream output); a single trailing-comma shouldn't waste the
+        # whole call. We re-call with a JSON-mode reminder appended.
+        last_err: str = ""
+        for attempt in range(2):
+            try:
+                response = await self._router.complete(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    task_type="planning",
+                    temperature=0.7,
+                )
+            except Exception as e:
+                return ToolResult(success=False, error=f"strategy LLM call failed: {e}")
+            content = (response.content or "").strip()
+            if content.startswith("```"):
+                content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            try:
+                parsed = json.loads(content)
+                break
+            except json.JSONDecodeError as e:
+                last_err = str(e)
+                if attempt == 0:
+                    user_prompt += (
+                        "\n\nREMINDER: Output ONLY the JSON object. No "
+                        "code fences, no commentary. Begin with { and end "
+                        "with }."
+                    )
+                    continue
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"strategy JSON parse failed after retry: {last_err}; "
+                        f"first 200 chars: {content[:200]!r}"
+                    ),
+                )
+
+        if not isinstance(parsed, dict):
+            return ToolResult(
+                success=False, error="strategy LLM output JSON was not a mapping"
+            )
+
+        try:
+            proposal_path = self._strategy_manager.write_proposal(company_id, parsed)
+        except Exception as e:
+            return ToolResult(
+                success=False, error=f"strategy proposal write failed: {e}"
+            )
+
+        return ToolResult(
+            success=True,
+            data={
+                "company_id": company_id,
+                "proposal_path": str(proposal_path),
+                "strategy_name": parsed.get("strategyName") or "",
+                "tactic_count": len(parsed.get("tactics") or []),
+                "vault_requirement_count": len(parsed.get("vault_requirements") or []),
+                "tool_requirement_count": len(parsed.get("tool_requirements") or []),
+                "execution_priority": parsed.get("execution_priority") or "staged",
+                "next": (
+                    "Operator reviews the proposal at "
+                    f"{proposal_path}. To activate (creates mission + "
+                    "goals + schedules + voice seed + blockers), call "
+                    "company_plan_apply with this proposal_path. The "
+                    "proposal sits in /proposed/ until applied."
+                ),
+            },
+        )

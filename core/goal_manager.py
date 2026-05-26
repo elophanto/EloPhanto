@@ -69,6 +69,12 @@ class Goal:
     # goal is preferred during cycles where the active role matches.
     # None = goal works for any role (the CEO default).
     assigned_to_role: str | None = None
+    # Strategy-tactic metadata (ABE Phase 11). When this goal was created
+    # from a strategy tactic by `company_plan_apply`, this dict carries
+    # the tactic's per-row fields: strategy_id, tactic_id, priority,
+    # channel, budget, expectedImpact, riskLevel, dependencies,
+    # successMetrics, inspiredBy. Empty dict for non-strategy goals.
+    tactic_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -186,6 +192,7 @@ class GoalManager:
         *,
         mission_id: str | None = None,
         assigned_to_role: str | None = None,
+        tactic_metadata: dict[str, Any] | None = None,
     ) -> Goal:
         """Create a new goal and persist it.
 
@@ -209,6 +216,7 @@ class GoalManager:
             updated_at=now,
             mission_id=mission_id,
             assigned_to_role=assigned_to_role,
+            tactic_metadata=dict(tactic_metadata or {}),
         )
         await self._persist_goal(g)
         return g
@@ -690,8 +698,8 @@ class GoalManager:
                 context_summary, current_checkpoint, total_checkpoints,
                 attempts, max_attempts, llm_calls_used, cost_usd,
                 created_at, updated_at, completed_at, mission_id,
-                assigned_to_role)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                assigned_to_role, tactic_metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(goal_id) DO UPDATE SET
                 status = excluded.status,
                 plan_json = excluded.plan_json,
@@ -704,7 +712,8 @@ class GoalManager:
                 updated_at = excluded.updated_at,
                 completed_at = excluded.completed_at,
                 mission_id = excluded.mission_id,
-                assigned_to_role = excluded.assigned_to_role
+                assigned_to_role = excluded.assigned_to_role,
+                tactic_metadata = excluded.tactic_metadata
             """,
             (
                 goal.goal_id,
@@ -724,6 +733,7 @@ class GoalManager:
                 goal.completed_at,
                 goal.mission_id,
                 goal.assigned_to_role,
+                json.dumps(goal.tactic_metadata or {}),
             ),
         )
 
@@ -816,6 +826,11 @@ class GoalManager:
             mission_id=row["mission_id"] if "mission_id" in row.keys() else None,
             assigned_to_role=(
                 row["assigned_to_role"] if "assigned_to_role" in row.keys() else None
+            ),
+            tactic_metadata=(
+                json.loads(row["tactic_metadata"] or "{}")
+                if "tactic_metadata" in row.keys()
+                else {}
             ),
         )
 

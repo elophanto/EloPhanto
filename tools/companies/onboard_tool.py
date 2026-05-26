@@ -332,12 +332,18 @@ class CompanyOnboardTool(BaseTool):
                 "active_session_persisted": True,
                 "seed_goal_id": seed_goal_id,
                 "next_step": (
-                    "Autonomous mind will inherit this company on its "
-                    "next wakeup. To start operating immediately, ask "
-                    "the operator what 'drive this' means as concrete "
-                    "recurring work (daily outreach? weekly content? "
-                    "specific KPIs?) and call schedule_task or "
-                    "mission_create for the cadence."
+                    "Phase 11 canonical post-onboard sequence: "
+                    "1) `company_capabilities` to audit available "
+                    "tools/credentials/skills; "
+                    "2) ask the operator about target audience, "
+                    "competitors, budget, risk tolerance, primary "
+                    "goals, then call `company_set_strategy_inputs`; "
+                    "3) `company_plan` to generate a strategy proposal; "
+                    "4) `company_plan_apply` to materialize the "
+                    "mission + goals + schedules + voice seed; "
+                    "5) `company_plan_approve` after operator reviews "
+                    "blockers + voice. The autonomous mind will then "
+                    "pick up the tactics on its next wakeup."
                 ),
             },
         )

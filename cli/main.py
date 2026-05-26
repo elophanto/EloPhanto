@@ -26,6 +26,7 @@ from cli.rollback_cmd import rollback_cmd
 from cli.schedule_cmd import schedule_cmd
 from cli.skills_cmd import skills_cmd
 from cli.stop_cmd import resume_cmd, stop_cmd
+from cli.strategy_cmd import strategy_cmd
 from cli.telegram_cmd import telegram_cmd
 from cli.update_cmd import update_cmd
 from cli.vault_cmd import vault_cmd
@@ -96,6 +97,7 @@ cli.add_command(company_cmd, "company")
 cli.add_command(role_cmd, "role")
 cli.add_command(drafts_cmd, "drafts")
 cli.add_command(voice_cmd, "voice")
+cli.add_command(strategy_cmd, "strategy")
 
 
 if __name__ == "__main__":
