@@ -87,14 +87,15 @@ class TestAbeFrameworkAwarenessBlock:
             assert tool in ctx, f"awareness block must name {tool}"
 
     @pytest.mark.asyncio
-    async def test_block_includes_drive_my_business_workflow(
-        self, db: Database
-    ) -> None:
-        """Phase 8.5 gap fix (2026-05-26): when the operator says
-        'drive my business', the LLM must reach for ``company_onboard``,
-        not respond conversationally. The awareness block must
-        explicitly name the canonical sequence so the LLM is steered
-        away from the previous failure mode of answering with vibes."""
+    async def test_block_points_at_workflow_skills(self, db: Database) -> None:
+        """Refactored 2026-05-26: workflows that used to live inline in
+        the awareness block (Sections 5-8 — Trust Ladder / Drive My
+        Business / Voice / Strategy Pipeline) now live in versioned
+        SKILL.md files. The awareness block must name the skill router
+        as the canonical place for workflow procedure, and name the
+        load-bearing skills by slug so the LLM knows to reach for them
+        (the skill router auto-loads on trigger match, but the
+        awareness block makes the contract explicit)."""
         ident_cfg = IdentityConfig(enabled=True)
         router = MagicMock()
         im = IdentityManager(db=db, router=router, config=ident_cfg)
@@ -107,12 +108,24 @@ class TestAbeFrameworkAwarenessBlock:
 
         ctx = await im.build_identity_context()
         lowered = ctx.lower()
-        # Must name the canonical tool for the intent
+        # The four workflow skills must be named so the LLM knows
+        # to read them when the matching intent appears.
+        for skill in (
+            "drive-business",
+            "trust-ladder-workflow",
+            "voice-extraction-workflow",
+            "strategy-pipeline",
+        ):
+            assert (
+                skill in lowered
+            ), f"awareness block must reference workflow skill {skill}"
+        # The block must also point the LLM at the canonical tool surface
+        # (so it doesn't reconstruct ABE state from memory).
         assert "company_onboard" in lowered
-        # Must name the user-facing intent ("drive my business" or similar)
-        assert "drive" in lowered
-        # Must mention the load-bearing concern (persistent context)
-        assert "persist" in lowered or "inherit" in lowered
+        # Hard rules (operator-only promotion etc.) must remain in the
+        # block — they can't drift to skills because they apply across
+        # every workflow.
+        assert "cannot promote" in lowered or "operator only" in lowered
 
     @pytest.mark.asyncio
     async def test_block_warns_against_memory_reconstruction(
