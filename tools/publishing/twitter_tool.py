@@ -129,6 +129,19 @@ class TwitterPostTool(BaseTool):
                 error=f"Tweet exceeds {_MAX_TWEET_CHARS} chars ({len(content)}).",
             )
 
+        # ABE Phase 9 trust gate — refuse live X post when the
+        # active company is in 'learning' state; agent must draft
+        # via post_draft instead. Sits AFTER the cheap length check
+        # so we don't deny on what would have been a validation
+        # failure anyway. Skipped silently when no db handle is
+        # injected (legacy test paths).
+        if self._db is not None:
+            from core.trust_gate import check_outreach_allowed
+
+            allowed, reason = await check_outreach_allowed(self._db, "twitter_post")
+            if not allowed:
+                return ToolResult(success=False, error=reason)
+
         # Mechanical style preflight — refuses to send on hard
         # violations from the operator's accumulated banned-phrase
         # list. The agent's old self-graded "style_preflight_pass"

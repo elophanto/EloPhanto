@@ -2121,6 +2121,16 @@ class Agent:
             "company_use",
             "company_pause",
             "company_resume",
+            # ABE Phase 9 — draft tools need _project_root; trust_set
+            # needs _company_manager. hasattr() guards handle the
+            # per-tool attribute set so we don't have to list which
+            # tool needs which dep.
+            "email_draft",
+            "outreach_draft",
+            "post_draft",
+            "draft_approve",
+            "draft_reject",
+            "company_trust_set",
         )
         for tool_name in company_tool_names:
             tool = self._registry.get(tool_name)

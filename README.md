@@ -75,6 +75,16 @@ elophanto role use sales              # scope this session to the SALES role
 elophanto role clear                  # back to default (playing CEO, full tools)
 ```
 
+**Phase 9 shipped 2026-05-26**: Trust Ladder & Draft-Before-Act. Surfaced from the live test of Phase 8.5: even with the canonical workflow firing, the agent's instinct was to propose outreach (and even claim "10 prospects saved" without doing it) before the operator approved its voice. The substrate enabled spam. Phase 9 adds a three-state trust ladder per company — `learning` (default, live outreach REFUSED, agent must draft) → `trial` (operator approved voice; per-call MODERATE approval still required) → `operating` (autonomous within budget). New `core/trust_gate.py` gates `email_send` / `email_reply` / `prospect_outreach` / `twitter_post`; on deny the error names the canonical draft replacement (`email_draft` / `outreach_draft` / `post_draft`, all CORE-tier so the LLM always sees them). Drafts land at `companies/<slug>/drafts/<kind>/pending/` as operator-readable Markdown; `draft_approve` / `draft_reject` move them to `approved/` or `rejected/` with a resolution footer. Operator-controlled promotion via `elophanto company trust <slug> <state>` or `company_trust_set` tool — never auto-promoted. Seed `elophanto-self` migrated to `operating` so existing production schedules keep working.
+
+```bash
+elophanto drafts list              # all pending drafts across companies
+elophanto drafts show DRAFT_ID     # read one draft
+elophanto drafts approve DRAFT_ID  # move pending → approved
+elophanto drafts reject DRAFT_ID "too salesy"
+elophanto company trust acme-inc trial  # promote up the ladder
+```
+
 **Phase 8.5 shipped 2026-05-26**: end-to-end "drive my business" workflow. Operator can now say *"I have a business on alphascala.com and I want you to drive it"* in chat and the agent will: research the domain (browser + web_search), call the new `company_onboard` tool (one operator-approved call that bundles `company_create` + persists context so the autonomous mind inherits it + writes the product YAML + creates an optional seed goal), then ask what 'drive' means as concrete recurring work. The autonomous mind now refreshes its company context every cycle from the sidecar, and its state snapshot includes a `[COMPANY]` block per active ABE with product status + ledger headlines, so the mind always knows which company it's operating and what its ledger looks like. Without this, Phases 1-8 shipped tools the operator couldn't actually drive end-to-end through chat.
 
 **Phase 8 shipped 2026-05-25**: chat-driven ABE management. The operator can now drive the entire framework from chat without remembering CLI syntax. Ten new agent-callable tools — `company_list / report / create / use / pause / resume` and `role_list / show / use / sync` — mirror the `elophanto company …` and `elophanto role …` commands. SAFE-tier for reads, MODERATE for state changes (operator approves every write). `company_use` and `role_use` default to **session-only** contextvar updates; pass `persist: true` to also write the sidecar so future CLI + chat sessions inherit. Combined with `company_set_product` (Phase 7), the ABE-tool surface is 11 — every operator workflow now has a chat path.

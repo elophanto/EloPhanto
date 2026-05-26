@@ -277,6 +277,27 @@ class ToolRegistry:
         self.register(RoleUseTool())
         self.register(RoleSyncTool())
 
+        # Draft tools (ABE Phase 9 — Trust Ladder). When a company is
+        # in trust state 'learning', the live outreach tools refuse
+        # and the agent must draft via these instead. Operator
+        # approves/rejects via the resolution tools; company_trust_set
+        # promotes the company up the ladder once voice is approved.
+        from tools.drafts import (
+            CompanyTrustSetTool,
+            DraftApproveTool,
+            DraftRejectTool,
+            EmailDraftTool,
+            OutreachDraftTool,
+            PostDraftTool,
+        )
+
+        self.register(EmailDraftTool())
+        self.register(OutreachDraftTool())
+        self.register(PostDraftTool())
+        self.register(DraftApproveTool())
+        self.register(DraftRejectTool())
+        self.register(CompanyTrustSetTool())
+
         # Identity tools
         from tools.identity.reflect_tool import IdentityReflectTool
         from tools.identity.status_tool import IdentityStatusTool
@@ -632,6 +653,14 @@ class ToolRegistry:
             "company_report",
             "company_onboard",
             "role_list",
+            # ABE Phase 9 — draft tools must be CORE so when the
+            # trust gate refuses live outreach, the LLM can
+            # immediately see the draft alternative without
+            # discovering it. Same logic: don't hide the canonical
+            # fallback behind tool_discover. Token cost: 3 more.
+            "email_draft",
+            "outreach_draft",
+            "post_draft",
         }
 
         _DEFERRED_TOOLS = {

@@ -81,6 +81,17 @@ class EmailSendTool(BaseTool):
         if not self._config:
             return ToolResult(success=False, error="Email not configured.")
 
+        # ABE Phase 9 trust gate — refuse live send when company is
+        # in 'learning' state; LLM must use email_draft instead.
+        # The gate fail-safes to DENY when company lookup fails so a
+        # corrupted DB can't accidentally unleash outreach.
+        if self._db is not None:
+            from core.trust_gate import check_outreach_allowed
+
+            allowed, reason = await check_outreach_allowed(self._db, "email_send")
+            if not allowed:
+                return ToolResult(success=False, error=reason)
+
         if self._config.provider == "smtp":
             return await self._execute_smtp(params)
         return await self._execute_agentmail(params)

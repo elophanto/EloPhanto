@@ -103,6 +103,25 @@ class ProspectOutreachTool(BaseTool):
         )
         if not rows:
             return ToolResult(success=False, error=f"Prospect {prospect_id} not found")
+
+        # ABE Phase 9 trust gate — refuse live outreach when the
+        # prospect's company is in 'learning' state. Gate keyed on
+        # the PROSPECT's company (the funnel being touched), not the
+        # operator's active session company — same rule as the
+        # pipeline_advance ledger attribution in this tool. Only
+        # gates outbound actions; 'note' and 'reply_received' are
+        # bookkeeping, not communication.
+        if action in ("email_sent", "follow_up", "platform_applied"):
+            prospect_company_id_for_gate = (
+                rows[0][1] if len(rows[0]) > 1 else None
+            ) or "elophanto-self"
+            from core.trust_gate import check_outreach_allowed
+
+            allowed, reason = await check_outreach_allowed(
+                self._db, "prospect_outreach", prospect_company_id_for_gate
+            )
+            if not allowed:
+                return ToolResult(success=False, error=reason)
         prospect_company_id = (
             rows[0][1] if len(rows[0]) > 1 else None
         ) or "elophanto-self"

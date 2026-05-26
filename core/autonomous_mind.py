@@ -1577,9 +1577,14 @@ class AutonomousMind:
                         )
                     except Exception:
                         ledger_summary = "(ledger sums unavailable)"
+                    # ABE Phase 9: surface trust_state so the mind
+                    # always knows whether live outreach is allowed
+                    # for each company. learning = drafts only.
+                    trust = getattr(c, "trust_state", "operating")
                     rows.append(
                         f"[COMPANY] {c.id}{active_marker} "
-                        f"({product_marker}) — {ledger_summary}"
+                        f"({product_marker}, trust={trust}) — "
+                        f"{ledger_summary}"
                     )
                 if rows:
                     companies_text = "\n".join(rows[:5])

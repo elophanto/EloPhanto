@@ -14,6 +14,7 @@ from cli.company_cmd import company_cmd
 from cli.config_cmd import config_cmd
 from cli.daemon_cmd import daemon_cmd
 from cli.doctor_cmd import doctor_cmd
+from cli.drafts_cmd import drafts_cmd
 from cli.gateway_cmd import gateway_cmd
 from cli.init_cmd import init_cmd
 from cli.kid_cmd import kid_cmd
@@ -92,6 +93,7 @@ cli.add_command(stop_cmd, "stop")
 cli.add_command(resume_cmd, "resume")
 cli.add_command(company_cmd, "company")
 cli.add_command(role_cmd, "role")
+cli.add_command(drafts_cmd, "drafts")
 
 
 if __name__ == "__main__":
