@@ -1212,6 +1212,34 @@ class EloPhantoDashboard(App):
         border-top: solid #d4cfc5;
         color: #78746e;
     }
+    #reasoning-header {
+        height: 1;
+        width: 1fr;
+        padding: 0 1;
+        background: #f9f8f4;
+        border-top: solid #d4cfc5;
+        color: #78746e;
+    }
+    /* Default height: medium. Cycled by Ctrl+R via _reasoning_height_idx.
+       The .reasoning-hidden / .reasoning-small / .reasoning-medium /
+       .reasoning-large classes are toggled on BOTH #reasoning and
+       #reasoning-header. */
+    #reasoning {
+        height: 10;
+        width: 1fr;
+        background: #f9f8f4;
+        color: #1c1a16;
+        padding: 0 1;
+        overflow-x: hidden;
+        scrollbar-gutter: stable;
+    }
+    #reasoning.reasoning-hidden,
+    #reasoning-header.reasoning-hidden {
+        display: none;
+    }
+    #reasoning.reasoning-small { height: 5; }
+    #reasoning.reasoning-medium { height: 10; }
+    #reasoning.reasoning-large { height: 20; }
     #events {
         height: 5;
         width: 1fr;
@@ -1263,6 +1291,7 @@ class EloPhantoDashboard(App):
         Binding("ctrl+c", "quit_app", "Quit", show=False),
         Binding("ctrl+x", "cancel_request", "Cancel", show=False),
         Binding("ctrl+y", "copy_last", "Copy", show=False),
+        Binding("ctrl+r", "cycle_reasoning", "Reasoning", show=False),
         Binding("f1", "toggle_sidebar", "Sidebar", show=False),
     ]
 
@@ -1340,6 +1369,27 @@ class EloPhantoDashboard(App):
                 chat_log = RichLog(id="chat", highlight=True, markup=True, wrap=True)
                 chat_log.can_focus = False  # let terminal handle mouse/selection
                 yield chat_log
+                # Reasoning panel — dedicated home for agent_thought
+                # chunks (Codex chain-of-thought) AND the live tool-
+                # call narration ("· tool_name — first_line"). Before
+                # 2026-05-27 those went into #chat alongside operator/
+                # agent dialogue and autoscroll made the chat
+                # unreadable. Operator can cycle visibility with
+                # Ctrl+R (hidden → small → medium → large → hidden).
+                yield Static(
+                    "💭  reasoning  (Ctrl+R to resize / hide)",
+                    id="reasoning-header",
+                    markup=True,
+                )
+                reasoning_log = RichLog(
+                    id="reasoning",
+                    highlight=True,
+                    markup=True,
+                    wrap=True,
+                    max_lines=200,
+                )
+                reasoning_log.can_focus = False
+                yield reasoning_log
                 yield Static("", id="feed-header", markup=True)
                 # wrap=True so a long event line cannot force a
                 # horizontal scrollbar / push the chat panel narrower
@@ -1646,21 +1696,21 @@ class EloPhantoDashboard(App):
                     f"[{_DIM}]{step_label}[/] · [{_ACCENT}]{tool_name}[/]{hint}",
                     tag=tag,
                 )
-                # Live activity line in the main chat — dim + indented
-                # so it reads as live narration of what the agent is
-                # doing, not competing with the agent's final response.
-                # Without this, the chat shows only "user → response"
-                # which is unwatchable for a stream; with it, viewers
-                # see each tool call + the thought that drove it.
-                chat = self.query_one("#chat", RichLog)
+                # Live activity line in the REASONING panel (was in
+                # #chat before 2026-05-27 — operator feedback: chat
+                # autoscroll made operator/agent dialogue unreadable
+                # because tool-call narration kept pushing it offscreen).
+                # Now reasoning has its own scrollable region so the
+                # chat stays a clean operator ↔ agent transcript.
+                reasoning = self.query_one("#reasoning", RichLog)
                 src_prefix = "[mind] " if source == "scheduled" else ""
                 if first_line and len(first_line) > 2:
-                    chat.write(
+                    reasoning.write(
                         f"  [{_DIM}]{src_prefix}· {tool_name}[/] "
                         f"[{_DIM}]— {first_line[:100]}[/]"
                     )
                 else:
-                    chat.write(f"  [{_DIM}]{src_prefix}· {tool_name}[/]")
+                    reasoning.write(f"  [{_DIM}]{src_prefix}· {tool_name}[/]")
                 self._repaint_panel("panel-agent")
 
         elif event == "agent_thought":
@@ -1675,8 +1725,10 @@ class EloPhantoDashboard(App):
             # operator what the thought belongs to.
             text = msg.data.get("text", "").strip()
             if text:
-                chat = self.query_one("#chat", RichLog)
-                chat.write(f"  [{_DIM}][italic]💭 {text[:300]}[/italic][/]")
+                # Moved to #reasoning panel (2026-05-27) so chat-area
+                # autoscroll doesn't bury operator/agent dialogue.
+                reasoning = self.query_one("#reasoning", RichLog)
+                reasoning.write(f"  [{_DIM}][italic]💭 {text[:300]}[/italic][/]")
 
         elif event == "task_complete":
             self._state.current_tool = ""
@@ -2091,6 +2143,40 @@ class EloPhantoDashboard(App):
         sidebar = self.query_one("#sidebar")
         self._sidebar_visible = not self._sidebar_visible
         sidebar.display = self._sidebar_visible
+
+    def action_cycle_reasoning(self) -> None:
+        """Ctrl+R: cycle the #reasoning panel through height presets.
+
+        Textual doesn't ship a drag-resize splitter widget out of the
+        box (verified 2026-05-27). This keybinding gives the operator
+        equivalent control via 4 height presets:
+          medium (default 10 rows) → large (20) → small (5) → hidden → medium
+        """
+        states = ("medium", "large", "small", "hidden")
+        cur = getattr(self, "_reasoning_state", "medium")
+        try:
+            nxt = states[(states.index(cur) + 1) % len(states)]
+        except ValueError:
+            nxt = "medium"
+        self._reasoning_state = nxt
+        try:
+            reasoning = self.query_one("#reasoning", RichLog)
+            header = self.query_one("#reasoning-header", Static)
+        except Exception:
+            return
+        # Clear all height/visibility classes, then apply the new one.
+        for cls in (
+            "reasoning-hidden",
+            "reasoning-small",
+            "reasoning-medium",
+            "reasoning-large",
+        ):
+            reasoning.remove_class(cls)
+            header.remove_class(cls)
+        reasoning.add_class(f"reasoning-{nxt}")
+        header.add_class(f"reasoning-{nxt}")
+        # Mirror in the events ticker so operator gets feedback.
+        self._add_event(f"reasoning panel: {nxt}", tag="UI")
 
     def action_copy_last(self) -> None:
         """Copy last agent response to system clipboard."""
