@@ -37,9 +37,29 @@ EXISTING + active strategy          → PATH C: execute (don't re-plan)
 
 ## PATH A — onboard a new company
 
-1. Research: `browser_navigate(url)` + `browser_extract`. If sparse, visit `/about`, `/pricing`, `/hire`. Write 1-3 sentence `what_we_sell` grounded in actual product.
-2. ONE tool call: `company_onboard(slug, name, what_we_sell, seed_goal="Establish baseline metrics + first paid customer")`. Atomically creates the row, writes `company.yaml`, persists the sidecar, materializes `exemplars/{twitter,email}/`. Trust state defaults to `learning`.
-3. Continue to PATH B — newly onboarded means no strategy yet.
+Do NOT write `what_we_sell` blind and call onboard. Research first, propose the onboard params to the operator as a table, let them approve/modify, THEN call onboard. Same pattern as PATH B step 2.
+
+1. **Research the business** (parallel where possible):
+   - `browser_navigate(<url>)` + `browser_extract` on homepage
+   - `browser_navigate(<url>/about)` + `/pricing` + `/hire` + `/faq` if they exist
+   - `web_search('<domain> <industry>')` for industry context
+   - `web_search('<domain> competitors')` for the competitive frame
+2. **Propose onboard params** in chat as a table:
+
+   | Field | Recommended | Rationale |
+   |---|---|---|
+   | `slug` | `<derived from domain>` | URL stem, lowercase, hyphenated |
+   | `name` | `<from homepage title / brand>` | as the business presents itself |
+   | `what_we_sell` | `<1-3 sentence value prop>` | from homepage + pricing page |
+   | `seed_goal` | `"Establish baseline metrics + first paid customer"` (or stage-appropriate) | from product stage |
+   | `price` | `<{amount, currency, model}>` | from /pricing if found, else `null` |
+   | `fulfillment` | `<delivery model>` | from /hire or how the product is delivered |
+   | `channels` | `<["channel1", "channel2"]>` | from contact methods / social links on the site |
+   | `kpis` | `<[{type: pipeline_advance, target_weekly: N}]>` | from stated growth metrics or stage-appropriate defaults |
+
+   Add: *"Approve all, or tell me which to change. Slug becomes the ABE id and shouldn't change after onboard."*
+3. **After operator confirms**: ONE call to `company_onboard(slug, name, what_we_sell, seed_goal, price?, fulfillment?, channels?, kpis?)`. Atomically creates the row, writes `company.yaml`, persists the sidecar, materializes `exemplars/{twitter,email}/`. Trust state defaults to `learning`.
+4. **Continue to PATH B** — newly onboarded means no strategy yet.
 
 ## PATH B — Phase 11 pipeline
 
