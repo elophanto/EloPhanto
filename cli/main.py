@@ -16,6 +16,8 @@ from cli.daemon_cmd import daemon_cmd
 from cli.doctor_cmd import doctor_cmd
 from cli.drafts_cmd import drafts_cmd
 from cli.gateway_cmd import gateway_cmd
+from cli.goals_cmd import goals_cmd
+from cli.help_cmd import help_cmd
 from cli.init_cmd import init_cmd
 from cli.kid_cmd import kid_cmd
 from cli.mcp_cmd import mcp_cmd
@@ -73,6 +75,7 @@ def cli() -> None:
     """EloPhanto — A self-evolving AI agent."""
 
 
+cli.add_command(help_cmd, "help")
 cli.add_command(init_cmd, "init")
 cli.add_command(bootstrap_cmd, "bootstrap")
 cli.add_command(doctor_cmd, "doctor")
@@ -90,6 +93,7 @@ cli.add_command(update_cmd, "update")
 cli.add_command(affect_cmd, "affect")
 cli.add_command(polymarket_cmd, "polymarket")
 cli.add_command(mission_cmd, "mission")
+cli.add_command(goals_cmd, "goals")
 cli.add_command(config_cmd, "config")
 cli.add_command(stop_cmd, "stop")
 cli.add_command(resume_cmd, "resume")

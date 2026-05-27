@@ -174,6 +174,26 @@ planning ──► active ──► completed
 Any state ──► cancelled
 ```
 
+## CLI surface
+
+Goals are CREATED by the agent (via the `goal_create` LLM tool) — say
+"set a goal to ..." in chat. From the CLI you can inspect and prune
+the queue:
+
+```bash
+elophanto goals list                       # newest 20
+elophanto goals list --status active       # filter by status
+elophanto goals show <id>                  # detail + checkpoints + cost
+elophanto goals cancel <id>                # mark cancelled (runner skips it)
+elophanto goals pause <id>                 # active → paused
+elophanto goals resume <id>                # paused → active
+elophanto goals delete <id>                # hard-delete + checkpoints (confirms)
+elophanto goals delete-all                 # wipe everything (confirms)
+```
+
+All read ops (`list` / `show`) bypass the LLM router and run offline.
+A quick alias: `elophanto help goals` prints the same recipes.
+
 ## Context Management
 
 At each checkpoint boundary, `summarize_context()` compresses the conversation into a rolling summary via a cheap LLM call. This summary replaces raw message history so the next checkpoint starts fresh with only the compressed context. The summary is stored in `goals.context_summary` and persists across sessions.
@@ -203,6 +223,7 @@ Each LLM call increments `goal.llm_calls_used`. Before every call, `check_budget
 | `core/config.py` | GoalsConfig dataclass (includes background execution safety limits) |
 | `core/protocol.py` | Goal event types (6 events) |
 | `cli/gateway_cmd.py` | GoalRunner gateway wiring + startup resume |
+| `cli/goals_cmd.py` | `elophanto goals` CLI (list / show / cancel / pause / delete) |
 | `tests/test_core/test_goal_runner.py` | GoalRunner tests (12 tests) |
 
 ## Coordination with Autonomous Mind

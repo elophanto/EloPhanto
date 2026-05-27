@@ -41,27 +41,51 @@ The `set_task_context` method forwards the user's current goal to the browser br
 The vision model includes this task in its analysis prompt, preventing goal drift
 (e.g., creating a Note when asked to publish an Article).
 
-## Connection Modes
+## Backends — local vs. cloud
 
-| Mode | Config `mode` | Use Case |
+EloPhanto supports two browser backends. Pick **one** via `browser.type`:
+
+| Type | Where Chrome runs | Use when |
+|------|------------------|----------|
+| `local` (default) | Playwright drives Chrome on **this machine** | You need a real logged-in profile (X, Polymarket, email) and have a desktop with Chrome installed |
+| `cloud` | Remote browser via CDP (default provider: [browser-use.com](https://browser-use.com)) | Headless server deployment, no local display, residential proxies + stealth + Cloudflare bypass |
+
+The two backends are mutually exclusive — when `type: cloud` is set,
+the entire `local:` block is ignored (and zeroed by
+`BrowserConfig.__post_init__` so it can't leak into runtime).
+
+Switch backends interactively at any time:
+
+```bash
+elophanto init edit browser
+```
+
+### Local backend — connection modes
+
+Inside `local:`, `mode` picks how Chrome is launched:
+
+| Mode | `local.mode` | Use Case |
 |------|--------------|----------|
-| **Fresh** | `fresh` | Launch a clean Chrome instance (default) |
-| **CDP Port** | `cdp_port` | Connect to a running Chrome with `--remote-debugging-port` |
-| **CDP WebSocket** | `cdp_ws` | Connect via a specific WebSocket endpoint (e.g. from a remote browser) |
+| **Fresh** | `fresh` | Launch a clean Chrome instance (no sessions) |
 | **Profile** | `profile` | Use your Chrome profile — direct access when Chrome is closed, safe copy when Chrome is running |
+| **Direct** | `direct` | Use your Chrome profile directly (Chrome must be closed first) |
+| **CDP Port** | `cdp_port` | Connect to a running Chrome with `--remote-debugging-port` |
+| **CDP WebSocket** | `cdp_ws` | Connect via a specific WebSocket endpoint |
 
-### Fresh Mode (default)
+#### Fresh mode
 
 Launches a new Chrome instance. No existing sessions or cookies.
 
 ```yaml
 browser:
   enabled: true
-  mode: fresh
-  headless: false
+  type: local
+  local:
+    mode: fresh
+    headless: false
 ```
 
-### CDP Port Mode
+#### CDP Port mode
 
 Connects to an already-running Chrome instance. Preserves all logged-in sessions.
 
@@ -81,11 +105,13 @@ chrome.exe --remote-debugging-port=9222
 ```yaml
 browser:
   enabled: true
-  mode: cdp_port
-  cdp_port: 9222
+  type: local
+  local:
+    mode: cdp_port
+    cdp_port: 9222
 ```
 
-### Profile Mode
+#### Profile mode
 
 Uses your real Chrome profile with all cookies and sessions preserved.
 Automatically adapts depending on whether Chrome is already running.
@@ -93,10 +119,42 @@ Automatically adapts depending on whether Chrome is already running.
 ```yaml
 browser:
   enabled: true
-  mode: profile
-  user_data_dir: ""  # Empty = auto-detect default Chrome profile
-  profile_directory: Profile 1  # Or "Default", "Profile 2", etc.
+  type: local
+  local:
+    mode: profile
+    user_data_dir: ""           # Empty = auto-detect default Chrome profile
+    profile_directory: Profile 1  # Or "Default", "Profile 2", etc.
 ```
+
+### Cloud backend (browser-use.com)
+
+Connects over CDP WebSocket to a remote browser provider. The cloud
+supplies residential proxies, fingerprint randomization, and
+Cloudflare-bypass stealth — EloPhanto's local stealth scripts are
+auto-disabled in this mode to avoid double-patching (which is itself a
+detection signal).
+
+1. Get an API key at [browser-use.com](https://browser-use.com).
+2. Paste it into `config.yaml`:
+
+```yaml
+browser:
+  enabled: true
+  type: cloud
+  cloud:
+    api_key: "sk-..."                       # paste your token here
+    proxy_country: "us"                     # e.g. "us", "de", "jp" — empty = provider default
+    endpoint: wss://connect.browser-use.com
+```
+
+Or run the wizard: `elophanto init edit browser` → pick option 2
+(cloud) → paste key when prompted.
+
+The full 48-tool surface is unchanged — Playwright-over-CDP is
+identical API, so every browser tool works against the cloud session
+the same way it works locally. `endpoint:` is overridable for
+alternate providers with the same `chromium.connectOverCDP(wss://...)`
+shape (Browserbase, Browserless, etc.).
 
 **How it works — two paths depending on Chrome state:**
 
@@ -318,19 +376,40 @@ Domain matching supports partial matches (e.g., `accounts.google.com` matches st
 
 ```yaml
 browser:
-  enabled: false              # Enable browser automation
-  mode: fresh                 # fresh | cdp_port | cdp_ws | profile
-  headless: false             # Run without visible window
-  cdp_port: 9222              # CDP port (for cdp_port mode)
-  cdp_ws_endpoint: ''         # WebSocket URL (for cdp_ws mode)
-  user_data_dir: ''           # Chrome profile path (for profile mode); empty = auto-detect
-  profile_directory: Default  # Profile subdirectory (Default, Profile 1, etc.)
-  use_system_chrome: true     # Use system Chrome vs Playwright Chromium
-  viewport_width: 1536        # Browser viewport width
-  viewport_height: 864        # Browser viewport height
-  vision_model: codex/gpt-5.5  # Screenshot analysis. codex/gpt-5.5 = ChatGPT subscription (no API spend).
-                               # Alternatives: openrouter/x-ai/grok-4.3, openrouter/google/gemini-3.1-flash-lite
+  enabled: false                # Enable browser automation
+  type: local                   # local | cloud — mutex; the other block is ignored
+
+  # ── LOCAL backend (used when type=local) ────────────────────
+  local:
+    mode: fresh                 # fresh | profile | direct | cdp_port | cdp_ws
+    headless: false             # Run without visible window
+    user_data_dir: ''           # Chrome profile path; empty = auto-detect
+    profile_directory: Default  # Profile subdir (Default, Profile 1, ...)
+    use_system_chrome: true     # System Chrome vs Playwright Chromium
+    cdp_port: 9222              # CDP port (for cdp_port mode)
+    cdp_ws_endpoint: ''         # WebSocket URL (for cdp_ws mode)
+    profile_refresh_hours: 0    # 0 = never auto-refresh the profile copy
+
+  # ── CLOUD backend (used when type=cloud) ────────────────────
+  cloud:
+    api_key: ''                 # Your browser-use.com token
+    proxy_country: ''           # 'us' | 'de' | 'jp' | ... — empty = provider default
+    endpoint: wss://connect.browser-use.com
+
+  # ── Shared (apply to both backends) ─────────────────────────
+  viewport_width: 1280
+  viewport_height: 720
+  vision_model: codex/gpt-5.5   # Screenshot analysis. codex/gpt-5.5 = ChatGPT subscription
+                                #   (no API spend). Alternatives:
+                                #   openrouter/x-ai/grok-4.3, openrouter/google/gemini-3.1-flash-lite
+  bridge_vision_model: perceptron/perceptron-mk1  # Node bridge's own DOM-annotation vision
 ```
+
+The Python dataclass enforces validation:
+`browser.type` must be `"local"` or `"cloud"` — anything else raises
+`ValueError` at startup. When `type: cloud`, the `local:` fields are
+zeroed in `__post_init__` so accidental config bleed can't cause
+silent partial behavior.
 
 ## Setup
 

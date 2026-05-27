@@ -505,6 +505,10 @@ class BrowserManager:
         viewport_width: int = 1280,
         viewport_height: int = 720,
         profile_refresh_hours: float = 8.0,
+        backend: str = "local",
+        browser_use_api_key: str = "",
+        browser_use_proxy_country: str = "",
+        browser_use_endpoint: str = "wss://connect.browser-use.com",
         **kwargs: Any,
     ) -> None:
         self._mode = mode
@@ -516,6 +520,16 @@ class BrowserManager:
         self._use_system_chrome = use_system_chrome
         self._viewport = {"width": viewport_width, "height": viewport_height}
         self._profile_refresh_hours = profile_refresh_hours
+        # Backend selection (2026-05-27). When `backend != "local"`,
+        # the bridge connects to a remote CDP endpoint (e.g.
+        # browser-use cloud) and the local mode/user_data_dir/cdp_*
+        # fields are ignored. The API key is resolved from the vault
+        # by the agent BEFORE constructing the manager — never read
+        # vault from inside this class (keeps it pure / testable).
+        self._backend = backend
+        self._browser_use_api_key = browser_use_api_key
+        self._browser_use_proxy_country = browser_use_proxy_country
+        self._browser_use_endpoint = browser_use_endpoint
 
         self._bridge = NodeBridge(
             str(_BRIDGE_SCRIPT),
@@ -550,19 +564,43 @@ class BrowserManager:
         self.proxy_bypass: list[str] = []
 
     @classmethod
-    def from_config(cls, config: Any) -> BrowserManager:
-        """Create from a BrowserConfig dataclass."""
+    def from_config(
+        cls, config: Any, *, browser_use_api_key: str = ""
+    ) -> BrowserManager:
+        """Create from a BrowserConfig dataclass (nested local/cloud).
+
+        ``browser_use_api_key`` is the cloud API token resolved from
+        the vault by the agent — passed in instead of read here so
+        this class stays pure / testable / vault-decoupled. Only used
+        when ``config.type == 'cloud'``.
+        """
+        # Nested form: config.local.* / config.cloud.*. Fall back to
+        # flat attributes for older test fixtures that still pass the
+        # legacy shape.
+        local = getattr(config, "local", config)
+        cloud = getattr(config, "cloud", config)
+        _backend = (
+            "browser_use_cloud"
+            if getattr(config, "type", "local") == "cloud"
+            else "local"
+        )
         return cls(
-            mode=getattr(config, "mode", "fresh"),
-            headless=getattr(config, "headless", False),
-            cdp_port=getattr(config, "cdp_port", 9222),
-            cdp_ws_endpoint=getattr(config, "cdp_ws_endpoint", ""),
-            user_data_dir=getattr(config, "user_data_dir", ""),
-            profile_directory=getattr(config, "profile_directory", "Default"),
-            use_system_chrome=getattr(config, "use_system_chrome", True),
+            mode=getattr(local, "mode", "fresh"),
+            headless=getattr(local, "headless", False),
+            cdp_port=getattr(local, "cdp_port", 9222),
+            cdp_ws_endpoint=getattr(local, "cdp_ws_endpoint", ""),
+            user_data_dir=getattr(local, "user_data_dir", ""),
+            profile_directory=getattr(local, "profile_directory", "Default"),
+            use_system_chrome=getattr(local, "use_system_chrome", True),
             viewport_width=getattr(config, "viewport_width", 1280),
             viewport_height=getattr(config, "viewport_height", 720),
-            profile_refresh_hours=getattr(config, "profile_refresh_hours", 8.0),
+            profile_refresh_hours=getattr(local, "profile_refresh_hours", 8.0),
+            backend=_backend,
+            browser_use_api_key=browser_use_api_key,
+            browser_use_proxy_country=getattr(cloud, "proxy_country", ""),
+            browser_use_endpoint=getattr(
+                cloud, "endpoint", "wss://connect.browser-use.com"
+            ),
         )
 
     @property
@@ -584,13 +622,60 @@ class BrowserManager:
 
         await self._bridge.start()
 
+        # ── Remote backend short-circuit (2026-05-27) ───────────────
+        # When backend != "local", skip ALL the local-Chrome plumbing
+        # (profile copy, lock cleanup, user_data_dir, cdp_port). The
+        # bridge gets `mode="remote_cdp"` + the connection URL + the
+        # API key and uses `chromium.connectOverCDP(wss://...)`.
+        if self._backend == "browser_use_cloud":
+            if not self._browser_use_api_key:
+                raise RuntimeError(
+                    "browser.type=cloud requires an API key. Get a token "
+                    "at https://browser-use.com and paste it into "
+                    "config.yaml under browser.cloud.api_key."
+                )
+            # Build the WSS URL with query params per the cloud's
+            # documented connect protocol. Example:
+            #   wss://connect.browser-use.com?apiKey=...&proxyCountryCode=us
+            params = [f"apiKey={self._browser_use_api_key}"]
+            if self._browser_use_proxy_country:
+                params.append(f"proxyCountryCode={self._browser_use_proxy_country}")
+            cdp_url = f"{self._browser_use_endpoint}?{'&'.join(params)}"
+            # We reuse the bridge's existing `cdp` mode (which already
+            # supports cdpWsEndpoint via chromium.connectOverCDP). The
+            # difference is `skipLocalStealth` — set so the bridge does
+            # NOT layer our stealth scripts on top of the cloud's own
+            # fingerprint randomization (double-patching is a known
+            # detection signal — Cloudflare flags it).
+            config: dict[str, Any] = {
+                "backend": "browser_use_cloud",
+                "mode": "cdp",
+                "headless": self._headless,
+                "viewport": self._viewport,
+                "useSystemChrome": False,  # irrelevant for remote
+                "cdpWsEndpoint": cdp_url,
+                # Stealth is provided by the cloud's infrastructure
+                # (Canvas/WebGL/fonts randomized + Cloudflare bypass).
+                # Disable our local stealth scripts — double-patching
+                # is a documented detection signal. The bridge reads
+                # this flag and skips applyStealthScripts().
+                "skipLocalStealth": True,
+            }
+            # No profile_path / source_path for remote — they're local
+            # disk concepts and don't apply.
+            self._active_profile_path = None
+            self._active_profile_name = None
+            self._active_source_path = None
+            await self._send_initialize(config)
+            return
+
         bridge_mode = self._mode
         if self._mode in ("profile", "direct"):
             bridge_mode = "chrome_profile"
         elif self._mode in ("cdp_port", "cdp_ws"):
             bridge_mode = "cdp"
 
-        config: dict[str, Any] = {
+        config = {
             "mode": bridge_mode,
             "headless": self._headless,
             "viewport": self._viewport,
@@ -763,12 +848,21 @@ class BrowserManager:
             self._active_profile_name = None
             self._active_source_path = None
 
+        await self._send_initialize(config)
+
+    async def _send_initialize(self, config: dict[str, Any]) -> None:
+        """Send the prepared config to the bridge and mark initialized.
+
+        Shared by both the local and remote-CDP paths so the init log
+        and ``_initialized`` flag stay in one place.
+        """
         result = await self._bridge.call("initialize", config)
         self._initialized = True
         tool_count = result.get("toolCount", 0) if isinstance(result, dict) else 0
         logger.info(
-            "Browser initialized via bridge (mode=%s, tools=%d)",
+            "Browser initialized via bridge (mode=%s, backend=%s, tools=%d)",
             self._mode,
+            self._backend,
             tool_count,
         )
 

@@ -857,7 +857,20 @@ class Agent:
             try:
                 from core.browser_manager import BrowserManager
 
-                self._browser_manager = BrowserManager.from_config(self._config.browser)
+                # Cloud-browser API key lives directly in config.yaml
+                # under browser.cloud.api_key — same shape as every
+                # other API key (llm.providers.*.api_key etc.).
+                _bu_api_key = ""
+                if self._config.browser.type == "cloud":
+                    _bu_api_key = self._config.browser.cloud.api_key or ""
+                    if not _bu_api_key:
+                        logger.warning(
+                            "browser.type=cloud but browser.cloud.api_key is "
+                            "empty in config.yaml; browser initialize() will fail."
+                        )
+                self._browser_manager = BrowserManager.from_config(
+                    self._config.browser, browser_use_api_key=_bu_api_key
+                )
 
                 # Pass OpenRouter key + vision model for screenshot analysis
                 or_cfg = self._config.llm.providers.get("openrouter")

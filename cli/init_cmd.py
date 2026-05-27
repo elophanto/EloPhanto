@@ -702,7 +702,7 @@ def _edit_browser(config: dict) -> None:
     console.print("[bold]Web Browsing[/bold]")
     console.print(
         "  [dim]Let the agent open websites, click buttons, fill forms,\n"
-        "  take screenshots, and read page content using real Chrome.[/dim]"
+        "  take screenshots, and read page content.[/dim]"
     )
 
     browser_cfg = config.setdefault("browser", {})
@@ -714,86 +714,137 @@ def _edit_browser(config: dict) -> None:
         "  Allow the agent to browse the web?", default=current_enabled
     )
     browser_cfg["enabled"] = browser_enabled
-    browser_cfg.setdefault("use_system_chrome", True)
     browser_cfg.setdefault("viewport_width", 1280)
     browser_cfg.setdefault("viewport_height", 720)
-    browser_cfg.setdefault("headless", False)
+    local_cfg = browser_cfg.setdefault("local", {})
+    cloud_cfg = browser_cfg.setdefault("cloud", {})
+    cloud_cfg.setdefault("api_key", "")
+    cloud_cfg.setdefault("proxy_country", "")
+    cloud_cfg.setdefault("endpoint", "wss://connect.browser-use.com")
+    local_cfg.setdefault("use_system_chrome", True)
+    local_cfg.setdefault("headless", False)
 
     if browser_enabled:
-        # Default to 'profile' — real Chrome with the operator's
-        # sessions. That's what makes the agent able to actually do
-        # X/Polymarket/email/etc. without having to log in fresh.
-        # Fresh mode is the niche path (CI, demo screenshots).
-        current_mode = browser_cfg.get("mode", "profile")
-        use_sessions = Confirm.ask(
-            "  Use your existing Chrome sessions (logged-in sites, cookies)?",
-            default=current_mode == "profile",
+        # Backend choice — present as an explicit 1/2 prompt so the
+        # operator sees both options. Local = real Chrome on this
+        # machine (default, needed for logged-in flows). Cloud =
+        # browser-use.com remote browser (headless servers, no display).
+        current_type = browser_cfg.get("type", "local")
+        console.print("  [dim]Pick a backend:[/dim]")
+        console.print(
+            "    [bold]1[/bold]. local — Chrome on this machine "
+            "[dim](uses your logged-in profile)[/dim]"
+            + (" [green](current)[/green]" if current_type == "local" else "")
         )
-
-        if use_sessions:
-            from core.browser_manager import (
-                get_chrome_profiles,
-                get_default_chrome_user_data_dir,
+        console.print(
+            "    [bold]2[/bold]. cloud — browser-use.com "
+            "[dim](remote, headless-server friendly; needs API key)[/dim]"
+            + (" [green](current)[/green]" if current_type == "cloud" else "")
+        )
+        choice = Prompt.ask(
+            "  Which?",
+            choices=["1", "2"],
+            default="2" if current_type == "cloud" else "1",
+        )
+        if choice == "2":
+            browser_cfg["type"] = "cloud"
+            current_key = cloud_cfg.get("api_key", "")
+            masked = (
+                current_key[:6] + "…" + current_key[-4:]
+                if len(current_key) > 12
+                else ("(set)" if current_key else "")
             )
-
-            profile_dir = get_default_chrome_user_data_dir() or ""
-            if profile_dir:
-                profiles = get_chrome_profiles()
-                current_profile_dir = browser_cfg.get("profile_directory", "Default")
-
-                if len(profiles) > 1:
-                    console.print("  [dim]Found multiple Chrome profiles:[/dim]")
-                    default_choice = "1"
-                    for i, p in enumerate(profiles, 1):
-                        label = p["name"]
-                        if p.get("email"):
-                            label += f" — {p['email']}"
-                        marker = ""
-                        if p["directory"] == current_profile_dir:
-                            marker = " [green](current)[/green]"
-                            default_choice = str(i)
-                        console.print(
-                            f"    [bold]{i}[/bold]. {label} "
-                            f"[dim]({p['directory']})[/dim]{marker}"
-                        )
-                    choice = Prompt.ask(
-                        "  Which profile?",
-                        choices=[str(i) for i in range(1, len(profiles) + 1)],
-                        default=default_choice,
-                    )
-                    selected = profiles[int(choice) - 1]
-                elif profiles:
-                    selected = profiles[0]
-                else:
-                    selected = {"directory": "Default", "name": "Default"}
-
-                browser_cfg["mode"] = "profile"
-                browser_cfg["user_data_dir"] = profile_dir
-                browser_cfg["profile_directory"] = selected["directory"]
+            new_key = Prompt.ask(
+                "  browser-use.com API key (https://browser-use.com)",
+                default=current_key,
+                show_default=bool(current_key) and not masked,
+                password=False,
+            ).strip()
+            cloud_cfg["api_key"] = new_key
+            console.print(
+                "  [green]Enabled — cloud browser via "
+                f"{cloud_cfg['endpoint']}.[/green]"
+            )
+            if not new_key:
                 console.print(
-                    f"  [green]Enabled — using profile "
-                    f"[bold]{selected['name']}[/bold].[/green]\n"
-                    f"  [dim]{profile_dir}/{selected['directory']}[/dim]"
-                )
-            else:
-                browser_cfg["mode"] = "fresh"
-                browser_cfg["user_data_dir"] = ""
-                browser_cfg["profile_directory"] = "Default"
-                console.print(
-                    "  [yellow]Chrome profile not found — using a clean browser "
-                    "instead.[/yellow]\n"
-                    "  [dim]You won't be logged into any sites. "
-                    "Set user_data_dir in config.yaml to fix this.[/dim]"
+                    "  [yellow]No API key set — paste your token into "
+                    "config.yaml `browser.cloud.api_key` before running.[/yellow]"
                 )
         else:
-            browser_cfg["mode"] = "fresh"
-            browser_cfg["user_data_dir"] = ""
-            console.print(
-                "  [green]Enabled — clean browser (no saved sessions).[/green]"
+            browser_cfg["type"] = "local"
+            # Default to 'profile' — real Chrome with the operator's
+            # sessions. That's what makes the agent able to actually do
+            # X/Polymarket/email/etc. without having to log in fresh.
+            current_mode = local_cfg.get("mode", "profile")
+            use_sessions = Confirm.ask(
+                "  Use your existing Chrome sessions (logged-in sites, cookies)?",
+                default=current_mode == "profile",
             )
 
-        browser_cfg.setdefault("cdp_port", 9222)
-        browser_cfg.setdefault("cdp_ws_endpoint", "")
+            if use_sessions:
+                from core.browser_manager import (
+                    get_chrome_profiles,
+                    get_default_chrome_user_data_dir,
+                )
+
+                profile_dir = get_default_chrome_user_data_dir() or ""
+                if profile_dir:
+                    profiles = get_chrome_profiles()
+                    current_profile_dir = local_cfg.get("profile_directory", "Default")
+
+                    if len(profiles) > 1:
+                        console.print("  [dim]Found multiple Chrome profiles:[/dim]")
+                        default_choice = "1"
+                        for i, p in enumerate(profiles, 1):
+                            label = p["name"]
+                            if p.get("email"):
+                                label += f" — {p['email']}"
+                            marker = ""
+                            if p["directory"] == current_profile_dir:
+                                marker = " [green](current)[/green]"
+                                default_choice = str(i)
+                            console.print(
+                                f"    [bold]{i}[/bold]. {label} "
+                                f"[dim]({p['directory']})[/dim]{marker}"
+                            )
+                        choice = Prompt.ask(
+                            "  Which profile?",
+                            choices=[str(i) for i in range(1, len(profiles) + 1)],
+                            default=default_choice,
+                        )
+                        selected = profiles[int(choice) - 1]
+                    elif profiles:
+                        selected = profiles[0]
+                    else:
+                        selected = {"directory": "Default", "name": "Default"}
+
+                    local_cfg["mode"] = "profile"
+                    local_cfg["user_data_dir"] = profile_dir
+                    local_cfg["profile_directory"] = selected["directory"]
+                    console.print(
+                        f"  [green]Enabled — using profile "
+                        f"[bold]{selected['name']}[/bold].[/green]\n"
+                        f"  [dim]{profile_dir}/{selected['directory']}[/dim]"
+                    )
+                else:
+                    local_cfg["mode"] = "fresh"
+                    local_cfg["user_data_dir"] = ""
+                    local_cfg["profile_directory"] = "Default"
+                    console.print(
+                        "  [yellow]Chrome profile not found — using a clean browser "
+                        "instead.[/yellow]\n"
+                        "  [dim]You won't be logged into any sites. "
+                        "Set browser.local.user_data_dir in config.yaml to fix this.[/dim]"
+                    )
+            else:
+                local_cfg["mode"] = "fresh"
+                local_cfg["user_data_dir"] = ""
+                console.print(
+                    "  [green]Enabled — clean browser (no saved sessions).[/green]"
+                )
+
+            local_cfg.setdefault("cdp_port", 9222)
+            local_cfg.setdefault("cdp_ws_endpoint", "")
 
         # Vision model for screenshot analysis. Default depends on which
         # providers the user enabled earlier in the wizard:
@@ -822,10 +873,11 @@ def _edit_browser(config: dict) -> None:
         )
         browser_cfg["vision_model"] = vision_model
     else:
-        browser_cfg["mode"] = "fresh"
-        browser_cfg["user_data_dir"] = ""
-        browser_cfg.setdefault("cdp_port", 9222)
-        browser_cfg.setdefault("cdp_ws_endpoint", "")
+        browser_cfg.setdefault("type", "local")
+        local_cfg["mode"] = "fresh"
+        local_cfg["user_data_dir"] = ""
+        local_cfg.setdefault("cdp_port", 9222)
+        local_cfg.setdefault("cdp_ws_endpoint", "")
         # Even when browser disabled, set a sane vision default in case
         # the operator flips browser on later. Same Codex-vs-OpenRouter
         # split as the enabled branch.
@@ -2075,16 +2127,26 @@ def _default_config() -> dict:
         },
         "browser": {
             "enabled": False,
-            "mode": "fresh",
-            "headless": False,
-            "cdp_port": 9222,
-            "cdp_ws_endpoint": "",
-            "user_data_dir": "",
-            "use_system_chrome": True,
+            "type": "local",  # local | cloud
+            "local": {
+                "mode": "fresh",
+                "headless": False,
+                "user_data_dir": "",
+                "profile_directory": "Default",
+                "use_system_chrome": True,
+                "cdp_port": 9222,
+                "cdp_ws_endpoint": "",
+                "profile_refresh_hours": 8.0,
+            },
+            "cloud": {
+                "api_key": "",
+                "proxy_country": "",
+                "endpoint": "wss://connect.browser-use.com",
+            },
             "viewport_width": 1280,
             "viewport_height": 720,
-            # Default to codex/gpt-5.5 in the template — operators with
-            # a ChatGPT subscription get vision routed through the same
+            # Default to codex/gpt-5.5 — operators with a ChatGPT
+            # subscription get vision routed through the same
             # subscription as everything else (no per-call API spend).
             # The wizard's _edit_browser path picks an OpenRouter
             # fallback when Codex isn't detected.

@@ -90,6 +90,39 @@ class TestBrowserManager:
         assert mgr._use_system_chrome is False
         assert mgr._viewport == {"width": 800, "height": 600}
 
+    def test_init_cloud_backend_defaults(self) -> None:
+        mgr = BrowserManager(backend="browser_use_cloud", browser_use_api_key="sk-x")
+        assert mgr._backend == "browser_use_cloud"
+        assert mgr._browser_use_api_key == "sk-x"
+        assert mgr._browser_use_endpoint == "wss://connect.browser-use.com"
+
+    def test_from_config_cloud(self) -> None:
+        from core.config import BrowserConfig, CloudBrowserConfig
+
+        cfg = BrowserConfig(
+            type="cloud",
+            cloud=CloudBrowserConfig(proxy_country="us"),
+        )
+        mgr = BrowserManager.from_config(cfg, browser_use_api_key="sk-test")
+        assert mgr._backend == "browser_use_cloud"
+        assert mgr._browser_use_api_key == "sk-test"
+        assert mgr._browser_use_proxy_country == "us"
+
+    @pytest.mark.asyncio
+    async def test_cloud_init_requires_api_key(self) -> None:
+        from core.browser_manager import BrowserManager as BM
+
+        mgr = BM(backend="browser_use_cloud", browser_use_api_key="")
+
+        # Bridge must not be started — patch start() to no-op so we hit
+        # the validation branch deterministically.
+        async def _noop() -> None:
+            return None
+
+        mgr._bridge.start = _noop  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError, match="browser.cloud.api_key"):
+            await mgr.initialize()
+
     def test_has_call_tool_method(self) -> None:
         mgr = BrowserManager()
         assert hasattr(mgr, "call_tool")

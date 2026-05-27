@@ -38,6 +38,20 @@ interface BrowserConfig {
     bypass?: string[];
   };
   visionRetryMaxTokens?: number;
+  /**
+   * Backend selector. 'local' (default) launches/connects to a local
+   * Chrome. 'browser_use_cloud' means Python wired cdpWsEndpoint to
+   * wss://connect.browser-use.com?apiKey=... — the TS layer only cares
+   * that mode === 'cdp' and that skipLocalStealth is honored.
+   */
+  backend?: 'local' | 'browser_use_cloud';
+  /**
+   * When true, the bridge will NOT inject its stealth patches. Use when
+   * the remote endpoint already provides stealth (browser-use cloud
+   * randomizes Canvas/WebGL/fonts and applies its own evasions —
+   * double-patching is a documented detection signal).
+   */
+  skipLocalStealth?: boolean;
 }
 
 // Keep this aligned with `launch.sh` which exports SCHEMA_INK_DIR.
@@ -1195,6 +1209,8 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
     const visionRetryOnLength = agent.getConfig<boolean>('visionRetryOnLength');
     const visionRetryMaxTokens = agent.getConfig<number>('visionRetryMaxTokens');
     const proxy = agent.getConfig<BrowserConfig['proxy']>('proxy');
+    const backend = agent.getConfig<BrowserConfig['backend']>('backend');
+    const skipLocalStealth = agent.getConfig<boolean>('skipLocalStealth');
 
     if (mode) this.config.mode = mode;
     if (headless !== undefined) this.config.headless = headless;
@@ -1211,8 +1227,13 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
     if (visionRetryOnLength !== undefined) this.config.visionRetryOnLength = visionRetryOnLength;
     if (visionRetryMaxTokens !== undefined) this.config.visionRetryMaxTokens = visionRetryMaxTokens;
     if (proxy && proxy.server) this.config.proxy = proxy;
+    if (backend) this.config.backend = backend;
+    if (skipLocalStealth !== undefined) this.config.skipLocalStealth = skipLocalStealth;
 
     agent.log.info(`Browser plugin v${this.version} loaded (Real Chrome support)`);
+    if (this.config.backend === 'browser_use_cloud') {
+      agent.log.info('Browser: backend=browser_use_cloud (remote CDP, stealth provided by cloud)');
+    }
 
     switch (this.config.mode) {
       case 'chrome_profile':
@@ -1264,6 +1285,7 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
         // Proxy routing — passed through from Python's BrowserManager.
         // BrowserAgent.buildProxyOption() handles the empty case.
         proxy: this.config.proxy,
+        skipLocalStealth: this.config.skipLocalStealth,
       });
 
       await this.browser.initialize();

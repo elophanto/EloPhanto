@@ -653,14 +653,41 @@ def _check_browser(project_root: Path) -> CheckResult:
     b = raw.get("browser") or {}
     if not b.get("enabled", False):
         return CheckResult("browser", "ok", "disabled in config")
-    mode = b.get("mode", "fresh")
+    # Backwards-compat: legacy `backend: local|browser_use_cloud` maps
+    # to the new `type: local|cloud`.
+    btype = b.get("type")
+    if btype is None:
+        legacy_backend = b.get("backend")
+        btype = "cloud" if legacy_backend == "browser_use_cloud" else "local"
+    if btype == "cloud":
+        cloud = b.get("cloud") or {}
+        endpoint = cloud.get(
+            "endpoint", b.get("browser_use_endpoint", "wss://connect.browser-use.com")
+        )
+        api_key = cloud.get("api_key", "")
+        if not api_key:
+            return CheckResult(
+                "browser",
+                "fail",
+                "cloud backend selected but browser.cloud.api_key is empty",
+                "Get a token at https://browser-use.com and paste it into "
+                "config.yaml under browser.cloud.api_key.",
+            )
+        return CheckResult(
+            "browser",
+            "ok",
+            f"cloud backend → {endpoint}",
+        )
+    # Local backend — read from nested `local:` block with flat-key fallback.
+    local = b.get("local") or {}
+    mode = local.get("mode", b.get("mode", "fresh"))
     if mode == "fresh":
         return CheckResult(
             "browser",
             "ok",
-            "fresh mode (clean session, no logged-in sites)",
+            "local/fresh (clean session, no logged-in sites)",
         )
-    user_data_dir = b.get("user_data_dir", "")
+    user_data_dir = local.get("user_data_dir", b.get("user_data_dir", ""))
     if not user_data_dir:
         return CheckResult(
             "browser",
@@ -675,11 +702,11 @@ def _check_browser(project_root: Path) -> CheckResult:
             f"user_data_dir does not exist: {user_data_dir}",
             "Find your Chrome profile via chrome://version → 'Profile Path'.",
         )
-    profile = b.get("profile_directory", "Default")
+    profile = local.get("profile_directory", b.get("profile_directory", "Default"))
     return CheckResult(
         "browser",
         "ok",
-        f"profile mode → {user_data_dir}/{profile}",
+        f"local/profile → {user_data_dir}/{profile}",
     )
 
 

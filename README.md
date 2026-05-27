@@ -587,8 +587,16 @@ llm:
 
 browser:
   enabled: true
-  mode: profile                    # reuse your Chrome profile (keeps logins)
-  headless: false
+  type: local                      # local | cloud
+  local:
+    mode: profile                  # reuse your Chrome profile (keeps logins)
+    headless: false
+    user_data_dir: ""              # auto-detect default Chrome profile
+    profile_directory: "Default"   # or "Profile 1", ...
+  cloud:
+    api_key: ""                    # paste your browser-use.com token here
+    proxy_country: ""              # e.g. "us", "de" — empty = provider default
+    endpoint: wss://connect.browser-use.com
   # Browser screenshot analysis. Provider routing by prefix:
   #   codex/gpt-5.5             → ChatGPT subscription via Codex OAuth
   #                               (no per-call API spend)
@@ -613,6 +621,11 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 ./start.sh                     # Chat (default)
 ./start.sh --web               # Gateway + web dashboard (http://localhost:3000)
 ./start.sh init                # Setup wizard
+elophanto help                 # Task-oriented cheat-sheet (config / run / goals / ...)
+elophanto help <topic>         # Focused recipes (topics: config run health vault
+                               #   goals abe skills ops)
+elophanto init edit            # Menu — pick a section to re-configure
+elophanto init edit browser    # Switch local Chrome ↔ cloud browser; pick profile
 ./start.sh gateway             # Gateway + CLI + all enabled channels
 ./start.sh gateway --no-cli    # Gateway only (headless — channels keep working)
 ./start.sh chat                # CLI only (direct mode, no gateway)
@@ -621,6 +634,9 @@ Copy `config.demo.yaml` to `config.yaml` and fill in your API keys. **`config.de
 ./start.sh skills list         # List available skills
 ./start.sh skills hub search Q # Search EloPhantoHub
 ./start.sh mcp list            # List MCP servers
+elophanto goals list           # Recent goals (use --status / --limit)
+elophanto goals show <id>      # Goal detail + checkpoints + cost
+elophanto goals cancel <id>    # Mark cancelled (runner skips it)
 elophanto company list         # ABE: list companies + show active marker
 elophanto company create SLUG  # ABE: create a new Autonomous Business Entity
 elophanto company use SLUG     # ABE: set active company (persisted to ~/.elophanto/)

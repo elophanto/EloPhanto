@@ -521,6 +521,13 @@ export interface AwareBrowserConfig {
     password?: string;
     bypass?: string[];
   };
+  /**
+   * If true, do not apply local stealth scripts. Set by the Python side
+   * when connecting to a remote endpoint (e.g. browser-use cloud) that
+   * already provides fingerprint randomization — double-patching is a
+   * detection signal.
+   */
+  skipLocalStealth?: boolean;
 }
 
 /**
@@ -993,6 +1000,11 @@ export class AwareBrowserAgent {
    * so we patch it again via addInitScript.
    */
   private async applyStealthScripts(ctx: PlaywrightBrowserContext): Promise<void> {
+    if (this.config.skipLocalStealth) {
+      // Cloud backend (browser-use) provides its own stealth — double-
+      // patching is a detection signal (e.g. Cloudflare). Skip silently.
+      return;
+    }
     try {
       await ctx.addInitScript(() => {
         // ── navigator.webdriver ──────────────────────────────────────────────

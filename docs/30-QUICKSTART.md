@@ -211,8 +211,9 @@ sudo apt install -y nodejs
 
 ### Browser won't open
 - Make sure Chrome is installed
-- Close all Chrome windows before starting EloPhanto (or use `mode: headless` in config.yaml)
+- Close all Chrome windows before starting EloPhanto (or set `local.headless: true` in config.yaml)
 - Check that port 3000 isn't already in use
+- No local Chrome? Switch to the cloud backend: `elophanto init edit browser` → option 2 (cloud), paste your [browser-use.com](https://browser-use.com) API key. See [08-BROWSER.md](08-BROWSER.md) for details.
 
 ### "No LLM provider configured"
 ```bash
@@ -225,6 +226,7 @@ sudo apt install -y nodejs
 ## Next Steps
 
 - **Read [01-PROJECT-OVERVIEW.md](01-PROJECT-OVERVIEW.md)** — Understand architecture
+- **`elophanto help`** — Task-oriented cheat-sheet (`config`, `run`, `goals`, `vault`, `abe`, ...)
 - **Explore tools** — Run `./start.sh` and type "list tools"
 - **Try skills** — Run `./start.sh skills list` to see 120+ bundled skills
 - **Join community** — Star repo on GitHub, report issues, contribute
