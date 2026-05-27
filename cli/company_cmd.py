@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -95,6 +96,23 @@ async def _dispatch(config, action: str, slug: str | None, name: str | None) -> 
             console.print("[red]Usage:[/red] elophanto company resume <slug>")
             return
         await _set_status(mgr, slug, "active")
+    elif action == "archive":
+        if not slug:
+            console.print("[red]Usage:[/red] elophanto company archive <slug>")
+            return
+        if slug == "elophanto-self":
+            console.print(
+                "[red]Refusing to archive 'elophanto-self'[/red] — that's "
+                "the agent's own ABE. Pause if you really mean to."
+            )
+            return
+        await _set_status(mgr, slug, "archived")
+    elif action == "purge":
+        if not slug:
+            console.print("[red]Usage:[/red] elophanto company purge <slug> --confirm")
+            return
+        confirm = (name or "").lower() in ("--confirm", "confirm", "yes")
+        await _purge(db, mgr, slug, project_root=config.project_root, confirmed=confirm)
     elif action == "backfill":
         await _backfill(db)
     elif action == "report":
@@ -182,6 +200,84 @@ async def _set_status(mgr: CompanyManager, slug: str, status: str) -> None:
         return
     await mgr.set_status(slug, status)
     console.print(f"[green]Set[/green] {slug} → {status}")
+
+
+async def _purge(
+    db: Database,
+    mgr: CompanyManager,
+    slug: str,
+    *,
+    project_root: Any,
+    confirmed: bool,
+) -> None:
+    """Hard delete a company + cascade through every dependent table
+    + remove on-disk artifacts. Mirrors `CompanyPurgeTool` for the
+    chat-side path. Requires explicit `--confirm` flag (CLI) or
+    `confirm: true` (tool) to acknowledge irreversibility."""
+    if slug == "elophanto-self":
+        console.print(
+            "[red]Refusing to purge 'elophanto-self'[/red] — that's the "
+            "agent's own ABE; purging would orphan production state."
+        )
+        return
+    if not confirmed:
+        console.print(
+            f"[yellow]Purge is irreversible.[/yellow] To proceed: "
+            f"[bold]elophanto company purge {slug} --confirm[/bold]"
+        )
+        return
+    company = await mgr.get(slug)
+    if company is None:
+        console.print(f"[red]No such company:[/red] {slug}")
+        return
+
+    cascade_tables = (
+        "resource_ledger",
+        "goals",
+        "missions",
+        "scheduled_tasks",
+        "prospects",
+        "outreach_log",
+        "email_log",
+        "payment_audit",
+        "payment_requests",
+        "sessions",
+        "llm_usage",
+    )
+    totals: dict[str, int] = {}
+    for table in cascade_tables:
+        try:
+            rows = await db.execute(
+                f"SELECT COUNT(*) AS n FROM {table} WHERE company_id = ?",
+                (slug,),
+            )
+            n = int(rows[0]["n"]) if rows else 0
+            if n > 0:
+                await db.execute_insert(
+                    f"DELETE FROM {table} WHERE company_id = ?", (slug,)
+                )
+            totals[table] = n
+        except Exception:
+            totals[table] = -1  # schema mismatch — skip but report
+
+    await db.execute_insert("DELETE FROM companies WHERE id = ?", (slug,))
+
+    import shutil
+
+    fs_removed: list[str] = []
+    for sub in ("companies", "data/companies"):
+        target = project_root / sub / slug
+        if target.is_dir():
+            try:
+                shutil.rmtree(target)
+                fs_removed.append(str(target))
+            except Exception:
+                pass
+
+    console.print(f"[green]Purged[/green] {slug}")
+    console.print(f"[dim]rows: {totals}[/]")
+    if fs_removed:
+        console.print(f"[dim]filesystem: removed {len(fs_removed)} path(s)[/]")
 
 
 async def _trust_show(mgr: CompanyManager, slug: str) -> None:

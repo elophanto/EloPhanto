@@ -7,9 +7,11 @@ drive the whole ABE framework from chat without remembering CLI syntax.
 """
 
 from tools.companies.management_tools import (
+    CompanyArchiveTool,
     CompanyCreateTool,
     CompanyListTool,
     CompanyPauseTool,
+    CompanyPurgeTool,
     CompanyReportTool,
     CompanyResumeTool,
     CompanyUseTool,
@@ -26,4 +28,6 @@ __all__ = [
     "CompanyUseTool",
     "CompanyPauseTool",
     "CompanyResumeTool",
+    "CompanyArchiveTool",
+    "CompanyPurgeTool",
 ]
