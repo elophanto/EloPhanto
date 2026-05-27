@@ -275,6 +275,134 @@ def load_blockers(project_root: Path, company_id: str) -> list[Blocker]:
     return [Blocker.from_dict(r) for r in rows if isinstance(r, dict)]
 
 
+def auto_resolve_blockers(
+    project_root: Path,
+    *,
+    registry: Any = None,
+    skills_dir: Path | None = None,
+) -> dict[str, int]:
+    """Sweep every company's ``blockers.yaml``. For each unresolved
+    blocker, check whether the underlying gap is closed now and mark
+    it resolved if so.
+
+    Closes the autonomy loop: when `self_create_plugin` succeeds and
+    registers a new tool (or `skill_promote` writes a new SKILL.md),
+    the corresponding ``missing_tool`` / ``missing_skill`` blocker in
+    ``blockers.yaml`` would otherwise sit open until the operator
+    runs ``elophanto strategy blockers resolve`` manually. This
+    function detects current registry / filesystem state and updates
+    the blocker rows to ``resolved_at=<now>, resolved_by='auto',
+    resolved_method='registry_check'``.
+
+    Called from two sites:
+    1. Top of ``from_buildable_blockers`` candidate generator —
+       defensive sweep on every arbiter wakeup. Eventually consistent.
+    2. After successful ``self_create_plugin`` / ``skill_promote``
+       — immediate sweep so the operator sees the resolution without
+       waiting for the next autonomous cycle.
+
+    Returns ``{company_id: resolved_count}`` for observability.
+    Failures in one company never abort the rest — each is wrapped
+    in its own try/except, the operator just doesn't see a sweep
+    for that one until next pass.
+    """
+    out: dict[str, int] = {}
+    if project_root is None:
+        return out
+
+    # Build the set of currently-known tool names (cheap — registry
+    # is in-memory) and installed skill slugs (filesystem walk).
+    known_tools: set[str] = set()
+    if registry is not None:
+        try:
+            for t in registry.all_tools():
+                known_tools.add(t.name)
+        except Exception:
+            pass
+    known_skills: set[str] = set()
+    skills_root = skills_dir if skills_dir is not None else (project_root / "skills")
+    if skills_root.is_dir():
+        try:
+            for entry in skills_root.iterdir():
+                if entry.is_dir() and (entry / "SKILL.md").is_file():
+                    known_skills.add(entry.name)
+        except Exception:
+            pass
+
+    # Iterate per-company blockers files
+    data_companies = project_root / "data" / "companies"
+    if not data_companies.is_dir():
+        return out
+    for company_dir in data_companies.iterdir():
+        if not company_dir.is_dir():
+            continue
+        company_id = company_dir.name
+        try:
+            blockers = load_blockers(project_root, company_id)
+        except Exception:
+            continue
+        if not blockers:
+            continue
+
+        resolved_now = 0
+        now_iso = datetime.now(UTC).isoformat()
+        for b in blockers:
+            if b.is_resolved():
+                continue
+            closed = False
+            if b.type == "missing_tool":
+                # Build hints carry the tool name in `description` like
+                # "Strategy needs tool `linkedin_post` — ...". We don't
+                # parse the description; the apply tool wrote the
+                # `build_method` and the metadata. For now match
+                # against the description text — backticks-wrapped tool
+                # name is the convention.
+                # Cleaner: explicit `target_tool_name` field — TODO if
+                # this proves fragile. For now, accept either pattern.
+                hit = next(
+                    (
+                        name
+                        for name in known_tools
+                        if f"`{name}`" in b.description or name in (b.build_hint or "")
+                    ),
+                    None,
+                )
+                if hit:
+                    closed = True
+            elif b.type == "missing_skill":
+                hit = next(
+                    (
+                        name
+                        for name in known_skills
+                        if name in b.description or name in (b.build_hint or "")
+                    ),
+                    None,
+                )
+                if hit:
+                    closed = True
+            if closed:
+                b.resolved_at = now_iso
+                b.resolved_by = "auto"
+                b.resolved_method = "registry_check"
+                resolved_now += 1
+
+        if resolved_now > 0:
+            try:
+                save_blockers(project_root, company_id, blockers)
+                logger.info(
+                    "auto_resolve_blockers: %s — %d blocker(s) closed",
+                    company_id,
+                    resolved_now,
+                )
+            except Exception as e:
+                logger.warning(
+                    "auto_resolve_blockers: %s save failed: %s", company_id, e
+                )
+            out[company_id] = resolved_now
+
+    return out
+
+
 def save_blockers(project_root: Path, company_id: str, blockers: list[Blocker]) -> Path:
     import yaml
 

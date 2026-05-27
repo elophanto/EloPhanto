@@ -1880,6 +1880,11 @@ class AutonomousMind:
             # None-safe; all three generators return [] when
             # strategy_manager is missing.
             strategy_manager=getattr(self._agent, "_strategy_manager", None),
+            # 2026-05-27 autonomy-loop closer — from_buildable_blockers
+            # runs auto_resolve_blockers against the live registry at
+            # the top of each wakeup so closed gaps don't keep firing
+            # build candidates.
+            registry=getattr(self._agent, "_registry", None),
         )
 
         all_candidates = await collect_all(ctx)

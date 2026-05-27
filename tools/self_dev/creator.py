@@ -297,7 +297,34 @@ class SelfCreatePluginTool(BaseTool):
                 tool_name, design.get("description", goal), plugin_dir
             )
 
-            logger.info(f"Plugin '{tool_name}' created and deployed successfully")
+            # Phase 11 autonomy-loop closer (2026-05-27): the new tool
+            # may have been built specifically to resolve a `missing_tool`
+            # blocker on some company's strategy. Sweep all companies'
+            # blockers.yaml now so the operator sees the resolution
+            # immediately instead of waiting for the next arbiter
+            # wakeup. Best-effort — sweep failure never poisons a
+            # successful build.
+            resolved_summary: dict[str, int] = {}
+            try:
+                from pathlib import Path as _Path
+
+                from core.strategy import auto_resolve_blockers
+
+                # Resolve project_root from the registered plugin_dir
+                # (plugins live at <project_root>/plugins/<tool_name>/).
+                project_root = _Path(plugin_dir).parent.parent
+                resolved_summary = auto_resolve_blockers(
+                    project_root,
+                    registry=self._registry,
+                    skills_dir=project_root / "skills",
+                )
+            except Exception as e:
+                logger.debug("auto_resolve_blockers post-build sweep failed: %s", e)
+
+            logger.info(
+                f"Plugin '{tool_name}' created and deployed successfully "
+                f"(auto-resolved blockers: {resolved_summary})"
+            )
             return ToolResult(
                 success=True,
                 data={
@@ -306,6 +333,7 @@ class SelfCreatePluginTool(BaseTool):
                     "class_name": class_name,
                     "tests_passed": True,
                     "llm_calls_used": budget.llm_calls_used,
+                    "auto_resolved_blockers": resolved_summary,
                 },
             )
 
