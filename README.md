@@ -42,103 +42,41 @@ The combination is what makes the third week of running feel different from the 
 > collaboratively in May 2026 to that design. The code is Apache 2.0
 > (see LICENSE); the *concept* is attributed.
 
-**EloPhanto can run as a business, not just an agent.** An ABE is a small, focused company-of-roles that has a stated product, tracks its own books, manages a customer pipeline, and reports to the operator as a board — not as raw logs. One EloPhanto runtime can host multiple isolated ABEs, each a separate company with its own ledger, missions, customers, and wallet. The operator owns the vision; the agent runs the operation.
+**EloPhanto can run as a business, not just an agent.** An ABE is a small, focused company-of-roles that has a stated product, tracks its own books, manages a customer pipeline, learns a voice from operator-curated exemplars, drafts before it sends, and reports to the operator as a board — not as raw logs. One EloPhanto runtime can host multiple isolated ABEs, each with its own ledger, missions, customers, voice contract, and wallet. The operator owns the vision; the agent runs the operation.
 
-This is the realistic version of the framing — **not** the marketing pitch of "zero employees, infinite scale, 70% margins, unicorn exits". That version produces what the May 2026 logs called Evidence Gardens — endless self-referential artifacts about the agent itself. The actual goal is *one operator running a small focused company-of-agents that does one bounded thing and tracks its own books*.
+This is the realistic version of the framing — **not** "zero employees, infinite scale, 70% margins, unicorn exits". The actual goal is *one operator running a small focused company-of-agents that does one bounded thing and tracks its own books*.
 
-**See [docs/78-ABE-OPERATOR-GUIDE.md](docs/78-ABE-OPERATOR-GUIDE.md)** for the operator playbook (commands, files to edit, what to watch). The architecture rests on six load-bearing decisions, frozen in [docs/76-ABE-FRAMEWORK.md](docs/76-ABE-FRAMEWORK.md):
+The architecture rests on six load-bearing decisions:
 
-- **One identity, role overlays** — EloPhanto stays a single evolving self; the CEO is not a separate persona, EloPhanto *plays* the CEO by default and switches into other roles (sales, support, ops, marketing) via system-prompt overlays + tool subsets per cycle. No N-identities, no N-agents.
-- **General typed ledger** — money is one resource flow, LLM tokens another, customer touches another, decisions another. Every meaningful action writes a typed `resource_ledger` event. This doubles as the **honest progress signal** that fixes the bounded-reconciliation loop: a cycle that produces zero ledger events made zero progress regardless of what the LLM narrates.
-- **`company_id` is the single isolation key** — threaded through sessions, missions, goals, scheduled tasks, llm_usage, payments, email, prospects. Default `'elophanto-self'` owns all pre-ABE rows; no separate tenancy / workspace / org abstraction.
-- **Mission IS the mandate** — the existing missions tier with `owner_role` becomes role-scoped mandates. CEO (= EloPhanto) creates a mission "grow qualified pipeline to 50/wk" with `owner_role='sales'`; the sales role's cycles operate against it; momentum decays with neglect.
-- **Roles are NOT plugins** — they're 20-line YAML files in `roles/<name>.yaml`. Config, not code.
-- **Product config = `companies/<slug>/company.yaml`** — one file per company declaring `what_we_sell`, price, fulfillment, channels, wallet, KPIs. Empty product → company refuses to activate (empty product = navel-gazing risk reborn).
+- **One identity, role overlays** — EloPhanto stays a single evolving self; the CEO is not a separate persona, EloPhanto *plays* the CEO by default and switches into other roles (sales, support, ops, marketing) via system-prompt overlays + tool subsets per cycle.
+- **General typed ledger** — money, LLM tokens, customer touches, decisions — every meaningful action writes a typed `resource_ledger` event. Doubles as the honest progress signal: a cycle that produces zero ledger events made zero progress regardless of what the LLM narrates.
+- **`company_id` is the single isolation key** — threaded through sessions, missions, goals, schedules, llm_usage, payments, email, prospects. No separate tenancy / workspace abstraction.
+- **Mission IS the mandate** — missions carry an `owner_role`; goals carry `assigned_to_role`. Momentum decays with neglect.
+- **Roles are NOT plugins** — 20-line YAML files in `roles/<name>.yaml`. Config, not code.
+- **Product config = `companies/<slug>/company.yaml`** — one file per company declaring `what_we_sell`, price, fulfillment, channels, wallet, KPIs. Empty product → company refuses to activate.
 
-**Phase 1 shipped 2026-05-25**: companies + general ledger + cross-table mirrors (every LLM call, payment, and outbound email writes a typed ledger event under the active company) + one-shot historical backfill + operator-visible report.
+On top of those, ABE ships **trust ladders** (`learning` → `trial` → `operating`; live sends refused until promoted), **voice contracts** distilled from operator-curated exemplars (every draft is voice-linted before persisting), **strategy planning + capability audit** (LLM-generated marketing strategy → blockers → three resolution paths: ask operator / build the missing tool autonomously / defer), and a **research-then-propose pattern** that turns the operator into editor instead of data-entry.
+
+A typical end-to-end:
 
 ```bash
 elophanto company list                # all companies + active marker
 elophanto company create acme-inc     # new ABE
-elophanto company use acme-inc        # switch context — new writes attribute here
-elophanto company backfill            # one-shot import of historical rows (idempotent)
-elophanto company report              # revenue / spend / net / tokens / touches + last 10 events
+elophanto company use acme-inc        # switch context
+elophanto company report              # revenue / spend / net / tokens / touches
+elophanto voice show acme-inc         # active voice contract (anti-slop layer)
+elophanto strategy show acme-inc      # active marketing strategy
+elophanto drafts list                 # pending drafts awaiting approval
+elophanto company trust acme-inc trial   # promote up the ladder
+elophanto role use sales              # session-scope to the SALES role
 ```
 
-**Phase 2 shipped 2026-05-25**: role personas as system-prompt overlays + tool subsets. Five roles seeded from `roles/*.yaml` (CEO, sales, support, ops, marketing). EloPhanto stays one evolving identity; roles are masks it wears per cycle. The executor denies tools outside the active role's allowlist BEFORE the generic permission check (role-deny short-circuits auto-approve modes). Missions get an `owner_role`; goals get an `assigned_to_role`. The arbiter surfaces a `from_role_neglect` candidate alongside missions so the agent rotates into the role it hasn't worked from recently.
+Or just open chat and say *"I have a business on acme.com and I want you to drive it"* — the agent researches the domain, proposes the company YAML + strategy inputs as a table with one-line rationale per field, and you approve / edit / override. Run `elophanto help abe` for the full surface.
 
-```bash
-elophanto role list                   # all roles + active marker + last-active-at
-elophanto role show sales             # full overlay + allowlist + KPI for one role
-elophanto role sync                   # re-read roles/*.yaml into DB (idempotent)
-elophanto role use sales              # scope this session to the SALES role
-elophanto role clear                  # back to default (playing CEO, full tools)
-```
-
-**Dashboard reasoning panel (2026-05-27)**: chain-of-thought and tool-call narration moved out of the chat box into a dedicated `#reasoning` panel. The chat stays a clean operator ↔ agent transcript — autoscroll no longer buries the dialogue while the agent is mid-thinking. Press `Ctrl+R` to cycle the panel size (medium / large / small / hidden). The companion changes drop three stale character caps (300/100/500-char truncations) that were defensive when reasoning shared the chat box — operators now see full multi-sentence reasoning blocks end-to-end.
-
-**Research-then-propose for ABE inputs (2026-05-27)**: when the operator says "drive my business at X.com", the agent does NOT fill blanks via Q&A. It runs `browser_navigate` + `browser_extract` on home / `/about` / `/pricing` / `/hire`, `web_search` for competitors, `company_report` for ledger state, then proposes every field (slug, name, `what_we_sell`, channels, KPIs for onboard; audience, competitors, USPs, goals, mode, focus, budget, risk, timeline for strategy_inputs) as a chat table with one-line rationale per field. Operator says *"approve all"*, *"change X to Y"*, or *"override"*. Operator becomes editor, not data-entry. Same MODERATE permission gates on the underlying tools (`company_onboard`, `company_set_strategy_inputs`) — the change is in the **drive-business** + **strategy-pipeline** skills which the LLM reads via `skill_read` before acting.
-
-**Workflow refactor — skills not awareness sections (2026-05-27)**: Phases 9-11 each grew a new section in `core/identity.py`'s awareness block (Sections 5-8). That was the wrong layer — 3 KB of fixed prompt per LLM call, no trigger matching, no composition. Live test exposed it: "drive my EXISTING business" fell through both Section 6 (onboard — company exists) and Section 8 (post-onboard — no rule for pre-existing companies) and the agent went into goal_create slop. Refactored into 4 versioned SKILL.md files with proper triggers + procedure + verification: [`skills/drive-business`](skills/drive-business/SKILL.md) (single entry point — branches NEW / EXISTING-no-strategy / EXISTING-active-strategy), [`skills/trust-ladder-workflow`](skills/trust-ladder-workflow/SKILL.md), [`skills/voice-extraction-workflow`](skills/voice-extraction-workflow/SKILL.md), [`skills/strategy-pipeline`](skills/strategy-pipeline/SKILL.md). Skill router auto-loads on trigger match. Awareness block trimmed to a 1.4 KB reference card pointing at skills by slug.
-
-**Prompt-size cuts (2026-05-27)**: live-test profiling showed step-1 prompt at 147 KB system + 65 KB of tool schemas (115 tools at `full` profile) + N KB messages = ~210 KB+ per LLM call. ABE additions pushed cumulative context past some provider threshold; codex/gpt-5.5 hung mid-cycle at step 4. Cuts: CORE tier 28 → 22 tools (moved `company_capabilities`, `company_plan`, `voice_*`, `role_list` back to PROFILE — still ship under their group's profile but no longer always-on), verbose tool descriptions tightened (~3.5 KB saved across all profiles), new ABE skill files trimmed ~60% (each `skill_read` saves ~5 KB in messages), recommended-skills `top_k` 5 → 3. Net ~10-15 KB per LLM call, growing to ~20-30 KB across a multi-step ABE turn. Live test re-ran cleanly afterward with all LLM responses in 3-15s.
-
-**Chat-stop redesign (2026-05-26)**: typing `stop` / `halt` / `kill` / `pause` in chat — or saying it naturally ("hold on stop that") — cancels just the **current chat action** for that session. Autonomous mind keeps running, scheduler keeps firing, other sessions untouched. The deterministic slash-command is caught at the gateway before the LLM sees it (zero LLM tokens burned); the natural-language path goes through the `agent_stop` LLM tool (MODERATE permission, scoped via `asyncio.current_task()` lookup against the gateway's `_inflight_run_tasks` dict so it can only cancel a real chat session — never the autonomous mind or a scheduled job). The destructive hard halt is opt-in: `stop --hard` / `stop --all` / `stop --cancel-goals` / `stop --cancel-schedules` writes the `data/STOP` sentinel (same path as `elophanto stop` from the terminal). `resume` clears the sentinel. **The lesson recorded**: when one chat message can halt the entire production substrate, the default semantic must be the least destructive one.
-
-**Phase 11 shipped 2026-05-26**: Strategic Planning & Capability Audit + self-build autonomy loop. After Phase 9-10 stopped untrusted sends and AI-slop drafts, the operator surfaced the next gap: *"shouldn't there be a step where it creates some initial strategy? each day should be different. also it should know if it needs some access to the site, social media, if it has everything... for true autonomousness."* Phase 11 makes the agent produce a real marketing strategy (LLM-driven, schema ported verbatim from the operator's proven strategy-creator prompt in their other app — kept diff-able across apps), audits its own capabilities against what the strategy requires (`vault.list_keys()` + tool registry grouped by `group` attr + filesystem walk of `skills/<slug>/SKILL.md`), surfaces blockers with **three resolution paths per blocker — `ask` operator / `build` the missing tool autonomously / `defer`** — and atomically materializes the strategy into mission + goals + schedules + voice seed. Four tools form the post-onboard pipeline: `company_capabilities` (SAFE, CORE — writes `data/companies/<slug>/capabilities.md`), `company_plan` (SAFE, CORE — LLM strategy generation; 5 EloPhanto-specific schema extensions on top of the ported prompt — `vault_requirements`, `tool_requirements`, `voice_seed`, `agent_role_assignments`, `execution_priority`), `company_plan_apply` (MODERATE — atomic fan-out to mission + goals with `tactic_metadata` packed in a new goals column + schedules + `voice_proposed.yaml` + `blockers.yaml`, archives prior active strategy), `company_plan_approve` (MODERATE finalize). Plus `company_set_strategy_inputs` for capturing audience/competitors/budget/risk into the `strategy_inputs:` section of `company.yaml`. **The autonomy loop**: when blocker detection writes `resolution_proposal: build`, the autonomous mind's new `from_buildable_blockers` candidate generator picks it up and invokes `self_create_plugin` or `skill_promote` — existing self-dev infrastructure builds the missing capability autonomously, CRITICAL permission gates each call. Two other new candidate generators close the gap: `from_unplanned_companies` (productized + no strategy → propose `company_plan`) and `from_blocked_strategy_days` (active strategy + unresolved blockers >3d old → propose review). `[COMPANY]` snapshot block extended with `strategy=<active|none>, blockers=N` next to `trust=` and `voice=`.
-
-```bash
-elophanto strategy list                       # status across companies
-elophanto strategy show acme-inc              # print active strategy.yaml
-elophanto strategy proposed acme-inc          # list LLM proposals
-elophanto strategy blockers                   # operator-resolvable items + build candidates
-elophanto strategy blockers resolve acme-inc b001 manual
-```
-
-**Phase 10 shipped 2026-05-26**: Voice Learning — the anti-slop quality layer on top of Phase 9 drafts. Phase 9 stopped untrusted sends but didn't constrain content; the live test showed the agent producing generic "We help businesses leverage AI" hook patterns — exactly the AI-slop the operator flagged: *"we cannot be doing AI SLOP so it needs to always learn what to do and how. for example, for twitter I tell it to read posts from couple of users that i define and then to learn their style."* Phase 10 makes the agent learn voice from operator-curated exemplars (drop reference posts at `data/companies/<slug>/exemplars/<channel>/*.md`), distil them via `voice_extract` into a `voice_proposed.yaml`, then operator-approves to `voice.yaml`. From there every `email_draft` / `outreach_draft` / `post_draft` runs `voice_lint` against the contract before persisting; on lint fail the tool returns `ToolResult(success=False)` with the violations — the LLM revises naturally in the next planning cycle, no draft file written. Three CORE-tier tools (`voice_extract`, `voice_show`, `voice_lint`) plus a deterministic CLI surface (`elophanto voice list / show / proposed / approve / reject / exemplars`), a `from_voiceless_companies` candidate generator so the autonomous mind auto-proposes extraction when exemplars are ready, and the `[COMPANY]` snapshot block now shows `voice=yes|none`. New skill `skills/b2c-marketing-voice/SKILL.md` distills the anti-slop principles (four dead patterns / four winning shapes).
-
-```bash
-elophanto voice list                          # voice status per company + exemplar counts
-elophanto voice show acme-inc                 # active contract
-elophanto voice approve acme-inc              # promote voice_proposed.yaml → voice.yaml (with .bak)
-elophanto voice exemplars acme-inc            # what the operator has dropped, by channel
-```
-
-**Phase 9 shipped 2026-05-26**: Trust Ladder & Draft-Before-Act. Surfaced from the live test of Phase 8.5: even with the canonical workflow firing, the agent's instinct was to propose outreach (and even claim "10 prospects saved" without doing it) before the operator approved its voice. The substrate enabled spam. Phase 9 adds a three-state trust ladder per company — `learning` (default, live outreach REFUSED, agent must draft) → `trial` (operator approved voice; per-call MODERATE approval still required) → `operating` (autonomous within budget). New `core/trust_gate.py` gates `email_send` / `email_reply` / `prospect_outreach` / `twitter_post`; on deny the error names the canonical draft replacement (`email_draft` / `outreach_draft` / `post_draft`, all CORE-tier so the LLM always sees them). Drafts land at `companies/<slug>/drafts/<kind>/pending/` as operator-readable Markdown; `draft_approve` / `draft_reject` move them to `approved/` or `rejected/` with a resolution footer. Operator-controlled promotion via `elophanto company trust <slug> <state>` or `company_trust_set` tool — never auto-promoted. Seed `elophanto-self` migrated to `operating` so existing production schedules keep working.
-
-```bash
-elophanto drafts list              # all pending drafts across companies
-elophanto drafts show DRAFT_ID     # read one draft
-elophanto drafts approve DRAFT_ID  # move pending → approved
-elophanto drafts reject DRAFT_ID "too salesy"
-elophanto company trust acme-inc trial  # promote up the ladder
-```
-
-**Phase 8.5 shipped 2026-05-26**: end-to-end "drive my business" workflow. Operator can now say *"I have a business on alphascala.com and I want you to drive it"* in chat and the agent will: research the domain (browser + web_search), call the new `company_onboard` tool (one operator-approved call that bundles `company_create` + persists context so the autonomous mind inherits it + writes the product YAML + creates an optional seed goal), then ask what 'drive' means as concrete recurring work. The autonomous mind now refreshes its company context every cycle from the sidecar, and its state snapshot includes a `[COMPANY]` block per active ABE with product status + ledger headlines, so the mind always knows which company it's operating and what its ledger looks like. Without this, Phases 1-8 shipped tools the operator couldn't actually drive end-to-end through chat.
-
-**Phase 8 shipped 2026-05-25**: chat-driven ABE management. The operator can now drive the entire framework from chat without remembering CLI syntax. Ten new agent-callable tools — `company_list / report / create / use / pause / resume` and `role_list / show / use / sync` — mirror the `elophanto company …` and `elophanto role …` commands. SAFE-tier for reads, MODERATE for state changes (operator approves every write). `company_use` and `role_use` default to **session-only** contextvar updates; pass `persist: true` to also write the sidecar so future CLI + chat sessions inherit. Combined with `company_set_product` (Phase 7), the ABE-tool surface is 11 — every operator workflow now has a chat path.
-
-**Phase 7 shipped 2026-05-25**: agent self-bootstraps its ABE. New `company_set_product` tool (MODERATE permission, so the operator approves every write) lets the agent propose a `companies/<slug>/company.yaml` for any company that doesn't have one. The same banlist that fixed the dream-lens drift (`core/consumer_filter.py`, extracted from `tools/goals/dream_tool.py` so it's reusable) is now applied at tool level — agent-proposed `what_we_sell` can't drift back into "framework for documenting agent identity" patterns; refuses any text matching the banlist with a legible reason. The mind's arbiter sees one candidate per unproductized company ("draft a product for `<slug>`"), capped at 3 so a workspace with many empty ABEs doesn't drown the menu. Closes the read-only/write-only asymmetry of Phase 4: before this, the agent could only *read* product config; now it can *propose* changes based on what it learns from the ledger.
-
-**Phase 6 shipped 2026-05-25**: multi-company isolation primitives. `ClientConnection` carries `company_id`; `Gateway.broadcast(company_id=...)` filters fan-out by connection company so a per-company event doesn't reach every CLI. Scheduler dispatch sets the active company in the contextvar for each task's scope (restored on completion AND failure) so a task tagged `acme-inc` writes its ledger/email/payment rows under `acme-inc` even when the operator's CLI is scoped to a different company. `CompanyManager.create()` materializes `data/companies/<slug>/` so per-company file state has a stable home; the seed `elophanto-self` directory backfills on first run. Two pieces explicitly deferred with stated triggers: session UNIQUE constraint rebuild (only matters when multiple companies share channels) and `roles.scope='company'` enforcement (only matters when an operator wants per-company role overlays).
-
-**Phase 4 shipped 2026-05-25**: product config + arbiter role-rotation. Each company gets an optional `companies/<slug>/company.yaml` declaring `what_we_sell` (required — empty value = navel-gazing guard, treated as no product), price, fulfillment, channels, wallet, and KPIs (typed against ledger event types). The dream phase reads this and anchors goal ideation in a real business; the arbiter scores `from_role_neglect` candidates with a new `kpi_gap` term so the role whose actual ledger sums lag furthest behind its weekly targets gets the strongest rotation pull. `elophanto company report` shows the active product in the headline; missing product surfaces as a yellow warning so it's hard to miss.
-
-**Phase 3 shipped 2026-05-25**: pipeline (CRM) on existing tables. Zero new schema, zero new tools. `prospect_outreach` and `prospect_evaluate` now mirror positive status transitions (`evaluated`, `outreach_sent`, `replied`, `converted`) to the ledger as `pipeline_advance` events — attributed to the prospect's own company (its funnel), not the operator's currently-active company. Negative outcomes (`rejected`, `expired`) do NOT count, so the ledger sum is an honest funnel-progress signal. `elophanto company report` gains a "Pipeline advances (in)" headline row plus a "Pipeline by stage" table grouped by the existing prospect status enum.
-
-Sample report from the reference instance after backfill:
-
-```
-elophanto-self — EloPhanto (self) (active)
-
-  Revenue (in)              $0.00
-  Spend (out)              $10.92
-  Net                     $-10.92
-  LLM tokens (out)    649,111,508
-  Email touches (out)         178
-```
-
-**Phased rollout** (each phase requires a verification review against the live codebase + DB before any code lands — see the doc's process rule): Phase 2 — roles as overlays + `owner_role` on missions + `assigned_to_role` on goals. Phase 3 — CRM pipeline reusing existing `prospects` + `outreach_log` tables. Phase 4 — product YAML schema + arbiter role-rotation candidate source. Phase 5 — CompanyBoardPanel in the Textual dashboard. Phase 6 — multi-company isolation hardening (session UNIQUE rebuild, channel routing by company, per-company `data/<id>/` dirs).
+**Read more:**
+- [docs/76-ABE-FRAMEWORK.md](docs/76-ABE-FRAMEWORK.md) — architecture, the six decisions, every load-bearing trade-off
+- [docs/78-ABE-OPERATOR-GUIDE.md](docs/78-ABE-OPERATOR-GUIDE.md) — the operator playbook (commands, files to edit, what to watch)
+- [CHANGELOG.md](CHANGELOG.md) — phase-by-phase shipping history
 
 ### One entity, not a persona stable
 
