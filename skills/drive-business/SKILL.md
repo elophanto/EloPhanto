@@ -45,12 +45,27 @@ EXISTING + active strategy          → PATH C: execute (don't re-plan)
 
 See [[strategy-pipeline]] for the exact procedure. Briefly:
 
-1. `company_capabilities(<slug>)` — audit vault + tools + skills, writes `capabilities.md`.
-2. Ask operator in chat for strategy inputs (audience, competitors, budget, risk, goals, mode, focus, timeline). Then `company_set_strategy_inputs(slug, …)` — MODERATE.
-3. `company_plan(<slug>, override_strategy_mode=…, override_focus=…)` — LLM strategy generation.
-4. `company_plan_apply(<slug>)` — MODERATE. Creates mission + goals + schedules + `voice_proposed.yaml` + `blockers.yaml`.
-5. `company_plan_approve(<slug>)` — MODERATE finalize.
-6. Surface unresolved blockers to operator. Stop — autonomous mind picks up tactics on next wakeup.
+1. **Audit capabilities.** `company_capabilities(<slug>)` — vault + tools + skills, writes `capabilities.md`.
+2. **Research, THEN propose strategy_inputs.** Do NOT ask the operator blank questions. Ground every field in research first, then present recommendations with one-line rationale. Operator approves all / modifies specific items / overrides:
+   - **Research moves to run first** (parallel where possible): `browser_navigate(<url>)` + `browser_extract` + revisit `/about`, `/pricing`, `/hire` if they exist; `web_search('<domain> competitors')` or `web_search('<industry> top tools 2026')`; `company_report(<slug>)` for ledger/pipeline state; `file_read companies/<slug>/company.yaml` for declared channels/KPIs.
+   - **Then propose** each field with rationale. Most CAN be derived from research:
+     - `target_audience` ← from homepage + /hire positioning
+     - `competitors` ← web_search + industry knowledge
+     - `current_challenges` ← from company_report ledger gaps + product page friction
+     - `unique_selling_points` ← from homepage value props + features
+     - `primary_goals` ← from product type (hire page → Sales Growth + Lead Gen; content site → Thought Leadership)
+     - `strategy_mode` ← from brand tone (corporate B2B → standard; punk brand → unconventional; small budget + viral potential → guerrilla)
+     - `focus` ← from declared channels + recent ledger activity
+   - **Operator-decided fields** (suggest defaults but flag for confirmation):
+     - `budget_type` / `budget_amount` / `budget_period` — default to `organic` / `0` / `monthly` if no signal
+     - `risk_tolerance` (0-100) — suggest 50 (balanced) unless brand tone is aggressive
+     - `timeline_hint` — suggest "first paid customer in 30 days, repeatable cadence in 90" or similar based on stage
+   - **Present as a table** in chat. Example format: `field | recommended value | rationale (≤15 words)`. Add: *"Approve all, or tell me which to change."*
+3. **Capture inputs.** After operator confirms/modifies: `company_set_strategy_inputs(slug, …)` — MODERATE. Uses the operator-approved values.
+4. **Generate strategy.** `company_plan(<slug>, override_strategy_mode=…, override_focus=…)` — LLM strategy generation.
+5. **Apply.** `company_plan_apply(<slug>)` — MODERATE. Creates mission + goals + schedules + `voice_proposed.yaml` + `blockers.yaml`.
+6. **Approve.** `company_plan_approve(<slug>)` — MODERATE finalize.
+7. **Surface blockers** to operator. Stop — autonomous mind picks up tactics on next wakeup.
 
 ## PATH C — execute existing strategy
 
