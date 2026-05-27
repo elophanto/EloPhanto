@@ -189,27 +189,52 @@ self_dev:
   test_timeout: 60
 
 # --- Browser ---
-# REAL Chrome with profile reuse is REQUIRED for browser-dependent tools
-# (twitter_post, youtube_upload, agent_commune, etc.). The agent uses your
-# existing Chrome profile so it's already logged in to the sites it needs.
+# Two backends — pick ONE via `type`:
 #
-# Set `user_data_dir` and `profile_directory` to your Chrome profile.
-# Find them via chrome://version → "Profile Path".
-#   macOS:   ~/Library/Application Support/Google/Chrome  +  "Profile 1"
-#   Linux:   ~/.config/google-chrome                       +  "Default"
-#   Windows: %LOCALAPPDATA%\Google\Chrome\User Data        +  "Default"
+#   type: local
+#     Drives Chrome on THIS machine. Required for flows that need a
+#     logged-in profile (twitter_post, youtube_upload, agent_commune).
+#     Configure `local.user_data_dir` + `local.profile_directory` to
+#     reuse your real Chrome cookies/sessions. Find them via
+#     chrome://version → "Profile Path":
+#       macOS:   ~/Library/Application Support/Google/Chrome  +  "Profile 1"
+#       Linux:   ~/.config/google-chrome                       +  "Default"
+#       Windows: %LOCALAPPDATA%\Google\Chrome\User Data        +  "Default"
+#
+#   type: cloud
+#     Connects over CDP to a remote browser provider (browser-use
+#     cloud by default — wss://connect.browser-use.com). Use this for
+#     headless server deployments (no local Chrome / no display) or
+#     when you want residential proxies + stealth + Cloudflare bypass.
+#     Get an API key at https://browser-use.com and paste it into
+#     `cloud.api_key` below.
+#
+# The two backends are mutually exclusive — when type=cloud, every
+# field under `local:` is ignored (and vice versa).
 browser:
   enabled: true
-  mode: profile                           # fresh | profile (REUSE Chrome profile — required for logged-in flows)
-  headless: false                         # keep false; agent needs to see real pages
-  cdp_port: 9222
-  cdp_ws_endpoint: ""
-  user_data_dir: ""                       # ← REQUIRED for profile mode (see comment block above)
-  use_system_chrome: true
+  type: local                              # local | cloud
+
+  # ── LOCAL backend ────────────────────────────────────────────
+  local:
+    mode: profile                          # fresh | profile (reuse Chrome profile — required for logged-in flows)
+    headless: false                        # keep false; agent needs to see real pages
+    user_data_dir: ""                      # ← REQUIRED for profile mode (see comment block above)
+    profile_directory: ""                  # ← e.g. "Profile 1" or "Default"
+    use_system_chrome: true
+    cdp_port: 9222
+    cdp_ws_endpoint: ""
+    profile_refresh_hours: 0               # 0 = never auto-refresh — agent logins (2FA etc.) persist
+
+  # ── CLOUD backend ────────────────────────────────────────────
+  cloud:
+    api_key: "YOUR_BROWSER_USE_KEY"        # https://browser-use.com — paste token here
+    proxy_country: ""                      # e.g. "us", "de" — empty = provider default
+    endpoint: "wss://connect.browser-use.com"
+
+  # ── Shared (apply to both backends) ──────────────────────────
   viewport_width: 1280
   viewport_height: 720
-  profile_directory: ""                   # ← e.g. "Profile 1" or "Default"
-  profile_refresh_hours: 0                # 0 = never auto-refresh — agent logins (2FA etc.) persist
   # Browser screenshot analysis. Same provider-prefix scheme as
   # llm.vision_model above:
   #   codex/gpt-5.5             → ChatGPT subscription (no per-call API spend)
@@ -220,11 +245,11 @@ browser:
   # browser screenshots (high volume, want subscription) and
   # openrouter/x-ai/grok-4.3 for user-attached images (lower volume,
   # don't want to mix billing paths).
-  vision_model: "codex/gpt-5.5"      # screenshot analysis model
-  # Separate model for the Node browser bridge's own DOM-annotation
-  # vision. The bridge hits OpenRouter directly, so when vision_model
-  # above is codex/<x>, ollama/<x>, or any non-OpenRouter transport,
-  # the bridge fails every call with "model not valid". Two options:
+  vision_model: "codex/gpt-5.5"
+  # Separate model for the Node bridge's own DOM-annotation vision.
+  # The bridge hits OpenRouter directly, so when vision_model is
+  # codex/<x>, ollama/<x>, or any non-OpenRouter transport, the
+  # bridge fails every call with "model not valid". Two options:
   #   - leave empty → bridge falls back to deterministic-only mode
   #     (extract + elements, no vision); Python-side screenshot
   #     description still works via vision_model.

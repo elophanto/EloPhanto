@@ -158,9 +158,10 @@ channels.
 
 - Credentials for OpenAI / OpenRouter / Z.ai / Kimi / HuggingFace —
   set in `config.yaml` or via `elophanto vault set <key> <value>`
-- Real Chrome profile path — required for browser-dependent tools
+- Real Chrome profile path (local backend) OR browser-use cloud
+  API token (cloud backend) — required for browser-dependent tools
   (twitter, youtube, agent commune). See `browser:` section of
-  `config.yaml`.
+  `config.yaml` (pick `type: local` or `type: cloud`).
 - An email inbox — `elophanto vault set agentmail_api_key <key>`
 - A crypto wallet — auto-creates on first use; export with
   `wallet_export`

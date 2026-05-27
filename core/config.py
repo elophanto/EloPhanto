@@ -10,7 +10,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
@@ -127,44 +127,105 @@ class SelfDevConfig:
 
 
 @dataclass
-class BrowserConfig:
-    """Browser automation configuration (Playwright+CDP)."""
+class LocalBrowserConfig:
+    """Local-Chrome backend settings (used when ``BrowserConfig.type == 'local'``).
 
-    enabled: bool = False
+    Everything here is ignored when the cloud backend is selected.
+    """
+
     mode: str = "fresh"  # fresh | direct | profile | cdp_port | cdp_ws
     headless: bool = False
-    cdp_port: int = 9222
-    cdp_ws_endpoint: str = ""
     user_data_dir: str = ""
     profile_directory: str = (
-        "Default"  # Chrome profile subdir (Default, Profile 1, etc.)
+        "Default"  # Chrome profile subdir (Default, Profile 1, ...)
     )
     use_system_chrome: bool = True
+    cdp_port: int = 9222
+    cdp_ws_endpoint: str = ""
+    # 0 = never auto-refresh; agent sessions (2FA cookies etc.) persist.
+    profile_refresh_hours: float = 8.0
+
+
+@dataclass
+class CloudBrowserConfig:
+    """Remote browser-as-a-service settings (used when ``type == 'cloud'``).
+
+    Provider-agnostic. Default endpoint targets browser-use cloud, but
+    any provider with a Playwright-compatible CDP WebSocket
+    (Browserbase, Browserless, …) drops in by changing ``endpoint``.
+    """
+
+    # Cloud API token. Stored directly in config.yaml — same pattern
+    # as llm.providers.*.api_key / agentmail.api_key. Get a token at
+    # https://browser-use.com.
+    api_key: str = ""
+    # Optional residential-proxy country code ("us", "de", "jp", …).
+    # Empty = provider default.
+    proxy_country: str = ""
+    # CDP WebSocket endpoint. Query params (apiKey, proxyCountryCode)
+    # are appended at connection time.
+    endpoint: str = "wss://connect.browser-use.com"
+
+
+@dataclass
+class BrowserConfig:
+    """Browser automation configuration (Playwright+CDP).
+
+    `type` picks the backend; only ONE backend is active at a time:
+      • ``local`` — Playwright drives Chromium on this machine. Uses
+        the nested ``local:`` block (mode, profile, headless, …).
+      • ``cloud`` — connect over CDP to a remote browser provider
+        (browser-use cloud by default). Uses the nested ``cloud:``
+        block (api_key, proxy_country, endpoint). The provider
+        supplies residential proxies + stealth + Cloudflare bypass.
+
+    Per operator instruction the two backends are mutually exclusive —
+    when ``type == 'cloud'`` the local-only fields are zeroed in
+    ``__post_init__`` so accidental config bleed can't cause silent
+    partial behavior.
+    """
+
+    enabled: bool = False
+    type: str = "local"  # local | cloud
+
+    local: LocalBrowserConfig = field(default_factory=LocalBrowserConfig)
+    cloud: CloudBrowserConfig = field(default_factory=CloudBrowserConfig)
+
+    # ── Shared (apply to both backends) ─────────────────────────────
     viewport_width: int = 1280
     viewport_height: int = 720
-    # Default vision model. codex/gpt-5.5 routes screenshot analysis
-    # through an existing ChatGPT Plus/Pro subscription (no per-call
-    # API spend). Alternatives via OpenRouter: x-ai/grok-4.3,
+    # Python-side screenshot describer. codex/gpt-5.5 routes through
+    # an existing ChatGPT subscription (no per-call API spend).
+    # OpenRouter alternatives: x-ai/grok-4.3,
     # google/gemini-3.1-flash-lite, perceptron/perceptron-mk1.
     vision_model: str = "codex/gpt-5.5"
-    # Override for the Node browser bridge's own DOM-annotation vision
-    # calls. The bridge hits OpenRouter directly (no Codex auth), so
-    # when ``vision_model`` is set to a non-OpenRouter transport like
-    # ``codex/gpt-5.5``, the bridge can't use it — every call returns
-    # ``400 "{model} is not a valid model ID"``. Two routes here:
-    #   - leave empty → bridge falls back to no-vision DOM mode
-    #     (deterministic extract + elements only); Python-side
-    #     screenshot description still runs through ``vision_model``
-    #     and works fine.
-    #   - set to a known-good OpenRouter vision model (e.g.
-    #     ``perceptron/perceptron-mk1``, ``x-ai/grok-4.3``,
-    #     ``google/gemini-3.1-flash-lite``) → bridge keeps its
-    #     DOM-annotation vision on that model, Python-side stays on
-    #     ``vision_model``.
+    # Override for the Node bridge's own DOM-annotation vision. The
+    # bridge hits OpenRouter directly (no Codex auth), so when
+    # ``vision_model`` is codex/<x> the bridge can't use it. Leave
+    # empty → bridge runs vision-less (deterministic DOM only); set
+    # to an OpenRouter vision model to keep DOM annotation on.
     bridge_vision_model: str = ""
-    profile_refresh_hours: float = (
-        8.0  # 0 = never auto-refresh (agent sessions persist)
-    )
+
+    # ── Validation ──────────────────────────────────────────────────
+    _VALID_TYPES: ClassVar[tuple[str, ...]] = ("local", "cloud")
+
+    def __post_init__(self) -> None:
+        if self.type not in self._VALID_TYPES:
+            raise ValueError(
+                f"browser.type must be one of {self._VALID_TYPES}, "
+                f"got {self.type!r}"
+            )
+        # Mutex enforcement: when cloud is selected, zero the local-
+        # backend fields so they can't silently leak into runtime.
+        if self.type == "cloud":
+            self.local.mode = "fresh"
+            self.local.user_data_dir = ""
+            self.local.cdp_port = 0
+            self.local.cdp_ws_endpoint = ""
+
+    @property
+    def is_remote(self) -> bool:
+        return self.type == "cloud"
 
 
 @dataclass
@@ -1256,10 +1317,10 @@ def _apply_env_overrides(config: Config) -> None:
 
     # In cloud mode: override browser to headless playwright Chromium (no system Chrome)
     if os.environ.get("ELOPHANTO_CLOUD") == "1":
-        config.browser.mode = "fresh"
-        config.browser.headless = True
-        config.browser.use_system_chrome = False
-        config.browser.user_data_dir = "/tmp/elophanto-browser-profile"
+        config.browser.local.mode = "fresh"
+        config.browser.local.headless = True
+        config.browser.local.use_system_chrome = False
+        config.browser.local.user_data_dir = "/tmp/elophanto-browser-profile"
 
 
 def _load_profile(profile_name: str, project_root: Path) -> dict[str, Any]:
@@ -1423,30 +1484,65 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         review_model_override=self_dev_raw.get("review_model_override", ""),
     )
 
-    # Parse browser section
+    # Parse browser section. Nested form (2026-05-27) — backwards-compat
+    # with the old flat layout: if ``local:`` / ``cloud:`` sub-blocks
+    # are missing, read the legacy top-level keys instead. This lets
+    # operator configs that haven't been migrated yet keep working.
     browser_raw = raw.get("browser", {})
+    local_raw = browser_raw.get("local") or {}
+    cloud_raw = browser_raw.get("cloud") or {}
+
+    # Legacy flat-layout fallbacks (only used if the nested block is
+    # absent for the same field).
+    def _b(key: str, default: Any) -> Any:
+        if key in local_raw:
+            return local_raw[key]
+        return browser_raw.get(key, default)
+
+    def _c(key: str, legacy_key: str, default: Any) -> Any:
+        if key in cloud_raw:
+            return cloud_raw[key]
+        return browser_raw.get(legacy_key, default)
+
+    local_config = LocalBrowserConfig(
+        mode=_b("mode", "fresh"),
+        headless=_b("headless", False),
+        user_data_dir=_b("user_data_dir", ""),
+        profile_directory=_b("profile_directory", "Default"),
+        use_system_chrome=_b("use_system_chrome", True),
+        cdp_port=_b("cdp_port", 9222),
+        cdp_ws_endpoint=_b("cdp_ws_endpoint", ""),
+        # Parser bug fixed 2026-05-15: this had been silently using the
+        # 8.0h default, dropping X session cookies on copy-refresh.
+        profile_refresh_hours=_b("profile_refresh_hours", 8.0),
+    )
+    cloud_config = CloudBrowserConfig(
+        api_key=_c("api_key", "browser_use_api_key", ""),
+        proxy_country=_c("proxy_country", "browser_use_proxy_country", ""),
+        endpoint=_c(
+            "endpoint", "browser_use_endpoint", "wss://connect.browser-use.com"
+        ),
+    )
+    # Legacy `backend: local|browser_use_cloud` → new `type: local|cloud`.
+    _legacy_backend = browser_raw.get("backend")
+    if browser_raw.get("type") is not None:
+        _type = browser_raw["type"]
+    elif _legacy_backend == "browser_use_cloud":
+        _type = "cloud"
+    elif _legacy_backend == "local":
+        _type = "local"
+    else:
+        _type = "local"
+
     browser_config = BrowserConfig(
         enabled=browser_raw.get("enabled", False),
-        mode=browser_raw.get("mode", "fresh"),
-        headless=browser_raw.get("headless", False),
-        cdp_port=browser_raw.get("cdp_port", 9222),
-        cdp_ws_endpoint=browser_raw.get("cdp_ws_endpoint", ""),
-        user_data_dir=browser_raw.get("user_data_dir", ""),
-        profile_directory=browser_raw.get("profile_directory", "Default"),
-        use_system_chrome=browser_raw.get("use_system_chrome", True),
+        type=_type,
+        local=local_config,
+        cloud=cloud_config,
         viewport_width=browser_raw.get("viewport_width", 1280),
         viewport_height=browser_raw.get("viewport_height", 720),
         vision_model=browser_raw.get("vision_model", "codex/gpt-5.5"),
         bridge_vision_model=browser_raw.get("bridge_vision_model", ""),
-        # Pre-existing parser bug surfaced 2026-05-15: this field was
-        # missing here, so the operator's config.yaml setting was
-        # silently ignored and the dataclass default (8.0h) was used.
-        # When the auth'd Chrome profile got copy-refreshed on cron
-        # wakeup, X session cookies were dropped — agent landed on a
-        # sign-in screen instead of @EloPhanto's home feed. Setting
-        # ``profile_refresh_hours: 0`` in config.yaml now actually
-        # disables the periodic refresh.
-        profile_refresh_hours=browser_raw.get("profile_refresh_hours", 8.0),
     )
 
     # Parse desktop section
