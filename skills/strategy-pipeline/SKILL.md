@@ -29,17 +29,35 @@ Called by [[drive-business]] PATH B, or directly when the operator asks to plan 
 ### 1. `company_capabilities(<slug>)`
 Audit vault + tools + skills. Writes `capabilities.md`. Returns structured map.
 
-### 2. Gather strategy inputs from operator in chat
-Then `company_set_strategy_inputs(slug, …)` — MODERATE. Fields:
-- `target_audience` (specific, not "businesses")
-- `competitors` (3-5 by name)
-- `current_challenges` / `unique_selling_points`
-- `budget_type` (organic / mixed / paid) + `budget_amount` + `budget_period`
-- `risk_tolerance` (0-100)
-- `primary_goals` (3-5 from: Brand Awareness, Lead Gen, Sales Growth, Retention, Thought Leadership, Community, Content Authority, Market Disruption, Competitive Advantage, AI Search Visibility)
-- `strategy_mode` (standard / unconventional / guerrilla / brand-awareness / controversial)
-- `focus` (full / seo / geo / content / paid / social / email / brand)
-- `timeline_hint`
+### 2. Research, propose recommendations, then capture inputs
+Do NOT ask the operator blank questions. The agent has the research tools to ground every field. Operator's job is approve / modify / override, not fill blanks.
+
+**Research first** (parallel where possible):
+- `browser_navigate(<url>)` + `browser_extract` (homepage, /about, /pricing, /hire, /faq)
+- `web_search('<domain> competitors')` and `web_search('<industry> alternatives 2026')`
+- `company_report(<slug>)` — ledger gaps, pipeline state
+- `file_read companies/<slug>/company.yaml` — declared channels, KPIs
+
+**Propose each field with one-line rationale** in chat as a table:
+
+| Field | Recommended | Rationale |
+|---|---|---|
+| `target_audience` | <derived from homepage + /hire positioning> | <evidence> |
+| `competitors` | <3-5 from web_search> | <industry/category> |
+| `current_challenges` | <from ledger gaps + funnel friction> | <evidence> |
+| `unique_selling_points` | <from homepage value props> | <what only this does> |
+| `primary_goals` | <3-5 from list below> | <inferred from product type> |
+| `strategy_mode` | <one of: standard / unconventional / guerrilla / brand-awareness / controversial> | <from brand tone> |
+| `focus` | <full / seo / geo / content / paid / social / email / brand> | <from active channels> |
+| `budget_type` + `_amount` + `_period` | suggest `organic / 0 / monthly` if no signal | operator-decided |
+| `risk_tolerance` | suggest 50 (balanced) unless brand tone suggests higher | operator-decided |
+| `timeline_hint` | suggest based on stage (e.g. "first paid customer in 30d") | operator-decided |
+
+Valid `primary_goals`: Brand Awareness, Lead Gen, Sales Growth, Retention, Thought Leadership, Community Building, Content Authority, Market Disruption, Competitive Advantage, AI Search Visibility.
+
+Add: *"Approve all, or tell me which to change."*
+
+**After operator confirms/modifies**: `company_set_strategy_inputs(slug, …)` — MODERATE. Uses the operator-approved values.
 
 ### 3. `company_plan(<slug>, override_strategy_mode=…, override_focus=…)`
 Deterministically prepends OPERATIONAL CONTEXT (active schedules + last-7d ledger + prospect funnel + missions) so the strategy covers EVERY surface, not just `what_we_sell`. Writes `strategy/proposed/<timestamp>.yaml`.
