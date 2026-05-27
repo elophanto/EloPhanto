@@ -77,6 +77,13 @@ class CandidateContext:
     # `from_buildable_blockers` can read strategy state without each
     # generator re-opening the filesystem. None disables those sources.
     strategy_manager: Any = None
+    # ToolRegistry handle (2026-05-27 autonomy-loop closer). Lets
+    # `from_buildable_blockers` run `auto_resolve_blockers` against the
+    # live registry to detect which `missing_tool` blockers are
+    # actually closed because the tool now exists. None makes the
+    # sweep degrade gracefully — blockers stay open, generator still
+    # works but doesn't auto-resolve.
+    registry: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -638,10 +645,27 @@ async def from_buildable_blockers(
     `resolution_proposal='build'` and `build_method` set. The mind
     can invoke `self_create_plugin` or `skill_promote` to fill the
     gap. CRITICAL permission gates the actual build, so operator
-    still approves per invocation."""
+    still approves per invocation.
+
+    Defensive sweep at the top (2026-05-27 autonomy-loop closer):
+    `auto_resolve_blockers` checks the current tool registry +
+    installed skills against every company's open blockers and marks
+    matches as resolved before this generator iterates. Closes the
+    case where the operator built the tool manually OR the previous
+    autonomous build already succeeded but the blockers.yaml wasn't
+    updated — without this sweep the same candidate keeps firing.
+    """
     if not ctx.company_manager or not ctx.strategy_manager or not ctx.project_root:
         return []
-    from core.strategy import load_blockers
+    from core.strategy import auto_resolve_blockers, load_blockers
+
+    # Sweep first — never let a stale blocker keep proposing builds
+    # that already shipped. The registry is the source of truth.
+    registry = getattr(ctx, "registry", None)
+    try:
+        auto_resolve_blockers(ctx.project_root, registry=registry, skills_dir=None)
+    except Exception as e:
+        logger.debug("auto_resolve_blockers sweep failed: %s", e)
 
     out: list[Candidate] = []
     try:

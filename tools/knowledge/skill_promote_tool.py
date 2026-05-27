@@ -297,6 +297,23 @@ class SkillPromoteTool(BaseTool):
         except OSError as e:
             return ToolResult(success=False, error=f"Failed to write SKILL.md: {e}")
 
+        # Phase 11 autonomy-loop closer (2026-05-27): the new skill
+        # may have been built specifically to resolve a `missing_skill`
+        # blocker on some company's strategy. Sweep all companies'
+        # blockers.yaml now so the operator sees the resolution
+        # immediately. Best-effort.
+        resolved_summary: dict[str, int] = {}
+        try:
+            from core.strategy import auto_resolve_blockers
+
+            resolved_summary = auto_resolve_blockers(
+                self._project_root,
+                registry=None,
+                skills_dir=self._project_root / "skills",
+            )
+        except Exception as e:
+            logger.debug("auto_resolve_blockers post-skill sweep failed: %s", e)
+
         return ToolResult(
             success=True,
             data={
@@ -305,6 +322,7 @@ class SkillPromoteTool(BaseTool):
                 "lessons_used": len(lesson_texts),
                 "lessons_skipped": skipped,
                 "size_bytes": skill_md.stat().st_size,
+                "auto_resolved_blockers": resolved_summary,
                 "note": (
                     "Skill is now visible to goal_dream next cycle. "
                     "If the synthesis looks off, you can edit SKILL.md "
