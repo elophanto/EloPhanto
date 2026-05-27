@@ -343,6 +343,15 @@ class _State:
     # sidebar panel.
     approvals: list[dict] = field(default_factory=list)
 
+    # COMPANIES panel (ABE Phase 5 — board view). One row per active
+    # ABE company with the headline state operators glance at most:
+    # trust + voice + strategy + blocker count + last-7d net. Active
+    # session marker so the operator's currently-scoped company is
+    # visually obvious. Each row:
+    #   {slug, active: bool, trust: str, voice: 'yes'|'none',
+    #    strategy: 'active'|'none', blockers: int, net_7d: float}
+    companies: list[dict] = field(default_factory=list)
+
     # Ego footer — coherence + mood are read from the agent's ego
     # layer. Shown in the sidebar's permanent footer + the digest.
     ego_coherence: float = 0.0
@@ -816,6 +825,104 @@ class _GoalsPanel(_SidePanel):
         if len(s.goals) > 2:
             extra = len(s.goals) - 2
             lines.append(f"  [{_DIM}]+{extra} more[/]")
+        return "\n".join(lines)
+
+
+class _CompaniesPanel(_SidePanel):
+    """ABE board view (Phase 5).
+
+    One row per active company with the headline state the operator
+    glances at most: trust + voice + strategy + blocker count + net.
+    The whole report (revenue / spend / pipeline / role activity)
+    lives behind `elophanto company report <slug>`; the panel is the
+    "is anything happening" glance.
+
+    Visual budget on a ~30-col sidebar with Textual's border + container
+    padding: ~26 chars of content. Layout per row:
+
+      ● <slug>          (icon + 2 + slug up to 14)        ≈ 18
+        T:O V:Y S:A b3  (compact tags, color-coded)        ≈ 16
+        net 7d:  +$12   (or "-$3" or "$0")                 ≈ 16
+
+    Three lines per company — same shape as _GoalsPanel which already
+    proves operators read multi-line per-entity layouts well in the
+    sidebar. Capped at 4 entries; operators with more companies use
+    `elophanto company list`.
+    """
+
+    GLYPH = "◆"
+    GLYPH_COLOR = "#0891b2"  # cyan — distinguishes from MIND (violet)
+    # and GOALS (green); reads as "structured business state".
+
+    def __init__(self, state: _State) -> None:
+        super().__init__("COMPANIES", state, id="panel-companies")
+
+    def body(self) -> str:
+        s = self._st
+        if not s.companies:
+            return f"  [{_DIM}]· · ·[/]"
+
+        # Trust state → color + initial. The initials are designed
+        # to be unambiguous at a glance: L(earning) / T(rial) /
+        # O(perating). Color tracks the same warmth: red-orange for
+        # learning (gate active), amber for trial, green for operating.
+        trust_color = {
+            "learning": "#ea580c",  # orange — "drafts only"
+            "trial": "#ca8a04",  # amber — "approved per call"
+            "operating": "#16a34a",  # green — "autonomous"
+        }
+        trust_initial = {
+            "learning": "L",
+            "trial": "T",
+            "operating": "O",
+        }
+        voice_render = {
+            "yes": f"[{_OK}]Y[/]",
+            "none": f"[{_DIM}]—[/]",
+        }
+        strategy_render = {
+            "active": f"[{_OK}]A[/]",
+            "none": f"[{_DIM}]—[/]",
+        }
+
+        lines = []
+        for c in s.companies[:4]:
+            slug = str(c.get("slug", "?"))[:14]
+            active = bool(c.get("active"))
+            trust = str(c.get("trust", "learning"))
+            voice = str(c.get("voice", "none"))
+            strategy = str(c.get("strategy", "none"))
+            blockers = int(c.get("blockers", 0))
+            net = float(c.get("net_7d", 0.0))
+
+            # Active indicator: solid dot for active session, open dot
+            # otherwise. Mirrors the _GoalsPanel pattern.
+            icon = f"[{_OK}]●[/]" if active else f"[{_DIM}]○[/]"
+            t_color = trust_color.get(trust, _DIM)
+            t_letter = trust_initial.get(trust, "?")
+            v_render = voice_render.get(voice, voice_render["none"])
+            s_render = strategy_render.get(strategy, strategy_render["none"])
+            b_render = f" [{_WARN}]b{blockers}[/]" if blockers > 0 else ""
+
+            # Net 7-day: green if positive, dim if zero, red if negative.
+            # Operators read net as "is this making money or burning".
+            if net > 0:
+                net_str = f"[{_OK}]+${net:,.0f}[/]"
+            elif net < 0:
+                net_str = f"[red]-${abs(net):,.0f}[/]"
+            else:
+                net_str = f"[{_DIM}]$0[/]"
+
+            lines.append(f"  {icon} [{_BRIGHT}]{slug}[/]")
+            lines.append(
+                f"    T:[{t_color}]{t_letter}[/] "
+                f"V:{v_render} S:{s_render}{b_render}"
+            )
+            lines.append(f"    [{_DIM}]net 7d:[/] {net_str}")
+
+        if len(s.companies) > 4:
+            extra = len(s.companies) - 4
+            lines.append(f"  [{_DIM}]+{extra} more (elophanto company list)[/]")
         return "\n".join(lines)
 
 
@@ -1360,6 +1467,7 @@ class EloPhantoDashboard(App):
                 yield _AgentPanel(self._state)
                 yield _MindPanel(self._state)
                 yield _GoalsPanel(self._state)
+                yield _CompaniesPanel(self._state)
                 yield _SwarmPanel(self._state)
                 yield _SchedulerPanel(self._state)
                 yield _ApprovalsPanel(self._state)
@@ -2346,6 +2454,15 @@ class EloPhantoDashboard(App):
                 a for a in approvals if isinstance(a, dict) and a.get("tool")
             ]
 
+        # Companies (ABE Phase 5 — board view). One row per active
+        # company with: slug, active (current session marker), trust,
+        # voice, strategy, blockers, net_7d.
+        companies = data.get("companies", [])
+        if isinstance(companies, list):
+            s.companies = [
+                c for c in companies if isinstance(c, dict) and c.get("slug")
+            ]
+
         # libp2p peer count for the footer. 0 = decentralized peers
         # disabled or no peers connected.
         try:
@@ -2384,6 +2501,7 @@ class EloPhantoDashboard(App):
             "panel-agent",
             "panel-mind",
             "panel-goals",
+            "panel-companies",
             "panel-swarm",
             "panel-scheduler",
             "panel-approvals",

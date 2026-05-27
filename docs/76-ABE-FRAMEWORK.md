@@ -2148,7 +2148,7 @@ API) and `tests/test_tools/test_company_set_product.py`:
 | 2 — Roles as overlays | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 3 — CRM on existing tables | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 4 — Product config + arbiter rotation | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
-| 5 — Board view | ⬜ not started | ⬜ blocked on verification |
+| 5 — Board view | ✅ done 2026-05-27 | ✅ done 2026-05-27 |
 | 6 — Multi-company isolation hardening | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 7 — Agent self-bootstraps its ABE | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 8 — Chat-driven ABE management | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
