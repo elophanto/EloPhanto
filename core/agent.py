@@ -2071,6 +2071,11 @@ class Agent:
             # which is inside a running asyncio task. Fire the
             # broadcast as a sibling task; we don't await it because
             # the callback is sync and must not block the stream loop.
+            # Soft cap at 4000 chars to keep a single rogue chunk from
+            # blowing up the websocket frame; previously 500 chars but
+            # that truncated normal multi-sentence reasoning blocks —
+            # the dashboard's #reasoning panel has its own scroll, so
+            # full chunks are preserved end-to-end.
             try:
                 from core.protocol import EventType, event_message
 
@@ -2079,7 +2084,7 @@ class Agent:
                         event_message(
                             "",
                             EventType.AGENT_THOUGHT,
-                            {"text": chunk[:500]},
+                            {"text": chunk[:4000]},
                         ),
                         session_id=None,
                     )

@@ -1704,10 +1704,13 @@ class EloPhantoDashboard(App):
                 # chat stays a clean operator ↔ agent transcript.
                 reasoning = self.query_one("#reasoning", RichLog)
                 src_prefix = "[mind] " if source == "scheduled" else ""
+                # No first_line truncation — reasoning panel scrolls,
+                # so the full thought line preserved. Same rationale
+                # as the agent_thought block above.
                 if first_line and len(first_line) > 2:
                     reasoning.write(
                         f"  [{_DIM}]{src_prefix}· {tool_name}[/] "
-                        f"[{_DIM}]— {first_line[:100]}[/]"
+                        f"[{_DIM}]— {first_line}[/]"
                     )
                 else:
                     reasoning.write(f"  [{_DIM}]{src_prefix}· {tool_name}[/]")
@@ -1727,8 +1730,13 @@ class EloPhantoDashboard(App):
             if text:
                 # Moved to #reasoning panel (2026-05-27) so chat-area
                 # autoscroll doesn't bury operator/agent dialogue.
+                # No truncation here — the reasoning panel has its own
+                # scroll, so the full chunk is preserved. (The 300-char
+                # cap from when this lived in #chat was a defensive
+                # measure to limit how much real estate a single
+                # thought consumed in the shared box.)
                 reasoning = self.query_one("#reasoning", RichLog)
-                reasoning.write(f"  [{_DIM}][italic]💭 {text[:300]}[/italic][/]")
+                reasoning.write(f"  [{_DIM}][italic]💭 {text}[/italic][/]")
 
         elif event == "task_complete":
             self._state.current_tool = ""
