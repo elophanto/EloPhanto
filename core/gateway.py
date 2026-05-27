@@ -1833,6 +1833,79 @@ class Gateway:
             else:
                 dashboard["swarm"] = []
 
+            # ABE Companies (Phase 5 — board view). One row per active
+            # company with the headline state operators glance at most:
+            # trust + voice + strategy + blocker count + last-7d net.
+            # Active-session marker so the operator's currently-scoped
+            # company is visually obvious.
+            company_mgr = getattr(self._agent, "_company_manager", None)
+            voice_mgr = getattr(self._agent, "_voice_manager", None)
+            strategy_mgr = getattr(self._agent, "_strategy_manager", None)
+            if company_mgr:
+                try:
+                    from core.company import current_company_id
+
+                    active_slug = current_company_id()
+                    companies = await company_mgr.list()
+                    company_rows: list[dict[str, Any]] = []
+                    for c in companies:
+                        if c.status != "active":
+                            continue
+                        # Voice + strategy lookups are cheap — VoiceManager
+                        # / StrategyManager just check file existence.
+                        voice_yes = False
+                        try:
+                            if voice_mgr is not None:
+                                voice_yes = voice_mgr.get(c.id) is not None
+                        except Exception:
+                            pass
+                        strategy_active = False
+                        blockers = 0
+                        try:
+                            if strategy_mgr is not None:
+                                strategy_active = strategy_mgr.has_active(c.id)
+                                if strategy_active:
+                                    blockers = strategy_mgr.blocker_count(c.id)
+                        except Exception:
+                            pass
+                        # Last-7d net (revenue in − spend out) for the
+                        # one number that says "is this moving"
+                        net_7d = 0.0
+                        try:
+                            db = getattr(self._agent, "_db", None)
+                            if db is not None:
+                                rows = await db.execute(
+                                    "SELECT direction, SUM(amount) AS total "
+                                    "FROM resource_ledger "
+                                    "WHERE company_id = ? AND type = 'usd' "
+                                    "AND date(ts) >= date('now', '-7 days') "
+                                    "GROUP BY direction",
+                                    (c.id,),
+                                )
+                                for r in rows:
+                                    if r["direction"] == "in":
+                                        net_7d += float(r["total"] or 0)
+                                    else:
+                                        net_7d -= float(r["total"] or 0)
+                        except Exception:
+                            pass
+                        company_rows.append(
+                            {
+                                "slug": c.id,
+                                "active": c.id == active_slug,
+                                "trust": c.trust_state,
+                                "voice": "yes" if voice_yes else "none",
+                                "strategy": "active" if strategy_active else "none",
+                                "blockers": blockers,
+                                "net_7d": round(net_7d, 2),
+                            }
+                        )
+                    dashboard["companies"] = company_rows
+                except Exception:
+                    dashboard["companies"] = []
+            else:
+                dashboard["companies"] = []
+
             # Connected channels
             dashboard["channels"] = [
                 {

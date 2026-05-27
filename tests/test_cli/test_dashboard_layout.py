@@ -82,6 +82,102 @@ class TestPanelRendering:
         # longer the verbose "wakes in" prefix (cut for sidebar fit).
         assert any(unit in body for unit in ("m", "s", "h"))
 
+    def test_companies_empty_renders_quiet_placeholder(self) -> None:
+        from cli.dashboard.app import _CompaniesPanel, _State
+
+        body = _CompaniesPanel(_State()).body()
+        assert "·" in body and "no" not in body.lower()
+
+    def test_companies_renders_trust_voice_strategy(self) -> None:
+        from cli.dashboard.app import _CompaniesPanel, _State
+
+        s = _State()
+        s.companies = [
+            {
+                "slug": "elophanto-self",
+                "active": True,
+                "trust": "operating",
+                "voice": "yes",
+                "strategy": "active",
+                "blockers": 0,
+                "net_7d": 12.5,
+            },
+        ]
+        body = _CompaniesPanel(s).body()
+        assert "elophanto-self" in body
+        # Compact tags
+        assert "T:" in body and "V:" in body and "S:" in body
+        # Active state → green initial O (operating)
+        assert "O" in body and "Y" in body and "A" in body
+        # Net is positive → +$ form
+        assert "+$" in body and "12" in body  # 12.5 truncates to 12 via f"{:,.0f}"
+
+    def test_companies_blockers_render_as_warning(self) -> None:
+        from cli.dashboard.app import _CompaniesPanel, _State
+
+        s = _State()
+        s.companies = [
+            {
+                "slug": "acme-inc",
+                "active": False,
+                "trust": "learning",
+                "voice": "none",
+                "strategy": "active",
+                "blockers": 3,
+                "net_7d": 0,
+            },
+        ]
+        body = _CompaniesPanel(s).body()
+        # learning → L initial, voice none → dash, blockers → b3 marker
+        assert "L" in body and "b3" in body
+        # Net zero renders as $0 (dim), not +$0 or -$0
+        assert "$0" in body
+
+    def test_companies_negative_net_renders_red(self) -> None:
+        from cli.dashboard.app import _CompaniesPanel, _State
+
+        s = _State()
+        s.companies = [
+            {
+                "slug": "co-loss",
+                "active": False,
+                "trust": "trial",
+                "voice": "yes",
+                "strategy": "none",
+                "blockers": 0,
+                "net_7d": -45.50,
+            },
+        ]
+        body = _CompaniesPanel(s).body()
+        # Negative net renders with leading "-$" (no double-negative)
+        assert "-$" in body and "+$" not in body
+        # Trust trial → T initial
+        assert "T:" in body
+        # Strategy none → dash, no blockers shown
+        assert "b" not in body.lower().split("net")[0].replace("blockers", "")
+
+    def test_companies_caps_at_four_with_more_footer(self) -> None:
+        from cli.dashboard.app import _CompaniesPanel, _State
+
+        s = _State()
+        s.companies = [
+            {
+                "slug": f"co-{i}",
+                "active": False,
+                "trust": "learning",
+                "voice": "none",
+                "strategy": "none",
+                "blockers": 0,
+                "net_7d": 0,
+            }
+            for i in range(6)
+        ]
+        body = _CompaniesPanel(s).body()
+        # 4 shown explicitly, then a "+2 more" footer
+        assert "co-0" in body and "co-3" in body
+        assert "co-5" not in body
+        assert "+2 more" in body
+
     def test_goals_empty_renders_quiet_placeholder(self) -> None:
         from cli.dashboard.app import _GoalsPanel, _State
 
