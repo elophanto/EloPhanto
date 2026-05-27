@@ -412,6 +412,229 @@ class CompanyResumeTool(_CompanyToolBase):
         return ToolResult(success=True, data={"slug": slug, "status": "active"})
 
 
+class CompanyArchiveTool(_CompanyToolBase):
+    """Soft-delete a company. Sets status='archived' — hidden from
+    the board view, dream phase, candidate generators, and per-cycle
+    company iteration. Reversible via `company_resume` (flips back to
+    active). Use when a business is shut down or paused indefinitely
+    but the historical data (ledger, prospects, drafts, goals) is
+    worth keeping for audit.
+
+    For HARD DELETE that wipes the company + all its rows + all its
+    files, use `company_purge` (CRITICAL permission). Archive is the
+    safe default — almost always what an operator means by "delete".
+    """
+
+    @property
+    def name(self) -> str:
+        return "company_archive"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Soft-delete an ABE company: status → 'archived'. Hidden "
+            "from board, dream phase, and arbiter candidate sources. "
+            "Reversible via company_resume. Historical data preserved. "
+            "For hard delete + cascade wipe use `company_purge`."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {"slug": {"type": "string"}},
+            "required": ["slug"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        # DESTRUCTIVE — reversible but the operator should approve
+        # explicitly. Removing a company from the board is a real
+        # state change with downstream impact on autonomous behavior.
+        return PermissionLevel.DESTRUCTIVE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        gate = self._check_ready()
+        if gate is not None:
+            return gate
+        slug = str(params.get("slug", "")).strip()
+        if not slug:
+            return ToolResult(success=False, error="slug is required")
+        # Refuse the seed company — accidentally archiving
+        # `elophanto-self` would break every production schedule.
+        if slug == "elophanto-self":
+            return ToolResult(
+                success=False,
+                error=(
+                    "Refusing to archive 'elophanto-self' — that's the "
+                    "agent's own ABE. If you truly mean to retire it, "
+                    "pause it first and confirm intent in chat."
+                ),
+            )
+        ok = await self._company_manager.set_status(slug, "archived")
+        if not ok:
+            return ToolResult(success=False, error=f"No such company: {slug}")
+        return ToolResult(
+            success=True,
+            data={
+                "slug": slug,
+                "status": "archived",
+                "next": (
+                    f"Company '{slug}' archived. Run `company_resume "
+                    "{slug}` to bring it back to active, or "
+                    "`company_purge` for hard delete."
+                ),
+            },
+        )
+
+
+class CompanyPurgeTool(_CompanyToolBase):
+    """Hard delete a company. Drops the row from `companies` AND
+    cascade-deletes every dependent row across resource_ledger /
+    goals / missions / scheduled_tasks / prospects / email_log /
+    outreach_log / payment_audit / payment_requests AND removes the
+    on-disk artifacts at `companies/<slug>/` + `data/companies/<slug>/`.
+
+    Irreversible. Use only when:
+      - The company was a mistake (typo, test artifact).
+      - You're sure no historical data is worth keeping.
+
+    For shutting down a real business while keeping audit trail, use
+    `company_archive` instead.
+    """
+
+    @property
+    def name(self) -> str:
+        return "company_purge"
+
+    @property
+    def description(self) -> str:
+        return (
+            "HARD DELETE an ABE company + cascade through every "
+            "dependent table + remove on-disk artifacts. Irreversible. "
+            "Use `company_archive` for the safe reversible default."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string"},
+                "confirm": {
+                    "type": "boolean",
+                    "description": (
+                        "Must be exactly true. A second guard against "
+                        "accidental purge — even with CRITICAL approval, "
+                        "the operator's intent must include this flag."
+                    ),
+                },
+            },
+            "required": ["slug", "confirm"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.CRITICAL
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        gate = self._check_ready()
+        if gate is not None:
+            return gate
+        if self._db is None or self._project_root is None:
+            return ToolResult(
+                success=False,
+                error="company_purge needs db + project_root",
+            )
+        slug = str(params.get("slug", "")).strip()
+        if not slug:
+            return ToolResult(success=False, error="slug is required")
+        if not bool(params.get("confirm")):
+            return ToolResult(
+                success=False,
+                error=(
+                    "company_purge: pass `confirm: true` to acknowledge "
+                    "this is irreversible. (CRITICAL approval alone is "
+                    "not enough — this flag is a deliberate-intent check.)"
+                ),
+            )
+        if slug == "elophanto-self":
+            return ToolResult(
+                success=False,
+                error=(
+                    "Refusing to purge 'elophanto-self' — that's the "
+                    "agent's own ABE; purging it would orphan the entire "
+                    "production substrate. Archive it instead if you "
+                    "really mean to retire."
+                ),
+            )
+
+        company = await self._company_manager.get(slug)
+        if company is None:
+            return ToolResult(success=False, error=f"No such company: {slug}")
+
+        # Cascade across every table that carries company_id.
+        cascade_tables = (
+            "resource_ledger",
+            "goals",
+            "missions",
+            "scheduled_tasks",
+            "prospects",
+            "outreach_log",
+            "email_log",
+            "payment_audit",
+            "payment_requests",
+            "sessions",
+            "llm_usage",
+        )
+        deleted: dict[str, int] = {}
+        for table in cascade_tables:
+            try:
+                rows = await self._db.execute(
+                    f"SELECT COUNT(*) AS n FROM {table} WHERE company_id = ?",
+                    (slug,),
+                )
+                n = int(rows[0]["n"]) if rows else 0
+                if n > 0:
+                    await self._db.execute_insert(
+                        f"DELETE FROM {table} WHERE company_id = ?", (slug,)
+                    )
+                deleted[table] = n
+            except Exception:
+                # Table might not exist on older schemas; skip rather
+                # than abort. The companies row itself still gets deleted.
+                deleted[table] = -1
+
+        # Delete the companies row itself
+        await self._db.execute_insert("DELETE FROM companies WHERE id = ?", (slug,))
+
+        # Filesystem: companies/<slug>/ + data/companies/<slug>/
+        import shutil
+
+        fs_removed: list[str] = []
+        for sub in ("companies", "data/companies"):
+            target = self._project_root / sub / slug
+            if target.is_dir():
+                try:
+                    shutil.rmtree(target)
+                    fs_removed.append(str(target))
+                except Exception:
+                    pass
+
+        return ToolResult(
+            success=True,
+            data={
+                "slug": slug,
+                "deleted_rows": deleted,
+                "fs_removed": fs_removed,
+                "next": (
+                    f"Company '{slug}' purged. All rows + files gone. "
+                    "If this was a mistake, restore from git or backup."
+                ),
+            },
+        )
+
+
 # Convenience timestamp for any tool that needs "now" formatting
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()

@@ -253,10 +253,12 @@ class ToolRegistry:
         # Phase 8: six management tools so the operator can drive ABE
         # from chat without remembering CLI syntax.
         from tools.companies import (
+            CompanyArchiveTool,
             CompanyCreateTool,
             CompanyListTool,
             CompanyOnboardTool,
             CompanyPauseTool,
+            CompanyPurgeTool,
             CompanyReportTool,
             CompanyResumeTool,
             CompanySetProductTool,
@@ -271,6 +273,12 @@ class ToolRegistry:
         self.register(CompanyUseTool())
         self.register(CompanyPauseTool())
         self.register(CompanyResumeTool())
+        # Phase 5 follow-on (2026-05-27): board view exposed the
+        # absence of a delete path — operator naturally wants to
+        # remove a company they see listed. Two tools: archive
+        # (soft, reversible, DESTRUCTIVE) and purge (hard, CRITICAL).
+        self.register(CompanyArchiveTool())
+        self.register(CompanyPurgeTool())
 
         # Role management tools (ABE Phase 8) — chat-callable
         # equivalents of `elophanto role …` CLI commands.
