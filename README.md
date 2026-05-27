@@ -16,10 +16,6 @@
   <a href="https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump"><img src="https://img.shields.io/badge/Pump.fun-%24ELO-orange" alt="$ELO on Pump.fun"></a>
 </p>
 
-<p align="center">
-  <code>$ELO</code> CA on Solana: <a href="https://pump.fun/coin/BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump"><code>BwUgJBQffm4HM49W7nsMphStJm4DbA5stuo4w7iwpump</code></a>
-</p>
-
 An open-source **autonomous** AI agent that builds businesses, grows audiences, ships code, and makes money — while you sleep. Tell it what you want. It figures out the rest: validates the market, builds the product, deploys it live, launches on the right platforms, spawns a marketing team, and keeps growing autonomously. When it hits something it can't do, it builds the tool. When tasks get complex, it clones itself into specialists. It gets better every time you use it.
 
 Runs locally. Your data stays on your machine. Works with OpenAI, Kimi, free local models, Z.ai, OpenRouter, HuggingFace, or your ChatGPT Plus/Pro subscription (via Codex OAuth).
