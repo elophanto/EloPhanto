@@ -2135,6 +2135,11 @@ class Agent:
             "company_use",
             "company_pause",
             "company_resume",
+            # Phase 5 follow-on (2026-05-27): archive (soft delete) +
+            # purge (hard delete + cascade) — both need db +
+            # company_manager + project_root via the _CompanyToolBase.
+            "company_archive",
+            "company_purge",
             # ABE Phase 9 — draft tools need _project_root; trust_set
             # needs _company_manager. hasattr() guards handle the
             # per-tool attribute set so we don't have to list which
