@@ -68,6 +68,13 @@ class TestAbeAgentInitialization:
             "company_use",
             "company_pause",
             "company_resume",
+            # Phase 5 follow-on — 2026-05-27 live test caught the
+            # injection-list omission: archive + purge returned
+            # "not initialized" because they weren't in
+            # _inject_company_deps's tuple. This row is the
+            # regression test.
+            "company_archive",
+            "company_purge",
         )
         for tool_name in company_tools:
             tool = agent._registry.get(tool_name)
