@@ -37,12 +37,11 @@ logs/
 /data/
 *.db
 
-# Per-company operational artifacts under the source dir.
-# `companies/<slug>/company.yaml` is the product config (committed).
-# Drafts (Phase 9) + exemplars (Phase 10) are operator-private runtime
-# state — keep on disk but out of version control.
-companies/*/drafts/
-companies/*/exemplars/
+# Per-company operational artifacts — ENTIRELY operator-private.
+# Every operator's `companies/<slug>/` (product config, drafts,
+# exemplars, …) is local runtime state. Nothing under this tree
+# is source-controlled; the directory is created on first use.
+companies/
 
 # Agent-generated knowledge (instance-specific, except base templates)
 knowledge/*
