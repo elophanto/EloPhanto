@@ -15,12 +15,12 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
-  Palette,
   Plus,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/components/theme-provider";
+import { ThemeSelect } from "@/components/layout/ThemeSelect";
+import { AgentCore } from "@/components/agent/AgentCore";
 import { useConnectionStore } from "@/stores/connection";
 import { useNavigationStore, type Page } from "@/stores/navigation";
 import { useChatStore } from "@/stores/chat";
@@ -61,7 +61,6 @@ const navItems: {
 ];
 
 export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
-  const { themeDef, cycleTheme } = useTheme();
   const status = useConnectionStore((s) => s.status);
   const activePage = useNavigationStore((s) => s.activePage);
   const navigate = useNavigationStore((s) => s.navigate);
@@ -107,13 +106,9 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
         style={{ width: 200, height: 200, top: -80, left: -80 }}
       />
 
-      {/* Logo */}
+      {/* Logo — the living agent core doubles as the brand mark */}
       <div className="flex h-16 items-center gap-3 px-4">
-        <img
-          src="/logo.webp"
-          alt="EloPhanto"
-          className="size-8 shrink-0 rounded-md"
-        />
+        <AgentCore size={34} className="shrink-0" />
         {!collapsed && (
           <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/80">
             EloPhanto
@@ -221,21 +216,8 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
 
         <Separator className="opacity-50" />
 
-        {/* Theme cycle — quick-switch templates; full picker in Settings */}
-        <Button
-          variant="ghost"
-          size={collapsed ? "icon-xs" : "sm"}
-          onClick={cycleTheme}
-          title="Cycle theme (full picker in Settings)"
-          className="w-full justify-start gap-2"
-        >
-          <Palette className="size-3.5" />
-          {!collapsed && (
-            <span className="font-mono text-[10px] uppercase tracking-[0.1em]">
-              {themeDef.label}
-            </span>
-          )}
-        </Button>
+        {/* Theme picker — dropdown of all templates */}
+        <ThemeSelect collapsed={collapsed} />
 
         {/* Collapse toggle */}
         <Button

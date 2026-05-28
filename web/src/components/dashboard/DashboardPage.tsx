@@ -13,15 +13,21 @@ import {
 import { cn } from "@/lib/utils";
 import { useDataStore } from "@/stores/data";
 import { useConnectionStore } from "@/stores/connection";
+import { useActivityStore } from "@/stores/activity";
+import { AgentCore } from "@/components/agent/AgentCore";
 import { Badge } from "@/components/ui/badge";
 
 export function DashboardPage() {
   const { dashboard, dashboardLoading, fetchDashboard } = useDataStore();
   const status = useConnectionStore((s) => s.status);
+  const latestActivity = useActivityStore((s) => s.latest);
 
   useEffect(() => {
     if (status === "connected") {
       fetchDashboard();
+      // Keep the command-center live without a manual refresh.
+      const id = setInterval(fetchDashboard, 10000);
+      return () => clearInterval(id);
     }
   }, [status, fetchDashboard]);
 
@@ -66,8 +72,25 @@ export function DashboardPage() {
             </span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <MindCard mind={dashboard.mind} />
+          <>
+            {/* Living core — the agent's presence, reacting to state */}
+            <div className="mb-6 flex flex-col items-center justify-center gap-3 py-6">
+              <AgentCore size={128} showLabel />
+              <div className="text-center">
+                <p className="font-mono text-sm uppercase tracking-[0.2em]">
+                  {dashboard.identity?.display_name || "EloPhanto"}
+                </p>
+                {latestActivity?.label && (
+                  <p className="mt-1 font-mono text-[10px] text-muted-foreground/60">
+                    {latestActivity.label}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              <LiveActivityCard />
+              <MindCard mind={dashboard.mind} />
             <GoalsCard goals={dashboard.goals} />
             <StatsCard stats={dashboard.stats} />
             <ScheduleCard schedules={dashboard.schedules} />
@@ -79,7 +102,8 @@ export function DashboardPage() {
                   capabilities={dashboard.identity.capabilities}
                 />
               )}
-          </div>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -412,6 +436,47 @@ function CapabilitiesCard({ capabilities }: { capabilities: string[] }) {
 }
 
 // --- Shared sub-components ---
+
+function LiveActivityCard() {
+  const recent = useActivityStore((s) => s.recent);
+  const items = recent.slice(-8).reverse();
+  return (
+    <DashboardCard
+      icon={Activity}
+      title="Live Activity"
+      subtitle={items.length ? "streaming" : "idle"}
+    >
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground/60">
+          No recent activity — actions stream here as the agent works.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((a, i) => (
+            <div key={`${a.at}-${i}`} className="flex items-start gap-2">
+              <span
+                className={cn(
+                  "mt-1 size-1.5 shrink-0 rounded-full",
+                  a.kind === "mind" ? "bg-primary" : "bg-emerald-500",
+                )}
+              />
+              <div className="min-w-0 flex-1">
+                <span className="font-mono text-[11px] text-foreground/90">
+                  {a.label || "—"}
+                </span>
+                {a.detail && (
+                  <p className="truncate font-mono text-[10px] text-muted-foreground/60">
+                    {a.detail}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </DashboardCard>
+  );
+}
 
 function DashboardCard({
   icon: Icon,
