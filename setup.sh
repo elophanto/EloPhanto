@@ -181,6 +181,18 @@ if command -v node &>/dev/null && [ -f "bridge/browser/package.json" ]; then
     fi
 fi
 
+# Install web dashboard deps if Node.js is available, so `./start.sh --web`
+# works on a fresh clone (web/node_modules is gitignored). Check for the
+# vite binary specifically — a bare node_modules dir can be incomplete.
+if command -v node &>/dev/null && [ -f "web/package.json" ]; then
+    if [ ! -x "web/node_modules/.bin/vite" ]; then
+        _spin "Installing web dashboard deps" bash -c 'cd web && npm install --silent' || \
+            echo "  ⚠ web dashboard deps failed — run 'cd web && npm install' before ./start.sh --web"
+    else
+        echo "  ✓ Web dashboard deps (already installed)"
+    fi
+fi
+
 # ── First-time setup ──
 
 # Create HEARTBEAT.md if it doesn't exist
