@@ -1,0 +1,63 @@
+# Mocha — a soothing dark pastel palette.
+#
+# Mauve is the accent — it lands right on EloPhanto's brand violet,
+# so the ◆ mark and cursor feel native rather than recolored. Warm
+# pastel status colors on a deep, low-glare background.
+#
+# Apply:  elophanto chat --theme mocha
+#    or:  dashboard.theme: mocha   (in config.yaml)
+
+name: mocha
+description: "Soothing dark pastel — Mauve accent, low-glare background"
+dark: true
+
+colors:
+  # Surfaces — layered darks. Base is the canvas, the sidebar recedes,
+  # the header + input bar lift.
+  background:  "#1e1e2e"   # Base — main canvas
+  surface:     "#181825"   # sidebar (recessed)
+  raised:      "#313244"   # header + input bar (lifted)
+  border:      "#45475a"   # dividers
+
+  # Text — soft neutrals.
+  foreground:  "#cdd6f4"   # body
+  bright:      "#f5e0dc"   # emphasized values (warm white)
+  muted:       "#a6adc8"   # labels, dim copy
+  placeholder: "#6c7086"   # input placeholder
+
+  # Brand + intent — Mauve accent matches EloPhanto's violet ◆.
+  accent:      "#cba6f7"   # primary accent — mauve
+  accent_alt:  "#b4befe"   # secondary glyphs — lavender
+  success:     "#a6e3a1"   # green — OK / running
+  warning:     "#f9e2af"   # yellow — caution / needs attention
+  error:       "#f38ba8"   # red — failures
+  info:        "#89b4fa"   # blue — working / in-progress
+
+# Same panel order as default — a recolor; the information
+# architecture that makes progress legible stays put.
+layout:
+  sidebar_width: 28
+  sidebar:
+    - mascot
+    - agent
+    - mind
+    - goals
+    - companies
+    - swarm
+    - scheduler
+    - approvals
+    - gateway
+    - footer
+  main:
+    - chat
+    - reasoning
+    - events
+    - input
+  panels:
+    reasoning:
+      default_size: medium
+    mascot:
+      hidden: false
+
+typography:
+  chat_padding: [0, 1]

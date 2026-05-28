@@ -86,6 +86,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 64 | [Polymarket](64-POLYMARKET.md) | Official Polymarket skill — prediction market trading on Polygon (CLOB API, orderbook, GTC/GTD/FOK/FAK orders, WebSocket, CTF, gasless) |
 | 65 | [Pump.fun Livestream](65-PUMPFUN-LIVESTREAM.md) | End-to-end pump.fun streaming from chat — WHIP/RTMP via LiveKit, voice mode (TTS via FIFO), on-stream captions, livechat Socket.IO, ffmpeg supervisor with IPv6 failover |
 | 66 | [Kid Agents](66-KID-AGENTS.md) | Sandboxed child EloPhanto in hardened Docker containers — `--cap-drop=ALL`, read-only rootfs, non-root uid 10001, no host bind-mounts (named volume only), default-empty vault scope, sync request/response via gateway hook |
+| 79 | [Dashboard Themes](79-DASHBOARD-THEMES.md) | YAML-declared, user-extensible terminal themes — colors + layout slots + dark/light, `extends` inheritance, `elophanto themes` CLI, built-in default / nocturne / mocha |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 

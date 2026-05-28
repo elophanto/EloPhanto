@@ -698,8 +698,32 @@ def _try_unlock_vault(agent: Any) -> None:
     default="",
     help="Distribution profile (developer, marketer, researcher, trader, minimal)",
 )
-def chat_cmd(config_path: str | None, debug: bool, direct: bool, profile: str) -> None:
+@click.option(
+    "--theme",
+    "theme_name",
+    type=str,
+    default=None,
+    help=(
+        "Dashboard theme name (overrides dashboard.theme in config.yaml). "
+        "Run `elophanto themes list` to see what's available."
+    ),
+)
+def chat_cmd(
+    config_path: str | None,
+    debug: bool,
+    direct: bool,
+    profile: str,
+    theme_name: str | None,
+) -> None:
     """Start an interactive chat session with EloPhanto."""
+    # Theme override goes through an env var because CLIAdapter is
+    # constructed deep inside chat_cmd's adapter-startup sequence and
+    # it threads through several layers. Env var is the path of least
+    # resistance and matches how other dashboard flags reach run_dashboard.
+    if theme_name:
+        import os as _os
+
+        _os.environ["ELOPHANTO_DASHBOARD_THEME"] = theme_name
     import signal
 
     setup_logging(debug=debug)

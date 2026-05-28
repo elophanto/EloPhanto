@@ -57,6 +57,14 @@ _TOPICS: dict[str, tuple[str, list[tuple[str, str]]]] = {
                 "elophanto init edit autonomous_mind",
                 "Self-driving loop budget + cadence",
             ),
+            (
+                "elophanto themes list / show / init / validate",
+                "Dashboard themes — fork the look, share with other operators",
+            ),
+            (
+                "elophanto chat --theme <name>",
+                "One-off override of dashboard.theme",
+            ),
             ("elophanto config show", "Print effective merged config"),
             ("elophanto config migrate", "Patch config.yaml with new-version sections"),
             ("elophanto bootstrap", "Generate knowledge/system/ starter docs"),

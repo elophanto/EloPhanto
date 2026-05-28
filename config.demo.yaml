@@ -594,3 +594,13 @@ dashboard:
   # cli/dashboard/mascot.py. Disable if you find it noisy on small
   # terminals.
   mascot_enabled: true
+
+  # Active dashboard theme. Built-in: "default" (warm paper-cream).
+  # Drop a YAML file at ~/.elophanto/themes/<name>.yaml to ship your
+  # own and reference it here. List / inspect / scaffold with:
+  #   elophanto themes list
+  #   elophanto themes show <name>
+  #   elophanto themes init <name>
+  # Override at startup with `elophanto chat --theme <name>`.
+  # See docs/79-DASHBOARD-THEMES.md.
+  theme: default
