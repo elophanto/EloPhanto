@@ -47,6 +47,8 @@ interface ChatStore {
   messages: Message[];
   approvalRequests: ApprovalRequest[];
   activeToolSteps: ToolStep[];
+  /** Live chain-of-thought for the current turn (agent_thought chunks). */
+  reasoning: string;
   sessionId: string | null;
   isAgentTyping: boolean;
   historyLoaded: boolean;
@@ -62,6 +64,8 @@ interface ChatStore {
   respondToApproval: (requestId: string, approved: boolean) => void;
   addToolStep: (step: ToolStep) => void;
   clearToolSteps: () => void;
+  appendReasoning: (chunk: string) => void;
+  clearReasoning: () => void;
   addSystemMessage: (content: string) => void;
   clearMessages: () => void;
   setSessionId: (id: string) => void;
@@ -82,6 +86,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   messages: [],
   approvalRequests: [],
   activeToolSteps: [],
+  reasoning: "",
   sessionId: null,
   isAgentTyping: false,
   historyLoaded: false,
@@ -113,6 +118,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       messages: [...s.messages, userMsg, agentMsg],
       isAgentTyping: true,
       activeToolSteps: [],
+      reasoning: "", // fresh chain-of-thought for the new turn
     }));
   },
 
@@ -174,6 +180,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   clearToolSteps: () => set({ activeToolSteps: [] }),
+
+  appendReasoning: (chunk) =>
+    set((s) => ({
+      // Cap to keep the buffer bounded on very long turns.
+      reasoning: (s.reasoning + chunk).slice(-12000),
+    })),
+  clearReasoning: () => set({ reasoning: "" }),
 
   addSystemMessage: (content) => {
     set((s) => ({
