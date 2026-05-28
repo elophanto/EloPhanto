@@ -261,8 +261,8 @@ def _apply_palette(theme: Theme) -> None:
     # theme switching one-way). _SIDEBAR_PANELS is populated at the
     # bottom of this module; empty during early import is harmless.
     for ctor in list(_SIDEBAR_PANELS.values()):
-        token = getattr(ctor, "_GLYPH_TOKEN", None)
-        if token in token_value:
+        token = ctor._GLYPH_TOKEN
+        if token is not None and token in token_value:
             ctor.GLYPH_COLOR = token_value[token]
 
 
@@ -490,6 +490,10 @@ class _SidePanel(Static):
     # attention. Picked to read as quiet typography rather than emoji.
     GLYPH = "◆"
     GLYPH_COLOR = "#7c3aed"  # _MIND violet by default
+    # Semantic token name for GLYPH_COLOR, captured at registration so
+    # `_apply_palette` can re-tint glyphs per theme. None until the
+    # panel is registered via `_register_panel`. See `_apply_palette`.
+    _GLYPH_TOKEN: str | None = None
 
     def __init__(self, title: str, state: _State, **kwargs: Any) -> None:
         super().__init__(markup=True, **kwargs)
@@ -1348,10 +1352,15 @@ class _Header(Static):
 # `cli/dashboard/theme.SIDEBAR_PANEL_NAMES`. Adding a new panel: add
 # it here, add its name to SIDEBAR_PANEL_NAMES, and reference it from
 # at least the default theme's `layout.sidebar`.
-_SIDEBAR_PANELS: dict[str, type] = {}
+# Registered sidebar-panel classes. Typed as `type[_SidePanel]` so the
+# glyph attributes (`GLYPH_COLOR`, `_GLYPH_TOKEN`) the palette mutates
+# resolve cleanly. The concrete panels all override `__init__(self,
+# state)`, but mypy only sees the base `(title, state)` signature — the
+# single construction call carries a targeted ignore for that variance.
+_SIDEBAR_PANELS: dict[str, type[_SidePanel]] = {}
 
 
-def _register_panel(name: str, ctor: type) -> None:
+def _register_panel(name: str, ctor: type[_SidePanel]) -> None:
     """Register a sidebar panel constructor by stable name.
 
     Captures the panel's import-time GLYPH_COLOR literal as a semantic
@@ -1359,8 +1368,10 @@ def _register_panel(name: str, ctor: type) -> None:
     theme — including switching back to default — without depending on
     the current (possibly already-themed) GLYPH_COLOR value.
     """
-    literal = getattr(ctor, "GLYPH_COLOR", None)
-    ctor._GLYPH_TOKEN = _GLYPH_LITERAL_TO_TOKEN.get(literal)  # type: ignore[attr-defined]
+    literal = ctor.GLYPH_COLOR
+    ctor._GLYPH_TOKEN = (
+        _GLYPH_LITERAL_TO_TOKEN.get(literal) if isinstance(literal, str) else None
+    )
     _SIDEBAR_PANELS[name] = ctor
 
 
@@ -1469,7 +1480,9 @@ class EloPhantoDashboard(App):
                     if ctor is None:
                         # Should be caught by validator; defensive.
                         continue
-                    yield ctor(self._state)
+                    # Concrete panels override __init__(self, state);
+                    # mypy only sees the base (title, state) signature.
+                    yield ctor(self._state)  # type: ignore[call-arg, arg-type]
             with Vertical(id="main-area"):
                 for name in layout.main:
                     yield from self._build_main_widget(name)
