@@ -111,21 +111,36 @@ if [ "$1" = "--web" ]; then
         echo "   Install Node 20+ LTS from https://nodejs.org/ and re-run."
         exit 1
     fi
-    # Check for the vite binary specifically — a bare node_modules dir
-    # can exist but be incomplete (partial / interrupted install), which
-    # is exactly what produces 'Cannot find module .../vite/dist/node/cli.js'.
-    if [ ! -x "$WEB_DIR/node_modules/.bin/vite" ]; then
-        echo "Web dashboard dependencies missing or incomplete. Installing..."
-        if ! (cd "$WEB_DIR" && npm install); then
-            echo "❌ npm install failed in web/. Fix the error above and re-run."
-            exit 1
+    # vite 6 needs Node 18+. An older Node is a common cause of a
+    # broken install that then fails at runtime.
+    NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+    if [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
+        echo "❌ Node $(node -v) is too old — the web dashboard (vite 6) needs Node 18+."
+        echo "   Install Node 20+ LTS from https://nodejs.org/ and re-run."
+        exit 1
+    fi
+
+    # Verify vite ACTUALLY RUNS, not just that a symlink exists. A
+    # partial / cross-machine / interrupted node_modules leaves the
+    # .bin/vite symlink in place while vite/dist/node/cli.js is missing
+    # — which is exactly the 'Cannot find module …/vite/dist/node/cli.js'
+    # error. So we run `vite --version` and, if it fails, do a CLEAN
+    # reinstall (npm ci wipes node_modules and rebuilds from the
+    # committed package-lock.json — the reproducible, self-healing path).
+    web_vite_ok() { (cd "$WEB_DIR" && ./node_modules/.bin/vite --version >/dev/null 2>&1); }
+    if ! web_vite_ok; then
+        echo "Web dashboard deps missing or broken — reinstalling (clean)..."
+        if [ -f "$WEB_DIR/package-lock.json" ]; then
+            (cd "$WEB_DIR" && npm ci) || (cd "$WEB_DIR" && rm -rf node_modules && npm install)
+        else
+            (cd "$WEB_DIR" && rm -rf node_modules && npm install)
         fi
     fi
-    # Final guard: if vite still isn't resolvable, bail with a clear hint
-    # instead of letting npx fail with a cryptic module-not-found.
-    if [ ! -x "$WEB_DIR/node_modules/.bin/vite" ]; then
-        echo "❌ vite is still not installed after npm install."
-        echo "   Try: rm -rf web/node_modules && (cd web && npm install)"
+    if ! web_vite_ok; then
+        echo "❌ vite still won't run after a clean reinstall."
+        echo "   Node: $(node -v)  npm: $(npm -v)"
+        echo "   Try manually:  cd web && rm -rf node_modules package-lock.json && npm install"
+        echo "   Then paste the npm output here if it still fails."
         exit 1
     fi
 
