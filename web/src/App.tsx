@@ -11,6 +11,10 @@ import { ChannelsPage } from "@/components/channels/ChannelsPage";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HistoryPage } from "@/components/history/HistoryPage";
 import { MindPage } from "@/components/mind/MindPage";
+import { CompaniesPage } from "@/components/companies/CompaniesPage";
+import { GoalsPage } from "@/components/goals/GoalsPage";
+import { RolesPage } from "@/components/roles/RolesPage";
+import { AffectPage } from "@/components/affect/AffectPage";
 import { gateway } from "@/lib/gateway";
 import { MessageType, type ResponseData, generateId } from "@/lib/protocol";
 import { useConnectionStore } from "@/stores/connection";
@@ -150,6 +154,54 @@ function GatewayWiring() {
               );
               return;
             }
+            if (Array.isArray(parsed.companies)) {
+              dataStore.setCompanies(
+                parsed.companies as ReturnType<
+                  typeof useDataStore.getState
+                >["companies"]
+              );
+              return;
+            }
+            if ("company_detail" in parsed) {
+              dataStore.setCompanyDetail(
+                parsed.company_detail as ReturnType<
+                  typeof useDataStore.getState
+                >["companyDetail"]
+              );
+              return;
+            }
+            if (Array.isArray(parsed.roles)) {
+              dataStore.setRoles(
+                parsed.roles as ReturnType<
+                  typeof useDataStore.getState
+                >["roles"]
+              );
+              return;
+            }
+            if (Array.isArray(parsed.goals)) {
+              dataStore.setGoals(
+                parsed.goals as ReturnType<
+                  typeof useDataStore.getState
+                >["goalsList"]
+              );
+              return;
+            }
+            if ("goal_detail" in parsed) {
+              dataStore.setGoalDetail(
+                parsed.goal_detail as ReturnType<
+                  typeof useDataStore.getState
+                >["goalDetail"]
+              );
+              return;
+            }
+            if ("affect" in parsed) {
+              dataStore.setAffect(
+                parsed.affect as ReturnType<
+                  typeof useDataStore.getState
+                >["affect"]
+              );
+              return;
+            }
             if (parsed.cleared != null) {
               // Clear command acknowledged — no chat display needed
               return;
@@ -278,6 +330,14 @@ function PageRouter() {
   switch (activePage) {
     case "dashboard":
       return <DashboardPage />;
+    case "companies":
+      return <CompaniesPage />;
+    case "goals":
+      return <GoalsPage />;
+    case "roles":
+      return <RolesPage />;
+    case "affect":
+      return <AffectPage />;
     case "tools":
       return <ToolsPage />;
     case "skills":

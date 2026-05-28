@@ -3,6 +3,7 @@ import { Eye, EyeOff, Check, AlertCircle, Loader2, ChevronDown, ChevronRight, Se
 import { cn } from "@/lib/utils";
 import { useDataStore, type ConfigData } from "@/stores/data";
 import { useConnectionStore } from "@/stores/connection";
+import { useTheme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
 import { gateway } from "@/lib/gateway";
 import { MessageType } from "@/lib/protocol";
@@ -165,6 +166,10 @@ export function SettingsPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+        {/* Appearance is client-side (localStorage) — render it
+            regardless of gateway connection state. */}
+        <AppearanceSection />
+
         {loading && !settings ? (
           <div className="flex h-40 items-center justify-center gap-3">
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
@@ -486,6 +491,68 @@ function VaultSection({ settings }: { settings: SettingsData }) {
 }
 
 // ---- Shared UI pieces ----
+
+// ---- Appearance (theme templates) ----
+
+function AppearanceSection() {
+  const { theme, themes, setTheme } = useTheme();
+  return (
+    <div className="space-y-3">
+      <SectionTitle>Appearance</SectionTitle>
+      <p className="font-mono text-[10px] text-muted-foreground/70">
+        Dashboard theme — applies instantly, saved in this browser.
+      </p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {themes.map((t) => {
+          const active = t.id === theme;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              title={t.description}
+              className={cn(
+                "group flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors",
+                active
+                  ? "border-primary ring-1 ring-primary"
+                  : "border-border/50 hover:border-border",
+              )}
+            >
+              {/* Swatch preview */}
+              <div
+                className="flex h-10 items-center gap-1 rounded-md p-2"
+                style={{ background: t.swatch.bg }}
+              >
+                <span
+                  className="size-4 rounded-full"
+                  style={{ background: t.swatch.surface }}
+                />
+                <span
+                  className="size-4 rounded-full"
+                  style={{ background: t.swatch.accent }}
+                />
+                <span
+                  className="ml-auto font-mono text-[10px]"
+                  style={{ color: t.swatch.fg }}
+                >
+                  Aa
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {active && <Check className="size-3 text-primary" />}
+                <span className="font-mono text-[10px] uppercase tracking-[0.1em]">
+                  {t.label}
+                </span>
+                <span className="ml-auto font-mono text-[8px] uppercase text-muted-foreground/50">
+                  {t.mode}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (

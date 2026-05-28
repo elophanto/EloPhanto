@@ -5,6 +5,8 @@ import { useDataStore, type SkillInfo } from "@/stores/data";
 import { useConnectionStore } from "@/stores/connection";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { PaginationBar } from "@/components/ui/pagination";
+import { usePagination } from "@/hooks/use-pagination";
 
 const sourceConfig = {
   local: { icon: Sparkles, label: "Bundled", color: "text-foreground/60" },
@@ -36,6 +38,7 @@ export function SkillsPage() {
   });
 
   const sources = [...new Set(skills.map((s) => s.source))].sort();
+  const pag = usePagination(filtered, 24);
 
   return (
     <div className="flex h-full flex-col">
@@ -117,19 +120,22 @@ export function SkillsPage() {
             </span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((skill) => (
-              <SkillCard
-                key={skill.name}
-                skill={skill}
-                expanded={expandedSkill === skill.name}
-                onToggle={() =>
-                  setExpandedSkill(
-                    expandedSkill === skill.name ? null : skill.name
-                  )
-                }
-              />
-            ))}
+          <div>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+              {pag.pageItems.map((skill) => (
+                <SkillCard
+                  key={skill.name}
+                  skill={skill}
+                  expanded={expandedSkill === skill.name}
+                  onToggle={() =>
+                    setExpandedSkill(
+                      expandedSkill === skill.name ? null : skill.name
+                    )
+                  }
+                />
+              ))}
+            </div>
+            <PaginationBar {...pag} noun="skill" />
           </div>
         )}
       </div>

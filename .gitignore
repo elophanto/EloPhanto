@@ -41,7 +41,9 @@ logs/
 # Every operator's `companies/<slug>/` (product config, drafts,
 # exemplars, …) is local runtime state. Nothing under this tree
 # is source-controlled; the directory is created on first use.
-companies/
+# Leading slash anchors to the repo root so it does NOT also ignore
+# unrelated `companies/` dirs elsewhere (e.g. web/src/components/companies/).
+/companies/
 
 # Agent-generated knowledge (instance-specific, except base templates)
 knowledge/*

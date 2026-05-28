@@ -9,10 +9,13 @@ import {
   Radio,
   Settings,
   History,
+  Building2,
+  Target,
+  Users,
+  Activity,
   ChevronLeft,
   ChevronRight,
-  Sun,
-  Moon,
+  Palette,
   Plus,
   X,
 } from "lucide-react";
@@ -43,6 +46,10 @@ const navItems: {
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
   { id: "chat", label: "Chat", icon: MessageSquare, enabled: true },
+  { id: "companies", label: "Companies", icon: Building2, enabled: true },
+  { id: "goals", label: "Goals", icon: Target, enabled: true },
+  { id: "roles", label: "Roles", icon: Users, enabled: true },
+  { id: "affect", label: "Affect", icon: Activity, enabled: true },
   { id: "tools", label: "Tools", icon: Wrench, enabled: true },
   { id: "skills", label: "Skills", icon: Sparkles, enabled: true },
   { id: "knowledge", label: "Knowledge", icon: BookOpen, enabled: true },
@@ -54,7 +61,7 @@ const navItems: {
 ];
 
 export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
-  const { theme, toggleTheme } = useTheme();
+  const { themeDef, cycleTheme } = useTheme();
   const status = useConnectionStore((s) => s.status);
   const activePage = useNavigationStore((s) => s.activePage);
   const navigate = useNavigationStore((s) => s.navigate);
@@ -214,20 +221,18 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
 
         <Separator className="opacity-50" />
 
-        {/* Theme toggle */}
+        {/* Theme cycle — quick-switch templates; full picker in Settings */}
         <Button
           variant="ghost"
           size={collapsed ? "icon-xs" : "sm"}
-          onClick={toggleTheme}
+          onClick={cycleTheme}
+          title="Cycle theme (full picker in Settings)"
           className="w-full justify-start gap-2"
         >
-          <div className="relative size-3.5">
-            <Sun className="absolute size-3.5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute size-3.5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          </div>
+          <Palette className="size-3.5" />
           {!collapsed && (
             <span className="font-mono text-[10px] uppercase tracking-[0.1em]">
-              {theme === "dark" ? "Dark" : "Light"}
+              {themeDef.label}
             </span>
           )}
         </Button>

@@ -117,6 +117,86 @@
   --sidebar-ring: oklch(0.88 0.008 80);
 }
 
+/* ── Theme templates ───────────────────────────────────────────────
+ * Web-native theme presets (separate from the terminal's YAML themes).
+ * Each is selected at runtime via `data-theme` on <html>, set by
+ * src/lib/themes.ts:applyTheme. The provider also adds `.dark` for
+ * dark-mode templates so Tailwind `dark:` variants + the dot-grid
+ * background keep working. These blocks come AFTER `.dark` so they
+ * win at equal specificity (source order). `light` / `dark` use
+ * `:root` / `.dark` above and carry no `data-theme`.
+ * ------------------------------------------------------------------ */
+
+/* Nocturne — near-black blue glass + luminous teal */
+[data-theme="nocturne"] {
+  --background: #0b0e14;
+  --foreground: #dbe2ee;
+  --card: #11151f;
+  --card-foreground: #dbe2ee;
+  --popover: #11151f;
+  --popover-foreground: #dbe2ee;
+  --primary: #5eead4;
+  --primary-foreground: #06201c;
+  --secondary: #161c28;
+  --secondary-foreground: #dbe2ee;
+  --muted: #161c28;
+  --muted-foreground: #7c8aa0;
+  --accent: #1a2233;
+  --accent-foreground: #f2f6fc;
+  --destructive: #fb7185;
+  --border: #252d3d;
+  --input: #252d3d;
+  --ring: #5eead4;
+  --chart-1: #5eead4;
+  --chart-2: #38bdf8;
+  --chart-3: #2dd4bf;
+  --chart-4: #7c8aa0;
+  --chart-5: #4ade80;
+  --sidebar: #0d1119;
+  --sidebar-foreground: #dbe2ee;
+  --sidebar-primary: #5eead4;
+  --sidebar-primary-foreground: #06201c;
+  --sidebar-accent: #1a2233;
+  --sidebar-accent-foreground: #f2f6fc;
+  --sidebar-border: #252d3d;
+  --sidebar-ring: #5eead4;
+}
+
+/* Mocha — soothing dark pastel + Mauve */
+[data-theme="mocha"] {
+  --background: #1e1e2e;
+  --foreground: #cdd6f4;
+  --card: #181825;
+  --card-foreground: #cdd6f4;
+  --popover: #181825;
+  --popover-foreground: #cdd6f4;
+  --primary: #cba6f7;
+  --primary-foreground: #1e1e2e;
+  --secondary: #313244;
+  --secondary-foreground: #cdd6f4;
+  --muted: #313244;
+  --muted-foreground: #a6adc8;
+  --accent: #313244;
+  --accent-foreground: #f5e0dc;
+  --destructive: #f38ba8;
+  --border: #45475a;
+  --input: #45475a;
+  --ring: #cba6f7;
+  --chart-1: #cba6f7;
+  --chart-2: #89b4fa;
+  --chart-3: #a6e3a1;
+  --chart-4: #f9e2af;
+  --chart-5: #f38ba8;
+  --sidebar: #181825;
+  --sidebar-foreground: #cdd6f4;
+  --sidebar-primary: #cba6f7;
+  --sidebar-primary-foreground: #1e1e2e;
+  --sidebar-accent: #313244;
+  --sidebar-accent-foreground: #f5e0dc;
+  --sidebar-border: #45475a;
+  --sidebar-ring: #cba6f7;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
