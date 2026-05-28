@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { useChatStore } from "@/stores/chat";
 import { useConnectionStore } from "@/stores/connection";
 import { MessageList } from "./MessageList";
+import { ReasoningPanel } from "./ReasoningPanel";
 import { ChatInput } from "./ChatInput";
 
 export function ChatPage() {
@@ -54,6 +55,7 @@ export function ChatPage() {
         </>
       )}
       <MessageList />
+      <ReasoningPanel />
       <ChatInput />
     </div>
   );

@@ -306,6 +306,11 @@ function GatewayWiring() {
           useActivityStore
             .getState()
             .push({ kind: "tool", label: toolName, detail: thought });
+        } else if (event === "agent_thought") {
+          // Live chain-of-thought (Codex reasoning chunks). Stream into
+          // the chat store's reasoning buffer for the Thinking panel.
+          const text = (msg.data.text as string) ?? "";
+          if (text) chat.appendReasoning(text);
         } else if (event === "task_complete") {
           chat.clearToolSteps();
         } else if (event === "session_created") {
