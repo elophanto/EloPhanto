@@ -58,6 +58,9 @@ bridge/*/data/
 # Web dashboard
 web/node_modules/
 web/dist/
+# TypeScript incremental build cache — regenerated on every build,
+# pure churn in git status.
+*.tsbuildinfo
 
 # uv
 .python-version
