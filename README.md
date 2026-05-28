@@ -309,6 +309,7 @@ Slack Adapter ─────┘                   ▼
 - **MCP tool servers** — connect to any [MCP](https://modelcontextprotocol.io/) server (filesystem, GitHub, databases, Brave Search, Slack) and its tools appear alongside built-in tools. Agent manages setup through conversation
 - **Web dashboard** — full monitoring UI at `localhost:3000` with 10 pages: dashboard overview, real-time chat with multi-conversation history, tools & skills browser, knowledge base viewer, autonomous mind monitor with live events and start/stop controls, schedule manager, channels status, settings viewer, and history timeline. Launch with `./start.sh --web`
 - **Terminal dashboard mascot** — small ASCII character at the top of the sidebar whose face mirrors agent state at a glance: sleep / idle / thinking / working / happy / concerned / humbled. State-coloured eyes (purple = thinking, blue = working, green = happy, red = concerned, amber = humbled, grey = sleep/idle), per-state animation (pupils rotate while thinking, mouth flexes while calling tools, eyes blink in idle, brief eyes-close on every state transition). Reads from existing state signals — `mind_state`, current tool freshness, `ego_mood`, `ego_coherence`, recent events, and a `last_activity_ts` stamped on every gateway message. Disable via `dashboard.mascot_enabled: false`. See [docs/77-DASHBOARD-MASCOT.md](docs/77-DASHBOARD-MASCOT.md)
+- **Dashboard themes** — the terminal dashboard's look is fully YAML-driven and user-extensible. A theme is one file (`colors` + `layout` slot ordering + `dark`/light flag); fork a built-in with `elophanto themes init <name>` (it `extends: default`, so you override only what you want), validate it (`elophanto themes validate`), and apply via `dashboard.theme:` in config or `--theme` on the CLI. Three ship built-in: `default` (warm cream), `nocturne` (near-black glass + teal), `mocha` (dark pastel + Mauve). No Python in theme files — themes are safe to download + share. Validation is loud (bad hex / unknown panel / extends cycle all fail at load with a precise message). See [docs/79-DASHBOARD-THEMES.md](docs/79-DASHBOARD-THEMES.md)
 - **VS Code extension** — IDE-integrated chat sidebar that connects to the gateway as another channel. Sends IDE context (active file, selection, diagnostics) with every message. Tool approvals via native VS Code notifications. Chat history, new chat, streaming responses. Right-click context menu: Send Selection, Explain This Code, Fix This Code. Same conversation across all channels
 - **Multi-channel gateway** — WebSocket control plane with CLI, Web, VS Code, Telegram, Discord, and Slack adapters. Unified sessions by default: all channels share one conversation
 - **Cross-machine peers** — agents on different machines can find and talk to each other. TLS (`wss://`) encrypts the wire, verified-peers gate (Ed25519 IDENTIFY handshake + TOFU known-hosts ledger) flips trust from "URL+token" to "must complete handshake," loopback always exempt so local CLI/Web/VSCode adapters keep working. Tailscale-based discovery (`agent_discover` tool) finds peer agents on your tailnet without sharing URLs out-of-band. See [docs/67-AGENT-PEERS.md](docs/67-AGENT-PEERS.md)
@@ -540,6 +541,12 @@ browser:
   # Same scheme as llm.vision_model; can be set differently per use.
   vision_model: "codex/gpt-5.5"
 
+dashboard:
+  mascot_enabled: true
+  theme: default                   # default | nocturne | mocha, or your own
+                                   # ~/.elophanto/themes/<name>.yaml. See
+                                   # docs/79-DASHBOARD-THEMES.md.
+
 # ... all other sections with defaults in config.demo.yaml
 ```
 
@@ -560,6 +567,9 @@ elophanto help <topic>         # Focused recipes (topics: config run health vaul
                                #   goals abe skills ops)
 elophanto init edit            # Menu — pick a section to re-configure
 elophanto init edit browser    # Switch local Chrome ↔ cloud browser; pick profile
+elophanto themes list          # Dashboard themes (built-in: default / nocturne / mocha)
+elophanto themes init NAME     # Scaffold ~/.elophanto/themes/NAME.yaml (extends default)
+elophanto chat --theme NAME    # Run with a specific dashboard theme
 ./start.sh gateway             # Gateway + CLI + all enabled channels
 ./start.sh gateway --no-cli    # Gateway only (headless — channels keep working)
 ./start.sh chat                # CLI only (direct mode, no gateway)

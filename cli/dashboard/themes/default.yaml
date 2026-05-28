@@ -1,0 +1,85 @@
+# EloPhanto dashboard — DEFAULT theme.
+#
+# This file is the single source of truth for the dashboard's
+# current look. Copy it to ~/.elophanto/themes/<name>.yaml to fork
+# it for your own theme. Validate before installing with:
+#   elophanto themes validate <path>
+#
+# Schema is documented in docs/79-DASHBOARD-THEMES.md.
+
+name: default
+description: "Warm paper-cream palette — the original EloPhanto look"
+extends: null   # no parent
+
+# ── Colors ─────────────────────────────────────────────────────────
+# Every color must be a 6-digit hex (#RRGGBB). 3-digit shorthand is
+# rejected. Named CSS colors are NOT supported — terminals render
+# them inconsistently and `red` on one machine is not `red` on
+# another. Pick hex, ship hex.
+colors:
+  # Surfaces
+  background:  "#f9f8f4"   # Screen — warm paper white       (oklch 0.98 .003 80)
+  surface:     "#f2f0ea"   # Sidebar, cards — slightly tinted (oklch 0.97 .004 80)
+  raised:      "#e8e4dc"   # Header, input bar — elevated     (oklch 0.94 .005 80)
+  border:      "#d4cfc5"   # Dividers, separators             (oklch 0.88 .005 80)
+
+  # Text
+  foreground:  "#1c1a16"   # Body text — near-black warm      (oklch 0.12 .01 60)
+  bright:      "#1c1a16"   # Emphasized text (same as fg in default)
+  muted:       "#78746e"   # Labels, dim copy                  (oklch 0.50 .01 60)
+  placeholder: "#b8b2a8"   # Input placeholder
+
+  # Brand + intent
+  accent:      "#7c3aed"   # Primary accent — brand violet ◆
+  accent_alt:  "#6d28d9"   # Darker accent — for light-bg contrast
+  success:     "#16a34a"   # OK dots, success states
+  warning:     "#d97706"   # Warning dots, caution states
+  error:       "#ef4444"   # Error dots, failures
+  info:        "#0ea5e9"   # Working / in-progress dots
+
+# ── Layout ─────────────────────────────────────────────────────────
+# Sidebar + main slot ordering. Each entry is a registered panel
+# name. Unknown names are rejected at load. Remove a panel from the
+# list to hide it; reorder to rearrange.
+layout:
+  sidebar_width: 28      # Column width of the left sidebar
+
+  # Sidebar panel order (top → bottom).
+  # Available panels: mascot, agent, mind, goals, companies, swarm,
+  # scheduler, approvals, gateway, footer.
+  sidebar:
+    - mascot       # Agent face + one-line whispered state
+    - agent        # Current tool / model / token + cost summary
+    - mind         # Autonomous mind state + ETA + last cycle
+    - goals        # Active goal + checkpoint progress
+    - companies    # Active ABE + ledger snapshot
+    - swarm        # Spawned kid-agents (if any)
+    - scheduler    # Next scheduled task + recent fires
+    - approvals    # Pending approval requests (always-visible)
+    - gateway      # WS connection + channel adapter status
+    - footer       # Quit / cancel / hotkey hints (anchor at bottom)
+
+  # Main-area widget order (top → bottom).
+  # Available widgets: chat, reasoning, events, input.
+  main:
+    - chat         # Operator ↔ agent transcript
+    - reasoning    # Agent chain-of-thought + live tool narration
+    - events       # Compact event ticker (last ~5 lines)
+    - input        # Type a message bar
+
+  # Per-widget options.
+  panels:
+    reasoning:
+      default_size: medium     # small (5 rows) | medium (10) | large (20) | hidden
+    mascot:
+      # If true, mascot panel is omitted regardless of `sidebar` order.
+      # Operators can also kill it via dashboard.mascot_enabled in
+      # config.yaml — that flag wins over this one when both are set.
+      hidden: false
+
+# ── Typography ─────────────────────────────────────────────────────
+# Reserved for future use (font weights, small caps, etc.). For now
+# the dashboard renders in the terminal's default mono font and the
+# only typography lever is per-widget padding.
+typography:
+  chat_padding: [0, 1]         # [vertical, horizontal] cells of padding

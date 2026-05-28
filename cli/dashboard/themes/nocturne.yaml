@@ -1,0 +1,65 @@
+# Nocturne — a dark, cinematic dashboard theme.
+#
+# Cool near-black "glass" surfaces with a single luminous teal accent.
+# Built to look like a high-end ops console: restrained, monochrome,
+# one accent that glows. The status dots (green / amber / rose / sky)
+# carry meaning; everything else stays quiet so progress reads at a
+# glance.
+#
+# Apply:  elophanto chat --theme nocturne
+#    or:  dashboard.theme: nocturne   (in config.yaml)
+
+name: nocturne
+description: "Cinematic near-black glass with a luminous teal accent"
+dark: true        # tells Textual to default unmarked text to light-on-dark
+
+colors:
+  # Surfaces — cool, near-black, faintly blue. Each step lifts slightly.
+  background:  "#0b0e14"   # Screen — deep blue-black
+  surface:     "#11151f"   # Sidebar — one step lifted
+  raised:      "#161c28"   # Header + input bar — two steps lifted
+  border:      "#252d3d"   # Dividers — quiet cool separator
+
+  # Text — soft off-white, never pure #ffffff (gentler on the eyes).
+  foreground:  "#dbe2ee"   # Body text
+  bright:      "#f2f6fc"   # Emphasized text / values
+  muted:       "#7c8aa0"   # Labels, dim copy — cool grey
+  placeholder: "#4b566b"   # Input placeholder
+
+  # Brand + intent — the teal is the one thing that glows.
+  accent:      "#5eead4"   # Primary accent — luminous teal ◆
+  accent_alt:  "#2dd4bf"   # Deeper teal — secondary glyphs
+  success:     "#4ade80"   # Bright green — OK / running
+  warning:     "#fbbf24"   # Amber — caution / needs attention
+  error:       "#fb7185"   # Rose — softer than pure red on dark
+  info:        "#38bdf8"   # Sky blue — working / in-progress
+
+# Layout inherited shape from default — same panel order. A dark theme
+# is primarily a recolor; the information architecture that makes
+# progress legible (mascot, mind, goals, companies, …) stays put.
+layout:
+  sidebar_width: 28
+  sidebar:
+    - mascot
+    - agent
+    - mind
+    - goals
+    - companies
+    - swarm
+    - scheduler
+    - approvals
+    - gateway
+    - footer
+  main:
+    - chat
+    - reasoning
+    - events
+    - input
+  panels:
+    reasoning:
+      default_size: medium
+    mascot:
+      hidden: false
+
+typography:
+  chat_padding: [0, 1]

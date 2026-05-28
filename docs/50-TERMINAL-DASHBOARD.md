@@ -263,6 +263,8 @@ def should_use_dashboard() -> bool:
 
 ## Color Palette
 
+> **Now theme-driven.** The palette below documents the original design intent. As of 2026-05-28 the dashboard's colors and layout are loaded from a YAML theme at startup — the hardcoded `CSS` block and module palette constants are rendered from the active theme instead. To change colors or rearrange panels, edit a theme (don't hardcode hexes). See [docs/79-DASHBOARD-THEMES.md](79-DASHBOARD-THEMES.md). Built-in themes: `default` (warm cream), `nocturne`, `mocha`.
+
 The dashboard uses exact hex approximations of the web app's `web/src/globals.css` dark-mode oklch tokens:
 
 | Token | Hex | oklch source | Role |

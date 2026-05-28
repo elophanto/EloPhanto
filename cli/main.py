@@ -30,6 +30,7 @@ from cli.skills_cmd import skills_cmd
 from cli.stop_cmd import resume_cmd, stop_cmd
 from cli.strategy_cmd import strategy_cmd
 from cli.telegram_cmd import telegram_cmd
+from cli.themes_cmd import themes_cmd
 from cli.update_cmd import update_cmd
 from cli.vault_cmd import vault_cmd
 from cli.voice_cmd import voice_cmd
@@ -86,6 +87,7 @@ cli.add_command(vault_cmd, "vault")
 cli.add_command(rollback_cmd, "rollback")
 cli.add_command(telegram_cmd, "telegram")
 cli.add_command(skills_cmd, "skills")
+cli.add_command(themes_cmd, "themes")
 cli.add_command(mcp_cmd, "mcp")
 cli.add_command(kid_cmd, "kid")
 cli.add_command(daemon_cmd, "daemon")

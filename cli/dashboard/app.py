@@ -178,6 +178,7 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Input, RichLog, Static
 
+from cli.dashboard.theme import Theme, load_theme, render_css
 from core.protocol import (
     GatewayMessage,
     MessageType,
@@ -202,6 +203,67 @@ _BG = "#f9f8f4"  # screen background — warm paper white  (oklch 0.98 0.003 80)
 _SURFACE = "#f2f0ea"  # sidebar / cards    — slightly tinted  (oklch 0.97 0.004 80)
 _RAISED = "#e8e4dc"  # header / input bar — elevated          (oklch 0.94 0.005 80)
 _BORDER = "#d4cfc5"  # dividers           — warm separator    (oklch 0.88 0.005 80)
+
+# The values above are the DEFAULT-theme palette. They are overwritten
+# at App construction by `_apply_palette(theme)` so the Rich-markup
+# colors the panels emit (via f"[{_BRIGHT}]…") track the active theme.
+# The constants are looked up at call-time inside each panel's body(),
+# so reassigning the module globals is enough — no per-panel plumbing.
+
+
+# Maps each GLYPH_COLOR literal a panel class declares → the theme
+# color-token name it semantically represents. Used by _apply_palette
+# to re-tint panel glyphs for non-default themes. Class attributes are
+# frozen at import, so we reassign them explicitly here.
+_GLYPH_LITERAL_TO_TOKEN: dict[str, str] = {
+    "#7c3aed": "accent",  # brand violet — mind / agent / goals
+    "#6d28d9": "accent_alt",  # darker violet — swarm
+    "#d97706": "warning",  # amber — scheduler / approvals (needs-attention)
+    "#16a34a": "success",  # green — gateway / connections live
+    "#0891b2": "info",  # cyan — companies
+    "#78746e": "muted",  # dim — footer (ambient)
+}
+
+
+def _apply_palette(theme: Theme) -> None:
+    """Point the module-level Rich-markup palette at the active theme.
+
+    The dashboard renders most text through f-strings like
+    f"[{_BRIGHT}]{value}[/]" where _BRIGHT et al. are looked up at
+    call-time — so overwriting these globals before the first paint
+    re-tints every panel. Also remaps each panel class's frozen
+    GLYPH_COLOR class attribute via _GLYPH_LITERAL_TO_TOKEN.
+    """
+    global _OK, _WARN, _DIM, _ACCENT, _BRIGHT, _MIND, _BG, _SURFACE, _RAISED, _BORDER
+    c = theme.colors
+    _OK = c.success
+    _WARN = c.warning
+    _DIM = c.muted
+    _ACCENT = c.accent_alt
+    _BRIGHT = c.bright
+    _MIND = c.accent
+    _BG = c.background
+    _SURFACE = c.surface
+    _RAISED = c.raised
+    _BORDER = c.border
+
+    token_value = {
+        "accent": c.accent,
+        "accent_alt": c.accent_alt,
+        "warning": c.warning,
+        "success": c.success,
+        "info": c.info,
+        "muted": c.muted,
+    }
+    # Re-tint each registered panel's glyph from the ORIGINAL token
+    # captured at registration (not the current GLYPH_COLOR — that may
+    # already be a non-literal from a prior theme, which would make
+    # theme switching one-way). _SIDEBAR_PANELS is populated at the
+    # bottom of this module; empty during early import is harmless.
+    for ctor in list(_SIDEBAR_PANELS.values()):
+        token = getattr(ctor, "_GLYPH_TOKEN", None)
+        if token in token_value:
+            ctor.GLYPH_COLOR = token_value[token]
 
 
 def _read_dashboard_flag(flag_key: str, default: bool) -> bool:
@@ -1273,126 +1335,37 @@ class _Header(Static):
 # ── Main app ───────────────────────────────────────────────────────────────
 
 
+# CSS now rendered from the active Theme. The hardcoded block that
+# used to live here is the source-of-truth template inside
+# `cli/dashboard/theme.py:render_css`. Theme is loaded in
+# __init__ and the rendered string is assigned to App.CSS BEFORE
+# super().__init__() runs — Textual reads CSS at App construction.
+# All visual diff lives in the theme YAML now; this class no
+# longer carries any hex literals.
+
+
+# Panel registry — name → constructor. Keep in sync with
+# `cli/dashboard/theme.SIDEBAR_PANEL_NAMES`. Adding a new panel: add
+# it here, add its name to SIDEBAR_PANEL_NAMES, and reference it from
+# at least the default theme's `layout.sidebar`.
+_SIDEBAR_PANELS: dict[str, type] = {}
+
+
+def _register_panel(name: str, ctor: type) -> None:
+    """Register a sidebar panel constructor by stable name.
+
+    Captures the panel's import-time GLYPH_COLOR literal as a semantic
+    token (`_GLYPH_TOKEN`) so `_apply_palette` can re-tint it for any
+    theme — including switching back to default — without depending on
+    the current (possibly already-themed) GLYPH_COLOR value.
+    """
+    literal = getattr(ctor, "GLYPH_COLOR", None)
+    ctor._GLYPH_TOKEN = _GLYPH_LITERAL_TO_TOKEN.get(literal)  # type: ignore[attr-defined]
+    _SIDEBAR_PANELS[name] = ctor
+
+
 class EloPhantoDashboard(App):
     """Full-screen terminal dashboard for EloPhanto."""
-
-    CSS = """
-    Screen {
-        layout: vertical;
-        background: #f9f8f4;
-        /* Belt-and-suspenders for terminals that override Textual's
-         * default-foreground heuristic — text without explicit colour
-         * markup must still render as near-black on the cream
-         * background, never light-on-light. */
-        color: #1c1a16;
-    }
-    #body {
-        layout: horizontal;
-        height: 1fr;
-    }
-    #sidebar {
-        width: 30;
-        min-width: 30;
-        border-right: solid #d4cfc5;
-        background: #f2f0ea;
-        color: #1c1a16;
-        overflow-y: auto;
-    }
-    #main-area {
-        layout: vertical;
-        width: 1fr;
-    }
-    #chat {
-        height: 1fr;
-        width: 1fr;
-        padding: 0 1;
-        background: #f9f8f4;
-        color: #1c1a16;
-        overflow-x: hidden;
-        scrollbar-gutter: stable;
-    }
-    #feed-header {
-        height: 1;
-        width: 1fr;
-        padding: 0 1;
-        background: #f9f8f4;
-        border-top: solid #d4cfc5;
-        color: #78746e;
-    }
-    #reasoning-header {
-        height: 1;
-        width: 1fr;
-        padding: 0 1;
-        background: #f9f8f4;
-        border-top: solid #d4cfc5;
-        color: #78746e;
-    }
-    /* Default height: medium. Cycled by Ctrl+R via _reasoning_height_idx.
-       The .reasoning-hidden / .reasoning-small / .reasoning-medium /
-       .reasoning-large classes are toggled on BOTH #reasoning and
-       #reasoning-header. */
-    #reasoning {
-        height: 10;
-        width: 1fr;
-        background: #f9f8f4;
-        color: #1c1a16;
-        padding: 0 1;
-        overflow-x: hidden;
-        scrollbar-gutter: stable;
-    }
-    #reasoning.reasoning-hidden,
-    #reasoning-header.reasoning-hidden {
-        display: none;
-    }
-    #reasoning.reasoning-small { height: 5; }
-    #reasoning.reasoning-medium { height: 10; }
-    #reasoning.reasoning-large { height: 20; }
-    #events {
-        height: 5;
-        width: 1fr;
-        background: #f9f8f4;
-        color: #1c1a16;
-        padding: 0 1;
-        overflow-x: hidden;
-        scrollbar-gutter: stable;
-    }
-#input-bar {
-        height: 3;
-        background: #e8e4dc;
-        border-top: solid #d4cfc5;
-        padding: 0 1;
-    }
-    #input-bar Input {
-        background: #e8e4dc;
-        border: none;
-        color: #1c1a16;
-        padding: 0 0;
-    }
-    #input-bar Input:focus {
-        border: none;
-    }
-    #input-bar Input > .input--cursor {
-        background: #7c3aed;
-        color: #f9f8f4;
-    }
-    #input-bar Input > .input--placeholder {
-        color: #b8b2a8;
-    }
-    _SidePanel {
-        height: auto;
-        padding: 0 1 1 1;
-        color: #78746e;
-    }
-    #panel-mascot {
-        /* The mascot is the sidebar's identity — center it horizontally
-         * within the panel so the face sits in the middle of the
-         * sidebar, with the label + agent name lines balanced below.
-         * Padding gives breathing room above/below the box. */
-        content-align-horizontal: center;
-        text-align: center;
-        padding: 1 0 1 0;
-    }
-    """
 
     BINDINGS = [
         Binding("ctrl+c", "quit_app", "Quit", show=False),
@@ -1410,12 +1383,32 @@ class EloPhantoDashboard(App):
         *,
         digest_seed: dict | None = None,
         mascot_enabled: bool = True,
+        theme: Theme | None = None,
     ) -> None:
+        # Theme loading. If no theme is passed in, fall back to the
+        # built-in default — operators normally never see this path
+        # because run_dashboard reads dashboard.theme from config and
+        # passes the loaded Theme in. We default to "default" so a
+        # bare EloPhantoDashboard() still works for tests / experiments.
+        if theme is None:
+            theme = load_theme("default")
+        self._theme: Theme = theme
+        # Point the Rich-markup palette (the _BRIGHT / _DIM / _OK / …
+        # globals the panels emit via f-strings) at this theme, and
+        # re-tint panel glyphs. Must run BEFORE any panel renders.
+        _apply_palette(theme)
+        # Render the CSS template against this theme's colors BEFORE
+        # super().__init__() so Textual picks it up at construction.
+        # CSS is set on the class so all instances share — for now
+        # we assume one App instance per process (the standard pattern).
+        type(self).CSS = render_css(theme)
         super().__init__()
         # Mascot panel toggle — drawn at the top of the sidebar when
         # True (default). Operators who find it noisy can disable via
-        # dashboard.mascot.enabled in config.yaml; we read that flag
-        # in cli/chat_cmd.py when constructing the App.
+        # dashboard.mascot_enabled in config.yaml; we read that flag
+        # in run_dashboard when constructing the App. The theme can
+        # ALSO hide the mascot (layout.panels.mascot.hidden); operator
+        # config wins when both are set (set to False).
         self._mascot_enabled = mascot_enabled
         # Pre-seed state.agent_name from config.yaml so the digest
         # greeting (which renders on_mount, BEFORE the gateway
@@ -1424,14 +1417,13 @@ class EloPhantoDashboard(App):
         # avoids a flicker between greeting-as-EloPhanto and the
         # gateway-pushed agent_name landing seconds later.
         _initial_name = _read_agent_name_from_config()
-        # The dashboard's CSS sets light backgrounds (#f9f8f4 / #f2f0ea)
-        # but Textual defaults App.dark = True, which makes the default
-        # foreground color light-grey-on-dark. Result: text rendered
-        # without explicit `[hex]...[/]` markup is light-on-light and
-        # invisible on some terminals (depends on the terminal's
-        # default-color synthesis). Forcing dark = False tells Textual
-        # "this app is a light theme; default the foreground to dark."
-        self.dark = False
+        # Textual's App.dark drives the DEFAULT foreground for text
+        # rendered WITHOUT explicit `[hex]…` markup. A light theme needs
+        # dark=False (default fg → near-black, visible on the cream bg);
+        # a dark theme needs dark=True (default fg → light, visible on
+        # the near-black bg). Driven by the theme's `dark:` flag so a
+        # dark theme doesn't render unmarked text invisibly.
+        self.dark = self._theme.dark
         self._gw_url = gateway_url
         self._ws: Any = None
         self._session_id = ""
@@ -1454,64 +1446,84 @@ class EloPhantoDashboard(App):
     # ── Compose ──────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
+        """Build the widget tree from the active theme's layout slots.
+
+        Theme order drives both sidebar and main-area composition.
+        Unknown slot names are impossible — the theme loader has
+        already validated `layout.sidebar` and `layout.main` against
+        the registered panel/widget sets, so we trust them here.
+        """
+        layout = self._theme.layout
         yield _Header(self._state)
         with Horizontal(id="body"):
             with VerticalScroll(id="sidebar"):
-                # Order matters — mascot first (single-glance status,
-                # the face IS the dashboard's identity), primary state
-                # second, ambient state third, activity fourth, infra
-                # last. The Footer panel anchors the bottom regardless
-                # of how tall the panels above it grow.
-                if self._mascot_enabled:
-                    yield _MascotPanel(self._state)
-                yield _AgentPanel(self._state)
-                yield _MindPanel(self._state)
-                yield _GoalsPanel(self._state)
-                yield _CompaniesPanel(self._state)
-                yield _SwarmPanel(self._state)
-                yield _SchedulerPanel(self._state)
-                yield _ApprovalsPanel(self._state)
-                yield _GatewayPanel(self._state)
-                yield _FooterPanel(self._state)
+                for name in layout.sidebar:
+                    # Operator's mascot_enabled=False wins over the
+                    # theme — kill the panel regardless of slot order.
+                    if name == "mascot" and not self._mascot_enabled:
+                        continue
+                    panel_opts = layout.panels.get(name)
+                    if panel_opts and panel_opts.hidden:
+                        continue
+                    ctor = _SIDEBAR_PANELS.get(name)
+                    if ctor is None:
+                        # Should be caught by validator; defensive.
+                        continue
+                    yield ctor(self._state)
             with Vertical(id="main-area"):
-                chat_log = RichLog(id="chat", highlight=True, markup=True, wrap=True)
-                chat_log.can_focus = False  # let terminal handle mouse/selection
-                yield chat_log
-                # Reasoning panel — dedicated home for agent_thought
-                # chunks (Codex chain-of-thought) AND the live tool-
-                # call narration ("· tool_name — first_line"). Before
-                # 2026-05-27 those went into #chat alongside operator/
-                # agent dialogue and autoscroll made the chat
-                # unreadable. Operator can cycle visibility with
-                # Ctrl+R (hidden → small → medium → large → hidden).
-                yield Static(
-                    "💭  reasoning  (Ctrl+R to resize / hide)",
-                    id="reasoning-header",
-                    markup=True,
-                )
-                reasoning_log = RichLog(
-                    id="reasoning",
-                    highlight=True,
-                    markup=True,
-                    wrap=True,
-                    max_lines=200,
-                )
-                reasoning_log.can_focus = False
-                yield reasoning_log
-                yield Static("", id="feed-header", markup=True)
-                # wrap=True so a long event line cannot force a
-                # horizontal scrollbar / push the chat panel narrower
-                # (observed 2026-05-20: long arbiter-score lines made
-                # the chat content render at ~85 cols on a 150-col
-                # terminal). See screenshot in the transcript.
-                yield RichLog(
-                    id="events", highlight=True, markup=True, wrap=True, max_lines=50
-                )
+                for name in layout.main:
+                    yield from self._build_main_widget(name)
         with Vertical(id="input-bar"):
             yield Input(
-                placeholder="❯ type a message, /help, or exit  ·  Shift+drag to select text",
+                placeholder=(
+                    "❯ type a message, /help, or exit  " "·  Shift+drag to select text"
+                ),
                 id="input",
             )
+
+    def _build_main_widget(self, name: str) -> ComposeResult:
+        """Construct a main-area widget by slot name.
+
+        `input` is intentionally NOT handled here — it lives in the
+        `#input-bar` Vertical at the bottom of the screen, outside
+        the main-area. A theme that places `input` in `layout.main`
+        gets a no-op for that entry (and the bottom input bar still
+        renders). We may revisit if a theme wants a top-of-screen
+        input bar.
+        """
+        if name == "chat":
+            chat_log = RichLog(id="chat", highlight=True, markup=True, wrap=True)
+            chat_log.can_focus = False  # let terminal handle mouse/selection
+            yield chat_log
+            return
+        if name == "reasoning":
+            yield Static(
+                "💭  reasoning  (Ctrl+R to resize / hide)",
+                id="reasoning-header",
+                markup=True,
+            )
+            reasoning_log = RichLog(
+                id="reasoning",
+                highlight=True,
+                markup=True,
+                wrap=True,
+                max_lines=200,
+            )
+            reasoning_log.can_focus = False
+            yield reasoning_log
+            return
+        if name == "events":
+            yield Static("", id="feed-header", markup=True)
+            # wrap=True so a long event line cannot force a horizontal
+            # scrollbar / push the chat panel narrower (observed
+            # 2026-05-20: long arbiter-score lines made the chat render
+            # at ~85 cols on a 150-col terminal).
+            yield RichLog(
+                id="events", highlight=True, markup=True, wrap=True, max_lines=50
+            )
+            return
+        # `input` and anything else: no-op (input renders below).
+        return
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -2569,15 +2581,82 @@ def should_use_dashboard() -> bool:
     return True
 
 
-async def run_dashboard(gateway_url: str) -> None:
+# ── Panel registry ─────────────────────────────────────────────────
+# Wire stable theme-slot names to their widget constructors. Theme
+# YAML files reference these names in `layout.sidebar`. Keep the set
+# in sync with `cli/dashboard/theme.SIDEBAR_PANEL_NAMES` — the loader
+# rejects unknown names at validation time, so a mismatch shows up
+# loudly at startup rather than silently dropping a panel.
+_register_panel("mascot", _MascotPanel)
+_register_panel("agent", _AgentPanel)
+_register_panel("mind", _MindPanel)
+_register_panel("goals", _GoalsPanel)
+_register_panel("companies", _CompaniesPanel)
+_register_panel("swarm", _SwarmPanel)
+_register_panel("scheduler", _SchedulerPanel)
+_register_panel("approvals", _ApprovalsPanel)
+_register_panel("gateway", _GatewayPanel)
+_register_panel("footer", _FooterPanel)
+
+
+def _read_dashboard_str(key: str, default: str) -> str:
+    """Read ``dashboard.<key>`` (string) from config.yaml in CWD."""
+    try:
+        from pathlib import Path as _Path
+
+        import yaml as _yaml
+
+        cfg = _Path("config.yaml")
+        if not cfg.exists():
+            return default
+        raw = _yaml.safe_load(cfg.read_text("utf-8")) or {}
+        block = raw.get("dashboard") or {}
+        val = block.get(key, default)
+        return str(val) if val else default
+    except Exception:
+        return default
+
+
+async def run_dashboard(gateway_url: str, *, theme_name: str | None = None) -> None:
     """Run the Textual dashboard app (async entry point).
 
-    Reads ``dashboard.mascot_enabled`` from config.yaml so operators
-    can disable the mascot panel without code changes. Default True.
+    Reads ``dashboard.mascot_enabled`` + ``dashboard.theme`` from
+    config.yaml. ``theme_name`` (CLI flag override) wins over the
+    config value when set; either way the theme is loaded once at
+    startup. A bad theme name surfaces immediately with a clear
+    error rather than starting the dashboard in a half-broken state.
     """
+    import logging
+
+    log = logging.getLogger(__name__)
+
     mascot_enabled = _read_dashboard_flag("mascot_enabled", default=True)
+    # Resolution order for theme: explicit arg > env override (set by
+    # `--theme` on chat_cmd) > config.yaml > "default".
+    import os as _os
+
+    env_theme = _os.environ.get("ELOPHANTO_DASHBOARD_THEME") or ""
+    name = (
+        theme_name
+        or (env_theme if env_theme else None)
+        or _read_dashboard_str("theme", default="default")
+    )
+    try:
+        theme = load_theme(name)
+    except Exception as e:
+        # Don't crash the chat session on a theme typo — fall back to
+        # default and log loudly. Operator sees the error in stderr
+        # AND in the daemon log.
+        log.error(
+            "dashboard.theme=%r failed to load: %s — falling back to 'default'",
+            name,
+            e,
+        )
+        theme = load_theme("default")
+
     app = EloPhantoDashboard(
         gateway_url=gateway_url,
         mascot_enabled=mascot_enabled,
+        theme=theme,
     )
     await app.run_async()
