@@ -177,7 +177,11 @@ if [ "$1" = "--web" ]; then
 
     # Start web dashboard — use the locally-installed vite binary
     # directly (not `npx`, which can try to fetch a different version).
-    (cd "$WEB_DIR" && ./node_modules/.bin/vite --host) &
+    # Silence DEP0205 (module.register) — a benign deprecation Node 22+
+    # raises about vite's tooling; harmless, just noise at the prompt.
+    # --disable-warning is supported on Node 21.1+; older Node ignores
+    # the env var, so it's safe to set unconditionally.
+    (cd "$WEB_DIR" && NODE_OPTIONS="${NODE_OPTIONS:-} --disable-warning=DEP0205" ./node_modules/.bin/vite --host) &
     WEB_PID=$!
 
     # Wait for either to exit

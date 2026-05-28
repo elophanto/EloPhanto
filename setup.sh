@@ -182,14 +182,20 @@ if command -v node &>/dev/null && [ -f "bridge/browser/package.json" ]; then
 fi
 
 # Install web dashboard deps if Node.js is available, so `./start.sh --web`
-# works on a fresh clone (web/node_modules is gitignored). Check for the
-# vite binary specifically — a bare node_modules dir can be incomplete.
-if command -v node &>/dev/null && [ -f "web/package.json" ]; then
-    if [ ! -x "web/node_modules/.bin/vite" ]; then
-        _spin "Installing web dashboard deps" bash -c 'cd web && npm install --silent' || \
-            echo "  ⚠ web dashboard deps failed — run 'cd web && npm install' before ./start.sh --web"
-    else
+# works on a fresh clone (web/node_modules is gitignored). Verify vite
+# ACTUALLY RUNS — not just that a symlink exists — and clean-install from
+# the committed lockfile if it doesn't (same logic as start.sh/update.sh).
+if command -v node &>/dev/null && command -v npm &>/dev/null && [ -f "web/package.json" ]; then
+    if (cd web && ./node_modules/.bin/vite --version >/dev/null 2>&1); then
         echo "  ✓ Web dashboard deps (already installed)"
+    else
+        if [ -f "web/package-lock.json" ]; then
+            _spin "Installing web dashboard deps" bash -c 'cd web && npm ci --silent || (rm -rf node_modules && npm install --silent)' || \
+                echo "  ⚠ web dashboard deps failed — run 'cd web && npm install' before ./start.sh --web"
+        else
+            _spin "Installing web dashboard deps" bash -c 'cd web && rm -rf node_modules && npm install --silent' || \
+                echo "  ⚠ web dashboard deps failed — run 'cd web && npm install' before ./start.sh --web"
+        fi
     fi
 fi
 
