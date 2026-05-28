@@ -85,6 +85,21 @@ if [ -f "bridge/browser/package.json" ] && command -v npm &>/dev/null; then
         echo "  ⚠ Bridge rebuild failed; run 'npm run build' in bridge/browser/ manually."
 fi
 
+# ── Install / refresh web dashboard deps ──
+# web/node_modules is gitignored, so a pull never brings deps. Without
+# this, `./start.sh --web` would fail with
+# 'Cannot find module .../vite/dist/node/cli.js'. Check for the vite
+# binary specifically — a bare node_modules dir can be incomplete.
+if [ -f "web/package.json" ] && command -v npm &>/dev/null; then
+    if [ ! -x "web/node_modules/.bin/vite" ]; then
+        echo "  → Installing web dashboard dependencies..."
+        (cd web && npm install --silent) || \
+            echo "  ⚠ Web deps install failed; run 'cd web && npm install' manually."
+    else
+        echo "  ✓ Web dashboard deps (already installed)"
+    fi
+fi
+
 # ── Run config migrations ──
 # This is the crucial step that distinguishes update.sh from a bare
 # `git pull`: new releases add config sections (e.g. autonomous_mind.arbiter
