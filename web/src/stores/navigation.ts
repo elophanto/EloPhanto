@@ -3,6 +3,10 @@ import { create } from "zustand";
 export type Page =
   | "dashboard"
   | "chat"
+  | "companies"
+  | "goals"
+  | "roles"
+  | "affect"
   | "tools"
   | "skills"
   | "knowledge"

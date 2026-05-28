@@ -7,12 +7,16 @@ import {
   XCircle,
   MinusCircle,
   Play,
+  Power,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDataStore, type ScheduleInfo } from "@/stores/data";
 import { useConnectionStore } from "@/stores/connection";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { PaginationBar } from "@/components/ui/pagination";
+import { usePagination } from "@/hooks/use-pagination";
 
 const statusConfig: Record<
   string,
@@ -50,6 +54,7 @@ export function SchedulePage() {
       (filterStatus === "disabled" && !s.enabled);
     return matchesSearch && matchesFilter;
   });
+  const pag = usePagination(filtered, 25);
 
   return (
     <div className="flex h-full flex-col">
@@ -117,7 +122,7 @@ export function SchedulePage() {
           </div>
         ) : (
           <div className="space-y-1">
-            {filtered.map((schedule) => (
+            {pag.pageItems.map((schedule) => (
               <ScheduleRow
                 key={schedule.id}
                 schedule={schedule}
@@ -129,6 +134,7 @@ export function SchedulePage() {
                 }
               />
             ))}
+            <PaginationBar {...pag} noun="schedule" />
           </div>
         )}
       </div>
@@ -147,6 +153,8 @@ function ScheduleRow({
 }) {
   const statusCfg = statusConfig[schedule.last_status] ?? { icon: MinusCircle, color: "text-muted-foreground/50", label: "Unknown" };
   const StatusIcon = statusCfg.icon;
+  const { deleteSchedule, toggleSchedule } = useDataStore();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
     <div
@@ -230,6 +238,43 @@ function ScheduleRow({
               <span className="font-mono text-[9px] text-muted-foreground/40">
                 Created: {schedule.created_at}
               </span>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 border-t border-border/30 pt-3">
+              <button
+                onClick={() => toggleSchedule(schedule.id, !schedule.enabled)}
+                className="flex items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-border hover:bg-foreground/[3%]"
+              >
+                <Power className="size-3" />
+                {schedule.enabled ? "Disable" : "Enable"}
+              </button>
+
+              {confirmDelete ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => deleteSchedule(schedule.id)}
+                    className="flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-red-500 transition-colors hover:bg-red-500/20"
+                  >
+                    <Trash2 className="size-3" />
+                    Confirm delete
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="rounded-md px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground/60 hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground transition-colors hover:border-red-500/40 hover:text-red-500"
+                >
+                  <Trash2 className="size-3" />
+                  Delete
+                </button>
+              )}
             </div>
           </div>
         </div>

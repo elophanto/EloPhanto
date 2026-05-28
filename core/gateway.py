@@ -1371,7 +1371,9 @@ class Gateway:
             logger.warning("No pending approval for id %s", request_id[:8])
 
     # Commands that modify secrets or agent config — require OWNER authority.
-    _OWNER_ONLY_COMMANDS: frozenset[str] = frozenset({"vault_set", "config_update"})
+    _OWNER_ONLY_COMMANDS: frozenset[str] = frozenset(
+        {"vault_set", "config_update", "schedule_delete", "schedule_toggle"}
+    )
 
     async def _handle_command(
         self, client: ClientConnection, msg: GatewayMessage
@@ -1998,6 +2000,56 @@ class Gateway:
                 response_message(session_id, payload, done=True).to_json()
             )
 
+        elif command == "companies":
+            # ABE company list with per-company status (trust / voice /
+            # strategy / blockers / 7d net) — the web Companies page.
+            await self._send_companies(client, session_id)
+
+        elif command == "company_detail":
+            # Full per-company view: product, voice contract, strategy
+            # summary, open blockers, pending drafts, ledger report.
+            slug = (msg.data.get("args") or {}).get("slug", "")
+            await self._send_company_detail(client, session_id, slug)
+
+        elif command == "roles":
+            # ABE role personas (global, not per-company).
+            await self._send_roles(client, session_id)
+
+        elif command == "goals":
+            # Goal queue. args: status (optional), limit (default 30).
+            args = msg.data.get("args") or {}
+            await self._send_goals(
+                client,
+                session_id,
+                status=args.get("status") or None,
+                limit=int(args.get("limit", 30)),
+            )
+
+        elif command == "goal_detail":
+            goal_id = (msg.data.get("args") or {}).get("goal_id", "")
+            await self._send_goal_detail(client, session_id, goal_id)
+
+        elif command == "affect":
+            # Current PAD affect state + recent events.
+            await self._send_affect(client, session_id)
+
+        elif command == "schedule_delete":
+            # Owner-only (see _OWNER_ONLY_COMMANDS). Deletes a schedule
+            # via the scheduler manager so the live APScheduler job is
+            # cancelled too, then returns the refreshed list.
+            sid = (msg.data.get("args") or {}).get("schedule_id", "")
+            await self._mutate_schedule(client, session_id, "delete", sid)
+
+        elif command == "schedule_toggle":
+            # Owner-only. Enable/disable a schedule. args: schedule_id,
+            # enabled (bool — target state).
+            args = msg.data.get("args") or {}
+            sid = args.get("schedule_id", "")
+            target = bool(args.get("enabled", True))
+            await self._mutate_schedule(
+                client, session_id, "enable" if target else "disable", sid
+            )
+
         elif command == "knowledge":
             # Return knowledge base stats and file listing
             import json as _json
@@ -2108,29 +2160,7 @@ class Gateway:
             # Return all scheduled tasks
             import json as _json
 
-            scheduler = getattr(self._agent, "_scheduler", None)
-            schedules_data: list[dict[str, Any]] = []
-            if scheduler:
-                try:
-                    entries = await scheduler.list_schedules()
-                    for s in entries:
-                        schedules_data.append(
-                            {
-                                "id": s.id,
-                                "name": s.name,
-                                "description": s.description,
-                                "cron_expression": s.cron_expression,
-                                "task_goal": s.task_goal,
-                                "enabled": s.enabled,
-                                "last_run_at": s.last_run_at,
-                                "next_run_at": s.next_run_at,
-                                "last_status": s.last_status,
-                                "created_at": s.created_at,
-                            }
-                        )
-                except Exception:
-                    logger.debug("Schedules command error", exc_info=True)
-
+            schedules_data = await self._build_schedules()
             payload = _json.dumps({"schedules": schedules_data})
             await client.websocket.send(
                 response_message(session_id, payload, done=True).to_json()
@@ -2712,6 +2742,392 @@ class Gateway:
             await client.websocket.send(
                 error_message(f"Unknown command: {command}", session_id).to_json()
             )
+
+    # ── ABE / goals / affect read commands (web parity) ──────────────
+    # These mirror the `elophanto company / role / voice / strategy /
+    # drafts / goals / affect` CLI surfaces so the web dashboard can
+    # render the same data. All read-only; they reuse the managers the
+    # agent already wired (no duplicate logic).
+
+    async def _send_json(
+        self, client: ClientConnection, session_id: str, obj: dict[str, Any]
+    ) -> None:
+        import json as _json
+
+        await client.websocket.send(
+            response_message(session_id, _json.dumps(obj), done=True).to_json()
+        )
+
+    async def _build_company_rows(self) -> list[dict[str, Any]]:
+        """Per-company status rows (shared by `companies` + `dashboard`)."""
+        from core.company import current_company_id
+
+        company_mgr = getattr(self._agent, "_company_manager", None)
+        voice_mgr = getattr(self._agent, "_voice_manager", None)
+        strategy_mgr = getattr(self._agent, "_strategy_manager", None)
+        db = getattr(self._agent, "_db", None)
+        if not company_mgr:
+            return []
+        try:
+            active_slug = current_company_id()
+        except Exception:
+            active_slug = None
+        rows: list[dict[str, Any]] = []
+        for c in await company_mgr.list():
+            voice_yes = False
+            try:
+                voice_yes = voice_mgr is not None and voice_mgr.get(c.id) is not None
+            except Exception:
+                pass
+            strategy_active = False
+            blockers = 0
+            try:
+                if strategy_mgr is not None:
+                    strategy_active = strategy_mgr.has_active(c.id)
+                    if strategy_active:
+                        blockers = strategy_mgr.blocker_count(c.id)
+            except Exception:
+                pass
+            net_7d = 0.0
+            try:
+                if db is not None:
+                    grp = await db.execute(
+                        "SELECT direction, SUM(amount) AS total FROM resource_ledger "
+                        "WHERE company_id = ? AND type = 'usd' "
+                        "AND date(ts) >= date('now', '-7 days') GROUP BY direction",
+                        (c.id,),
+                    )
+                    for r in grp:
+                        net_7d += (
+                            float(r["total"] or 0)
+                            if r["direction"] == "in"
+                            else -float(r["total"] or 0)
+                        )
+            except Exception:
+                pass
+            rows.append(
+                {
+                    "slug": c.id,
+                    "name": c.name,
+                    "status": c.status,
+                    "active": c.id == active_slug,
+                    "trust": c.trust_state,
+                    "has_product": bool(c.product_yaml),
+                    "voice": "yes" if voice_yes else "none",
+                    "strategy": "active" if strategy_active else "none",
+                    "blockers": blockers,
+                    "net_7d": round(net_7d, 2),
+                }
+            )
+        return rows
+
+    async def _send_companies(self, client: ClientConnection, session_id: str) -> None:
+        try:
+            rows = await self._build_company_rows()
+        except Exception as e:
+            logger.debug("companies command failed: %s", e)
+            rows = []
+        await self._send_json(client, session_id, {"companies": rows})
+
+    async def _send_company_detail(
+        self, client: ClientConnection, session_id: str, slug: str
+    ) -> None:
+        import yaml as _yaml
+
+        from core.ledger import ResourceLedger
+
+        detail: dict[str, Any] = {"slug": slug}
+        company_mgr = getattr(self._agent, "_company_manager", None)
+        voice_mgr = getattr(self._agent, "_voice_manager", None)
+        strategy_mgr = getattr(self._agent, "_strategy_manager", None)
+        db = getattr(self._agent, "_db", None)
+        config = getattr(self._agent, "_config", None)
+        project_root = getattr(config, "project_root", None)
+
+        try:
+            company = await company_mgr.get(slug) if company_mgr else None
+            if not company:
+                await self._send_json(
+                    client, session_id, {"company_detail": None, "slug": slug}
+                )
+                return
+            detail["name"] = company.name
+            detail["status"] = company.status
+            detail["trust"] = company.trust_state
+            # Product YAML → dict
+            product = None
+            if company.product_yaml:
+                try:
+                    product = _yaml.safe_load(company.product_yaml)
+                except Exception:
+                    product = None
+            detail["product"] = product
+
+            # Voice contract
+            voice = None
+            try:
+                v = voice_mgr.get(slug) if voice_mgr else None
+                if v is not None:
+                    voice = {
+                        "persona": v.persona,
+                        "tone": list(v.tone),
+                        "length_target": v.length_target,
+                        "cta_style": v.cta_style,
+                        "banned_phrases": list(v.banned_phrases),
+                        "allowed_hooks": list(v.allowed_hooks),
+                    }
+            except Exception:
+                pass
+            detail["voice"] = voice
+
+            # Strategy summary + blockers
+            strategy = None
+            blockers: list[dict[str, Any]] = []
+            try:
+                if strategy_mgr is not None:
+                    s = strategy_mgr.get_active(slug)
+                    if s is not None:
+                        strategy = {
+                            "name": s.strategy_name,
+                            "tagline": s.tagline,
+                            "overview": s.overview,
+                            "core_message": s.core_message,
+                            "tactics": len(s.tactics or []),
+                            "quick_wins": list(s.quick_wins or [])[:6],
+                            "metrics": list(s.metrics or [])[:6],
+                        }
+                if project_root is not None:
+                    from core.strategy import load_blockers
+
+                    for b in load_blockers(project_root, slug):
+                        blockers.append(
+                            {
+                                "id": b.id,
+                                "type": b.type,
+                                "description": b.description,
+                                "proposal": b.resolution_proposal,
+                                "resolved": b.resolved_at is not None,
+                            }
+                        )
+            except Exception:
+                pass
+            detail["strategy"] = strategy
+            detail["blockers"] = blockers
+
+            # Pending drafts
+            drafts: list[dict[str, Any]] = []
+            try:
+                if project_root is not None:
+                    base = project_root / "companies" / slug / "drafts"
+                    if base.is_dir():
+                        for kind_dir in sorted(base.iterdir()):
+                            pend = kind_dir / "pending"
+                            if pend.is_dir():
+                                for f in sorted(pend.glob("*.md")):
+                                    drafts.append(
+                                        {
+                                            "id": f.stem,
+                                            "kind": kind_dir.name,
+                                            "preview": f.read_text(
+                                                encoding="utf-8", errors="ignore"
+                                            )[:280],
+                                        }
+                                    )
+            except Exception:
+                pass
+            detail["drafts"] = drafts
+
+            # Ledger report
+            ledger = {"revenue": 0.0, "spend": 0.0, "tokens": 0.0, "recent": []}
+            try:
+                if db is not None:
+                    rl = ResourceLedger(db)
+                    ledger["revenue"] = round(
+                        await rl.sum(slug, type="usd", direction="in"), 2
+                    )
+                    ledger["spend"] = round(
+                        await rl.sum(slug, type="usd", direction="out"), 2
+                    )
+                    ledger["tokens"] = await rl.sum(slug, type="llm_tokens")
+                    ledger["recent"] = (await rl.recent(slug, limit=10)) or []
+            except Exception:
+                pass
+            detail["ledger"] = ledger
+        except Exception as e:
+            logger.debug("company_detail failed: %s", e)
+
+        await self._send_json(client, session_id, {"company_detail": detail})
+
+    async def _send_roles(self, client: ClientConnection, session_id: str) -> None:
+        role_mgr = getattr(self._agent, "_role_manager", None)
+        roles: list[dict[str, Any]] = []
+        try:
+            if role_mgr is not None:
+                for r in await role_mgr.list_roles():
+                    roles.append(
+                        {
+                            "name": r.name,
+                            "description": r.description,
+                            "allowed_tool_groups": list(r.allowed_tool_groups or []),
+                            "kpi": dict(r.kpi or {}),
+                            "last_active_at": r.last_active_at,
+                        }
+                    )
+        except Exception as e:
+            logger.debug("roles command failed: %s", e)
+        await self._send_json(client, session_id, {"roles": roles})
+
+    async def _send_goals(
+        self,
+        client: ClientConnection,
+        session_id: str,
+        *,
+        status: str | None,
+        limit: int,
+    ) -> None:
+        goal_mgr = getattr(self._agent, "_goal_manager", None)
+        goals: list[dict[str, Any]] = []
+        try:
+            if goal_mgr is not None:
+                for g in await goal_mgr.list_goals(status=status, limit=limit):
+                    goals.append(
+                        {
+                            "goal_id": g.goal_id,
+                            "goal": g.goal,
+                            "status": g.status,
+                            "current_checkpoint": g.current_checkpoint,
+                            "total_checkpoints": g.total_checkpoints,
+                            "llm_calls": g.llm_calls_used,
+                            "cost_usd": round(g.cost_usd, 4),
+                            "mission_id": g.mission_id,
+                            "role": g.assigned_to_role,
+                            "created_at": g.created_at,
+                            "updated_at": g.updated_at,
+                        }
+                    )
+        except Exception as e:
+            logger.debug("goals command failed: %s", e)
+        await self._send_json(client, session_id, {"goals": goals})
+
+    async def _send_goal_detail(
+        self, client: ClientConnection, session_id: str, goal_id: str
+    ) -> None:
+        goal_mgr = getattr(self._agent, "_goal_manager", None)
+        detail: dict[str, Any] | None = None
+        try:
+            if goal_mgr is not None and goal_id:
+                g = await goal_mgr.get_goal(goal_id)
+                if g is not None:
+                    cps = await goal_mgr.get_checkpoints(goal_id)
+                    detail = {
+                        "goal_id": g.goal_id,
+                        "goal": g.goal,
+                        "status": g.status,
+                        "current_checkpoint": g.current_checkpoint,
+                        "total_checkpoints": g.total_checkpoints,
+                        "llm_calls": g.llm_calls_used,
+                        "cost_usd": round(g.cost_usd, 4),
+                        "mission_id": g.mission_id,
+                        "role": g.assigned_to_role,
+                        "context_summary": g.context_summary,
+                        "created_at": g.created_at,
+                        "updated_at": g.updated_at,
+                        "checkpoints": [
+                            {
+                                "order": c.order,
+                                "title": c.title,
+                                "status": c.status,
+                                "success_criteria": c.success_criteria,
+                            }
+                            for c in cps
+                        ],
+                    }
+        except Exception as e:
+            logger.debug("goal_detail failed: %s", e)
+        await self._send_json(client, session_id, {"goal_detail": detail})
+
+    async def _build_schedules(self) -> list[dict[str, Any]]:
+        """Schedule rows for the web (shared by read + post-mutation refresh)."""
+        scheduler = getattr(self._agent, "_scheduler", None)
+        out: list[dict[str, Any]] = []
+        if not scheduler:
+            return out
+        try:
+            for s in await scheduler.list_schedules():
+                out.append(
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "description": s.description,
+                        "cron_expression": s.cron_expression,
+                        "task_goal": s.task_goal,
+                        "enabled": s.enabled,
+                        "last_run_at": s.last_run_at,
+                        "next_run_at": s.next_run_at,
+                        "last_status": s.last_status,
+                        "created_at": s.created_at,
+                    }
+                )
+        except Exception:
+            logger.debug("Schedules build error", exc_info=True)
+        return out
+
+    async def _mutate_schedule(
+        self,
+        client: ClientConnection,
+        session_id: str,
+        action: str,
+        schedule_id: str,
+    ) -> None:
+        """Delete / enable / disable a schedule, then re-send the list.
+
+        Uses the scheduler manager (not raw SQL) so the live
+        APScheduler job is cancelled / paused / resumed in lockstep
+        with the DB row.
+        """
+        scheduler = getattr(self._agent, "_scheduler", None)
+        if not scheduler or not schedule_id:
+            await self._send_json(
+                client,
+                session_id,
+                {"schedules": await self._build_schedules()},
+            )
+            return
+        try:
+            if action == "delete":
+                await scheduler.delete_schedule(schedule_id)
+            elif action == "enable":
+                await scheduler.enable_schedule(schedule_id)
+            elif action == "disable":
+                await scheduler.disable_schedule(schedule_id)
+        except Exception:
+            logger.debug(
+                "schedule %s failed for %s", action, schedule_id, exc_info=True
+            )
+        await self._send_json(
+            client, session_id, {"schedules": await self._build_schedules()}
+        )
+
+    async def _send_affect(self, client: ClientConnection, session_id: str) -> None:
+        affect_mgr = getattr(self._agent, "_affect_manager", None)
+        affect: dict[str, Any] | None = None
+        try:
+            if affect_mgr is not None:
+                state = await affect_mgr.get_state()
+                mood = await affect_mgr.current_mood()
+                affect = {
+                    "pleasure": round(state.pleasure, 3),
+                    "arousal": round(state.arousal, 3),
+                    "dominance": round(state.dominance, 3),
+                    "label": mood.get("dominant_label", ""),
+                    "description": mood.get("description", ""),
+                    "magnitude": mood.get("magnitude", 0),
+                    "updated_at": state.updated_at,
+                    "recent_events": list(state.recent_events or [])[-12:],
+                }
+        except Exception as e:
+            logger.debug("affect command failed: %s", e)
+        await self._send_json(client, session_id, {"affect": affect})
 
     async def _handle_capability_request(
         self, client: ClientConnection, msg: GatewayMessage

@@ -20,6 +20,8 @@ import {
 import { useConnectionStore } from "@/stores/connection";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { PaginationBar } from "@/components/ui/pagination";
+import { usePagination } from "@/hooks/use-pagination";
 
 type Tab = "tasks" | "evolution";
 
@@ -173,6 +175,10 @@ function TasksList({
         tool.toLowerCase().includes(search.toLowerCase())
       )
   );
+  const pag = usePagination(filtered, 25);
+  // Collapse any expanded row when paging so the index-based expansion
+  // doesn't carry over to a different row on the next page.
+  useEffect(() => setExpandedIdx(null), [pag.page]);
 
   if (filtered.length === 0) {
     return (
@@ -188,7 +194,7 @@ function TasksList({
 
   return (
     <div className="space-y-1">
-      {filtered.map((task, i) => {
+      {pag.pageItems.map((task, i) => {
         const outcome = outcomeConfig[task.outcome] ?? {
           icon: CheckCircle2,
           color: "text-emerald-500",
@@ -305,6 +311,7 @@ function TasksList({
           </div>
         );
       })}
+      <PaginationBar {...pag} noun="task" />
     </div>
   );
 }
@@ -325,6 +332,8 @@ function EvolutionList({
       e.reason.toLowerCase().includes(search.toLowerCase()) ||
       e.new_value.toLowerCase().includes(search.toLowerCase())
   );
+  const pag = usePagination(filtered, 25);
+  useEffect(() => setExpandedIdx(null), [pag.page]);
 
   if (filtered.length === 0) {
     return (
@@ -340,7 +349,7 @@ function EvolutionList({
 
   return (
     <div className="space-y-1">
-      {filtered.map((entry, i) => {
+      {pag.pageItems.map((entry, i) => {
         const expanded = expandedIdx === i;
 
         return (
@@ -428,6 +437,7 @@ function EvolutionList({
           </div>
         );
       })}
+      <PaginationBar {...pag} noun="record" />
     </div>
   );
 }

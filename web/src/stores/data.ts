@@ -93,6 +93,123 @@ export interface DashboardData {
   stats: DashboardStats;
 }
 
+// --- ABE: companies / roles ---
+
+export interface CompanyRow {
+  slug: string;
+  name: string;
+  status: string;
+  active: boolean;
+  trust: string;
+  has_product: boolean;
+  voice: string;
+  strategy: string;
+  blockers: number;
+  net_7d: number;
+}
+
+export interface CompanyVoice {
+  persona: string;
+  tone: string[];
+  length_target: string;
+  cta_style: string;
+  banned_phrases: string[];
+  allowed_hooks: string[];
+}
+
+export interface CompanyStrategy {
+  name: string;
+  tagline: string;
+  overview: string;
+  core_message: string;
+  tactics: number;
+  quick_wins: string[];
+  metrics: string[];
+}
+
+export interface CompanyBlocker {
+  id: string;
+  type: string;
+  description: string;
+  proposal: string;
+  resolved: boolean;
+}
+
+export interface CompanyDraft {
+  id: string;
+  kind: string;
+  preview: string;
+}
+
+export interface CompanyLedger {
+  revenue: number;
+  spend: number;
+  tokens: number;
+  recent: Record<string, unknown>[];
+}
+
+export interface CompanyDetail {
+  slug: string;
+  name?: string;
+  status?: string;
+  trust?: string;
+  product?: Record<string, unknown> | null;
+  voice: CompanyVoice | null;
+  strategy: CompanyStrategy | null;
+  blockers: CompanyBlocker[];
+  drafts: CompanyDraft[];
+  ledger: CompanyLedger;
+}
+
+export interface RoleRow {
+  name: string;
+  description: string;
+  allowed_tool_groups: string[];
+  kpi: Record<string, unknown>;
+  last_active_at: string | null;
+}
+
+// --- Goals (full queue, beyond dashboard's active few) ---
+
+export interface GoalRow {
+  goal_id: string;
+  goal: string;
+  status: string;
+  current_checkpoint: number;
+  total_checkpoints: number;
+  llm_calls: number;
+  cost_usd: number;
+  mission_id: string | null;
+  role: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GoalCheckpoint {
+  order: number;
+  title: string;
+  status: string;
+  success_criteria: string;
+}
+
+export interface GoalDetail extends GoalRow {
+  context_summary: string;
+  checkpoints: GoalCheckpoint[];
+}
+
+// --- Affect ---
+
+export interface AffectData {
+  pleasure: number;
+  arousal: number;
+  dominance: number;
+  label: string;
+  description: string;
+  magnitude: number;
+  updated_at: string;
+  recent_events: Record<string, unknown>[];
+}
+
 // --- Knowledge types ---
 
 export interface KnowledgeFile {
@@ -263,6 +380,8 @@ interface DataState {
   schedulesLoaded: boolean;
   fetchSchedules: () => void;
   setSchedules: (data: ScheduleInfo[]) => void;
+  deleteSchedule: (id: string) => void;
+  toggleSchedule: (id: string, enabled: boolean) => void;
 
   // Channels
   channels: ChannelsData | null;
@@ -291,6 +410,40 @@ interface DataState {
   historyLoading: boolean;
   fetchHistory: () => void;
   setHistory: (data: HistoryData) => void;
+
+  // ABE: companies
+  companies: CompanyRow[];
+  companiesLoading: boolean;
+  fetchCompanies: () => void;
+  setCompanies: (data: CompanyRow[]) => void;
+  companyDetail: CompanyDetail | null;
+  companyDetailLoading: boolean;
+  fetchCompanyDetail: (slug: string) => void;
+  setCompanyDetail: (data: CompanyDetail | null) => void;
+  clearCompanyDetail: () => void;
+
+  // ABE: roles
+  roles: RoleRow[];
+  rolesLoading: boolean;
+  fetchRoles: () => void;
+  setRoles: (data: RoleRow[]) => void;
+
+  // Goals (full queue)
+  goalsList: GoalRow[];
+  goalsListLoading: boolean;
+  fetchGoals: (status?: string) => void;
+  setGoals: (data: GoalRow[]) => void;
+  goalDetail: GoalDetail | null;
+  goalDetailLoading: boolean;
+  fetchGoalDetail: (goalId: string) => void;
+  setGoalDetail: (data: GoalDetail | null) => void;
+  clearGoalDetail: () => void;
+
+  // Affect
+  affect: AffectData | null;
+  affectLoading: boolean;
+  fetchAffect: () => void;
+  setAffect: (data: AffectData | null) => void;
 }
 
 export const useDataStore = create<DataState>((set, get) => ({
@@ -358,6 +511,19 @@ export const useDataStore = create<DataState>((set, get) => ({
   },
   setSchedules: (data) =>
     set({ schedules: data, schedulesLoading: false, schedulesLoaded: true }),
+  deleteSchedule: (id: string) => {
+    // Optimistic remove; gateway responds with the authoritative list.
+    set({ schedules: get().schedules.filter((s) => s.id !== id) });
+    gateway.sendCommand("schedule_delete", { schedule_id: id });
+  },
+  toggleSchedule: (id: string, enabled: boolean) => {
+    set({
+      schedules: get().schedules.map((s) =>
+        s.id === id ? { ...s, enabled } : s,
+      ),
+    });
+    gateway.sendCommand("schedule_toggle", { schedule_id: id, enabled });
+  },
 
   // Channels — always refetch (live data)
   channels: null,
@@ -405,4 +571,62 @@ export const useDataStore = create<DataState>((set, get) => ({
     gateway.sendCommand("history");
   },
   setHistory: (data) => set({ history: data, historyLoading: false }),
+
+  // ABE: companies — always refetch (live status)
+  companies: [],
+  companiesLoading: false,
+  fetchCompanies: () => {
+    set({ companiesLoading: true });
+    gateway.sendCommand("companies");
+  },
+  setCompanies: (data) => set({ companies: data, companiesLoading: false }),
+  companyDetail: null,
+  companyDetailLoading: false,
+  fetchCompanyDetail: (slug: string) => {
+    set({ companyDetailLoading: true, companyDetail: null });
+    gateway.sendCommand("company_detail", { slug });
+  },
+  setCompanyDetail: (data) =>
+    set({ companyDetail: data, companyDetailLoading: false }),
+  clearCompanyDetail: () =>
+    set({ companyDetail: null, companyDetailLoading: false }),
+
+  // ABE: roles
+  roles: [],
+  rolesLoading: false,
+  fetchRoles: () => {
+    set({ rolesLoading: true });
+    gateway.sendCommand("roles");
+  },
+  setRoles: (data) => set({ roles: data, rolesLoading: false }),
+
+  // Goals (full queue)
+  goalsList: [],
+  goalsListLoading: false,
+  fetchGoals: (status?: string) => {
+    set({ goalsListLoading: true });
+    // Pull a generous window so client-side pagination is meaningful;
+    // the dashboard isn't a place to scroll 1000s of goals.
+    gateway.sendCommand("goals", { limit: 500, ...(status ? { status } : {}) });
+  },
+  setGoals: (data) => set({ goalsList: data, goalsListLoading: false }),
+  goalDetail: null,
+  goalDetailLoading: false,
+  fetchGoalDetail: (goalId: string) => {
+    set({ goalDetailLoading: true, goalDetail: null });
+    gateway.sendCommand("goal_detail", { goal_id: goalId });
+  },
+  setGoalDetail: (data) =>
+    set({ goalDetail: data, goalDetailLoading: false }),
+  clearGoalDetail: () =>
+    set({ goalDetail: null, goalDetailLoading: false }),
+
+  // Affect
+  affect: null,
+  affectLoading: false,
+  fetchAffect: () => {
+    set({ affectLoading: true });
+    gateway.sendCommand("affect");
+  },
+  setAffect: (data) => set({ affect: data, affectLoading: false }),
 }));

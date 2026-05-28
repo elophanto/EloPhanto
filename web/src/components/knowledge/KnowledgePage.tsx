@@ -20,6 +20,8 @@ import {
 import { useConnectionStore } from "@/stores/connection";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { PaginationBar } from "@/components/ui/pagination";
+import { usePagination } from "@/hooks/use-pagination";
 
 const scopeConfig: Record<string, { color: string; label: string }> = {
   system: { color: "text-blue-500", label: "System" },
@@ -72,6 +74,7 @@ export function KnowledgePage() {
   });
 
   const allScopes = [...new Set(files.map((f) => f.scope))].sort();
+  const pag = usePagination(filtered, 30);
 
   return (
     <div className="flex h-full flex-col">
@@ -169,7 +172,7 @@ export function KnowledgePage() {
           </div>
         ) : (
           <div className="space-y-1">
-            {filtered.map((file) => (
+            {pag.pageItems.map((file) => (
               <FileRow
                 key={file.path}
                 file={file}
@@ -185,6 +188,7 @@ export function KnowledgePage() {
                 }
               />
             ))}
+            <PaginationBar {...pag} noun="file" />
           </div>
         )}
       </div>
