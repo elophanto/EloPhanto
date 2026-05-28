@@ -21,6 +21,7 @@ import { useConnectionStore } from "@/stores/connection";
 import { useChatStore } from "@/stores/chat";
 import { useDataStore } from "@/stores/data";
 import { useNavigationStore } from "@/stores/navigation";
+import { useActivityStore } from "@/stores/activity";
 
 interface ConversationPayload {
   id: string;
@@ -283,13 +284,19 @@ function GatewayWiring() {
         const chat = useChatStore.getState();
 
         if (event === "step_progress") {
+          const toolName = (msg.data.tool_name as string) ?? "";
+          const thought = (msg.data.thought as string) ?? "";
           chat.addToolStep({
             id: generateId(),
             step: (msg.data.step as number) ?? 0,
-            toolName: (msg.data.tool_name as string) ?? "",
-            thought: (msg.data.thought as string) ?? "",
+            toolName,
+            thought,
             timestamp: Date.now(),
           });
+          // Feed the ambient activity ticker (visible on every page).
+          useActivityStore
+            .getState()
+            .push({ kind: "tool", label: toolName, detail: thought });
         } else if (event === "task_complete") {
           chat.clearToolSteps();
         } else if (event === "session_created") {
@@ -301,6 +308,14 @@ function GatewayWiring() {
             type: event,
             data: msg.data as Record<string, unknown>,
             timestamp: Date.now(),
+          });
+          useActivityStore.getState().push({
+            kind: "mind",
+            label: event.replace(/^mind_/, "mind: "),
+            detail:
+              (msg.data.summary as string) ||
+              (msg.data.message as string) ||
+              "",
           });
         }
       }),
