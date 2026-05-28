@@ -1,9 +1,16 @@
 # Dashboard themes
 
-The EloPhanto terminal dashboard's look is fully theme-driven. Operators
-can fork a built-in theme, override only the colors / layout they want
-to change, and ship YAML files that other operators can drop in too.
-No Python execution in theme files — themes are safe to share.
+The EloPhanto **terminal** dashboard's look is fully theme-driven.
+Operators can fork a built-in theme, override only the colors / layout
+they want to change, and ship YAML files that other operators can drop
+in too. No Python execution in theme files — themes are safe to share.
+
+> **Terminal only.** This YAML system themes the Textual terminal
+> dashboard. The **web** dashboard (`./start.sh --web`) has its own,
+> separate theme system — CSS-variable presets selected in the sidebar
+> or Settings → Appearance (Light / Dark / Nocturne / Mocha), persisted
+> in the browser. The two don't share files; they just ship matching
+> palettes so the surfaces feel like one product.
 
 ## Built-in themes
 

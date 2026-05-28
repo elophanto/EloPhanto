@@ -7,6 +7,7 @@ export type Page =
   | "goals"
   | "roles"
   | "affect"
+  | "ego"
   | "tools"
   | "skills"
   | "knowledge"

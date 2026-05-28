@@ -15,6 +15,7 @@ import { CompaniesPage } from "@/components/companies/CompaniesPage";
 import { GoalsPage } from "@/components/goals/GoalsPage";
 import { RolesPage } from "@/components/roles/RolesPage";
 import { AffectPage } from "@/components/affect/AffectPage";
+import { EgoPage } from "@/components/ego/EgoPage";
 import { gateway } from "@/lib/gateway";
 import { MessageType, type ResponseData, generateId } from "@/lib/protocol";
 import { useConnectionStore } from "@/stores/connection";
@@ -203,6 +204,14 @@ function GatewayWiring() {
               );
               return;
             }
+            if ("ego" in parsed) {
+              dataStore.setEgo(
+                parsed.ego as ReturnType<
+                  typeof useDataStore.getState
+                >["ego"]
+              );
+              return;
+            }
             if (parsed.cleared != null) {
               // Clear command acknowledged — no chat display needed
               return;
@@ -353,6 +362,8 @@ function PageRouter() {
       return <RolesPage />;
     case "affect":
       return <AffectPage />;
+    case "ego":
+      return <EgoPage />;
     case "tools":
       return <ToolsPage />;
     case "skills":

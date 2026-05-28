@@ -5,14 +5,29 @@ import { useDataStore } from "@/stores/data";
 import { useConnectionStore } from "@/stores/connection";
 
 // PAD channels run roughly -1..+1; render as a centered bar.
-function PadBar({ label, value }: { label: string; value: number }) {
+function PadBar({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+}) {
   const pct = Math.max(-1, Math.min(1, value));
   const widthPct = Math.abs(pct) * 50;
   const positive = pct >= 0;
   return (
     <div className="space-y-1">
-      <div className="flex justify-between font-mono text-[10px]">
-        <span className="uppercase tracking-[0.1em] text-muted-foreground">{label}</span>
+      <div className="flex items-baseline justify-between font-mono text-[10px]">
+        <span className="uppercase tracking-[0.1em] text-muted-foreground">
+          {label}
+          {hint && (
+            <span className="ml-2 normal-case tracking-normal text-muted-foreground/40">
+              {hint}
+            </span>
+          )}
+        </span>
         <span className={positive ? "text-emerald-500" : "text-red-500"}>
           {pct >= 0 ? "+" : ""}
           {pct.toFixed(2)}
@@ -81,10 +96,54 @@ export function AffectPage() {
             </div>
 
             <div className="space-y-3 rounded-lg border border-border/50 p-5">
-              <PadBar label="Pleasure" value={affect.pleasure} />
-              <PadBar label="Arousal" value={affect.arousal} />
-              <PadBar label="Dominance" value={affect.dominance} />
+              <PadBar
+                label="Pleasure"
+                value={affect.pleasure}
+                hint="displeasure ↔ pleasure"
+              />
+              <PadBar
+                label="Arousal"
+                value={affect.arousal}
+                hint="calm ↔ activated"
+              />
+              <PadBar
+                label="Dominance"
+                value={affect.dominance}
+                hint="submissive ↔ in-control"
+              />
             </div>
+
+            {/* What this state is actually doing to the agent right now */}
+            {(affect.embodiment || affect.temperature_bias !== 0) && (
+              <div className="rounded-lg border border-primary/30 bg-primary/[3%] p-5">
+                <h2 className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  How this is shaping me
+                </h2>
+                {affect.embodiment && (
+                  <p className="mt-2 text-[12px] leading-relaxed text-foreground/90">
+                    {affect.embodiment}
+                  </p>
+                )}
+                {affect.temperature_bias !== 0 && (
+                  <p className="mt-2 font-mono text-[10px] text-muted-foreground/70">
+                    router temperature bias{" "}
+                    <span
+                      className={
+                        affect.temperature_bias > 0
+                          ? "text-amber-500"
+                          : "text-sky-500"
+                      }
+                    >
+                      {affect.temperature_bias > 0 ? "+" : ""}
+                      {affect.temperature_bias.toFixed(2)}
+                    </span>{" "}
+                    {affect.temperature_bias > 0
+                      ? "(looser, more exploratory)"
+                      : "(tighter, more careful)"}
+                  </p>
+                )}
+              </div>
+            )}
 
             {affect.recent_events.length > 0 && (
               <div className="space-y-2">

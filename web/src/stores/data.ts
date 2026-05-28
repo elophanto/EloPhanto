@@ -206,8 +206,39 @@ export interface AffectData {
   label: string;
   description: string;
   magnitude: number;
+  embodiment: string;
+  temperature_bias: number;
   updated_at: string;
   recent_events: Record<string, unknown>[];
+}
+
+// --- Ego (Higgins three-self model) ---
+
+export interface CapabilityConfidence {
+  name: string;
+  confidence: number;
+}
+
+export interface HumblingEvent {
+  capability: string;
+  claimed: string;
+  actual: string;
+  task_goal: string;
+  created_at: string;
+}
+
+export interface EgoData {
+  coherence: number;
+  self_image: string;
+  self_critique: string;
+  ideal_self: string;
+  ought_self: string;
+  capabilities: CapabilityConfidence[];
+  confidence_avg: number;
+  confidence_min: number;
+  confidence_max: number;
+  humbling_events: HumblingEvent[];
+  humbling_count: number;
 }
 
 // --- Knowledge types ---
@@ -444,6 +475,12 @@ interface DataState {
   affectLoading: boolean;
   fetchAffect: () => void;
   setAffect: (data: AffectData | null) => void;
+
+  // Ego
+  ego: EgoData | null;
+  egoLoading: boolean;
+  fetchEgo: () => void;
+  setEgo: (data: EgoData | null) => void;
 }
 
 export const useDataStore = create<DataState>((set, get) => ({
@@ -629,4 +666,13 @@ export const useDataStore = create<DataState>((set, get) => ({
     gateway.sendCommand("affect");
   },
   setAffect: (data) => set({ affect: data, affectLoading: false }),
+
+  // Ego
+  ego: null,
+  egoLoading: false,
+  fetchEgo: () => {
+    set({ egoLoading: true });
+    gateway.sendCommand("ego");
+  },
+  setEgo: (data) => set({ ego: data, egoLoading: false }),
 }));

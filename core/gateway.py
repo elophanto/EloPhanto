@@ -2033,6 +2033,10 @@ class Gateway:
             # Current PAD affect state + recent events.
             await self._send_affect(client, session_id)
 
+        elif command == "ego":
+            # Higgins three-self model + per-capability confidence.
+            await self._send_ego(client, session_id)
+
         elif command == "schedule_delete":
             # Owner-only (see _OWNER_ONLY_COMMANDS). Deletes a schedule
             # via the scheduler manager so the live APScheduler job is
@@ -2755,7 +2759,13 @@ class Gateway:
         import json as _json
 
         await client.websocket.send(
-            response_message(session_id, _json.dumps(obj), done=True).to_json()
+            # default=str is a safety net: any stray non-JSON value
+            # (datetime, dataclass, etc.) is stringified rather than
+            # raising — a raise here would silently drop the whole
+            # response and hang the web page on "Loading…".
+            response_message(
+                session_id, _json.dumps(obj, default=str), done=True
+            ).to_json()
         )
 
     async def _build_company_rows(self) -> list[dict[str, Any]]:
@@ -3115,19 +3125,100 @@ class Gateway:
             if affect_mgr is not None:
                 state = await affect_mgr.get_state()
                 mood = await affect_mgr.current_mood()
+                label = mood.get("dominant_label", "")
+                # The embodiment cue (TONE + BEHAVIOR) is the "so what" —
+                # how this felt state is actually shaping the agent's
+                # output right now. Plus the router temperature bias.
+                cue = ""
+                try:
+                    from core.affect import _EMBODIMENT_CUES
+
+                    cue = _EMBODIMENT_CUES.get(
+                        label, _EMBODIMENT_CUES.get("default", "")
+                    )
+                except Exception:
+                    pass
+                temp_mod = 0.0
+                try:
+                    temp_mod = await affect_mgr.temperature_modifier()
+                except Exception:
+                    pass
+                # recent_events are AffectEvent dataclasses — map to the
+                # flat dicts the web expects (label / source / at) rather
+                # than relying on the default=str fallback (which would
+                # render unusable repr strings).
+                events: list[dict[str, Any]] = []
+                for ev in list(state.recent_events or [])[-20:]:
+                    events.append(
+                        {
+                            "label": getattr(ev, "label", ""),
+                            "source": getattr(ev, "source", ""),
+                            "at": getattr(ev, "created_at", ""),
+                        }
+                    )
                 affect = {
                     "pleasure": round(state.pleasure, 3),
                     "arousal": round(state.arousal, 3),
                     "dominance": round(state.dominance, 3),
-                    "label": mood.get("dominant_label", ""),
+                    "label": label,
                     "description": mood.get("description", ""),
                     "magnitude": mood.get("magnitude", 0),
+                    "embodiment": cue,
+                    "temperature_bias": round(temp_mod, 3),
                     "updated_at": state.updated_at,
-                    "recent_events": list(state.recent_events or [])[-12:],
+                    "recent_events": events,
                 }
         except Exception as e:
             logger.debug("affect command failed: %s", e)
         await self._send_json(client, session_id, {"affect": affect})
+
+    async def _send_ego(self, client: ClientConnection, session_id: str) -> None:
+        """Ego self-model — Higgins three-self + per-capability confidence,
+        coherence, humbling events, and the first-person self-image prose."""
+        ego_mgr = getattr(self._agent, "_ego_manager", None)
+        ego: dict[str, Any] | None = None
+        try:
+            if ego_mgr is not None:
+                e = await ego_mgr.get_ego()
+                conf = getattr(e, "confidence", None) or {}
+                # Sorted capability confidence — strongest first.
+                capabilities = sorted(
+                    (
+                        {"name": k, "confidence": round(float(v), 3)}
+                        for k, v in conf.items()
+                        if isinstance(v, int | float)
+                    ),
+                    key=lambda c: c["confidence"],
+                    reverse=True,
+                )
+                vals = [c["confidence"] for c in capabilities]
+                humbling = [
+                    {
+                        "capability": h.capability,
+                        "claimed": h.claimed,
+                        "actual": h.actual,
+                        "task_goal": h.task_goal,
+                        "created_at": h.created_at,
+                    }
+                    for h in (getattr(e, "humbling_events", None) or [])
+                ]
+                ego = {
+                    "coherence": round(float(e.coherence_score), 3),
+                    "self_image": e.self_image or "",
+                    "self_critique": getattr(e, "self_critique", "") or "",
+                    "ideal_self": e.ideal_self or "",
+                    "ought_self": e.ought_self or "",
+                    "capabilities": capabilities,
+                    "confidence_avg": round(sum(vals) / len(vals), 3) if vals else 0.0,
+                    "confidence_min": round(min(vals), 3) if vals else 0.0,
+                    "confidence_max": round(max(vals), 3) if vals else 0.0,
+                    # Newest humbling events first.
+                    "humbling_events": list(reversed(humbling))[:12],
+                    "humbling_count": len(humbling),
+                }
+        except Exception as e:
+            logger.debug("ego command failed: %s", e)
+        await self._send_json(client, session_id, {"ego": ego})
 
     async def _handle_capability_request(
         self, client: ClientConnection, msg: GatewayMessage

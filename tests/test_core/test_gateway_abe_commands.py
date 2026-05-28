@@ -9,6 +9,7 @@ stubbing the client's websocket.send.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -232,12 +233,26 @@ async def test_goal_detail_missing() -> None:
 # ── Affect ──────────────────────────────────────────────────────────
 
 
+class _FakeAffectEvent:
+    """Mimics core.affect.AffectEvent — a dataclass, NOT a dict. Carries
+    a datetime to prove the payload survives json serialization."""
+
+    def __init__(self) -> None:
+        self.label = "pride"
+        self.source = "goal"
+        # Non-JSON-native on purpose (a datetime) — the bug was that
+        # AffectEvent objects in recent_events made json.dumps raise,
+        # silently dropping the response and hanging the web page.
+        self.created_at = datetime(2026, 5, 28, tzinfo=UTC)
+        self.pleasure_delta = 0.1
+
+
 class _FakeAffectState:
     pleasure = 0.42
     arousal = -0.1
     dominance = 0.3
     updated_at = "2026-05-28T00:00:00+00:00"
-    recent_events = [{"label": "pride", "source": "goal", "at": "t"}]
+    recent_events = [_FakeAffectEvent()]
 
 
 class _FakeAffectMgr:
@@ -271,6 +286,92 @@ async def test_affect_no_manager_null() -> None:
     client, sent = _capture_client()
     await gw._send_affect(client, "sess")
     assert sent[0]["affect"] is None
+
+
+@pytest.mark.asyncio
+async def test_affect_includes_embodiment_and_temp() -> None:
+    """The enriched affect payload carries the behavioral cue + temp bias."""
+
+    class _Mgr:
+        async def get_state(self):
+            return _FakeAffectState()
+
+        async def current_mood(self):
+            return {
+                "dominant_label": "frustration",
+                "description": "x",
+                "magnitude": 0.6,
+            }
+
+        async def temperature_modifier(self):
+            return 0.15
+
+    gw = _gateway_with_agent(SimpleNamespace(_affect_manager=_Mgr()))
+    client, sent = _capture_client()
+    await gw._send_affect(client, "sess")
+    a = sent[0]["affect"]
+    assert a["label"] == "frustration"
+    assert a["temperature_bias"] == 0.15
+    # frustration has a real embodiment cue in core/affect._EMBODIMENT_CUES
+    assert isinstance(a["embodiment"], str) and a["embodiment"]
+    # recent_events (AffectEvent objects) must serialize to flat dicts —
+    # this is the regression that hung the web page on "Loading…".
+    assert a["recent_events"][0]["label"] == "pride"
+    assert a["recent_events"][0]["source"] == "goal"
+    # And the whole payload must be JSON round-trippable.
+    json.loads(json.dumps(a))
+
+
+# ── Ego ─────────────────────────────────────────────────────────────
+
+
+class _FakeHumbling:
+    def __init__(self, cap: str) -> None:
+        self.capability = cap
+        self.claimed = "done"
+        self.actual = "failed"
+        self.task_goal = "ship X"
+        self.created_at = "2026-05-28T00:00:00+00:00"
+
+
+class _FakeEgo:
+    def __init__(self) -> None:
+        self.coherence_score = 0.72
+        self.self_image = "I am careful and improving."
+        self.self_critique = "I overclaim on browser tasks."
+        self.ideal_self = "A flawless operator."
+        self.ought_self = "I must verify before sending."
+        self.confidence = {"browser": 0.4, "coding": 0.85, "email": 0.6}
+        self.humbling_events = [_FakeHumbling("browser"), _FakeHumbling("email")]
+
+
+class _FakeEgoMgr:
+    async def get_ego(self):
+        return _FakeEgo()
+
+
+@pytest.mark.asyncio
+async def test_ego_payload_shape() -> None:
+    gw = _gateway_with_agent(SimpleNamespace(_ego_manager=_FakeEgoMgr()))
+    client, sent = _capture_client()
+    await gw._send_ego(client, "sess")
+    e = sent[0]["ego"]
+    assert e["coherence"] == 0.72
+    assert e["self_image"].startswith("I am careful")
+    assert e["ideal_self"] and e["ought_self"]
+    # Capabilities sorted strongest-first.
+    assert [c["name"] for c in e["capabilities"]] == ["coding", "email", "browser"]
+    assert e["confidence_max"] == 0.85 and e["confidence_min"] == 0.4
+    assert e["humbling_count"] == 2
+    assert e["humbling_events"][0]["capability"] in {"browser", "email"}
+
+
+@pytest.mark.asyncio
+async def test_ego_no_manager_null() -> None:
+    gw = _gateway_with_agent(SimpleNamespace(_ego_manager=None))
+    client, sent = _capture_client()
+    await gw._send_ego(client, "sess")
+    assert sent[0]["ego"] is None
 
 
 # ── Schedule mutations (delete / enable / disable) ──────────────────
