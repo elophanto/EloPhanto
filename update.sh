@@ -86,17 +86,23 @@ if [ -f "bridge/browser/package.json" ] && command -v npm &>/dev/null; then
 fi
 
 # ── Install / refresh web dashboard deps ──
-# web/node_modules is gitignored, so a pull never brings deps. Without
-# this, `./start.sh --web` would fail with
-# 'Cannot find module .../vite/dist/node/cli.js'. Check for the vite
-# binary specifically — a bare node_modules dir can be incomplete.
+# web/node_modules is gitignored, so a pull never brings deps. Verify
+# vite ACTUALLY RUNS (not just that a symlink exists — a partial /
+# cross-machine node_modules leaves .bin/vite dangling, which is the
+# 'Cannot find module .../vite/dist/node/cli.js' failure). If it
+# doesn't run, do a clean reinstall from the committed lockfile.
 if [ -f "web/package.json" ] && command -v npm &>/dev/null; then
-    if [ ! -x "web/node_modules/.bin/vite" ]; then
-        echo "  → Installing web dashboard dependencies..."
-        (cd web && npm install --silent) || \
-            echo "  ⚠ Web deps install failed; run 'cd web && npm install' manually."
-    else
+    if (cd web && ./node_modules/.bin/vite --version >/dev/null 2>&1); then
         echo "  ✓ Web dashboard deps (already installed)"
+    else
+        echo "  → Installing web dashboard dependencies (clean)..."
+        if [ -f "web/package-lock.json" ]; then
+            (cd web && npm ci --silent) || (cd web && rm -rf node_modules && npm install --silent) || \
+                echo "  ⚠ Web deps install failed; run 'cd web && npm install' manually."
+        else
+            (cd web && rm -rf node_modules && npm install --silent) || \
+                echo "  ⚠ Web deps install failed; run 'cd web && npm install' manually."
+        fi
     fi
 fi
 
