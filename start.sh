@@ -106,9 +106,27 @@ fi
 # --web flag: start gateway + web dashboard together
 if [ "$1" = "--web" ]; then
     WEB_DIR="$SCRIPT_DIR/web"
-    if [ ! -d "$WEB_DIR/node_modules" ]; then
-        echo "Web dashboard dependencies not installed. Running npm install..."
-        (cd "$WEB_DIR" && npm install)
+    if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+        echo "❌ Node.js + npm are required for the web dashboard."
+        echo "   Install Node 20+ LTS from https://nodejs.org/ and re-run."
+        exit 1
+    fi
+    # Check for the vite binary specifically — a bare node_modules dir
+    # can exist but be incomplete (partial / interrupted install), which
+    # is exactly what produces 'Cannot find module .../vite/dist/node/cli.js'.
+    if [ ! -x "$WEB_DIR/node_modules/.bin/vite" ]; then
+        echo "Web dashboard dependencies missing or incomplete. Installing..."
+        if ! (cd "$WEB_DIR" && npm install); then
+            echo "❌ npm install failed in web/. Fix the error above and re-run."
+            exit 1
+        fi
+    fi
+    # Final guard: if vite still isn't resolvable, bail with a clear hint
+    # instead of letting npx fail with a cryptic module-not-found.
+    if [ ! -x "$WEB_DIR/node_modules/.bin/vite" ]; then
+        echo "❌ vite is still not installed after npm install."
+        echo "   Try: rm -rf web/node_modules && (cd web && npm install)"
+        exit 1
     fi
 
     echo "Starting EloPhanto gateway + web dashboard..."
@@ -142,8 +160,9 @@ if [ "$1" = "--web" ]; then
     # Give gateway a moment to start
     sleep 1
 
-    # Start web dashboard
-    (cd "$WEB_DIR" && npx vite --host) &
+    # Start web dashboard — use the locally-installed vite binary
+    # directly (not `npx`, which can try to fetch a different version).
+    (cd "$WEB_DIR" && ./node_modules/.bin/vite --host) &
     WEB_PID=$!
 
     # Wait for either to exit
