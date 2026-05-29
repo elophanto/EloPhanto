@@ -54,6 +54,8 @@ See [`core/ego.py`](core/ego.py), [`core/affect.py`](core/affect.py), [docs/17-I
 
 The two modes share one codebase. Flip between them by changing `agent.permission_mode` in `config.yaml` (`ask_always` | `smart_auto` | `full_auto`).
 
+> **Coming soon — OpenEloPhanto (always-on cloud).** Today EloPhanto runs while your machine is on. OpenEloPhanto is the same open-source agent running in the cloud, always-on, so it keeps thinking, working, and earning 24/7. Self-hosted on your own server — your keys, your box — with the built-in cloud browser backend, so no local Chrome is needed. **Not available yet — in the works.**
+
 ![Chat Interface](misc/screenshots/chat.png)
 
 ---
