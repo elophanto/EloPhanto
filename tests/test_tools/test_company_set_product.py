@@ -165,11 +165,32 @@ class TestUnproductizedCandidateSource:
         )
         candidates = await from_unproductized_companies(ctx)
         slugs = {c.metadata["company_id"] for c in candidates}
-        # elophanto-self default seed also exists (from db.initialize) +
-        # the two unseeded companies, but with-product is excluded.
+        # elophanto-self (the default seed) is the agent's meta-company
+        # and is explicitly skipped by the ABE-work generators — see
+        # _is_self_company in core/mind_candidates.py.
+        assert "elophanto-self" not in slugs
         assert "with-product" not in slugs
         assert "missing-a" in slugs
         assert "missing-b" in slugs
+
+    @pytest.mark.asyncio
+    async def test_self_company_is_skipped(self, db: Database, tmp_path) -> None:
+        """elophanto-self must not appear as an ABE-work candidate.
+
+        Reproduces the production bug where the autonomous mind picked
+        'Company elophanto-self is unproductized / unplanned / etc.'
+        as the top candidate, burning cycles on the agent's own
+        meta-company instead of the real ABE (alphascala). The
+        self-company is the agent's identity row, not a business to
+        autonomously drive.
+        """
+        mgr = CompanyManager(db=db, project_root=tmp_path)
+        # No other companies — only the default elophanto-self seed.
+        ctx = CandidateContext(company_manager=mgr, project_root=tmp_path)
+        candidates = await from_unproductized_companies(ctx)
+        # Even though elophanto-self has no product, it must NOT be
+        # surfaced as an ABE-work candidate.
+        assert all(c.metadata.get("company_id") != "elophanto-self" for c in candidates)
 
     @pytest.mark.asyncio
     async def test_returns_empty_without_manager(self) -> None:
