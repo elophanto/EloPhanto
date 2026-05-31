@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -6,24 +6,21 @@ import {
   Play,
   Square,
   Clock,
-  Zap,
   StickyNote,
   Activity,
-  AlertTriangle,
   Settings2,
-  Pause,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useDataStore, type MindEvent } from "@/stores/data";
+import { useDataStore } from "@/stores/data";
 import { useConnectionStore } from "@/stores/connection";
 import { Badge } from "@/components/ui/badge";
+import { MindFeed } from "./MindFeed";
 
 export function MindPage() {
   const {
     mind,
     mindLoading,
     fetchMind,
-    mindEvents,
     sendMindControl,
   } = useDataStore();
   const status = useConnectionStore((s) => s.status);
@@ -145,23 +142,25 @@ export function MindPage() {
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            {/* Top row: Status + Budget + Config */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          // Chat-shaped autonomous feed is the dominant left column;
+          // status panels are the right sidebar so the agent's stream
+          // of consciousness is the page's primary content, not a small
+          // card buried beneath six dashboard panels.
+          <div className="grid h-full grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
+            {/* Left column — full-height chat feed */}
+            <div className="flex h-full min-h-[60vh] flex-col">
+              <MindFeed className="flex-1" />
+            </div>
+
+            {/* Right column — status + budget + config + scratchpad + recent actions */}
+            <div className="space-y-4 overflow-y-auto pr-1">
               <StatusCard mind={mind} state={state} stateColor={stateColor} />
               <BudgetCard mind={mind} />
               <ConfigCard mind={mind} />
-            </div>
-
-            {/* Scratchpad */}
-            {mind.scratchpad && (
-              <ScratchpadCard scratchpad={mind.scratchpad} />
-            )}
-
-            {/* Bottom row: Recent Actions + Live Events */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {mind.scratchpad && (
+                <ScratchpadCard scratchpad={mind.scratchpad} />
+              )}
               <ActionsCard actions={mind.recent_actions ?? []} />
-              <EventsCard events={mindEvents} />
             </div>
           </div>
         )}
@@ -390,104 +389,6 @@ function ActionsCard({
               </span>
             </div>
           ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function EventsCard({ events }: { events: MindEvent[] }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events.length]);
-
-  const eventConfig: Record<
-    string,
-    { icon: typeof Zap; color: string; label: string }
-  > = {
-    mind_wakeup: { icon: Zap, color: "text-blue-400", label: "Wakeup" },
-    mind_action: { icon: Activity, color: "text-emerald-400", label: "Action" },
-    mind_sleep: { icon: Pause, color: "text-muted-foreground", label: "Sleep" },
-    mind_paused: {
-      icon: Pause,
-      color: "text-amber-400",
-      label: "Paused",
-    },
-    mind_resumed: { icon: Play, color: "text-emerald-400", label: "Resumed" },
-    mind_error: {
-      icon: AlertTriangle,
-      color: "text-red-400",
-      label: "Error",
-    },
-    mind_tool_use: { icon: Zap, color: "text-purple-400", label: "Tool" },
-  };
-
-  return (
-    <div className="crop-marks overflow-hidden rounded-lg border border-border/50 p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <Zap className="size-3.5 text-muted-foreground" />
-        <h3 className="font-mono text-[11px] uppercase tracking-[0.15em]">
-          Live Events
-        </h3>
-        <span className="font-mono text-[9px] text-muted-foreground/50">
-          {events.length}
-        </span>
-      </div>
-      {events.length === 0 ? (
-        <p className="text-xs text-muted-foreground/60">
-          Events will appear here in real-time
-        </p>
-      ) : (
-        <div className="max-h-72 space-y-1 overflow-y-auto">
-          {events.map((e, i) => {
-            const cfg = eventConfig[e.type] ?? {
-              icon: Zap,
-              color: "text-muted-foreground",
-              label: e.type,
-            };
-            const Icon = cfg.icon;
-            const time = new Date(e.timestamp).toLocaleTimeString("en-US", {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-              hour12: false,
-            });
-
-            // Extract a summary from event data
-            const summary =
-              (e.data.summary as string) ||
-              (e.data.tool as string) ||
-              (e.data.error as string) ||
-              (e.data.last_action as string) ||
-              "";
-
-            return (
-              <div
-                key={`${e.timestamp}-${i}`}
-                className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-foreground/[3%]"
-              >
-                <Icon className={cn("mt-0.5 size-3 shrink-0", cfg.color)} />
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "shrink-0 font-mono text-[7px] uppercase",
-                    cfg.color
-                  )}
-                >
-                  {cfg.label}
-                </Badge>
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/80">
-                  {summary}
-                </span>
-                <span className="shrink-0 font-mono text-[9px] text-muted-foreground/40">
-                  {time}
-                </span>
-              </div>
-            );
-          })}
-          <div ref={bottomRef} />
         </div>
       )}
     </div>
