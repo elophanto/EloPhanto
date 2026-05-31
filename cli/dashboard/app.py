@@ -2519,6 +2519,41 @@ class EloPhantoDashboard(App):
         if port:
             s.gateway_port = port
 
+        # Mind state on connect. Without this the MIND sidebar showed
+        # "? unknown" until the first mind_wakeup event fired (up to
+        # 4 min after restart), even though the dashboard payload
+        # already carried the state. Now we hydrate from the snapshot
+        # immediately so the sidebar matches the agent's reported
+        # autonomous status from the first frame.
+        mind_info = data.get("mind")
+        if isinstance(mind_info, dict):
+            if mind_info.get("paused"):
+                s.mind_state = "paused"
+            elif mind_info.get("running"):
+                s.mind_state = "running"
+            else:
+                s.mind_state = "stopped"
+            cc = mind_info.get("cycle_count")
+            if isinstance(cc, int):
+                s.mind_cycle = cc
+            try:
+                budget_total = float(mind_info.get("budget_total") or 0)
+                budget_rem = float(mind_info.get("budget_remaining") or 0)
+                if budget_total > 0:
+                    s.budget_limit = budget_total
+                    s.budget_used = budget_total - budget_rem
+                    s.mind_budget_pct = min(
+                        100, int((budget_total - budget_rem) / budget_total * 100)
+                    )
+            except (TypeError, ValueError):
+                pass
+            la = mind_info.get("last_action") or ""
+            if la and la != "(not started)":
+                s.mind_last_action = str(la)[:30]
+            nws = mind_info.get("next_wakeup_sec")
+            if isinstance(nws, (int, float)) and nws > 0 and s.mind_state == "sleeping":
+                s.mind_next_wakeup_secs = int(nws)
+
         # Agent name (header + chat persona). Operator-chosen via the
         # setup wizard and surfaced here so the dashboard displays the
         # configured identity, not the hard-coded "EloPhanto".
