@@ -2634,6 +2634,13 @@ class Agent:
                 tool._browser_manager = self._browser_manager
                 tool._db = self._db
 
+        # twitter_post: per-account character limit (Free 280, Premium
+        # 4000, Premium+ 25000). Without this, the hardcoded 280 default
+        # rejects long Premium drafts.
+        twitter_tool = self._registry.get("twitter_post")
+        if twitter_tool:
+            twitter_tool._max_chars = self._config.twitter.max_chars
+
         # pump_livestream needs the unlocked vault (wallet + JWT) and
         # the agent's workspace path (so users can drop videos in
         # <workspace>/livestream_videos/ and just pass the filename).
