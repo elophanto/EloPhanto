@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from core.company import DEFAULT_COMPANY_ID
 from core.mind_arbiter import Candidate
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,29 @@ logger = logging.getLogger(__name__)
 # Reflex cadences. Soft defaults — config can override later if needed.
 _CAPABILITY_REVIEW_DAYS = 7.0
 _MISSION_REBALANCE_DAYS = 7.0
+
+
+def _is_self_company(c: Any) -> bool:
+    """Whether ``c`` is the agent's own meta-company.
+
+    The self company (``elophanto-self`` by default) is the agent's
+    identity row, not a real Autonomous Business Entity. Production
+    operators don't want the mind to autonomously productize / plan /
+    voice / strategize / build-tools FOR its own meta-company — that
+    leads to "Company elophanto-self is productized but has no active
+    strategy" candidates outranking real ABE work like alphascala.
+
+    All ABE-work generators (``from_unproductized_companies``,
+    ``from_voiceless_companies``, ``from_unplanned_companies``,
+    ``from_blocked_strategy_days``, ``from_buildable_blockers``) skip
+    companies for which this returns True.
+
+    If an operator ever wants to drive the self company as a real ABE,
+    they can either rename it (DEFAULT_COMPANY_ID points at the new
+    slug) or remove this filter — but that's a deliberate choice,
+    not the default.
+    """
+    return getattr(c, "id", None) == DEFAULT_COMPANY_ID
 
 
 @dataclass
@@ -432,6 +456,8 @@ async def from_unproductized_companies(
         for c in companies:
             if c.status != "active":
                 continue
+            if _is_self_company(c):
+                continue
             if load_product(ctx.project_root, c.id) is not None:
                 continue  # already has a product
             out.append(
@@ -489,6 +515,8 @@ async def from_voiceless_companies(
         companies = await ctx.company_manager.list()
         for c in companies:
             if c.status != "active":
+                continue
+            if _is_self_company(c):
                 continue
             voice_path = ctx.voice_manager.voice_path(c.id)
             if voice_path is None or voice_path.is_file():
@@ -556,6 +584,8 @@ async def from_unplanned_companies(
         for c in companies:
             if c.status != "active":
                 continue
+            if _is_self_company(c):
+                continue
             if load_product(ctx.project_root, c.id) is None:
                 continue  # un-productized — different candidate generator handles this
             if ctx.strategy_manager.has_active(c.id):
@@ -608,6 +638,8 @@ async def from_blocked_strategy_days(
         companies = await ctx.company_manager.list()
         for c in companies:
             if c.status != "active":
+                continue
+            if _is_self_company(c):
                 continue
             if not ctx.strategy_manager.has_active(c.id):
                 continue
@@ -692,6 +724,8 @@ async def from_buildable_blockers(
         companies = await ctx.company_manager.list()
         for c in companies:
             if c.status != "active":
+                continue
+            if _is_self_company(c):
                 continue
             if not ctx.strategy_manager.has_active(c.id):
                 continue
