@@ -87,6 +87,20 @@ else
     fi
 fi
 
+# Check / auto-install tmux (for agent swarm: Claude Code / Codex / Gemini CLI)
+if command -v tmux &>/dev/null; then
+    echo "  ✓ tmux installed"
+else
+    if [ "$HAS_BREW" -eq 1 ]; then
+        echo "  → Installing tmux via brew..."
+        brew install tmux >/dev/null 2>&1 && \
+            echo "  ✓ tmux installed" || \
+            echo "  ⚠ brew install tmux failed — agent swarm (swarm_spawn) will be disabled"
+    else
+        echo "  ⚠ tmux not found — needed for agent swarm (Linux: apt install tmux  /  dnf install tmux)"
+    fi
+fi
+
 # Check Ollama (for local models)
 if command -v ollama &>/dev/null; then
     echo "  ✓ Ollama installed"
