@@ -151,6 +151,196 @@ class TestKnowledgeSearchTool:
         assert result.success
         assert all(r["scope"] == "system" for r in result.data["results"])
 
+    @pytest.mark.asyncio
+    async def test_zero_result_triggers_rewrite_retry(
+        self, db: Database, knowledge_dir: Path
+    ) -> None:
+        """When the first search returns 0, the router is asked to
+        rewrite and the search retries with the new query."""
+        tool = KnowledgeSearchTool()
+        tool._db = db
+        tool._embedder = None
+
+        await db.execute_insert(
+            "INSERT INTO knowledge_chunks "
+            "(file_path, heading_path, content, tags, scope, "
+            "token_count, file_updated_at, indexed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "x_lessons.md",
+                "Lessons",
+                "recent X originals about pumpfun updates cadence dedupe",
+                '["x","lessons"]',
+                "learned",
+                10,
+                "2026-01-01",
+                "2026-01-01",
+            ),
+        )
+
+        # Stub router whose .complete returns a topic-keyword rewrite
+        class _StubResp:
+            def __init__(self, text: str) -> None:
+                self.content = text
+
+        class _StubRouter:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            async def complete(self, *, messages, **_):
+                self.calls.append(messages[-1]["content"])
+                return _StubResp("pumpfun updates cadence dedupe X originals")
+
+        stub = _StubRouter()
+        tool._router = stub
+
+        # Imperative query with no word overlap with any indexed chunk —
+        # must miss on first pass so the rewrite path fires.
+        original = "ship the thing already please"
+        result = await tool.execute({"query": original})
+        assert result.success
+        assert result.data["count"] >= 1
+        assert len(stub.calls) == 1  # rewrite called exactly once
+        assert result.data.get("query_rewritten_from") == original
+        assert "pumpfun" in result.data["query_used"]
+
+    @pytest.mark.asyncio
+    async def test_rewrite_failure_returns_original_empty(self, db: Database) -> None:
+        """If the rewrite call raises or returns empty, the tool falls back
+        to the original empty result — never crashes the loop."""
+        tool = KnowledgeSearchTool()
+        tool._db = db
+        tool._embedder = None
+
+        class _BrokenRouter:
+            async def complete(self, **_):
+                raise RuntimeError("provider down")
+
+        tool._router = _BrokenRouter()
+
+        result = await tool.execute(
+            {"query": "do a post on something the kb has nothing about"}
+        )
+        assert result.success
+        assert result.data["count"] == 0
+        # No rewrite metadata when retry failed/skipped
+        assert "query_rewritten_from" not in result.data
+
+    @pytest.mark.asyncio
+    async def test_no_router_means_no_rewrite(self, db: Database) -> None:
+        """Legacy callers without a router get the pre-rewrite behaviour."""
+        tool = KnowledgeSearchTool()
+        tool._db = db
+        tool._embedder = None
+        # _router stays None
+
+        result = await tool.execute({"query": "do a post on nothing"})
+        assert result.success
+        assert result.data["count"] == 0
+        assert "query_rewritten_from" not in result.data
+
+    @pytest.mark.asyncio
+    async def test_semantic_empty_falls_through_to_keyword(self, db: Database) -> None:
+        """When semantic returns [] cleanly (not via exception), keyword
+        fallback must still run. Reproduces the production miss where
+        the KB had matching chunks but the search returned 0 because
+        the embedder hiccup never raised — just returned nothing."""
+        tool = KnowledgeSearchTool()
+        tool._db = db
+
+        await db.execute_insert(
+            "INSERT INTO knowledge_chunks "
+            "(file_path, heading_path, content, tags, scope, "
+            "token_count, file_updated_at, indexed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "k.md",
+                "H",
+                "commune_post usage and recent posting history",
+                "[]",
+                "learned",
+                10,
+                "2026-01-01",
+                "2026-01-01",
+            ),
+        )
+
+        # Stub embedder + db.vec_available True, but force _semantic_search to
+        # return empty cleanly (the bug pattern). Easiest way: override the
+        # method on this instance.
+        class _StubEmbedder:
+            async def embed(self, *_, **__):
+                raise AssertionError("should not be reached — patched below")
+
+        tool._embedder = _StubEmbedder()
+
+        # Force the "semantic returns empty list" branch
+        async def _empty_semantic(*_, **__):
+            return []
+
+        tool._semantic_search = _empty_semantic  # type: ignore[method-assign]
+
+        # vec_available may be False in test DB; patch _db.vec_available proxy
+        # via a small shim if needed. Most tests use a real Database fixture
+        # where vec_available reflects sqlite-vec presence. We force-True
+        # here so the semantic branch is entered.
+        class _DBShim:
+            vec_available = True
+
+            def __getattr__(self, name):
+                return getattr(db, name)
+
+        tool._db = _DBShim()
+
+        result = await tool.execute({"query": "commune_post posting history"})
+        assert result.success
+        assert result.data["count"] >= 1
+        assert result.data["search_type"] == "keyword"
+        # The keyword fallback actually ran and found the seeded chunk
+        assert "commune_post" in result.data["results"][0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_rewrite_not_attempted_when_first_search_has_hits(
+        self, db: Database
+    ) -> None:
+        """Healthy searches must not pay the LLM tax."""
+        tool = KnowledgeSearchTool()
+        tool._db = db
+        tool._embedder = None
+
+        await db.execute_insert(
+            "INSERT INTO knowledge_chunks "
+            "(file_path, heading_path, content, tags, scope, "
+            "token_count, file_updated_at, indexed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "f.md",
+                "H",
+                "shell commands quick reference",
+                "[]",
+                "system",
+                10,
+                "2026-01-01",
+                "2026-01-01",
+            ),
+        )
+
+        class _SpyRouter:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def complete(self, **_):
+                self.calls += 1
+                raise AssertionError("should not be called")
+
+        spy = _SpyRouter()
+        tool._router = spy
+
+        result = await tool.execute({"query": "shell commands"})
+        assert result.success
+        assert result.data["count"] >= 1
+        assert spy.calls == 0
+
 
 class TestKnowledgeWriteTool:
     def test_interface(self) -> None:

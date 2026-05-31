@@ -1874,6 +1874,9 @@ class Agent:
             search_tool._embedder = self._embedder
             search_tool._embedding_model = self._indexer._embedding_model
             search_tool._project_root = self._config.project_root
+            # Router enables the 0-result auto-rewrite path —
+            # see _rewrite_query in tools/knowledge/search.py.
+            search_tool._router = self._router
 
         # session_search shares the main DB. Without this, the tool
         # silently returned "Database not available" on every call,
@@ -2015,6 +2018,10 @@ class Agent:
         skill_read = self._registry.get("skill_read")
         if skill_read:
             skill_read._skill_manager = self._skill_manager
+            # Usage-telemetry sidecar — see core/skill_usage.py.
+            # Powers calcification reports (which skills haven't been
+            # read in N days) without bloating SKILL.md frontmatter.
+            skill_read._usage_base_dir = self._config.project_root
 
         skill_list = self._registry.get("skill_list")
         if skill_list:
@@ -3233,11 +3240,17 @@ class Agent:
         # Build system prompt with XML-structured sections, skills, and knowledge
         _prompt_start = _time.monotonic()
         knowledge_context = self._working_memory.format_context()
-        available_skills = self._skill_manager.format_available_skills(goal)
+        # Pass the live tool-name set so skills whose ``requires_tools``
+        # are missing (or whose primary is loaded for ``fallback_for_tools``)
+        # are filtered out of the catalog — see Skill.is_available.
+        live_tools = {t.name for t in self._registry.all_tools()}
+        available_skills = self._skill_manager.format_available_skills(
+            goal, available_tools=live_tools
+        )
 
         # Auto-inject top matched skill content so weaker models don't skip skill_read
         matched_scored = self._skill_manager.match_skills_with_scores(
-            goal, max_results=1
+            goal, max_results=1, available_tools=live_tools
         )
         if matched_scored:
             top_score, top_skill = matched_scored[0]
