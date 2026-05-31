@@ -332,8 +332,18 @@ async def from_role_neglect(ctx: CandidateContext) -> list[Candidate]:
             # or ledger lookup fails. The 0.0 default keeps role
             # candidates rankable on staleness alone when product
             # config is missing.
+            #
+            # Never-activated roles are pinned to kpi_gap=0.0 even
+            # when KPIs are declared — actuals are 0 because the role
+            # has never RUN, not because it's failing its targets.
+            # Without this guard a never-active role scores
+            # kpi_gap=1.00 (the max), which combined with staleness
+            # outranked real work like "build the missing capability
+            # for 10 tactics" in production (see 2026-05-31 log
+            # review). Once the role activates and accumulates real
+            # ledger data, kpi_gap becomes meaningful again.
             kpi_gap = 0.0
-            if ledger is not None and r.kpi:
+            if ledger is not None and r.kpi and r.last_active_at is not None:
                 gaps: list[float] = []
                 for kpi_type, target in r.kpi.items():
                     try:
@@ -365,7 +375,17 @@ async def from_role_neglect(ctx: CandidateContext) -> list[Candidate]:
                         f"cycle ({stale_label}; kpi_gap={kpi_gap:.2f}). "
                         f"{r.description[:160]}"
                     ),
-                    expected_value=4.5,
+                    # expected_value=2.5: role_switch is a META-action
+                    # (the actual work happens in subsequent cycles
+                    # once the role is active). Treating it like real
+                    # work at 4.5 caused role-rotation starvation in
+                    # production — agent kept picking role switches
+                    # over buildable_blockers / unproductized_company
+                    # work because the meta-switch + staleness + a
+                    # falsely-high kpi_gap outranked them. Lowering
+                    # to 2.5 keeps role rotation in the menu but
+                    # below candidates with concrete output.
+                    expected_value=2.5,
                     feasibility=0.7,
                     lens_match=0.4,
                     cost=2.0,

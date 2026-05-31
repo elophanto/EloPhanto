@@ -185,12 +185,15 @@ class TestFromRoleNeglectKpiGap:
         self, db: Database, role_mgr: RoleManager
     ) -> None:
         # Sales role wants 10 pipeline_advances/week; ledger has 3.
-        # Gap = (10-3)/10 = 0.7.
+        # Gap = (10-3)/10 = 0.7. Role must have been activated at
+        # least once — never-active roles always score gap=0 (see
+        # test_never_active_role_pins_kpi_gap_zero below).
         await role_mgr.upsert(
             name="sales",
             description="Pipeline",
             kpi={"pipeline_advance": 10.0},
         )
+        await role_mgr.touch("sales")
         ledger = ResourceLedger(db)
         for _ in range(3):
             await ledger.write(
@@ -215,6 +218,7 @@ class TestFromRoleNeglectKpiGap:
         self, db: Database, role_mgr: RoleManager
     ) -> None:
         await role_mgr.upsert(name="ceo", description="Default", kpi={})
+        await role_mgr.touch("ceo")
         ctx = CandidateContext(role_manager=role_mgr)
         candidates = await from_role_neglect(ctx)
         ceo_cand = next(c for c in candidates if c.metadata.get("role_name") == "ceo")
@@ -226,6 +230,7 @@ class TestFromRoleNeglectKpiGap:
             name="sales",
             kpi={"pipeline_advance": 10.0},
         )
+        await role_mgr.touch("sales")
         # No ledger entries — gap = (10-0)/10 = 1.0
         ctx = CandidateContext(role_manager=role_mgr)
         candidates = await from_role_neglect(ctx)
@@ -240,6 +245,7 @@ class TestFromRoleNeglectKpiGap:
             name="sales",
             kpi={"pipeline_advance": 10.0},
         )
+        await role_mgr.touch("sales")
         # Insert an old ledger row directly (8 days ago) — should NOT
         # count toward the past-7d window the gap calc uses.
         old_ts = (datetime.now(UTC) - timedelta(days=8)).isoformat()
@@ -256,6 +262,27 @@ class TestFromRoleNeglectKpiGap:
         assert sales.kpi_gap == pytest.approx(1.0)
 
     @pytest.mark.asyncio
+    async def test_never_active_role_pins_kpi_gap_zero(
+        self, db: Database, role_mgr: RoleManager
+    ) -> None:
+        """A role that's never been activated has actuals=0 because the
+        role hasn't RUN, not because it's failing targets. Treating
+        that as kpi_gap=1.0 (the max) caused role-rotation starvation
+        in production — the agent kept picking never-active role
+        switches over real buildable_blocker work because the inflated
+        gap added +4 to the score. Pin: never-active → gap=0."""
+        # KPI declared but role never touched.
+        await role_mgr.upsert(name="support", kpi={"resolution_count": 5.0})
+        ctx = CandidateContext(role_manager=role_mgr)
+        candidates = await from_role_neglect(ctx)
+        support = next(
+            c for c in candidates if c.metadata.get("role_name") == "support"
+        )
+        assert support.kpi_gap == 0.0
+        # And the expected_value reflects meta-work, not real work.
+        assert support.expected_value == 2.5
+
+    @pytest.mark.asyncio
     async def test_gap_respects_active_company(
         self, db: Database, role_mgr: RoleManager
     ) -> None:
@@ -263,6 +290,7 @@ class TestFromRoleNeglectKpiGap:
             name="sales",
             kpi={"pipeline_advance": 5.0},
         )
+        await role_mgr.touch("sales")
         # 3 advances under acme-inc, none under elophanto-self
         ledger = ResourceLedger(db)
         for _ in range(3):
