@@ -453,6 +453,22 @@ class AutonomousMind:
             "Autonomous mind started (first wakeup in %ds)",
             self._config.wakeup_seconds,
         )
+        # Broadcast immediately so dashboards flip the MIND panel from
+        # "? unknown" to "running" the moment the operator enables
+        # autonomous mode — without this they had to wait for the
+        # first wakeup cycle (up to 4 min) to see any state change,
+        # leaving the sidebar visibly stale while the agent's chat
+        # reply already said "Autonomous mode is on." MIND_RESUMED is
+        # the existing event the TUI uses to mean "I'm running again";
+        # reusing it keeps the dashboard handler simple.
+        await self._broadcast_event(
+            EventType.MIND_RESUMED,
+            {
+                "next_wakeup_seconds": int(self._next_wakeup_sec),
+                "pending_events": len(self._pending_events),
+                "source": "start",
+            },
+        )
         return True
 
     async def _retry_stuck_planning_goals(self, goal_manager: Any) -> None:
