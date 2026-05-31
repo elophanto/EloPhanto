@@ -31,6 +31,41 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Meta / introspection / mind-internal tools that are NEVER role-gated.
+#
+# Background: a narrow role allowlist (e.g. OPS) would otherwise block
+# the autonomous mind from its own bookkeeping (scratchpad, wakeup),
+# from listing/switching out of the active role (paralysing recovery),
+# and from read-only introspection (skill_list/read, company_list/
+# report). Observed in production: one OPS cycle racked up 240
+# denials in a single 18-hour log, including 14 denied ``role_use``
+# calls — the mind literally could not exit the role.
+#
+# Inclusion bar: the tool must be (a) read-only OR mind-internal AND
+# (b) something no operator would ever want a role to lack. Write
+# tools that genuinely belong to a function (e.g. ``company_set_*``,
+# ``company_plan_apply``) stay gated — denying those in OPS is the
+# correct behaviour.
+_ROLE_GATE_EXEMPT: frozenset[str] = frozenset(
+    {
+        # Mind-internal bookkeeping
+        "update_scratchpad",
+        "set_next_wakeup",
+        "affect_record_event",
+        # Role meta — the agent must always be able to see and switch roles
+        "role_list",
+        "role_show",
+        "role_use",
+        # Read-only knowledge/skill lookup
+        "skill_list",
+        "skill_read",
+        # Read-only company introspection
+        "company_list",
+        "company_report",
+    }
+)
+
+
 @dataclass(slots=True)
 class Role:
     name: str
@@ -212,7 +247,12 @@ class RoleManager:
         ``allowed_tool_groups`` → no constraint, every tool allowed
         (this is what makes the default CEO role unrestricted).
         Otherwise, tool name OR group must match.
+
+        Meta/introspection/mind-internal tools in ``_ROLE_GATE_EXEMPT``
+        always pass — see the comment on that set for the rationale.
         """
+        if tool_name in _ROLE_GATE_EXEMPT:
+            return True
         if not role.allowed_tools and not role.allowed_tool_groups:
             return True
         if tool_name in role.allowed_tools:
