@@ -116,6 +116,37 @@ class TestIsToolAllowed:
         # different group → denied
         assert RoleManager.is_tool_allowed(role, "shell_execute", "system") is False
 
+    def test_meta_tools_exempt_from_role_gate(self) -> None:
+        """Meta / mind-internal tools must bypass even a very narrow allowlist.
+
+        Reproduces the production paralysis where an OPS-style role
+        (allowlist of one) denied the autonomous mind from updating
+        its scratchpad, scheduling its next wakeup, switching roles,
+        and reading skills.
+        """
+        narrow = Role(
+            name="ops",
+            allowed_tools=["http_get"],
+            allowed_tool_groups=[],
+        )
+        # Mind-internal bookkeeping
+        assert RoleManager.is_tool_allowed(narrow, "update_scratchpad") is True
+        assert RoleManager.is_tool_allowed(narrow, "set_next_wakeup") is True
+        assert RoleManager.is_tool_allowed(narrow, "affect_record_event") is True
+        # Role meta — the agent must always be able to escape the role
+        assert RoleManager.is_tool_allowed(narrow, "role_list") is True
+        assert RoleManager.is_tool_allowed(narrow, "role_show") is True
+        assert RoleManager.is_tool_allowed(narrow, "role_use") is True
+        # Read-only introspection
+        assert RoleManager.is_tool_allowed(narrow, "skill_list") is True
+        assert RoleManager.is_tool_allowed(narrow, "skill_read") is True
+        assert RoleManager.is_tool_allowed(narrow, "company_list") is True
+        assert RoleManager.is_tool_allowed(narrow, "company_report") is True
+        # Write-side tools stay gated (denying these is correct)
+        assert RoleManager.is_tool_allowed(narrow, "company_set_product") is False
+        assert RoleManager.is_tool_allowed(narrow, "company_plan_apply") is False
+        assert RoleManager.is_tool_allowed(narrow, "shell_execute") is False
+
 
 class TestIdentityRoleOverlay:
     @pytest.mark.asyncio
