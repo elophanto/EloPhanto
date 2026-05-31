@@ -2022,7 +2022,39 @@ class EloPhantoDashboard(App):
                 if not s.current_tool:
                     s.current_tool_start = _time.monotonic()
                 s.current_tool = tool
-            self._add_event(f"[{_DIM}]tool:[/] [{_ACCENT}]{tool[:30]}[/]", tag="MND")
+            # Server emits a human-readable summary + (for write tools)
+            # an artifact preview. Fall back to the raw tool name when
+            # an old gateway sends the legacy shape. See
+            # core/mind_tool_summary.py for the formatting rules.
+            summary = data.get("summary") or f"tool: {tool}"
+            preview = data.get("artifact_preview", "") or ""
+            status = data.get("status", "ok")
+            error = data.get("error", "") or ""
+
+            # Tighter events-ticker line (it's column-constrained).
+            self._add_event(f"[{_DIM}]·[/] [{_ACCENT}]{summary[:70]}[/]", tag="MND")
+
+            # Rich line in the main chat — narrative under the active
+            # cycle header. The operator wants two things visible:
+            # PROCESS ("Wrote /…/research/brief.md") and OUTCOME
+            # (the artifact's first paragraph or headline). Without
+            # the preview, "Wrote brief.md" still reads as mystery.
+            chat = self.query_one("#chat", RichLog)
+            glyph_color = "red" if status == "error" else _MIND
+            chat.write(f"  [{glyph_color}]→[/] [{_BRIGHT}]{summary}[/]")
+            if preview:
+                # Markdown-like quote block: dim, single indent. Wraps
+                # naturally inside RichLog's wrap=True so long content
+                # doesn't push the chat narrow.
+                quoted = "\n".join(
+                    f"    [{_DIM}]│[/] [{_DIM}]{line}[/]"
+                    for line in preview.splitlines()
+                    if line.strip()
+                )
+                if quoted:
+                    chat.write(quoted)
+            if status == "error" and error:
+                chat.write(f"    [red]✗ {error[:200]}[/]")
 
         elif event == "mind_action":
             summary = data.get("summary", "")
@@ -2034,13 +2066,16 @@ class EloPhantoDashboard(App):
             if summary:
                 s.mind_last_action = summary[:30]
             s.current_tool = ""
-            # Mind action summary in the main chat — closes the
-            # narrative beat that mind_wakeup opened. Viewers see
-            # what the autonomous cycle DID, not just that it ran.
+            # Cycle outcome — the "so what" that closes the narrative
+            # opened by mind_wakeup. Rendered as a distinct beat (blank
+            # line above, bullet on the left) so it stands apart from
+            # the indented tool-call trail.
             if summary:
                 chat = self.query_one("#chat", RichLog)
+                chat.write("")
                 chat.write(
-                    f"[{_MIND}]◆[/] [{_DIM}]mind:[/] " f"[{_BRIGHT}]{summary[:200]}[/]"
+                    f"[{_MIND}]◆[/] [{_DIM}]cycle outcome:[/] "
+                    f"[{_BRIGHT}]{summary[:400]}[/]"
                 )
 
         elif event == "mind_sleep":
