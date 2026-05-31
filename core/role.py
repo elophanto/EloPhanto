@@ -62,6 +62,16 @@ _ROLE_GATE_EXEMPT: frozenset[str] = frozenset(
         # Read-only company introspection
         "company_list",
         "company_report",
+        # Generic file IO — every role needs to write scratchpads,
+        # research notes, drafts, run logs. Observed in production: a
+        # narrow SUPPORT role allowlist denied file_write, blocking
+        # the agent from saving the cycle's own audit trail. The
+        # role gate is for semantic actions (send email, post tweet,
+        # mutate company config), not for the mechanical act of
+        # writing a file. Path-level safety (workspace boundaries,
+        # protected files) is enforced separately.
+        "file_write",
+        "file_read",
     }
 )
 

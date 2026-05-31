@@ -142,7 +142,10 @@ class TestIsToolAllowed:
         assert RoleManager.is_tool_allowed(narrow, "skill_read") is True
         assert RoleManager.is_tool_allowed(narrow, "company_list") is True
         assert RoleManager.is_tool_allowed(narrow, "company_report") is True
-        # Write-side tools stay gated (denying these is correct)
+        # File IO — every role needs to write scratchpads / read sources
+        assert RoleManager.is_tool_allowed(narrow, "file_write") is True
+        assert RoleManager.is_tool_allowed(narrow, "file_read") is True
+        # Write-side semantic tools stay gated (denying these is correct)
         assert RoleManager.is_tool_allowed(narrow, "company_set_product") is False
         assert RoleManager.is_tool_allowed(narrow, "company_plan_apply") is False
         assert RoleManager.is_tool_allowed(narrow, "shell_execute") is False
