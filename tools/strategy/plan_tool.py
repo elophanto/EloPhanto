@@ -191,6 +191,15 @@ class CompanyPlanTool(BaseTool):
         self._router: Any = None
         self._strategy_manager: Any = None
         self._db: Any = None
+        # Live tool registry — injected so the strategy LLM can be
+        # told what capabilities ALREADY exist instead of inventing
+        # `tool_requirements` for them. Without this every strategy
+        # shipped with hallucinated "missing" tools that became
+        # blockers the autonomous mind then tried to `self_create_plugin`
+        # for (see production cycle that proposed building
+        # `x_post_and_reply` when twitter_post + twitter_reply already
+        # ship). Optional — when None, the legacy prompt shape applies.
+        self._registry: Any = None
 
     @property
     def name(self) -> str:
@@ -295,6 +304,20 @@ class CompanyPlanTool(BaseTool):
         budget = float(prompt_inputs.get("budget") or 0)
         risk = int(prompt_inputs.get("riskTolerance") or 50)
 
+        # Collect the live registry (name + 1-line description) so the
+        # strategy LLM stops inventing capability names. Best-effort:
+        # any registry failure falls through to the legacy prompt
+        # shape rather than blocking strategy generation.
+        available_tools: list[tuple[str, str]] | None = None
+        if self._registry is not None:
+            try:
+                available_tools = sorted(
+                    (t.name, (t.description or "").strip())
+                    for t in self._registry.all_tools()
+                )
+            except Exception as e:
+                logger.debug("company_plan: registry enumeration failed: %s", e)
+
         system_prompt = build_system_prompt(
             strategy_mode=mode,
             focus=focus,
@@ -303,6 +326,7 @@ class CompanyPlanTool(BaseTool):
             budget_period=str(prompt_inputs.get("budgetPeriod") or "monthly"),
             risk_tolerance=risk,
             context=str(prompt_inputs.get("context") or ""),
+            available_tools=available_tools,
         )
         user_prompt = build_user_prompt(inputs=prompt_inputs)
 

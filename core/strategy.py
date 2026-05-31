@@ -39,6 +39,34 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Tool-name alias map for blocker resolution.
+#
+# Strategy YAMLs are written by an LLM (``company_plan``) that often
+# hallucinates capability names that don't exist in the registry:
+# ``x_post_and_reply`` instead of ``twitter_post`` + ``twitter_reply``,
+# ``utm_builder`` instead of ``link_compose``, etc. Without this map
+# the autonomous mind kept burning cycles on
+# ``self_create_plugin(goal='build x_post_and_reply')`` even though
+# the capability already shipped under a different name.
+#
+# Entry shape: ``"author_side_name": {"<registry_name>", ...}``.
+# A blocker requiring the author-side name is treated as resolved
+# when ALL registry-side names in the set are present in the live
+# tool registry. Use ``frozenset()`` (empty) for an alias that maps
+# to "any registered tool is enough" — not currently used.
+#
+# Add aliases here as the strategy LLM keeps inventing the same
+# missing names; alternatively fix it upstream by validating tool
+# names at ``company_plan`` write time. Both are valid; the alias
+# map is the cheap layer that catches what slips through.
+_TOOL_ALIASES: dict[str, frozenset[str]] = {
+    "x_post_and_reply": frozenset({"twitter_post", "twitter_reply"}),
+    "x_post": frozenset({"twitter_post"}),
+    "x_reply": frozenset({"twitter_reply"}),
+    "twitter_post_and_reply": frozenset({"twitter_post", "twitter_reply"}),
+}
+
+
 # ── Blocker model ───────────────────────────────────────────────────
 
 
@@ -369,6 +397,22 @@ def auto_resolve_blockers(
                 )
                 if hit:
                     closed = True
+                # Alias fallback: the strategy LLM frequently invents
+                # author-side capability names (``x_post_and_reply``)
+                # that map to a set of existing registry tools
+                # (``twitter_post`` + ``twitter_reply``). Without this
+                # check the blocker sits open forever even though the
+                # capability already ships. See _TOOL_ALIASES for the
+                # mapping; add entries there when a new alias is
+                # observed in production.
+                if not closed:
+                    for alias, required in _TOOL_ALIASES.items():
+                        if f"`{alias}`" in b.description or alias in (
+                            b.build_hint or ""
+                        ):
+                            if required and required.issubset(known_tools):
+                                closed = True
+                                break
             elif b.type == "missing_skill":
                 hit = next(
                     (
