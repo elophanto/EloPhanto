@@ -380,6 +380,13 @@ class AutonomousMind:
         self._last_action: str = "(not started)"
         self._last_wakeup_time: str = "never"
         self._cycle_count: int = 0
+        # Top-1 candidate from the most recent arbiter pass. Set by
+        # ``_build_arbiter_prompt`` so the MIND_WAKEUP broadcast can
+        # tell the dashboard WHAT the cycle is supposed to be working
+        # on (which goal, which role, which blocker) — the LLM picks
+        # from a ranked menu but the operator can't see the menu from
+        # the dashboard, only the tool calls. None until first cycle.
+        self._last_arbiter_top: Any = None
 
         # Register mind-specific tools
         self._register_mind_tools()
@@ -1203,20 +1210,31 @@ class AutonomousMind:
         else:
             prompt = await self._build_prompt()
 
-        # Broadcast wakeup event with rich context
+        # Broadcast wakeup event with rich context — including the
+        # cycle's INTENT (which goal/role/blocker the arbiter picked)
+        # so the dashboard can render the cycle as "working on X"
+        # instead of the bare "waking to think" that gave operators
+        # no clue what was about to happen.
         daily_budget = self._daily_budget()
         scratchpad_preview = _read_scratchpad(self._project_root)[:200].strip()
-        await self._broadcast_event(
-            EventType.MIND_WAKEUP,
-            {
-                "cycle": self._cycle_count + 1,
-                "budget_remaining": f"${max(0, daily_budget - self._spent_today_usd):.4f}",
-                "budget_total": f"${daily_budget:.4f}",
-                "scratchpad_preview": scratchpad_preview or "(empty)",
-                "last_action": self._last_action,
-                "total_cycles_today": self._cycle_count,
-            },
-        )
+        top = self._last_arbiter_top
+        wakeup_payload: dict[str, Any] = {
+            "cycle": self._cycle_count + 1,
+            "budget_remaining": f"${max(0, daily_budget - self._spent_today_usd):.4f}",
+            "budget_total": f"${daily_budget:.4f}",
+            "scratchpad_preview": scratchpad_preview or "(empty)",
+            "last_action": self._last_action,
+            "total_cycles_today": self._cycle_count,
+        }
+        if top is not None:
+            wakeup_payload["intent"] = {
+                "source": top.source,
+                "action_spec": top.action_spec[:240],
+                "mission_id": top.mission_id or "",
+                "dedup_key": top.dedup_key or "",
+                "metadata": {k: str(v)[:80] for k, v in (top.metadata or {}).items()},
+            }
+        await self._broadcast_event(EventType.MIND_WAKEUP, wakeup_payload)
 
         # Isolate conversation history (same pattern as GoalRunner)
         saved_history = list(self._agent._conversation_history)
@@ -1918,6 +1936,13 @@ class AutonomousMind:
             top_k=self._config.arbiter.top_k,
         )
         menu = render_menu(scored)
+
+        # Stash the top-ranked candidate so the upcoming MIND_WAKEUP
+        # broadcast can tell the dashboard what this cycle is meant to
+        # work on. The LLM is free to deviate but the top candidate is
+        # what the arbiter picked, and is the only "intent" signal the
+        # dashboard can show without waiting for the LLM to commit.
+        self._last_arbiter_top = scored[0].candidate if scored else None
 
         # Side-channel observability: every arbiter wakeup logs the
         # menu so operators can `grep '[arbiter]'` the log and audit
