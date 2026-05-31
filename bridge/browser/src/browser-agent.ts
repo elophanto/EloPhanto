@@ -745,6 +745,18 @@ export class AwareBrowserAgent {
       const proxyOpt = this.buildProxyOption();
       if (proxyOpt) {
         console.log(`[Browser] Routing through proxy: ${proxyOpt.server}`);
+        // Chrome 132+ Private Network Access enforcement treats
+        // proxy-routed traffic as "public-IP context" and blocks
+        // navigation to private IPs (127.0.0.1, 10.x, 192.168.x)
+        // even when those addresses are in --proxy-bypass-list.
+        // Observed in production: agent generates a local HTML
+        // artifact, spins `python3 -m http.server`, browser_navigate
+        // → "Access to 127.0.0.1 was denied". Disable PNA preflight
+        // so the agent can reach its own dashboards, local servers,
+        // and any same-host development surface. Bypass-list still
+        // routes those addresses around the proxy; this flag just
+        // tells Chrome's security layer to permit the transition.
+        args.push('--disable-features=BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults');
       }
       this.context = await chromium.launchPersistentContext(this.config.userDataDir, {
         headless: this.config.headless,
@@ -765,13 +777,19 @@ export class AwareBrowserAgent {
         console.log('[Browser] Using system Chrome (not Playwright Chromium)');
       }
       const proxyOpt = this.buildProxyOption();
+      const freshArgs: string[] = [];
       if (proxyOpt) {
         console.log(`[Browser] Routing through proxy: ${proxyOpt.server}`);
+        // Same PNA workaround as the profile path above — see the
+        // comment there. Without this, fresh-Chrome launches with
+        // proxy on can't reach 127.0.0.1 either.
+        freshArgs.push('--disable-features=BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults');
       }
       const browser = await chromium.launch({
         headless: this.config.headless,
         channel, // Use system Chrome
         ignoreDefaultArgs: this.getIgnoredDefaultArgs(),
+        ...(freshArgs.length > 0 ? { args: freshArgs } : {}),
         ...(proxyOpt ? { proxy: proxyOpt } : {}),
       });
       this.browser = browser;
