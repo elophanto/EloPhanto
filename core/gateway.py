@@ -1067,6 +1067,17 @@ class Gateway:
                 provider=_last_provider,
                 model=_last_model,
             )
+            # DEBUG: investigate empty reply_to bug (web second-message
+            # not updating without refresh). Log the actual id we're
+            # echoing so we can confirm whether msg.id is populated.
+            logger.info(
+                "chat_response: session=%s reply_to=%r content_len=%d provider=%r model=%r",
+                session.session_id[:8],
+                msg.id,
+                len(agent_response.content or ""),
+                _last_provider,
+                _last_model,
+            )
             if self._unified_sessions:
                 await self.broadcast(resp, session_id=session.session_id)
             else:
