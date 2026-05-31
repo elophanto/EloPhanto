@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
@@ -16,6 +17,10 @@ class SkillReadTool(BaseTool):
 
     def __init__(self) -> None:
         self._skill_manager: Any = None
+        # Project root used to locate the usage-telemetry sidecar.
+        # Optional — when ``None``, view-bumps are skipped. Injected
+        # by the agent next to ``_skill_manager``.
+        self._usage_base_dir: Path | None = None
 
     @property
     def name(self) -> str:
@@ -63,6 +68,17 @@ class SkillReadTool(BaseTool):
 
         skill = self._skill_manager.get_skill(skill_name)
         skill_dir = str(skill.path) if skill else ""
+
+        # Telemetry: record the view. Best-effort — bump_view itself
+        # swallows exceptions, but we still guard the import in case
+        # the module isn't importable in some constrained environment.
+        if self._usage_base_dir is not None:
+            try:
+                from core.skill_usage import bump_view
+
+                bump_view(self._usage_base_dir, skill_name)
+            except Exception:
+                pass
 
         return ToolResult(
             success=True,

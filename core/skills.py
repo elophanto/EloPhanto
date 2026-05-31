@@ -167,10 +167,42 @@ class Skill:
     warnings: list[str] = field(default_factory=list)
     checksum_verified: bool = False
     verify_checks: list[str] = field(default_factory=list)
+    # Conditional surfacing — skill hidden from catalog when prerequisites
+    # are unmet. See ``is_available()`` for the gate rules and
+    # ``_parse_skill`` for the frontmatter format. Both default to
+    # empty (no constraint).
+    requires_tools: list[str] = field(default_factory=list)
+    fallback_for_tools: list[str] = field(default_factory=list)
 
     @property
     def location(self) -> str:
         return str(self.path / "SKILL.md")
+
+    def is_available(self, available_tools: set[str] | None) -> bool:
+        """Whether this skill should appear in the catalog right now.
+
+        Rules (degrade open — unknown means show):
+          - ``available_tools is None``: caller doesn't know the tool
+            set, so don't filter. Identical to the legacy behaviour
+            before conditional gating existed.
+          - ``requires_tools`` non-empty: every named tool must be in
+            ``available_tools``. A skill that drives polymarket is
+            useless without the polymarket tools.
+          - ``fallback_for_tools`` non-empty: hide if ANY named tool
+            is loaded. The fallback recipe is only relevant when the
+            primary tool isn't available — e.g. a "use curl to scrape
+            X" skill should disappear when ``http_get`` is loaded.
+          - Otherwise: available.
+        """
+        if available_tools is None:
+            return True
+        if self.requires_tools:
+            if not all(t in available_tools for t in self.requires_tools):
+                return False
+        if self.fallback_for_tools:
+            if any(t in available_tools for t in self.fallback_for_tools):
+                return False
+        return True
 
 
 class SkillManager:
@@ -254,7 +286,12 @@ class SkillManager:
         except Exception:
             return skill.content
 
-    def match_skills(self, query: str, max_results: int = 5) -> list[Skill]:
+    def match_skills(
+        self,
+        query: str,
+        max_results: int = 5,
+        available_tools: set[str] | None = None,
+    ) -> list[Skill]:
         """Find skills matching the query by triggers, name, and description.
 
         Scoring priority:
@@ -262,6 +299,11 @@ class SkillManager:
         - Trigger word overlap: +2
         - Name word overlap: +2 (skill name is a strong signal)
         - Description word overlap: +1 per word (broad net for skills without triggers)
+
+        ``available_tools`` filters via ``Skill.is_available`` before
+        scoring — a skill that ``requires_tools: [polymarket_*]`` will
+        not appear in matches when those tools aren't loaded. Pass
+        ``None`` to disable filtering (legacy behaviour).
 
         Returns skills sorted by score, capped at max_results.
         """
@@ -308,6 +350,8 @@ class SkillManager:
 
         scored: list[tuple[int, Skill]] = []
         for skill in self._skills.values():
+            if not skill.is_available(available_tools):
+                continue
             score = 0
 
             # Triggers (highest priority — author-defined relevance signals)
@@ -343,7 +387,10 @@ class SkillManager:
         return [s for _, s in scored[:max_results]]
 
     def match_skills_with_scores(
-        self, query: str, max_results: int = 5
+        self,
+        query: str,
+        max_results: int = 5,
+        available_tools: set[str] | None = None,
     ) -> list[tuple[int, Skill]]:
         """Same matching as match_skills but exposes the raw score.
 
@@ -351,8 +398,13 @@ class SkillManager:
         e.g. the verification-required prompt injection gates on a
         higher score than the auto-load to avoid forcing checks on
         weak matches.
+
+        ``available_tools`` is forwarded to ``match_skills`` and gates
+        out skills whose prerequisites aren't loaded.
         """
-        ranked = self.match_skills(query, max_results=max_results * 4)
+        ranked = self.match_skills(
+            query, max_results=max_results * 4, available_tools=available_tools
+        )
         out: list[tuple[int, Skill]] = []
         for skill in ranked:
             out.append((self._score_skill(query, skill), skill))
@@ -422,7 +474,9 @@ class SkillManager:
             score += len(keywords & desc_words)
         return score
 
-    def format_available_skills(self, query: str = "") -> str:
+    def format_available_skills(
+        self, query: str = "", available_tools: set[str] | None = None
+    ) -> str:
         """Format skills as an XML block for the system prompt.
 
         When a query is provided, pre-matches relevant skills and shows them
@@ -431,6 +485,11 @@ class SkillManager:
 
         When nothing matches (e.g. greetings), only a brief count is injected
         so the LLM isn't slowed by irrelevant skill data.
+
+        ``available_tools`` (when supplied) hides skills whose
+        ``requires_tools`` aren't all present, and hides ``fallback_for_tools``
+        skills when their primary tool IS present. Pass the registry's
+        live tool-name set; pass ``None`` to disable filtering.
         """
         if not self._skills:
             return ""
@@ -441,13 +500,24 @@ class SkillManager:
         # strategy-foundations all match). 3 keeps the most relevant +
         # cuts ~1.5KB per turn. The LLM can still skill_read others
         # from the <other_skills> one-liner list.
-        matched = self.match_skills(query, max_results=3) if query else []
+        matched = (
+            self.match_skills(query, max_results=3, available_tools=available_tools)
+            if query
+            else []
+        )
+
+        # Visible universe for counts and the <other_skills> list.
+        # Filtering once up here keeps the three downstream uses in sync.
+        visible_skills = [
+            s for s in self._skills.values() if s.is_available(available_tools)
+        ]
+        visible_total = len(visible_skills)
 
         # No matches — minimal footprint (saves ~10K chars vs full XML)
         if not matched:
             return (
                 f"<available_skills>\n"
-                f"<total>{len(self._skills)} skills available. "
+                f"<total>{visible_total} skills available. "
                 f"Use skill_list to browse or skill_read to load by name.</total>\n"
                 f"</available_skills>"
             )
@@ -461,7 +531,7 @@ class SkillManager:
         lines.append("</recommended>")
 
         # Remaining skills — show up to 20 compact one-liners, then just count
-        others = [s for s in self._skills.values() if s.name not in matched_names]
+        others = [s for s in visible_skills if s.name not in matched_names]
         if others:
             shown = others[:20]
             lines.append("<other_skills>")
@@ -475,7 +545,7 @@ class SkillManager:
             lines.append("</other_skills>")
 
         lines.append(
-            f"<total>{len(self._skills)} skills available. "
+            f"<total>{visible_total} skills available. "
             "Use skill_read to load any skill by name.</total>"
         )
         lines.append("</available_skills>")
@@ -594,6 +664,19 @@ class SkillManager:
 
         description = ""
         triggers: list[str] = []
+        requires_tools: list[str] = []
+        fallback_for_tools: list[str] = []
+
+        def _parse_inline_list(value: str) -> list[str]:
+            """Parse the inline YAML list form ``[a, b, c]`` → list of strings."""
+            value = value.strip()
+            if not value.startswith("["):
+                return []
+            return [
+                t.strip().strip('"').strip("'")
+                for t in value.strip("[]").split(",")
+                if t.strip().strip('"').strip("'")
+            ]
 
         # Try YAML frontmatter first (--- block at top of file)
         fm_match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
@@ -604,13 +687,11 @@ class SkillManager:
                 if fm_line.startswith("description:"):
                     description = fm_line.split(":", 1)[1].strip().strip('"').strip("'")
                 elif fm_line.startswith("triggers:"):
-                    # Inline YAML list: triggers: [a, b, c]
-                    val = fm_line.split(":", 1)[1].strip()
-                    if val.startswith("["):
-                        for t in val.strip("[]").split(","):
-                            t = t.strip().strip('"').strip("'")
-                            if t:
-                                triggers.append(t)
+                    triggers.extend(_parse_inline_list(fm_line.split(":", 1)[1]))
+                elif fm_line.startswith("requires_tools:"):
+                    requires_tools = _parse_inline_list(fm_line.split(":", 1)[1])
+                elif fm_line.startswith("fallback_for_tools:"):
+                    fallback_for_tools = _parse_inline_list(fm_line.split(":", 1)[1])
 
         # Extract description from the first ## Description section
         desc_match = re.search(
@@ -676,4 +757,6 @@ class SkillManager:
             author_tier=author_tier,
             warnings=messages,
             verify_checks=verify_checks,
+            requires_tools=requires_tools,
+            fallback_for_tools=fallback_for_tools,
         )

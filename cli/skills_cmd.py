@@ -120,6 +120,78 @@ def remove_skill(name: str) -> None:
         console.print(f"[red]Failed to remove skill: {name}[/red]")
 
 
+@skills_cmd.command("neglected")
+@click.option(
+    "--stale-days",
+    type=int,
+    default=None,
+    help="Days unused before a skill is flagged stale (default 30).",
+)
+@click.option(
+    "--archive-days",
+    type=int,
+    default=None,
+    help="Days unused before a skill is flagged for archival (default 90).",
+)
+@click.option("--limit", type=int, default=30, help="Max rows to print (default 30).")
+@click.option(
+    "--include-viewed/--never-viewed-only",
+    default=True,
+    help="Include skills that have been viewed but went stale (default on).",
+)
+def neglected(
+    stale_days: int | None,
+    archive_days: int | None,
+    limit: int,
+    include_viewed: bool,
+) -> None:
+    """List skills the agent hasn't been reading.
+
+    Useful for spotting calcification — when the catalog has 180+
+    skills but production logs show only a handful actually loaded.
+    Never-viewed skills are listed first, then oldest-viewed.
+    """
+    from core.skill_usage import (
+        DEFAULT_ARCHIVE_AFTER_DAYS,
+        DEFAULT_STALE_AFTER_DAYS,
+        list_neglected,
+    )
+
+    s_days = stale_days if stale_days is not None else DEFAULT_STALE_AFTER_DAYS
+    a_days = archive_days if archive_days is not None else DEFAULT_ARCHIVE_AFTER_DAYS
+
+    mgr = _get_manager()
+    known = {s.name for s in mgr.list_skills()}
+
+    rows = list_neglected(
+        Path.cwd(),
+        known_skills=known if include_viewed else None,
+        stale_after_days=s_days,
+        archive_after_days=a_days,
+        limit=limit,
+        include_never_viewed=include_viewed,
+    )
+
+    if not rows:
+        console.print(
+            f"[green]No neglected skills (every skill read in the last "
+            f"{s_days} days, or pinned).[/green]"
+        )
+        return
+
+    table = Table(title=f"Neglected skills — stale>{s_days}d, archive>{a_days}d")
+    table.add_column("Skill", style="cyan")
+    table.add_column("State", style="yellow")
+    table.add_column("Last viewed", style="dim")
+    for name, state, last in rows:
+        table.add_row(name, state, last or "never")
+    console.print(table)
+    console.print(
+        f"[dim]Pin a skill to opt out of auto-flagging — see "
+        f"core/skill_usage.py:set_pinned.[/dim]"
+    )
+
+
 # ── Hub subcommands ──────────────────────────────────────────
 
 
@@ -166,7 +238,9 @@ async def _hub_search(query: str) -> None:
         table.add_row(skill.name, skill.description[:60], skill.version, tags)
 
     console.print(table)
-    console.print("\n[dim]Install with:[/dim] [bold]elophanto skills hub install <name>[/bold]")
+    console.print(
+        "\n[dim]Install with:[/dim] [bold]elophanto skills hub install <name>[/bold]"
+    )
 
 
 @hub_group.command("install")
@@ -309,7 +383,9 @@ def _install_from_git(mgr: SkillManager, url: str, name: str | None) -> None:
                         console.print(f"  [green]Installed: {installed}[/green]")
                         count += 1
                     except FileExistsError:
-                        console.print(f"  [yellow]Skipped (exists): {entry.name}[/yellow]")
+                        console.print(
+                            f"  [yellow]Skipped (exists): {entry.name}[/yellow]"
+                        )
                     except Exception as e:
                         console.print(f"  [red]Failed {entry.name}: {e}[/red]")
 
