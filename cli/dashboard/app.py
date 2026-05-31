@@ -2007,14 +2007,56 @@ class EloPhantoDashboard(App):
             self._add_event(f"[{_MIND}]mind[/] cycle #{s.mind_cycle} wakeup", tag="MND")
             # Mind wakeup in the main chat — viewers see the
             # autonomous loop kick in even when no user is typing.
-            # The wakeup line is the conversation beat that frames
-            # the next batch of `step_progress` activity as "mind
-            # thinking" instead of mystery tool calls.
+            # We render TWO lines: a cycle header (number + intent) and
+            # the action_spec the arbiter ranked top, so the operator
+            # knows what the cycle is supposed to do BEFORE the tool
+            # calls start landing. Without this the dashboard showed
+            # "mind cycle #6 — waking to think" with no context about
+            # which goal/role/blocker was being worked on.
             chat = self.query_one("#chat", RichLog)
-            chat.write(
-                f"\n[{_MIND}]◆[/] [{_DIM}]mind cycle #{s.mind_cycle} — "
-                f"waking to think[/]"
-            )
+            intent = data.get("intent") or {}
+            source = str(intent.get("source", "")).strip()
+            action_spec = str(intent.get("action_spec", "")).strip()
+
+            # Human label per candidate source. Maps the generator
+            # name to a verb-first banner the operator can parse at
+            # a glance: "working on goal", "switching role",
+            # "building tool", etc.
+            source_labels = {
+                "goal_momentum": "advancing goal",
+                "mission_momentum": "advancing mission",
+                "role_neglect": "switching role",
+                "buildable_blocker": "building capability",
+                "unproductized_company": "productizing company",
+                "unplanned_company": "planning company",
+                "blocked_strategy_day": "unblocking strategy",
+                "voiceless_company": "defining voice",
+                "capability_reflex": "exercising capability",
+                "dream": "dream-phase exploration",
+            }
+            source_label = source_labels.get(source, source or "thinking")
+
+            if action_spec:
+                # Two-line block: ◆ banner with cycle # + intent type,
+                # then a dim indented line with the action_spec itself.
+                # action_spec is already operator-readable (the arbiter
+                # writes it that way — "Switch into SUPPORT role…",
+                # "Build the missing capability for blocker b013…").
+                chat.write(
+                    f"\n[{_MIND}]◆[/] [{_BRIGHT}]cycle #{s.mind_cycle}[/] "
+                    f"[{_DIM}]·[/] [{_ACCENT}]{source_label}[/]"
+                )
+                # Wrap the action_spec at a comfortable width. RichLog
+                # has wrap=True so long lines wrap; the indent keeps
+                # it visually attached to the banner above.
+                chat.write(f"  [{_DIM}]{action_spec}[/]")
+            else:
+                # Legacy / no-intent fallback — keeps old gateways
+                # rendering something instead of breaking.
+                chat.write(
+                    f"\n[{_MIND}]◆[/] [{_DIM}]mind cycle #{s.mind_cycle} — "
+                    f"waking to think[/]"
+                )
 
         elif event == "mind_tool_use":
             tool = data.get("tool", "")
