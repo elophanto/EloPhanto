@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from core.config import AutonomousMindConfig
+from core.mind_tool_summary import extract_artifact_preview, summarize_call
 from core.protocol import EventType, event_message
 
 if TYPE_CHECKING:
@@ -940,12 +941,27 @@ class AutonomousMind:
         def _on_tool(name: str, params: dict[str, Any], error: str | None) -> None:
             status = "error" if error else "ok"
             _tool_uses.append({"tool": name, "status": status})
+            # Enrich the event with what the operator actually wants
+            # to see: a human-readable verb-first summary AND, when the
+            # tool wrote something, a preview of that output. Without
+            # this the dashboard showed `tool: file_write` with no
+            # path/content — operators couldn't tell if the agent was
+            # scribbling notes or shipping a real artifact. See
+            # core/mind_tool_summary.py for the formatting rules.
+            _summary = summarize_call(name, params or {})
+            _preview = extract_artifact_preview(name, params or {})
             _loop.create_task(
                 self._broadcast_event(
                     EventType.MIND_TOOL_USE,
                     {
                         "tool": name,
-                        "params": "",
+                        "summary": _summary,
+                        "artifact_preview": _preview,
+                        # ``params`` kept for back-compat (old dashboards
+                        # read it directly); now carries the same summary
+                        # string so a dashboard that doesn't know about
+                        # the new fields still renders something useful.
+                        "params": _summary,
                         "status": status,
                         "error": error or "",
                     },
