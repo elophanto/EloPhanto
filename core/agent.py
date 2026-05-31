@@ -1168,21 +1168,30 @@ class Agent:
                     exc_info=True,
                 )
 
-        # Initialize autonomous mind
-        if self._config.autonomous_mind.enabled:
-            _status("Preparing autonomous mind")
-            try:
-                from core.autonomous_mind import AutonomousMind
+        # Initialize autonomous mind. We instantiate it UNCONDITIONALLY
+        # so the operator can flip it on at runtime via mind_control
+        # (web Mind page Start button or chat) without a restart. The
+        # `enabled` config only controls AUTO-START at gateway boot —
+        # see ``Gateway._maybe_start_autonomous_mind``. Before this
+        # change the field was None when disabled, so the only way to
+        # turn it on was to edit config.yaml + restart, and the agent
+        # had no way to suggest enabling it on company_create either.
+        _status("Preparing autonomous mind")
+        try:
+            from core.autonomous_mind import AutonomousMind
 
-                self._autonomous_mind = AutonomousMind(
-                    agent=self,
-                    gateway=self._gateway,
-                    config=self._config.autonomous_mind,
-                    project_root=self._config.project_root,
-                )
-                logger.info("Autonomous mind ready (starts on gateway boot)")
-            except Exception as e:
-                logger.warning(f"Autonomous mind setup failed: {e}")
+            self._autonomous_mind = AutonomousMind(
+                agent=self,
+                gateway=self._gateway,
+                config=self._config.autonomous_mind,
+                project_root=self._config.project_root,
+            )
+            logger.info(
+                "Autonomous mind ready (auto-start=%s)",
+                self._config.autonomous_mind.enabled,
+            )
+        except Exception as e:
+            logger.warning(f"Autonomous mind setup failed: {e}")
 
         # Initialize heartbeat engine
         if self._config.heartbeat.enabled:
@@ -2217,6 +2226,11 @@ class Agent:
                 tool._project_root = self._config.project_root
             if hasattr(tool, "_company_manager"):
                 tool._company_manager = self._company_manager
+            # company_create reads ``self._agent._autonomous_mind`` to
+            # suggest enabling the mind when a new company is created
+            # while autonomous mode is off — see CompanyCreateTool.
+            if hasattr(tool, "_agent"):
+                tool._agent = self
             # company_onboard also writes a seed goal, so it needs
             # the goal_manager too. Other tools that don't have the
             # attribute skip silently via hasattr.

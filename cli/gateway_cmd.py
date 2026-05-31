@@ -222,17 +222,27 @@ async def _run_gateway(
         agent._goal_runner._gateway = gateway
         asyncio.create_task(agent._goal_runner.resume_on_startup())
 
-    # Update AutonomousMind with gateway reference + start
+    # Update AutonomousMind with gateway reference + start.
+    # The instance now always exists so the operator can flip it on at
+    # runtime via mind_control without a restart; auto-start at gateway
+    # boot is gated on the `autonomous_mind.enabled` config flag.
     if agent._autonomous_mind:
         agent._autonomous_mind._gateway = gateway
-        mind_task = asyncio.create_task(agent._autonomous_mind.resume_on_startup())
-        mind_task.add_done_callback(
-            lambda t: (
-                logger.error("Mind startup failed: %s", t.exception())
-                if not t.cancelled() and t.exception()
-                else None
+        if cfg.autonomous_mind.enabled:
+            mind_task = asyncio.create_task(agent._autonomous_mind.resume_on_startup())
+            mind_task.add_done_callback(
+                lambda t: (
+                    logger.error("Mind startup failed: %s", t.exception())
+                    if not t.cancelled() and t.exception()
+                    else None
+                )
             )
-        )
+        else:
+            logger.info(
+                "Autonomous mind initialized but not auto-started "
+                "(autonomous_mind.enabled=false). Use mind_control "
+                "start to launch at runtime."
+            )
 
     # Wire up HeartbeatEngine with gateway reference + start
     if agent._heartbeat_engine:
