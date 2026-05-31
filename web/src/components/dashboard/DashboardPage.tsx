@@ -16,6 +16,7 @@ import { useConnectionStore } from "@/stores/connection";
 import { useActivityStore } from "@/stores/activity";
 import { AgentCore } from "@/components/agent/AgentCore";
 import { Badge } from "@/components/ui/badge";
+import { MindFeedCompact } from "@/components/mind/MindFeed";
 
 export function DashboardPage() {
   const { dashboard, dashboardLoading, fetchDashboard } = useDataStore();
@@ -87,6 +88,15 @@ export function DashboardPage() {
                 )}
               </div>
             </div>
+
+            {/* Autonomous activity — surfaced at the top so when the
+                mind is working, you SEE it. Click "View live →" to open
+                the full chat-shaped feed on the Mind page. */}
+            {dashboard.mind && (
+              <div className="mb-6">
+                <MindFeedCompact />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
               <LiveActivityCard />
