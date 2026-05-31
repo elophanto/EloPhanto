@@ -118,6 +118,22 @@ def _check_ffmpeg() -> CheckResult:
     return CheckResult("ffmpeg (pump.fun livestream)", "ok", "installed")
 
 
+def _check_tmux() -> CheckResult:
+    """tmux is required for the agent swarm (Claude Code / Codex /
+    Gemini CLI orchestration). Without it, `swarm_spawn` refuses;
+    a normal user otherwise has no way to know until a swarm tool
+    fails at runtime.
+    """
+    if not shutil.which("tmux"):
+        return CheckResult(
+            "tmux (agent swarm)",
+            "warn",
+            "not installed — swarm_spawn / Claude Code / Codex orchestration disabled",
+            "macOS: brew install tmux  ·  Linux: apt install tmux  /  dnf install tmux",
+        )
+    return CheckResult("tmux (agent swarm)", "ok", "installed")
+
+
 def _check_container_runtime(project_root: Path | None = None) -> CheckResult:
     """Container runtime check for kid-agents. Skip when kids feature
     is disabled in config — no point warning about a runtime the
@@ -888,6 +904,7 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_uv())
     rows.append(_check_node())
     rows.append(_check_ffmpeg())
+    rows.append(_check_tmux())
     rows.append(_check_config_exists(project_root))
     rows.extend(_check_providers(project_root))
     rows.append(_check_browser(project_root))
