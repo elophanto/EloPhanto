@@ -37,6 +37,11 @@ class _CompanyToolBase(BaseTool):
         self._db: Any = None
         self._project_root: Path | None = None
         self._company_manager: Any = None
+        # Optional — set by the agent so tools that care about the
+        # autonomous-mind state (e.g. company_create suggesting "start
+        # the mind?") can read it without coupling to the full agent
+        # API. ``None`` means the suggestion is silently skipped.
+        self._agent: Any = None
 
     @property
     def group(self) -> str:
@@ -257,23 +262,48 @@ class CompanyCreateTool(_CompanyToolBase):
             )
         except ValueError as e:
             return ToolResult(success=False, error=str(e))
-        return ToolResult(
-            success=True,
-            data={
-                "slug": company.id,
-                "name": company.name,
-                "status": company.status,
-                "data_dir": (
-                    str(self._company_manager.data_dir(company.id))
-                    if self._company_manager.data_dir(company.id) is not None
-                    else None
-                ),
-                "next_step": (
-                    f"Write companies/{company.id}/company.yaml (operator) or "
-                    f"call company_set_product (agent) to anchor the dream phase."
-                ),
-            },
-        )
+        # Mind-state hint — surface to the agent so it can prompt the
+        # operator to enable the autonomous mind if it's off. Without
+        # the mind running, the new company won't get any autonomous
+        # rotation; it'll only act when chat-driven or scheduled.
+        mind_running = False
+        mind_suggestion: str | None = None
+        if self._agent is not None:
+            mind = getattr(self._agent, "_autonomous_mind", None)
+            if mind is not None:
+                try:
+                    mind_running = bool(getattr(mind, "is_running", False))
+                except Exception:
+                    mind_running = False
+            if not mind_running:
+                mind_suggestion = (
+                    "Autonomous mind is OFF. Without it the new company "
+                    f"{company.id!r} will only act when you ask in chat or "
+                    "via scheduled tasks — there's no autonomous rotation "
+                    "across companies. ASK THE OPERATOR if they'd like "
+                    "you to start the mind now (call mind_control with "
+                    "action='start' to enable at runtime, no restart "
+                    "needed)."
+                )
+
+        data: dict[str, Any] = {
+            "slug": company.id,
+            "name": company.name,
+            "status": company.status,
+            "data_dir": (
+                str(self._company_manager.data_dir(company.id))
+                if self._company_manager.data_dir(company.id) is not None
+                else None
+            ),
+            "next_step": (
+                f"Write companies/{company.id}/company.yaml (operator) or "
+                f"call company_set_product (agent) to anchor the dream phase."
+            ),
+            "mind_running": mind_running,
+        }
+        if mind_suggestion:
+            data["mind_suggestion"] = mind_suggestion
+        return ToolResult(success=True, data=data)
 
 
 class CompanyUseTool(_CompanyToolBase):

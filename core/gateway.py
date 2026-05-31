@@ -1508,7 +1508,10 @@ class Gateway:
                 if mind.is_running:
                     text = "Autonomous mind is already running."
                 else:
-                    mind.start()
+                    # Same missing-await bug as the mind_control path:
+                    # start() is async, must be awaited or the
+                    # coroutine is created and discarded.
+                    await mind.start()
                     text = "Autonomous mind started."
             else:
                 status = mind.get_status()
@@ -1605,7 +1608,12 @@ class Gateway:
                 if mind.is_running:
                     result = {"ok": True, "message": "Already running"}
                 else:
-                    mind.start()
+                    # ``AutonomousMind.start`` is async — without the
+                    # await the coroutine was created and discarded,
+                    # so the start button silently no-op'd and the
+                    # caller saw "Mind started" without anything
+                    # actually starting.
+                    await mind.start()
                     result = {"ok": True, "message": "Mind started"}
             elif action == "stop":
                 await mind.cancel()
