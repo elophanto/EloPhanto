@@ -124,21 +124,45 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   appendAgentChunk: (replyTo, content, done) => {
     set((s) => {
-      const hasPlaceholder = s.messages.some(
-        (m) => m.replyTo === replyTo && m.type === "agent"
+      // 1) Exact-match by replyTo — the happy path.
+      const exactIdx = s.messages.findIndex(
+        (m) => m.type === "agent" && m.replyTo === replyTo && !!replyTo
       );
 
-      if (hasPlaceholder) {
-        return {
-          messages: s.messages.map((m) =>
-            m.replyTo === replyTo && m.type === "agent"
-              ? { ...m, content, isStreaming: !done }
-              : m
-          ),
-          isAgentTyping: !done,
-        };
+      // 2) Fallback: most-recent agent placeholder that is still streaming.
+      //    Production bug: some response paths arrive with an empty or
+      //    stale `reply_to`, which used to leave the user's placeholder
+      //    stuck as an empty bubble while a NEW message rendered with
+      //    the actual content (visible only after refresh once history
+      //    reordered things). Matching the live placeholder by streaming
+      //    state recovers the chat regardless of what the wire sent.
+      let targetIdx = exactIdx;
+      if (targetIdx < 0) {
+        for (let i = s.messages.length - 1; i >= 0; i--) {
+          const m = s.messages[i];
+          if (m && m.type === "agent" && m.isStreaming) {
+            targetIdx = i;
+            break;
+          }
+        }
       }
 
+      const target = targetIdx >= 0 ? s.messages[targetIdx] : undefined;
+      if (target) {
+        const updated = s.messages.slice();
+        updated[targetIdx] = {
+          ...target,
+          content,
+          isStreaming: !done,
+          // Capture the wire reply_to even when we matched by fallback,
+          // so subsequent chunks for the same turn hit the exact path.
+          replyTo: replyTo || target.replyTo,
+        };
+        return { messages: updated, isAgentTyping: !done };
+      }
+
+      // No placeholder at all — server raced sendMessage(). Append a new
+      // bubble so the response is at least visible to the user.
       return {
         messages: [
           ...s.messages,
