@@ -1111,6 +1111,20 @@ class AuthorityConfig:
 
 
 @dataclass
+class TwitterConfig:
+    """X (Twitter) posting configuration.
+
+    Character limits differ by account tier:
+      - Free:       280
+      - Premium:    4000
+      - Premium+:  25000
+    Set ``max_chars`` to match the account ``twitter_post`` is using.
+    """
+
+    max_chars: int = 280
+
+
+@dataclass
 class Config:
     """Top-level EloPhanto configuration."""
 
@@ -1157,6 +1171,7 @@ class Config:
     commune: CommuneConfig = field(default_factory=CommuneConfig)
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
     parent_channel: ParentChannelConfig = field(default_factory=ParentChannelConfig)
+    twitter: TwitterConfig = field(default_factory=lambda: TwitterConfig())
     authority: AuthorityConfig | None = None
     workspace: str = ""
     profile: str = ""  # Distribution profile name (e.g., "developer", "marketer")
@@ -2154,6 +2169,9 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         commune=commune_config,
         desktop=desktop_config,
         parent_channel=parent_channel_config,
+        twitter=TwitterConfig(
+            max_chars=int(raw.get("twitter", {}).get("max_chars", 280)),
+        ),
         authority=authority_config,
         profile=profile_name,
         project_root=config_path.parent,

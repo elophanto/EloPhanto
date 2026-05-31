@@ -16,7 +16,9 @@ from tools.browser.eval_utils import eval_value
 logger = logging.getLogger(__name__)
 
 _X_COMPOSE_URL = "https://x.com/compose/post"
-_MAX_TWEET_CHARS = 280
+# Free-tier safe default. Premium accounts get 4000, Premium+ gets
+# 25000 — set ``twitter.max_chars`` in config.yaml to lift the gate.
+_DEFAULT_MAX_TWEET_CHARS = 280
 
 
 class TwitterPostTool(BaseTool):
@@ -32,6 +34,10 @@ class TwitterPostTool(BaseTool):
     def __init__(self) -> None:
         self._browser_manager: Any = None
         self._db: Any = None
+        # X character limit for THIS account. Free=280, Premium=4000,
+        # Premium+=25000. Injected by the agent from
+        # ``config.twitter.max_chars``; falls back to 280 if not wired.
+        self._max_chars: int = _DEFAULT_MAX_TWEET_CHARS
 
     @property
     def group(self) -> str:
@@ -53,7 +59,10 @@ class TwitterPostTool(BaseTool):
         return (
             "Post text and/or media to X (Twitter). Uses pre-authenticated "
             "Chrome profile. Can attach an image or video. Returns the "
-            "published tweet URL. Max 280 chars."
+            f"published tweet URL. Max {self._max_chars} chars "
+            "(account tier sets the limit; configure via "
+            "`twitter.max_chars` in config.yaml — Free 280, Premium 4000, "
+            "Premium+ 25000)."
         )
 
     @property
@@ -63,7 +72,7 @@ class TwitterPostTool(BaseTool):
             "properties": {
                 "content": {
                     "type": "string",
-                    "description": f"Tweet text (max {_MAX_TWEET_CHARS} chars).",
+                    "description": f"Tweet text (max {self._max_chars} chars).",
                 },
                 "media_path": {
                     "type": "string",
@@ -123,10 +132,14 @@ class TwitterPostTool(BaseTool):
         media_path = params.get("media_path", "")
         reply_to_url = params.get("reply_to_url", "")
 
-        if len(content) > _MAX_TWEET_CHARS:
+        if len(content) > self._max_chars:
             return ToolResult(
                 success=False,
-                error=f"Tweet exceeds {_MAX_TWEET_CHARS} chars ({len(content)}).",
+                error=(
+                    f"Tweet exceeds {self._max_chars} chars ({len(content)}). "
+                    "If this is a Premium / Premium+ account, raise the limit "
+                    "via `twitter.max_chars` in config.yaml."
+                ),
             )
 
         # ABE Phase 9 trust gate — refuse live X post when the
@@ -485,30 +498,30 @@ class TwitterPostTool(BaseTool):
                 "browser_click_text", {"text": "Post"}
             )
 
-            # Step 6: Wait and extract tweet URL
-            await self._browser_manager.call_tool(
-                "browser_wait", {"milliseconds": 4000}
-            )
-
-            # After posting, X redirects or shows the tweet
-            url_result = await self._browser_manager.call_tool(
-                "browser_eval",
-                {"expression": "window.location.href"},
-            )
-            current_url_value = eval_value(url_result)
-            current_url = (
-                current_url_value if isinstance(current_url_value, str) else ""
-            )
-
-            # Check if we're on a tweet page (contains /status/)
-            tweet_url = current_url if "/status/" in current_url else ""
+            # Step 6: Wait and extract tweet URL.
+            # X usually redirects to /status/<tweet_id> after a successful
+            # post. The redirect can be slow (composer clears first, URL
+            # follows) so we poll the URL for up to ~10s before deciding.
+            tweet_url = ""
+            for _attempt in range(5):
+                await self._browser_manager.call_tool(
+                    "browser_wait", {"milliseconds": 2000}
+                )
+                url_result = await self._browser_manager.call_tool(
+                    "browser_eval",
+                    {"expression": "window.location.href"},
+                )
+                current_url_value = eval_value(url_result)
+                current_url = (
+                    current_url_value if isinstance(current_url_value, str) else ""
+                )
+                if "/status/" in current_url:
+                    tweet_url = current_url
+                    break
 
             # If the composer is still showing our text after Post was
             # clicked, the post didn't go through — X often blocks (rate
             # limit, auth, draft-saved state) without a visible error.
-            # Without this check the tool reports success and the agent
-            # logs a "(posted — check X for URL)" success that never
-            # actually landed.
             composer_check = await self._browser_manager.call_tool(
                 "browser_eval",
                 {
@@ -524,9 +537,7 @@ class TwitterPostTool(BaseTool):
             still_drafting = (eval_value(composer_check) or "").strip()
             if still_drafting and still_drafting[:40] in content:
                 await self._log_publish(
-                    content=content,
-                    platform_url="",
-                    status="failed",
+                    content=content, platform_url="", status="failed"
                 )
                 return ToolResult(
                     success=False,
@@ -538,10 +549,36 @@ class TwitterPostTool(BaseTool):
                     ),
                 )
 
+            # Final success guard: if X never redirected to a /status/
+            # URL we have no proof the post actually shipped. Previously
+            # the tool returned success=True with tweet_url="(posted —
+            # check X for URL)" — a literal placeholder string that
+            # masked silent X drops (rate limit, anti-automation,
+            # account flags) as success. Refuse to claim success
+            # without the redirect, and tell the caller exactly what
+            # to investigate.
+            if not tweet_url:
+                await self._log_publish(
+                    content=content, platform_url="", status="failed"
+                )
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "Clicked Post but X did not redirect to a "
+                        "/status/ URL within 10s. The composer cleared, "
+                        "which usually means the click was accepted, "
+                        "but no tweet URL is available so the post may "
+                        "have been silently dropped (rate limit, "
+                        "anti-automation block, account flag) or simply "
+                        "indexed late. Verify manually on "
+                        "https://x.com/EloPhanto before re-posting — "
+                        "re-posting on a real drop risks a duplicate, "
+                        "re-posting on indexing lag risks a true duplicate."
+                    ),
+                )
+
             publish_id = await self._log_publish(
-                content=content,
-                platform_url=tweet_url,
-                status="published",
+                content=content, platform_url=tweet_url, status="published"
             )
 
             return ToolResult(
@@ -550,7 +587,7 @@ class TwitterPostTool(BaseTool):
                     "publish_id": publish_id,
                     "platform": "twitter",
                     "content": content,
-                    "tweet_url": tweet_url or "(posted — check X for URL)",
+                    "tweet_url": tweet_url,
                     "has_media": bool(media_path),
                 },
             )
