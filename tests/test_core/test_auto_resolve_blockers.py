@@ -93,6 +93,63 @@ class TestAutoResolve:
 
         assert not load_blockers(tmp_path, "co-1")[0].is_resolved()
 
+    def test_alias_resolves_x_post_and_reply(self, tmp_path) -> None:
+        """``x_post_and_reply`` is a hallucinated name the strategy LLM
+        kept inventing; the alias map in core.strategy._TOOL_ALIASES
+        maps it to twitter_post + twitter_reply. When BOTH are in the
+        registry the blocker auto-resolves; missing either keeps it
+        open."""
+        save_blockers(
+            tmp_path,
+            "co-1",
+            [
+                Blocker(
+                    id="b013",
+                    type="missing_tool",
+                    description=(
+                        "Strategy needs tool `x_post_and_reply` — " "not registered."
+                    ),
+                    resolution_proposal="build",
+                    build_method="self_create_plugin",
+                ),
+            ],
+        )
+        # Both required tools present → resolves via alias
+        registry = FakeRegistry(
+            [FakeTool("twitter_post", "social"), FakeTool("twitter_reply", "social")]
+        )
+        result = auto_resolve_blockers(tmp_path, registry=registry)
+        assert result == {"co-1": 1}
+        from core.strategy import load_blockers
+
+        assert load_blockers(tmp_path, "co-1")[0].is_resolved()
+
+    def test_alias_with_missing_member_stays_open(self, tmp_path) -> None:
+        """Alias requires ALL mapped tools to be present. Missing one
+        means the capability isn't actually shipped — blocker stays
+        open."""
+        save_blockers(
+            tmp_path,
+            "co-2",
+            [
+                Blocker(
+                    id="b013",
+                    type="missing_tool",
+                    description=(
+                        "Strategy needs tool `x_post_and_reply` — " "not registered."
+                    ),
+                    resolution_proposal="build",
+                ),
+            ],
+        )
+        # Only ONE of the required tools — alias should NOT resolve
+        registry = FakeRegistry([FakeTool("twitter_post", "social")])
+        result = auto_resolve_blockers(tmp_path, registry=registry)
+        assert result == {}
+        from core.strategy import load_blockers
+
+        assert not load_blockers(tmp_path, "co-2")[0].is_resolved()
+
     def test_missing_skill_resolves_when_skill_installed(self, tmp_path) -> None:
         save_blockers(
             tmp_path,

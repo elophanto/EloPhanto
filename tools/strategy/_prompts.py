@@ -151,8 +151,21 @@ def build_system_prompt(
     risk_tolerance: int = 50,
     include_controversial: bool = False,
     context: str = "",
+    available_tools: list[tuple[str, str]] | None = None,
 ) -> str:
-    """Port of getSystemPrompt() from tmp/strategy.js."""
+    """Port of getSystemPrompt() from tmp/strategy.js.
+
+    ``available_tools`` is the live registry as ``[(name, description), ...]``
+    pairs. When supplied, the prompt renders a "TOOLS ALREADY AVAILABLE"
+    block AND a hard rule telling the LLM to reference those exact
+    names rather than invent new capability strings — which used to
+    cause every strategy to ship with hallucinated `tool_requirements`
+    that became `missing_tool` blockers (e.g. `x_post_and_reply` when
+    `twitter_post`+`twitter_reply` already exist). When omitted, the
+    prompt falls back to the legacy "list tools you assume exist"
+    shape — kept for back-compat with any test fixture / external
+    caller that doesn't have a registry handle.
+    """
 
     is_organic = budget_type == "organic" or budget == 0
     tier = _budget_tier(budget_type, budget)
@@ -174,6 +187,20 @@ Use these findings to ground the strategy in real data rather than assumptions."
         if context
         else ""
     )
+
+    # Render the live tool registry so the LLM stops inventing
+    # capability names. One line per tool: ``- <name>: <short desc>``.
+    # The block lives early in the prompt (after context, before the
+    # JSON schema) and is referenced by name in the tool_requirements
+    # field instructions below. If absent, the legacy "list any tool"
+    # shape applies.
+    registry_block = ""
+    if available_tools:
+        lines = ["TOOLS ALREADY AVAILABLE (use these EXACT names):"]
+        for name, desc in available_tools:
+            short = (desc or "").splitlines()[0][:90]
+            lines.append(f"- {name}: {short}" if short else f"- {name}")
+        registry_block = "\n".join(lines) + "\n"
     controversial_block = (
         """
 CONTROVERSIAL MODE ENABLED:
@@ -214,6 +241,7 @@ YOUR AGENCY PHILOSOPHY:
 
 {context_block}
 
+{registry_block}
 RISK TOLERANCE: {risk_tolerance}%
 {risk_block}
 
@@ -347,7 +375,7 @@ When the user prompt's PRIOR RESEARCH & CONTEXT contains an OPERATIONAL CONTEXT 
 
 ABE EXTENSIONS (EloPhanto-specific — populate when relevant):
 - vault_requirements: every credential the strategy assumes the operator has stored (SMTP keys, social-platform sessions, API tokens). Each entry needs a `key` (vault key name in snake_case), `needed_for_tactics` (tactic ids it gates), and a `resolution_proposal` of "ask" (operator provides), "build" (only if the *credential itself* can be auto-generated, rare), or "defer". Be exhaustive — missing vault entries become operator blockers.
-- tool_requirements: tools/connectors the strategy assumes exist (e.g. linkedin_post). For each, propose "build" with `build_method: "self_create_plugin"` and a one-sentence `build_hint`, OR "ask" if it's a third-party integration the operator must provide, OR "defer" if the tactic can be skipped.
+- tool_requirements: tools/connectors the strategy NEEDS to execute. CRITICAL: ONLY list tools that are NOT already in the "TOOLS ALREADY AVAILABLE" block above. If a tactic can be executed by an existing tool, do NOT list anything for it here — the registry already covers it. When a genuine gap exists: use snake_case names matching the registry's naming convention (`twitter_post` not `x_post_and_reply`, `email_send` not `send_email`); for each, propose "build" with `build_method: "self_create_plugin"` and a one-sentence `build_hint`, OR "ask" if it's a third-party integration the operator must provide, OR "defer" if the tactic can be skipped.
 - voice_seed: 3-6 hookTemplates extracted from creativeDirections, 3-8 banned_phrases that contradict the desired voice, 2-4 tone descriptors, and a single cta_style. This pre-seeds Phase 10's voice contract so drafts are lint-gated on day one.
 - agent_role_assignments: optional advisory map from role names (sales/content/ops/support/marketing/ceo) to tactic ids. The arbiter still rotates roles by KPI/staleness; this is a hint, not a lock.
 - execution_priority: "immediate" (all tactics start day 1), "staged" (default — month1/2/3 ramp), "experimental" (each tactic gated by experiment roadmap).
