@@ -222,8 +222,19 @@ async def from_workable_checkpoints(ctx: CandidateContext) -> list[Candidate]:
                     if g.total_checkpoints
                     else 0.0
                 )
-                # Late checkpoints are worth more (closer to shipping).
-                expected = 4.0 + 4.0 * progress
+                # Late checkpoints are worth more (closer to shipping),
+                # but the FLOOR matters — an operator-created goal at
+                # 5/15 used to score expected=5.33, quality=4.0, total
+                # ~4.45 → consistently losing to role_neglect (CEO with
+                # kpi_gap=1.00 scores ~5.60). Result: agent kept doing
+                # role-switching meta-work instead of advancing the
+                # goal the operator explicitly wanted done.
+                # Floor at 6.0, ceiling at 9.0; feasibility bumped to
+                # 0.85 because the agent has skills + tools for almost
+                # every checkpoint, lack of attempts is the bottleneck
+                # not capability. At 5/15: expected=7.0, quality=5.95,
+                # total ~7.0 → beats role_neglect comfortably.
+                expected = 6.0 + 3.0 * progress
                 out.append(
                     Candidate(
                         source="workable_checkpoint",
@@ -233,7 +244,7 @@ async def from_workable_checkpoints(ctx: CandidateContext) -> list[Candidate]:
                             f"{next_workable['title']}"
                         ),
                         expected_value=expected,
-                        feasibility=0.75,
+                        feasibility=0.85,
                         lens_match=0.5,
                         cost=2.5,
                         mission_id=g.mission_id,
