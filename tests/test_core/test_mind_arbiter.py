@@ -317,6 +317,33 @@ class TestDreamGenerator:
         many_goals = await from_dream(CandidateContext(goal_manager=FakeGM(5)))
         assert no_goals[0].expected_value > many_goals[0].expected_value
 
+    @pytest.mark.asyncio
+    async def test_one_active_goal_already_demotes_dream(self) -> None:
+        """Operator regression: the agent kept dreaming up new goals
+        while existing ones sat incomplete (legal-pdf at 5/15,
+        operating stance at 11/12). Old decay was 1.0 per goal —
+        2 active goals → expected=5.0, still competitive. New shape
+        is a hard knee: ANY active goal collapses dream to 2.0 so
+        it ranks below role rotation / workable_checkpoint / reflexes.
+        """
+        from core.mind_candidates import CandidateContext, from_dream
+
+        class FakeGM:
+            def __init__(self, count: int) -> None:
+                self._count = count
+
+            async def list_goals(self, status: str = None, limit: int = 20):
+                return [object()] * self._count if status == "active" else []
+
+        zero = await from_dream(CandidateContext(goal_manager=FakeGM(0)))
+        one = await from_dream(CandidateContext(goal_manager=FakeGM(1)))
+        # Hard knee: 0 → 7.0, 1+ → 2.0 (anything well below
+        # workable_checkpoint's typical 4.0–8.0 range).
+        assert zero[0].expected_value == 7.0
+        assert one[0].expected_value == 2.0
+        # And the workable-count is surfaced in metadata for debug.
+        assert one[0].metadata.get("workable_goals") == 1
+
 
 class TestEndToEndArbiter:
     @pytest.mark.asyncio

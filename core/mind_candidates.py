@@ -799,9 +799,23 @@ async def from_dream(ctx: CandidateContext) -> list[Candidate]:
     many; if it wins, the LLM calls ``goal_dream`` and the
     existing pipeline runs.
 
-    The candidate's ``expected_value`` decays with the number of
-    workable_checkpoints already in play — when there's lots to do
-    on existing goals, dreaming up new ones is worth less.
+    Scoring: hard knee, not gentle slope. The previous version used
+    ``expected = 7.0 - 1.0 * workable_count`` which still ranked
+    dream at ~5.0 with two active goals — co-equal to workable_
+    checkpoint advancement. Production 2026-06-01: agent had goals
+    at 11/12, 5/15, 30/30-paused AND ran goal_dream to spawn a
+    fourth (badge/legend) before finishing any. Operator: "why is
+    it coming up with goals when it has incomplete goal?"
+
+    New shape:
+      0 active goals  → expected=7.0 (legitimate empty state, dream is the
+                       primary autonomous source)
+      ≥1 active goal  → expected=2.0 (well below role rotation, reflexes,
+                       and any workable_checkpoint; only wins if every other
+                       source is also weak — escape hatch when goals stall)
+
+    The principle: finish what's started before starting new things.
+    Dream is "what should I do NEXT" not "what else could I do."
     """
     workable_count = 0
     if ctx.goal_manager:
@@ -812,7 +826,7 @@ async def from_dream(ctx: CandidateContext) -> list[Candidate]:
         except Exception as e:
             logger.debug("from_dream goal count failed: %s", e)
 
-    expected = 7.0 - min(5.0, 1.0 * workable_count)
+    expected = 7.0 if workable_count == 0 else 2.0
     feasibility = 0.85
     return [
         Candidate(
@@ -827,7 +841,10 @@ async def from_dream(ctx: CandidateContext) -> list[Candidate]:
             lens_match=1.0,
             cost=3.5,
             dedup_key=f"dream:{ctx.dream_focus}",
-            metadata={"dream_focus": ctx.dream_focus},
+            metadata={
+                "dream_focus": ctx.dream_focus,
+                "workable_goals": workable_count,
+            },
         )
     ]
 
