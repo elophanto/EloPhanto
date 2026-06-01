@@ -339,6 +339,44 @@ class LLMRouter:
                     )
                     raise
 
+                # Auth failure — 401, token-refresh dead, expired bearer.
+                # Retrying with the same credentials will always fail; the
+                # operator has to re-login on the provider's side
+                # (e.g. ``codex login``). Skip immediately + mark unhealthy
+                # (longer cooldown than a transient blip) + log at ERROR
+                # so the operator sees it without log-diving. Without
+                # this classifier the router burned MAX_RETRIES attempts
+                # on every call to the dead provider.
+                is_auth_failure = (
+                    "401" in str(e)
+                    or "token refresh failed" in _err_lower
+                    or "unauthorized" in _err_lower
+                    or "invalid api key" in _err_lower
+                    or "authentication" in _err_lower
+                )
+                if is_auth_failure:
+                    logger.error(
+                        "[AUTH] %s/%s authentication failed after %.2fs — "
+                        "operator must re-login (e.g. `codex login` for "
+                        "codex, refresh API keys for litellm providers). "
+                        "Skipping to next provider. Error: %s",
+                        provider,
+                        model,
+                        elapsed,
+                        str(e)[:200],
+                    )
+                    self._mark_unhealthy(provider)
+                    # Track on the cost tracker so dashboards / status
+                    # commands can see "codex auth dead" without parsing
+                    # the log. Best-effort — never block the failover.
+                    try:
+                        self._provider_tracker.record_auth_failure(
+                            provider, model, str(e)[:200]
+                        )
+                    except Exception:
+                        pass
+                    raise
+
                 delay = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)]
                 if attempt < self.MAX_RETRIES - 1:
                     logger.warning(

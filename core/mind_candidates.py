@@ -137,7 +137,12 @@ async def from_workable_checkpoints(ctx: CandidateContext) -> list[Candidate]:
     out: list[Candidate] = []
     try:
         db = ctx.goal_manager._db  # noqa: SLF001 — intentional internal
-        for status in ("active", "planning"):
+        # ``paused`` included so a goal that hit max-checkpoint-attempts
+        # gets a self-recovery candidate (split-and-retry) rather than
+        # sitting silent until the operator notices. See the
+        # ``failed_max_attempts`` branch below — the candidate's
+        # action_spec walks the agent through revise + resume.
+        for status in ("active", "planning", "paused"):
             goals = await ctx.goal_manager.list_goals(status=status, limit=20)
             for g in goals:
                 rows = await db.execute(
@@ -166,7 +171,15 @@ async def from_workable_checkpoints(ctx: CandidateContext) -> list[Candidate]:
                         )
                     )
                     continue
-                next_workable = _pick_next_workable(rows)
+                # Paused goals: skip the advance path entirely. While
+                # paused there ARE pending rows downstream of the
+                # failed checkpoint, but advancing past a failed step
+                # without a fix is worse than not advancing at all.
+                # Drop straight into the recovery branch below.
+                if g.status == "paused":
+                    next_workable = None
+                else:
+                    next_workable = _pick_next_workable(rows)
                 if next_workable is None:
                     # No pending or fresh-active row — but the goal isn't
                     # done yet. Two sub-cases:
@@ -213,6 +226,56 @@ async def from_workable_checkpoints(ctx: CandidateContext) -> list[Candidate]:
                                     "kind": "revise",
                                     "completed_in_db": completed_in_db,
                                     "expected_total": g.total_checkpoints,
+                                },
+                            )
+                        )
+                    # (c) FAILED_MAX_ATTEMPTS — a checkpoint exhausted
+                    #     its retry budget and goal_manager paused the
+                    #     goal. Without a recovery candidate the goal
+                    #     sits paused until the operator notices.
+                    #     Surface a "split + resume" candidate so the
+                    #     autonomous mind self-recovers: revise the
+                    #     plan to break the failing checkpoint into
+                    #     smaller sub-tasks, then resume.
+                    failed_row = next(
+                        (r for r in rows if r["status"] == "failed"),
+                        None,
+                    )
+                    if failed_row is not None and g.status == "paused":
+                        failed_title = (failed_row["title"] or "")[:60]
+                        failed_order = failed_row["checkpoint_order"]
+                        out.append(
+                            Candidate(
+                                source="workable_checkpoint",
+                                action_spec=(
+                                    f"PAUSED goal '{g.goal[:50]}' — checkpoint "
+                                    f"#{failed_order} '{failed_title}' failed "
+                                    f"max attempts and the goal auto-paused. "
+                                    f"Recover: 1) call goal_manage("
+                                    f"action='revise', goal_id='{g.goal_id}', "
+                                    f"reason='Split #{failed_order} into "
+                                    f"smaller sub-tasks the agent can finish "
+                                    f"within the per-checkpoint timeout'); "
+                                    f"2) call goal_manage(action='resume', "
+                                    f"goal_id='{g.goal_id}') so the smaller "
+                                    f"checkpoints start running."
+                                ),
+                                # High value — operator created the goal
+                                # and an automatic pause is invisible to
+                                # them unless they read logs. feasibility
+                                # 0.8 because revise + resume is two
+                                # known-good tool calls.
+                                expected_value=8.0,
+                                feasibility=0.8,
+                                lens_match=0.5,
+                                cost=2.5,
+                                staleness_bonus=4.0,
+                                mission_id=g.mission_id,
+                                dedup_key=f"goal_recover:{g.goal_id}",
+                                metadata={
+                                    "goal_id": g.goal_id,
+                                    "kind": "recover",
+                                    "failed_checkpoint_order": failed_order,
                                 },
                             )
                         )

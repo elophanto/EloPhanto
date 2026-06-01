@@ -321,6 +321,92 @@ class TestWorkableCheckpointStalledRecovery:
         assert c.expected_value >= 7.0
 
 
+class TestPausedGoalSelfRecovery:
+    """Operator 2026-06-01: goal got paused when checkpoint #14 hit
+    max attempts. Agent did NOTHING about it — no recovery candidate
+    in the arbiter menu, operator had to manually call goal_manage.
+    Fix: paused goals with a failed-max-attempts checkpoint yield a
+    'split + resume' recovery candidate."""
+
+    @pytest.mark.asyncio
+    async def test_paused_goal_with_failed_checkpoint_yields_recovery(
+        self, tmp_path
+    ) -> None:
+        from unittest.mock import AsyncMock
+
+        from core.config import GoalsConfig
+        from core.database import Database
+        from core.goal_manager import GoalManager
+        from core.mind_candidates import (
+            CandidateContext,
+            from_workable_checkpoints,
+        )
+
+        db = Database(str(tmp_path / "t.db"))
+        await db.initialize()
+        router = AsyncMock()
+        gm = GoalManager(db, router, GoalsConfig())
+
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC).isoformat()
+        goal_id = "paused-goal"
+        # Goal at 13/18 paused after #14 failed 3 times — matches the
+        # production legal-pdf state.
+        await db.execute_insert(
+            "INSERT INTO goals (goal_id, session_id, goal, status, plan_json, "
+            "context_summary, current_checkpoint, total_checkpoints, attempts, "
+            "max_attempts, llm_calls_used, cost_usd, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'paused', '[]', '', 14, 18, 0, 3, 0, 0.0, ?, ?)",
+            (goal_id, None, "paused goal", now, now),
+        )
+        for i in range(1, 14):
+            await db.execute_insert(
+                "INSERT INTO goal_checkpoints "
+                "(goal_id, checkpoint_order, title, description, "
+                "success_criteria, status, completed_at) "
+                "VALUES (?, ?, ?, '', '', 'completed', ?)",
+                (goal_id, i, f"Step {i}", now),
+            )
+        # #14 failed; 15-18 pending (won't be reached while goal paused)
+        await db.execute_insert(
+            "INSERT INTO goal_checkpoints "
+            "(goal_id, checkpoint_order, title, description, "
+            "success_criteria, status, result_summary, attempts) "
+            "VALUES (?, 14, 'Expand inventory', '', '', 'failed', "
+            "'Failed after 3 attempts: Checkpoint timed out', 3)",
+            (goal_id,),
+        )
+        for i in range(15, 19):
+            await db.execute_insert(
+                "INSERT INTO goal_checkpoints "
+                "(goal_id, checkpoint_order, title, description, "
+                "success_criteria, status) "
+                "VALUES (?, ?, ?, '', '', 'pending')",
+                (goal_id, i, f"Step {i}"),
+            )
+
+        ctx = CandidateContext(goal_manager=gm)
+        candidates = await from_workable_checkpoints(ctx)
+
+        # Must yield exactly one recover candidate referencing the
+        # failed checkpoint by order.
+        recover = [c for c in candidates if c.metadata.get("kind") == "recover"]
+        assert len(recover) == 1, (
+            f"paused goal should yield one recover candidate; "
+            f"got {[c.metadata for c in candidates]}"
+        )
+        c = recover[0]
+        assert c.metadata["goal_id"] == goal_id
+        assert c.metadata["failed_checkpoint_order"] == 14
+        assert "goal_manage" in c.action_spec
+        assert "revise" in c.action_spec
+        assert "resume" in c.action_spec
+        # Score must beat role_neglect (~5.6) so the agent actually
+        # picks recovery over meta-rotation.
+        assert c.expected_value >= 7.5
+
+
 class TestMissionMomentumGenerator:
     @pytest.mark.asyncio
     async def test_proposes_one_candidate_per_neglected_mission(self, tmp_path) -> None:

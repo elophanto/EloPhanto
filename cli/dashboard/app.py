@@ -394,6 +394,14 @@ class _State:
     # GATEWAY panel: list of {channel, user, active}
     sessions: list[dict] = field(default_factory=list)
 
+    # Set of provider names currently in an auth-failure state. Sticky
+    # until the next successful call. Drives the chat banner that
+    # tells the operator to re-login (``codex login`` etc.) — without
+    # it, auth-failure events get buried in the log and the router
+    # silently fails over while the operator has no idea why
+    # latency / cost is up.
+    auth_failed_providers: set[str] = field(default_factory=set)
+
     # GOALS panel: list of {title, pct, checkpoint, status}
     # `status` is one of: active | paused | done | blocked.
     # `pct` is integer 0-100 derived from completed/total checkpoints.
@@ -2449,6 +2457,7 @@ class EloPhantoDashboard(App):
         s = self._state
 
         providers = data.get("providers", {})
+        auth_failed_msgs: list[str] = []
         for name, info in providers.items():
             if isinstance(info, dict):
                 healthy = info.get("healthy", True)
@@ -2456,11 +2465,41 @@ class EloPhantoDashboard(App):
                 lat = int(info.get("latency_ms", 0))
                 if not enabled:
                     status = "off"
+                elif info.get("auth_failed"):
+                    # Distinct state from generic "warn" so the dot can
+                    # render in a noticeable colour AND we can surface a
+                    # banner telling the operator exactly what to do.
+                    status = "auth"
+                    err = str(info.get("auth_error") or "")[:120]
+                    auth_failed_msgs.append(f"{name}: {err}")
                 elif healthy:
                     status = "ok"
                 else:
                     status = "warn"
                 s.providers[name] = (status, lat)
+        # Surface auth failures in chat ONCE per state transition so
+        # the operator sees the actionable message ("run codex login")
+        # without log-diving. Idempotent: we only write to chat when
+        # the set of failing providers changes since last status pull.
+        prev: set[str] = getattr(s, "auth_failed_providers", set())
+        cur = {m.split(":", 1)[0] for m in auth_failed_msgs}
+        if cur and cur != prev:
+            try:
+                chat = self.query_one("#chat", RichLog)
+                chat.write("")
+                chat.write(
+                    f"[{_WARN}]⚠ provider auth failed:[/] "
+                    + ", ".join(auth_failed_msgs)
+                )
+                chat.write(
+                    f"  [{_DIM}]router has failed over to the next "
+                    f"provider. Re-login to restore "
+                    f"({'codex login' if 'codex' in cur else 'refresh API keys'}).[/]"
+                )
+                chat.write("")
+            except Exception:
+                pass
+        s.auth_failed_providers = cur
 
         scheduled = data.get("scheduled_tasks", [])
         if scheduled:
