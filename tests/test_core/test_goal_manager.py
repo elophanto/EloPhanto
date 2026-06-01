@@ -160,7 +160,9 @@ class TestGoalCRUD:
         assert not await gm.pause_goal(goal.goal_id)  # status is "planning"
 
     @pytest.mark.asyncio
-    async def test_resume_requires_paused(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_resume_requires_paused(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
         goal = await gm.create_goal("Active goal")
         await gm.decompose(goal)
@@ -187,21 +189,27 @@ class TestDecomposition:
         assert goal.current_checkpoint == 1
 
     @pytest.mark.asyncio
-    async def test_decompose_empty_response(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_decompose_empty_response(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(content="[]")
         goal = await gm.create_goal("Bad goal")
         cps = await gm.decompose(goal)
         assert cps == []
 
     @pytest.mark.asyncio
-    async def test_decompose_invalid_json(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_decompose_invalid_json(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(content="not json at all")
         goal = await gm.create_goal("Invalid")
         cps = await gm.decompose(goal)
         assert cps == []
 
     @pytest.mark.asyncio
-    async def test_decompose_markdown_wrapped(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_decompose_markdown_wrapped(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         wrapped = f"```json\n{_SAMPLE_CHECKPOINTS_JSON}\n```"
         router.complete.return_value = FakeLLMResponse(content=wrapped)
         goal = await gm.create_goal("Wrapped")
@@ -209,9 +217,16 @@ class TestDecomposition:
         assert len(cps) == 3
 
     @pytest.mark.asyncio
-    async def test_decompose_caps_at_max(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_decompose_caps_at_max(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         many = [
-            {"order": i, "title": f"CP {i}", "description": "d", "success_criteria": "s"}
+            {
+                "order": i,
+                "title": f"CP {i}",
+                "description": "d",
+                "success_criteria": "s",
+            }
             for i in range(1, 30)
         ]
         router.complete.return_value = FakeLLMResponse(content=json.dumps(many))
@@ -220,7 +235,9 @@ class TestDecomposition:
         assert len(cps) == 20  # max_checkpoints default
 
     @pytest.mark.asyncio
-    async def test_decompose_increments_llm_calls(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_decompose_increments_llm_calls(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
         goal = await gm.create_goal("Track calls")
         assert goal.llm_calls_used == 0
@@ -244,7 +261,9 @@ class TestCheckpoints:
         assert all(c.status == "pending" for c in cps)
 
     @pytest.mark.asyncio
-    async def test_get_next_checkpoint(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_get_next_checkpoint(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
         goal = await gm.create_goal("Next CP")
         await gm.decompose(goal)
@@ -253,7 +272,9 @@ class TestCheckpoints:
         assert nxt.order == 1
 
     @pytest.mark.asyncio
-    async def test_mark_checkpoint_active(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_mark_checkpoint_active(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
         goal = await gm.create_goal("Active CP")
         await gm.decompose(goal)
@@ -295,7 +316,9 @@ class TestCheckpoints:
         assert final.completed_at is not None
 
     @pytest.mark.asyncio
-    async def test_mark_checkpoint_failed_retries(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_mark_checkpoint_failed_retries(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
         goal = await gm.create_goal("Fail retry")
         await gm.decompose(goal)
@@ -331,7 +354,9 @@ class TestCheckpoints:
 class TestContext:
     @pytest.mark.asyncio
     async def test_summarize_context(self, gm: GoalManager, router: AsyncMock) -> None:
-        router.complete.return_value = FakeLLMResponse(content="Summary of progress so far.")
+        router.complete.return_value = FakeLLMResponse(
+            content="Summary of progress so far."
+        )
         goal = await gm.create_goal("Summarize me")
         messages = [
             {"role": "user", "content": "Research the company"},
@@ -349,7 +374,9 @@ class TestContext:
         assert summary == "existing"
 
     @pytest.mark.asyncio
-    async def test_build_goal_context_xml(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_build_goal_context_xml(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
         goal = await gm.create_goal("XML test")
         await gm.decompose(goal)
@@ -393,7 +420,9 @@ class TestEvaluation:
         assert result.revision_needed is False
 
     @pytest.mark.asyncio
-    async def test_evaluate_invalid_json(self, gm: GoalManager, router: AsyncMock) -> None:
+    async def test_evaluate_invalid_json(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
         router.complete.side_effect = [
             FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON),
             FakeLLMResponse(content="not json"),
@@ -516,9 +545,24 @@ class TestCheckpointOrderRenumber:
         Python owns ordering, the LLM owns content."""
         weird_json = json.dumps(
             [
-                {"order": 7, "title": "First", "description": "d", "success_criteria": "s"},
-                {"order": 99, "title": "Second", "description": "d", "success_criteria": "s"},
-                {"order": 0, "title": "Third", "description": "d", "success_criteria": "s"},
+                {
+                    "order": 7,
+                    "title": "First",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 99,
+                    "title": "Second",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 0,
+                    "title": "Third",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
             ]
         )
         router.complete.return_value = FakeLLMResponse(content=weird_json)
@@ -537,17 +581,42 @@ class TestCheckpointOrderRenumber:
         exact bug surfaced in production."""
         initial = json.dumps(
             [
-                {"order": 1, "title": "Step 1", "description": "d", "success_criteria": "s"},
-                {"order": 2, "title": "Step 2", "description": "d", "success_criteria": "s"},
-                {"order": 3, "title": "Step 3", "description": "d", "success_criteria": "s"},
+                {
+                    "order": 1,
+                    "title": "Step 1",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 2,
+                    "title": "Step 2",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 3,
+                    "title": "Step 3",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
             ]
         )
         # Adversarial: LLM emits orders 1 and 2, which would collide
         # with the completed rows 1 and 2 if we trusted its numbering.
         revised = json.dumps(
             [
-                {"order": 1, "title": "New A", "description": "d", "success_criteria": "s"},
-                {"order": 2, "title": "New B", "description": "d", "success_criteria": "s"},
+                {
+                    "order": 1,
+                    "title": "New A",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 2,
+                    "title": "New B",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
             ]
         )
         router.complete.side_effect = [
@@ -570,9 +639,138 @@ class TestCheckpointOrderRenumber:
         # End-state check: all checkpoints in DB have distinct orders.
         all_cps = await gm.get_checkpoints(goal.goal_id)
         orders = [c.order for c in all_cps]
-        assert len(orders) == len(set(orders)), (
-            f"duplicate orders in DB: {orders}"
+        assert len(orders) == len(set(orders)), f"duplicate orders in DB: {orders}"
+
+
+class TestReviseCollisionRegressions:
+    """2026-06-01 production crash: revise_plan hit UNIQUE constraint
+    failure when a checkpoint with status='active' was holding the
+    order slot revise wanted to use. Also: mark_checkpoint_complete
+    auto-flipped status='completed' when there were no pending rows
+    left, even though only 5 of 15 total were actually done."""
+
+    @pytest.mark.asyncio
+    async def test_revise_skips_active_checkpoint_order(
+        self,
+        gm: GoalManager,
+        router: AsyncMock,
+        db: Database,
+    ) -> None:
+        # 3 checkpoints planned; complete 1, manually flip 2 to 'active'
+        # (simulating an in-flight cycle), 3 stays pending.
+        initial = json.dumps(
+            [
+                {
+                    "order": 1,
+                    "title": "Step 1",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 2,
+                    "title": "Step 2",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 3,
+                    "title": "Step 3",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+            ]
         )
+        revised = json.dumps(
+            [
+                {
+                    "order": 1,
+                    "title": "New A",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+            ]
+        )
+        router.complete.side_effect = [
+            FakeLLMResponse(content=initial),
+            FakeLLMResponse(content=revised),
+        ]
+        goal = await gm.create_goal("active-row revise")
+        await gm.decompose(goal)
+        await gm.mark_checkpoint_complete(goal.goal_id, 1, "Done")
+        # Flip order 2 to active (in-flight on the agent's loop).
+        await db.execute(
+            "UPDATE goal_checkpoints SET status = 'active' "
+            "WHERE goal_id = ? AND checkpoint_order = ?",
+            (goal.goal_id, 2),
+        )
+        goal = await gm.get_goal(goal.goal_id)
+        assert goal is not None
+
+        # revise_plan must NOT crash with UNIQUE constraint failure.
+        new_cps = await gm.revise_plan(goal, "rethink")
+        # New checkpoint must land AFTER the surviving active row (2),
+        # not collide with it. Order 3 was pending → deleted. New = 3.
+        assert [c.order for c in new_cps] == [3], (
+            f"new checkpoint must start after max(completed+active); "
+            f"got {[c.order for c in new_cps]}"
+        )
+        all_cps = await gm.get_checkpoints(goal.goal_id)
+        orders = [c.order for c in all_cps]
+        assert len(orders) == len(set(orders)), f"duplicate orders: {orders}"
+
+    @pytest.mark.asyncio
+    async def test_mark_complete_does_not_auto_finish_orphaned_goal(
+        self,
+        gm: GoalManager,
+        router: AsyncMock,
+        db: Database,
+    ) -> None:
+        """If pending rows were lost (e.g. a prior revise_plan crashed
+        after DELETE but before INSERT), the next mark_checkpoint_complete
+        sees no pending row and used to flip status='completed' even
+        though only N of M total were actually done. Now it stays
+        active and logs a warning."""
+        initial = json.dumps(
+            [
+                {
+                    "order": 1,
+                    "title": "Step 1",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 2,
+                    "title": "Step 2",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+                {
+                    "order": 3,
+                    "title": "Step 3",
+                    "description": "d",
+                    "success_criteria": "s",
+                },
+            ]
+        )
+        router.complete.return_value = FakeLLMResponse(content=initial)
+        goal = await gm.create_goal("orphan-detection")
+        await gm.decompose(goal)
+        # Simulate the production failure: pending rows 2 + 3 were
+        # deleted by a crashed revise_plan, leaving only completed-1
+        # and the goal claiming total_checkpoints=3.
+        await db.execute(
+            "DELETE FROM goal_checkpoints WHERE goal_id = ? " "AND status = 'pending'",
+            (goal.goal_id,),
+        )
+
+        await gm.mark_checkpoint_complete(goal.goal_id, 1, "Done")
+        goal = await gm.get_goal(goal.goal_id)
+        assert goal is not None
+        # Must NOT be 'completed' — only 1 of 3 actually done.
+        assert (
+            goal.status != "completed"
+        ), f"goal wrongly auto-completed at 1/3; status={goal.status}"
+        assert goal.completed_at is None
 
 
 # ---------------------------------------------------------------------------
@@ -612,9 +810,9 @@ class TestCompletionHooks:
         # Completing the only checkpoint flips the goal to 'completed'.
         await gm.mark_checkpoint_complete(goal.goal_id, 1, "Done")
 
-        assert captured == [goal.goal_id], (
-            f"hook should fire exactly once with the goal_id; got {captured}"
-        )
+        assert captured == [
+            goal.goal_id
+        ], f"hook should fire exactly once with the goal_id; got {captured}"
 
     @pytest.mark.asyncio
     async def test_hook_does_not_fire_on_intermediate_checkpoint(
