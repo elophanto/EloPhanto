@@ -168,6 +168,54 @@ async def from_workable_checkpoints(ctx: CandidateContext) -> list[Candidate]:
                     continue
                 next_workable = _pick_next_workable(rows)
                 if next_workable is None:
+                    # No pending or fresh-active row — but the goal isn't
+                    # done yet. Two sub-cases:
+                    #
+                    # (a) STALLED — total_checkpoints > completed count.
+                    #     Rows for some planned checkpoints never made
+                    #     it into the DB (e.g. earlier revise_plan
+                    #     crashed mid-DELETE-INSERT; see 2026-06-01
+                    #     production: legal-pdf goal at 5/15 with only
+                    #     5 rows in the DB, all completed). Propose
+                    #     ``revise_plan`` so the missing work gets
+                    #     queued. High value because operator created
+                    #     the goal expecting it to finish.
+                    #
+                    # (b) STALE-ACTIVE — rows exist but all are
+                    #     completed or stale-active. The goal SHOULD
+                    #     auto-complete via mark_checkpoint_complete;
+                    #     if it didn't, that's a reflex case for
+                    #     "close stale goal" (handled elsewhere).
+                    completed_in_db = sum(1 for r in rows if r["status"] == "completed")
+                    if g.total_checkpoints and completed_in_db < g.total_checkpoints:
+                        out.append(
+                            Candidate(
+                                source="workable_checkpoint",
+                                action_spec=(
+                                    f"Stalled goal '{g.goal[:60]}' — only "
+                                    f"{completed_in_db} of "
+                                    f"{g.total_checkpoints} checkpoints "
+                                    f"exist in the DB. Call "
+                                    f"goal_manage(action='revise', "
+                                    f"goal_id='{g.goal_id}', reason='Restore "
+                                    f"missing checkpoints') to re-queue the "
+                                    f"missing work."
+                                ),
+                                expected_value=7.5,
+                                feasibility=0.85,
+                                lens_match=0.5,
+                                cost=2.5,
+                                staleness_bonus=3.0,
+                                mission_id=g.mission_id,
+                                dedup_key=f"goal_revise:{g.goal_id}",
+                                metadata={
+                                    "goal_id": g.goal_id,
+                                    "kind": "revise",
+                                    "completed_in_db": completed_in_db,
+                                    "expected_total": g.total_checkpoints,
+                                },
+                            )
+                        )
                     continue
                 progress = (
                     g.current_checkpoint / g.total_checkpoints

@@ -254,6 +254,73 @@ class TestGeneratorsDegradeWithoutManagers:
             assert isinstance(result, list)
 
 
+class TestWorkableCheckpointStalledRecovery:
+    """Operator 2026-06-01: 'the goal is still at 5/15, what is it
+    doing with it?' Production state: 5 completed rows + 0 pending +
+    total_checkpoints=15 (the other 10 never made it into the DB
+    after an earlier revise_plan crash). from_workable_checkpoints
+    skipped the goal silently (no pending → next_workable=None →
+    continue), so the arbiter menu had no workable_checkpoint
+    candidate. Goal sat stalled forever. Fix: detect the
+    completed_in_db < total_checkpoints state and propose a
+    goal_manage(action='revise') candidate."""
+
+    @pytest.mark.asyncio
+    async def test_stalled_goal_yields_revise_candidate(self, tmp_path) -> None:
+        from unittest.mock import AsyncMock
+        from core.config import GoalsConfig
+        from core.database import Database
+        from core.goal_manager import GoalManager
+        from core.mind_candidates import CandidateContext, from_workable_checkpoints
+
+        db = Database(str(tmp_path / "t.db"))
+        await db.initialize()
+        router = AsyncMock()
+        gm = GoalManager(db, router, GoalsConfig())
+
+        # Seed a goal that claims 15 checkpoints but only has 5 rows,
+        # all completed. Matches the production state at the time the
+        # operator complained.
+        goal_id = "stalled-goal-id"
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC).isoformat()
+        await db.execute_insert(
+            "INSERT INTO goals (goal_id, session_id, goal, status, plan_json, "
+            "context_summary, current_checkpoint, total_checkpoints, attempts, "
+            "max_attempts, llm_calls_used, cost_usd, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'active', '[]', '', 5, 15, 0, 3, 0, 0.0, ?, ?)",
+            (goal_id, None, "stalled goal", now, now),
+        )
+        for i in range(1, 6):
+            await db.execute_insert(
+                "INSERT INTO goal_checkpoints "
+                "(goal_id, checkpoint_order, title, description, "
+                "success_criteria, status, completed_at) "
+                "VALUES (?, ?, ?, '', '', 'completed', ?)",
+                (goal_id, i, f"Step {i}", now),
+            )
+
+        ctx = CandidateContext(goal_manager=gm)
+        candidates = await from_workable_checkpoints(ctx)
+
+        # Must surface a revise candidate so the agent can recover.
+        revise_cands = [c for c in candidates if c.metadata.get("kind") == "revise"]
+        assert len(revise_cands) == 1, (
+            f"stalled goal should yield exactly one revise candidate; "
+            f"got {len(revise_cands)} (full menu: "
+            f"{[c.metadata for c in candidates]})"
+        )
+        c = revise_cands[0]
+        assert c.metadata["goal_id"] == goal_id
+        assert c.metadata["completed_in_db"] == 5
+        assert c.metadata["expected_total"] == 15
+        # Score signal: expected_value high enough to outrank role_neglect
+        # (2.5) and reflex_capability_review (5.0). 7.5 puts the
+        # quality term (7.5*0.85 = 6.4) above both.
+        assert c.expected_value >= 7.0
+
+
 class TestMissionMomentumGenerator:
     @pytest.mark.asyncio
     async def test_proposes_one_candidate_per_neglected_mission(self, tmp_path) -> None:
