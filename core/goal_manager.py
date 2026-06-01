@@ -376,27 +376,45 @@ class GoalManager:
 
         # Pick start_order from the LIVE DB state, not goal.current_checkpoint —
         # the goal's in-memory counter can lag behind completed rows after
-        # crash/recovery. Querying max(order) where status='completed' is
-        # the only source of truth that can't collide with UNIQUE.
+        # crash/recovery. The previous version used MAX(order) WHERE
+        # status='completed', but that ignored ``active`` rows (the
+        # checkpoint the agent is currently working on), causing
+        # UNIQUE(goal_id, checkpoint_order) collisions during revise.
+        # Production 2026-06-01: 6 active + 20 pending + 35 completed
+        # → revise crashed because the LLM proposed a new checkpoint
+        # at order N while an active row already held that slot.
+        #
+        # The query must match the rows that will SURVIVE the DELETE
+        # below — anything we're about to drop shouldn't constrain
+        # the new start_order. Surviving = completed + active.
+        # Gaps in the order sequence are fine — readers sort by
+        # ``checkpoint_order`` and don't assume contiguity.
         rows = await self._db.execute(
             "SELECT MAX(checkpoint_order) AS max_ord FROM goal_checkpoints "
-            "WHERE goal_id = ? AND status = 'completed'",
+            "WHERE goal_id = ? AND status IN ('completed', 'active')",
             (goal.goal_id,),
         )
-        max_completed = 0
+        max_surviving = 0
         if rows:
             max_ord = rows[0]["max_ord"]
-            max_completed = int(max_ord) if max_ord is not None else 0
+            max_surviving = int(max_ord) if max_ord is not None else 0
 
         new_checkpoints = self._parse_checkpoint_json(
-            response.content or "[]", goal.goal_id, start_order=max_completed + 1
+            response.content or "[]", goal.goal_id, start_order=max_surviving + 1
         )
         if not new_checkpoints:
             return []
 
-        # Delete old pending/failed checkpoints
+        # Delete revisable checkpoints — anything the operator/agent
+        # would expect a revision to replace. ``active`` is preserved
+        # because the agent may be mid-cycle on it; yanking the row
+        # from under itself causes the executing turn to lose its
+        # bookkeeping. ``completed`` is preserved because those are
+        # facts on the ground, not plans. Everything else (pending,
+        # failed, skipped) is replanned work.
         await self._db.execute(
-            "DELETE FROM goal_checkpoints WHERE goal_id = ? AND status IN ('pending', 'failed')",
+            "DELETE FROM goal_checkpoints WHERE goal_id = ? "
+            "AND status IN ('pending', 'failed', 'skipped')",
             (goal.goal_id,),
         )
 
@@ -485,10 +503,45 @@ class GoalManager:
         if next_cp:
             goal.current_checkpoint = next_cp.order
         else:
-            # All checkpoints done
-            goal.status = "completed"
-            goal.completed_at = now
-            just_completed = True
+            # No pending checkpoint — but that doesn't necessarily mean
+            # the goal is done. It can also mean an earlier revise_plan
+            # crashed after deleting pending rows but before inserting
+            # the replacements (observed 2026-06-01: legal-pdf goal had
+            # 5 of 15 checkpoints completed, 0 pending, and got auto-
+            # flipped to status='completed' purely because no pending
+            # row remained). Source-of-truth check: count completed
+            # rows vs the goal's declared total. If the count falls
+            # short, the goal is STALLED — there's planning work
+            # missing, not work finished.
+            completed_count_rows = await self._db.execute(
+                "SELECT COUNT(*) AS c FROM goal_checkpoints "
+                "WHERE goal_id = ? AND status = 'completed'",
+                (goal_id,),
+            )
+            completed_count = (
+                int(completed_count_rows[0]["c"]) if completed_count_rows else 0
+            )
+            if completed_count >= goal.total_checkpoints:
+                goal.status = "completed"
+                goal.completed_at = now
+                just_completed = True
+            else:
+                # Stalled: planning was lost / interrupted. Leave status
+                # 'active' (or whatever it was) so the goal stays visible
+                # in the sidebar — completed gets filtered out. Log the
+                # diagnostic so operators reading the log see WHY the
+                # goal isn't progressing; the next arbiter cycle's
+                # candidate generators can pick this up and propose a
+                # revise via the "stuck planning" detector.
+                logger.warning(
+                    "goal %s: no pending checkpoints but %d/%d completed "
+                    "— NOT marking completed (likely revise_plan crash, "
+                    "see core/goal_manager.py:revise_plan). Goal will "
+                    "stay active until revised.",
+                    goal_id[:8],
+                    completed_count,
+                    goal.total_checkpoints,
+                )
 
         goal.updated_at = now
         await self._persist_goal(goal)
