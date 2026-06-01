@@ -1969,6 +1969,16 @@ class Gateway:
                         router, "_provider_health", {}
                     )
                     llm_cfg = router_cfg.llm if router_cfg else None
+                    # Live auth-failure map from the ProviderTracker.
+                    # Sticky until the next successful call. Lets the
+                    # dashboard surface "codex auth dead — run codex
+                    # login" without operators having to grep the log.
+                    auth_failures: dict[str, str] = {}
+                    try:
+                        pt = router.provider_tracker
+                        auth_failures = pt.get_auth_failures()
+                    except Exception:
+                        auth_failures = {}
                     for pname in priority:
                         # providers is a dict, not attributes
                         prov_cfg = llm_cfg.providers.get(pname) if llm_cfg else None
@@ -1985,11 +1995,20 @@ class Gateway:
                             continue
                         # Enabled but not yet in health map → assume ok
                         healthy = health_map.get(pname, True)
-                        providers_health[pname] = {
+                        provider_entry: dict[str, Any] = {
                             "healthy": healthy,
                             "enabled": True,
                             "latency_ms": 0,
                         }
+                        if pname in auth_failures:
+                            # auth_failed=True wins regardless of health
+                            # so a stale ``healthy=True`` (from before
+                            # the 401) doesn't paint a green dot on a
+                            # dead provider.
+                            provider_entry["healthy"] = False
+                            provider_entry["auth_failed"] = True
+                            provider_entry["auth_error"] = auth_failures[pname]
+                        providers_health[pname] = provider_entry
                 except Exception:
                     pass
             dashboard["providers"] = providers_health

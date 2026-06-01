@@ -102,6 +102,15 @@ class ProviderTracker:
         # grew 1:1 with LLM calls.
         self._events: deque[ProviderEvent] = deque(maxlen=100)
         self._stats: dict[str, ProviderStats] = defaultdict(ProviderStats)
+        # Sticky auth-failure flag per provider. Set by record_auth_failure
+        # when the router classifies a 401-style error; cleared on the
+        # next successful call (router calls clear_auth_failure on
+        # ``record(ProviderEvent(... finish_reason='success' ...))``). The
+        # dashboard / status command reads ``auth_failures`` so operators
+        # see "codex auth dead — run codex login" without log-diving.
+        # Value is the last error message (truncated) so the operator
+        # gets context.
+        self._auth_failures: dict[str, str] = {}
 
     def record(self, event: ProviderEvent) -> None:
         """Record a provider interaction event."""
@@ -113,12 +122,36 @@ class ProviderTracker:
 
         if event.finish_reason == "error":
             stats.failures += 1
+        else:
+            # Any non-error event from this provider means auth is
+            # back online — clear the sticky failure flag.
+            self._auth_failures.pop(event.provider, None)
         if event.suspected_truncated:
             stats.truncations += 1
         if event.finish_reason == "content_filter":
             stats.content_filters += 1
         if event.fallback_from:
             stats.fallbacks_to += 1
+
+    def record_auth_failure(self, provider: str, model: str, error: str) -> None:
+        """Mark a provider as auth-failed. Sticky until next success.
+
+        Called by ``LLMRouter._call_with_retries`` when it classifies an
+        error as authentication (401, "token refresh failed", etc.).
+        The flag is read by:
+          - ``/status`` chat command + dashboard 'providers' tile
+          - operator-facing warning banners in the TUI
+        Cleared automatically on the next successful event from the
+        same provider via ``record()``.
+        """
+        self._auth_failures[provider] = f"{model}: {error}"
+        # Also bump the failure count so aggregate stats reflect it.
+        self._stats[provider].failures += 1
+
+    def get_auth_failures(self) -> dict[str, str]:
+        """Return ``{provider: last_error}`` for providers currently in
+        an authentication-failure state."""
+        return dict(self._auth_failures)
 
     def get_provider_stats(self) -> dict[str, dict[str, int]]:
         """Get aggregated stats per provider as plain dicts."""
