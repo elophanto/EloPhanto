@@ -33,6 +33,23 @@ logging.getLogger("LiteLLM Router").setLevel(logging.WARNING)
 logging.getLogger("LiteLLM Proxy").setLevel(logging.WARNING)
 
 
+def _is_user_context() -> bool:
+    """True iff the current asyncio task is in a USER-initiated chat.
+
+    Read from the execution-context contextvar set at the gateway entry
+    point. Defaults to False on import errors so the cost guard
+    degrades open (does NOT block fallbacks in mystery contexts —
+    keeps the router from refusing tool-bridge / test calls just
+    because the contextvar wasn't set).
+    """
+    try:
+        from core.execution_context import TaskSource, current_context
+
+        return current_context().source == TaskSource.USER
+    except Exception:
+        return False
+
+
 @dataclass
 class LLMResponse:
     """Standardized response from any LLM provider."""
@@ -480,6 +497,35 @@ class LLMRouter:
                         f"All LLM providers failed. Last error: {last_error}"
                     ) from last_error
                 raise
+
+            # ── Cost protection: refuse metered fallback in user chat ──
+            # Operator 2026-06-02: codex auth died, router fell over to
+            # openrouter for the autonomous mind / chat, $50 burned
+            # before they noticed. Guard fires when:
+            #   - this is at least the SECOND provider tried (i.e. a
+            #     fallover from the preferred), AND
+            #   - the current pick is in ``metered_providers``, AND
+            #   - the call is in USER context (live operator chat), AND
+            #   - ``allow_metered_fallback_in_chat`` is False (default)
+            # Other contexts (MIND, SCHEDULED, embedding, vision)
+            # continue normally — they hit the daily-budget cap
+            # rather than this per-call interlock.
+            if (
+                tried
+                and provider in self._config.llm.metered_providers
+                and not self._config.llm.allow_metered_fallback_in_chat
+                and _is_user_context()
+            ):
+                msg = (
+                    f"Refused to fall back from "
+                    f"{sorted(tried)} → {provider}/{model} in user chat. "
+                    f"Set `llm.allow_metered_fallback_in_chat: true` in "
+                    f"config.yaml to permit, OR fix the primary provider "
+                    f"(e.g. `codex login` for codex). Autonomous tasks "
+                    f"are NOT subject to this gate."
+                )
+                logger.error("[COST GUARD] %s", msg)
+                raise RuntimeError(msg) from last_error
 
             tried.add(provider)
             _route_start = time.monotonic()

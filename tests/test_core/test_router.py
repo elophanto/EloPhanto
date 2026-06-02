@@ -443,3 +443,126 @@ class TestCostTrackerPersistence:
         await tracker.flush(db)  # must not raise
         rows = await db.execute("SELECT * FROM llm_usage")
         assert rows == []
+
+
+class TestMeteredFallbackGate:
+    """Operator 2026-06-02: codex auth died and the router fell over
+    to openrouter for chat — $50 surprise bill before the operator
+    noticed. Cost guard refuses the fallback in USER chat unless
+    `llm.allow_metered_fallback_in_chat` is True. Autonomous tasks
+    (MIND/SCHEDULED) are NOT subject to this gate."""
+
+    def _make_router(
+        self, *, allow: bool, metered: list[str] | None = None
+    ) -> LLMRouter:
+        from core.config import Config, LLMConfig, ProviderConfig, RoutingConfig
+
+        cfg = Config(
+            llm=LLMConfig(
+                providers={
+                    "codex": ProviderConfig(enabled=True),
+                    "openrouter": ProviderConfig(
+                        enabled=True, api_key="x"
+                    ),
+                },
+                provider_priority=["codex", "openrouter"],
+                routing={
+                    "simple": RoutingConfig(
+                        preferred_provider="codex",
+                        models={
+                            "codex": "gpt-5.5",
+                            "openrouter": "deepseek/deepseek-v4-pro",
+                        },
+                    )
+                },
+                metered_providers=(
+                    metered
+                    if metered is not None
+                    else ["openrouter", "openai", "kimi"]
+                ),
+                allow_metered_fallback_in_chat=allow,
+            )
+        )
+        return LLMRouter(cfg)
+
+    @pytest.mark.asyncio
+    async def test_user_chat_refuses_metered_fallback_when_gate_on(
+        self,
+    ) -> None:
+        """Gate fires: USER context + metered fallover + allow=False
+        → router raises with the actionable message."""
+        from unittest.mock import AsyncMock, patch
+
+        from core.execution_context import TaskSource, execution_context
+
+        router = self._make_router(allow=False)
+        # Force codex to fail; openrouter would succeed but the gate
+        # should refuse before we ever call it.
+        with patch.object(
+            router,
+            "_call_with_retries",
+            new=AsyncMock(side_effect=Exception("codex down")),
+        ):
+            with execution_context(source=TaskSource.USER):
+                with pytest.raises(RuntimeError) as exc:
+                    await router.complete(
+                        messages=[{"role": "user", "content": "hi"}],
+                        task_type="simple",
+                    )
+        # Error must mention the config knob so the operator can act.
+        assert "allow_metered_fallback_in_chat" in str(exc.value)
+        assert "openrouter" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_user_chat_allowed_when_gate_off(self) -> None:
+        """Gate off (allow=True): the fallover proceeds normally."""
+        from unittest.mock import AsyncMock, patch
+
+        from core.execution_context import TaskSource, execution_context
+        from core.router import LLMResponse
+
+        router = self._make_router(allow=True)
+        # First call (codex) raises, second (openrouter) succeeds.
+        call_count = {"n": 0}
+
+        async def _fake(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise Exception("codex down")
+            return LLMResponse(content="ok", model_used="m", provider="openrouter", input_tokens=0, output_tokens=1, cost_estimate=0.0)
+
+        with patch.object(router, "_call_with_retries", new=AsyncMock(side_effect=_fake)):
+            with execution_context(source=TaskSource.USER):
+                result = await router.complete(
+                    messages=[{"role": "user", "content": "hi"}],
+                    task_type="simple",
+                )
+        assert result.content == "ok"
+        assert call_count["n"] == 2  # both providers were tried
+
+    @pytest.mark.asyncio
+    async def test_autonomous_context_bypasses_gate(self) -> None:
+        """MIND context is never gated — autonomous loop keeps running
+        across codex outages."""
+        from unittest.mock import AsyncMock, patch
+
+        from core.execution_context import TaskSource, execution_context
+        from core.router import LLMResponse
+
+        router = self._make_router(allow=False)
+        call_count = {"n": 0}
+
+        async def _fake(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise Exception("codex down")
+            return LLMResponse(content="ok", model_used="m", provider="openrouter", input_tokens=0, output_tokens=1, cost_estimate=0.0)
+
+        with patch.object(router, "_call_with_retries", new=AsyncMock(side_effect=_fake)):
+            with execution_context(source=TaskSource.MIND):
+                result = await router.complete(
+                    messages=[{"role": "user", "content": "hi"}],
+                    task_type="simple",
+                )
+        assert result.content == "ok"
+        assert call_count["n"] == 2  # fallover happened, gate did NOT fire
