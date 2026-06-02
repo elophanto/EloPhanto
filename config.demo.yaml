@@ -144,6 +144,30 @@ llm:
     daily_limit_usd: 100.0
     per_task_limit_usd: 20.0
 
+  # ── Cost protection: stop surprise bills on codex outages ──
+  # When codex (flat-rate ChatGPT subscription) authentication fails
+  # and the router would fall over to a per-token provider in a USER
+  # chat session, the call is REFUSED with an actionable error
+  # unless `allow_metered_fallback_in_chat` is true. The default
+  # protects you from a "codex login expired silently → openrouter
+  # billed for 8 hours of mind cycles" scenario observed in
+  # production (operator burned $50 before noticing).
+  #
+  # Scope is narrow:
+  #   - Gated:    USER context (live operator chat) only
+  #   - Bypassed: autonomous mind, scheduled tasks, embeddings,
+  #               vision, knowledge_search rewriter — those are
+  #               bounded by `budget.daily_limit_usd` above
+  metered_providers:
+    - openrouter
+    - openai
+    - kimi
+    - huggingface
+  # Set true if you ACCEPT the per-token bill when codex is down.
+  # Recommended: leave false; fix codex (`codex login`) when it
+  # breaks, or re-prioritize providers in `provider_priority` above.
+  allow_metered_fallback_in_chat: false
+
 shell:
   timeout: 300                            # seconds — long enough for setup.sh, build commands
   blacklist_patterns:

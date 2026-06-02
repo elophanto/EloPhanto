@@ -78,6 +78,32 @@ class Migration:
 
 
 _MIGRATIONS: list[Migration] = [
+    # Cost-protection gate added 2026-06-02. Operator burned $50 on
+    # silent codex→openrouter fallback during a codex auth outage.
+    # The gate refuses metered fallback in USER chat unless
+    # explicitly opted in. Autonomous tasks bypass — they're bounded
+    # by budget.daily_limit_usd. See core/router.py for the impl and
+    # cli/dashboard/app.py for the chat banner.
+    Migration(
+        id="metered-fallback-gate-2026-06",
+        key_path="llm.allow_metered_fallback_in_chat",
+        banner=(
+            "Cost-protection gate: refuse to fall over from codex to "
+            "a metered provider (openrouter / openai / kimi / "
+            "huggingface) during a USER chat unless explicitly "
+            "allowed. Autonomous tasks bypass — bounded by "
+            "budget.daily_limit_usd. Burned $50 on a silent codex→"
+            "openrouter fallback before this shipped."
+        ),
+        inner_yaml="""metered_providers:
+  - openrouter
+  - openai
+  - kimi
+  - huggingface
+# Set true if you ACCEPT the per-token bill when codex is down.
+allow_metered_fallback_in_chat: false
+""",
+    ),
     # Phase 3 arbiter (docs/75-AUTONOMOUS-MIND-V2.md).
     # Originally added with enabled: false (operator opt-in). Flipped
     # to enabled: true on 2026-05-20 after the AlphaScala log review
