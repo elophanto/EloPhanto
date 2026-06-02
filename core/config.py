@@ -72,6 +72,27 @@ class LLMConfig:
     # OpenRouter model slug used when messages contain image_url blocks.
     # Empty = strip images and use normal routing (Z.ai already does this).
     vision_model: str = ""
+    # ── Cost protection (Phase: stop surprise bills) ─────────────────
+    # Providers that bill per-token (vs codex's flat-rate ChatGPT
+    # subscription). When the preferred provider for a USER-CONTEXT
+    # call fails AND the next provider in priority is in this set,
+    # the router consults ``allow_metered_fallback_in_chat`` before
+    # making the call. Other contexts (MIND, SCHEDULED, embedding,
+    # vision, knowledge_search rewrite) are unaffected — they pass
+    # through normally because their cost is bounded by per-call
+    # workloads, not interactive chat that can run hot.
+    metered_providers: list[str] = field(
+        default_factory=lambda: ["openrouter", "openai", "kimi", "huggingface"]
+    )
+    # Hard switch: when False (default), the router refuses to fall
+    # back to a metered provider during a USER-context chat. The
+    # operator sees an actionable error explaining how to either
+    # fix the primary (e.g. ``codex login``) or set this flag to
+    # True. Set True only when you accept the per-token bill on
+    # codex outages. Autonomous (MIND/SCHEDULED) work is NEVER
+    # gated here — those have their own daily-budget cap in
+    # ``budget``.
+    allow_metered_fallback_in_chat: bool = False
 
 
 @dataclass
@@ -1441,6 +1462,14 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         elif isinstance(groups, list):
             tool_profiles[profile_name] = groups
 
+    # Metered providers + chat-fallback gate. Defaults preserved when
+    # the operator's config.yaml doesn't mention them. Explicitly empty
+    # ``metered_providers: []`` disables the gate entirely.
+    _metered_default = ["openrouter", "openai", "kimi", "huggingface"]
+    _metered_raw = llm_raw.get("metered_providers")
+    metered_providers = (
+        list(_metered_raw) if isinstance(_metered_raw, list) else _metered_default
+    )
     llm_config = LLMConfig(
         providers=providers,
         provider_priority=provider_priority,
@@ -1448,6 +1477,10 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         budget=budget,
         tool_profiles=tool_profiles,
         vision_model=llm_raw.get("vision_model", ""),
+        metered_providers=metered_providers,
+        allow_metered_fallback_in_chat=bool(
+            llm_raw.get("allow_metered_fallback_in_chat", False)
+        ),
     )
 
     # Parse shell section
