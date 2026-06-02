@@ -1747,6 +1747,16 @@ def _run_full_wizard(config_dir: str) -> None:
         "budget",
         {"daily_limit_usd": 10.0, "per_task_limit_usd": 2.0},
     )
+    # Cost-protection defaults — gate fires when codex (or whichever
+    # the preferred chat provider is) fails and the router would fall
+    # over to a paid provider during USER chat. See LLMConfig in
+    # core/config.py for the full rationale; the field is opt-in for
+    # safety (default False keeps surprise bills off the table).
+    config["llm"].setdefault(
+        "metered_providers",
+        ["openrouter", "openai", "kimi", "huggingface"],
+    )
+    config["llm"].setdefault("allow_metered_fallback_in_chat", False)
     config.setdefault(
         "knowledge",
         {
