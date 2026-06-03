@@ -461,9 +461,7 @@ class TestMeteredFallbackGate:
             llm=LLMConfig(
                 providers={
                     "codex": ProviderConfig(enabled=True),
-                    "openrouter": ProviderConfig(
-                        enabled=True, api_key="x"
-                    ),
+                    "openrouter": ProviderConfig(enabled=True, api_key="x"),
                 },
                 provider_priority=["codex", "openrouter"],
                 routing={
@@ -476,9 +474,7 @@ class TestMeteredFallbackGate:
                     )
                 },
                 metered_providers=(
-                    metered
-                    if metered is not None
-                    else ["openrouter", "openai", "kimi"]
+                    metered if metered is not None else ["openrouter", "openai", "kimi"]
                 ),
                 allow_metered_fallback_in_chat=allow,
             )
@@ -529,9 +525,18 @@ class TestMeteredFallbackGate:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise Exception("codex down")
-            return LLMResponse(content="ok", model_used="m", provider="openrouter", input_tokens=0, output_tokens=1, cost_estimate=0.0)
+            return LLMResponse(
+                content="ok",
+                model_used="m",
+                provider="openrouter",
+                input_tokens=0,
+                output_tokens=1,
+                cost_estimate=0.0,
+            )
 
-        with patch.object(router, "_call_with_retries", new=AsyncMock(side_effect=_fake)):
+        with patch.object(
+            router, "_call_with_retries", new=AsyncMock(side_effect=_fake)
+        ):
             with execution_context(source=TaskSource.USER):
                 result = await router.complete(
                     messages=[{"role": "user", "content": "hi"}],
@@ -541,28 +546,30 @@ class TestMeteredFallbackGate:
         assert call_count["n"] == 2  # both providers were tried
 
     @pytest.mark.asyncio
-    async def test_autonomous_context_bypasses_gate(self) -> None:
-        """MIND context is never gated — autonomous loop keeps running
-        across codex outages."""
+    async def test_autonomous_context_also_gated(self) -> None:
+        """Operator 2026-06-02: log showed 185 openrouter calls
+        during a codex outage, all from MIND/SCHEDULED — daily-budget
+        cap wasn't tight enough protection. Widened scope: any
+        completion call that would fall over to a metered provider
+        is gated, including autonomous contexts."""
         from unittest.mock import AsyncMock, patch
 
         from core.execution_context import TaskSource, execution_context
-        from core.router import LLMResponse
 
         router = self._make_router(allow=False)
-        call_count = {"n": 0}
-
-        async def _fake(*args, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                raise Exception("codex down")
-            return LLMResponse(content="ok", model_used="m", provider="openrouter", input_tokens=0, output_tokens=1, cost_estimate=0.0)
-
-        with patch.object(router, "_call_with_retries", new=AsyncMock(side_effect=_fake)):
+        with patch.object(
+            router,
+            "_call_with_retries",
+            new=AsyncMock(side_effect=Exception("codex down")),
+        ):
             with execution_context(source=TaskSource.MIND):
-                result = await router.complete(
-                    messages=[{"role": "user", "content": "hi"}],
-                    task_type="simple",
-                )
-        assert result.content == "ok"
-        assert call_count["n"] == 2  # fallover happened, gate did NOT fire
+                with pytest.raises(RuntimeError) as exc:
+                    await router.complete(
+                        messages=[{"role": "user", "content": "hi"}],
+                        task_type="simple",
+                    )
+        # Same actionable message; ctx_label tells the operator this
+        # was an autonomous task, not chat.
+        assert "Refused to fall back" in str(exc.value)
+        assert "autonomous task" in str(exc.value)
+        assert "allow_metered_fallback_in_chat" in str(exc.value)
