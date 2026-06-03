@@ -498,31 +498,45 @@ class LLMRouter:
                     ) from last_error
                 raise
 
-            # ── Cost protection: refuse metered fallback in user chat ──
-            # Operator 2026-06-02: codex auth died, router fell over to
-            # openrouter for the autonomous mind / chat, $50 burned
-            # before they noticed. Guard fires when:
-            #   - this is at least the SECOND provider tried (i.e. a
-            #     fallover from the preferred), AND
-            #   - the current pick is in ``metered_providers``, AND
-            #   - the call is in USER context (live operator chat), AND
-            #   - ``allow_metered_fallback_in_chat`` is False (default)
-            # Other contexts (MIND, SCHEDULED, embedding, vision)
-            # continue normally — they hit the daily-budget cap
-            # rather than this per-call interlock.
+            # ── Cost protection: refuse metered fallback on completion ──
+            # Operator 2026-06-02: codex auth/server-error, router fell
+            # over to openrouter for chat AND autonomous mind cycles.
+            # First version of this gate only fired in USER context;
+            # production log showed 185 openrouter calls during the
+            # outage, all from MIND/SCHEDULED — operator got the bill.
+            #
+            # Wider scope now: gate fires on ANY router.complete() call
+            # whose preferred provider failed and would fall over to a
+            # metered one. That includes chat + autonomous mind +
+            # scheduled tasks. Other paths that should keep using
+            # metered providers (embeddings, vision via direct model
+            # routing, knowledge_search query rewriter) don't go
+            # through this code path — they hit specific provider
+            # methods directly OR they route by model_override which
+            # bypasses the priority list.
+            #
+            # Operators who want metered fallback enabled (because
+            # autonomous mind progress matters more than the per-token
+            # cost during outages) set
+            # ``allow_metered_fallback_in_chat: true``. Name kept for
+            # config back-compat; semantically it now means "allow
+            # metered fallback on any completion call".
             if (
                 tried
                 and provider in self._config.llm.metered_providers
                 and not self._config.llm.allow_metered_fallback_in_chat
-                and _is_user_context()
             ):
+                ctx_label = "user chat" if _is_user_context() else "autonomous task"
                 msg = (
                     f"Refused to fall back from "
-                    f"{sorted(tried)} → {provider}/{model} in user chat. "
+                    f"{sorted(tried)} → {provider}/{model} ({ctx_label}). "
                     f"Set `llm.allow_metered_fallback_in_chat: true` in "
-                    f"config.yaml to permit, OR fix the primary provider "
-                    f"(e.g. `codex login` for codex). Autonomous tasks "
-                    f"are NOT subject to this gate."
+                    f"config.yaml to permit (the flag now applies to all "
+                    f"contexts, not just chat), OR fix the primary "
+                    f"provider (e.g. `codex login` for codex outages). "
+                    f"Embeddings / vision / direct-model-override calls "
+                    f"continue to use metered providers normally — only "
+                    f"the priority-list fallback chain is gated."
                 )
                 logger.error("[COST GUARD] %s", msg)
                 raise RuntimeError(msg) from last_error

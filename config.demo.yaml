@@ -145,19 +145,26 @@ llm:
     per_task_limit_usd: 20.0
 
   # ── Cost protection: stop surprise bills on codex outages ──
-  # When codex (flat-rate ChatGPT subscription) authentication fails
-  # and the router would fall over to a per-token provider in a USER
-  # chat session, the call is REFUSED with an actionable error
-  # unless `allow_metered_fallback_in_chat` is true. The default
-  # protects you from a "codex login expired silently → openrouter
-  # billed for 8 hours of mind cycles" scenario observed in
-  # production (operator burned $50 before noticing).
+  # When the preferred provider (codex by default — flat-rate ChatGPT
+  # subscription) fails for ANY router.complete() call and the next
+  # provider in `provider_priority` is in `metered_providers` below,
+  # the call is REFUSED with an actionable error unless
+  # `allow_metered_fallback_in_chat` is true. Default protects you
+  # from a "codex outage → openrouter silently bills for 2 hours of
+  # autonomous mind cycles" scenario observed in production (185
+  # openrouter calls / $50 burned before operator noticed).
   #
-  # Scope is narrow:
-  #   - Gated:    USER context (live operator chat) only
-  #   - Bypassed: autonomous mind, scheduled tasks, embeddings,
-  #               vision, knowledge_search rewriter — those are
-  #               bounded by `budget.daily_limit_usd` above
+  # Scope:
+  #   - Gated:    main chat + autonomous mind + scheduled tasks +
+  #               anywhere that calls router.complete() through the
+  #               priority-list fallback chain
+  #   - Bypassed: embeddings, vision, and any call that uses
+  #               `model_override` to route DIRECTLY to a provider
+  #               (those skip the priority chain entirely)
+  #
+  # Config name kept as `allow_metered_fallback_in_chat` for
+  # back-compat with v2026.06.02 installs; semantically it now means
+  # "allow metered fallback on ANY completion call".
   metered_providers:
     - openrouter
     - openai
@@ -165,7 +172,8 @@ llm:
     - huggingface
   # Set true if you ACCEPT the per-token bill when codex is down.
   # Recommended: leave false; fix codex (`codex login`) when it
-  # breaks, or re-prioritize providers in `provider_priority` above.
+  # breaks. Autonomous mind cycles will error during a codex outage
+  # and skip to next wakeup rather than burning $ on openrouter.
   allow_metered_fallback_in_chat: false
 
 shell:
