@@ -228,3 +228,35 @@ class StripeFiatProvider:
         """Recent succeeded payments (for the reconcile/mirror sweep). Runs
         the blocking SDK call off the event loop."""
         return await asyncio.to_thread(self._list_recent_payments_sync, limit=limit)
+
+    def _list_recent_refunds_sync(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Blocking list of recent SUCCEEDED refunds (for reversal). Each item:
+        {id, amount (major units), currency, payment_intent, created}. A refund
+        reduces realized revenue — the reconcile records it as a compensating
+        usd-OUT row so net drops by the refunded amount (spec §6.5)."""
+        stripe = self._import_stripe()
+        try:
+            resp = stripe.Refund.list(limit=limit, api_key=self._secret_key())
+        except FiatRailError:
+            raise
+        except Exception as e:
+            raise FiatRailError(f"Stripe refund list failed: {type(e).__name__}") from e
+        data = resp.get("data") if hasattr(resp, "get") else getattr(resp, "data", [])
+        out: list[dict[str, Any]] = []
+        for rf in data or []:
+            if rf.get("status") != "succeeded":
+                continue
+            out.append(
+                {
+                    "id": rf.get("id"),
+                    "amount": int(rf.get("amount") or 0) / 100.0,
+                    "currency": str(rf.get("currency") or "").lower(),
+                    "payment_intent": rf.get("payment_intent"),
+                    "created": rf.get("created"),
+                }
+            )
+        return out
+
+    async def list_recent_refunds(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Recent succeeded refunds (for the reconcile reversal pass)."""
+        return await asyncio.to_thread(self._list_recent_refunds_sync, limit=limit)

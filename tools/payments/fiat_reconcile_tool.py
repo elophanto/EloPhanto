@@ -13,9 +13,12 @@ events, it does not move money.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from tools.base import BaseTool, PermissionLevel, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class FiatReconcileTool(BaseTool):
@@ -53,6 +56,15 @@ class FiatReconcileTool(BaseTool):
                     "type": "integer",
                     "description": "Max recent payments to scan (default 100).",
                 },
+                "company_id": {
+                    "type": "string",
+                    "description": (
+                        "Company to attribute recorded payments to. Defaults "
+                        "to the active company. A scheduled reconcile passes "
+                        "this explicitly so it records under the right "
+                        "business regardless of fire-time context."
+                    ),
+                },
             },
         }
 
@@ -71,7 +83,11 @@ class FiatReconcileTool(BaseTool):
         from core.ledger import LedgerEntry, ResourceLedger
         from core.payments.fiat_stripe import FiatRailError, StripeFiatProvider
 
-        company_id = current_company_id()
+        # Explicit company_id wins (a scheduled reconcile passes it so it
+        # records under the right business even though the scheduler's
+        # direct-tool path doesn't set the company contextvar — see
+        # scheduler._run_direct_tool). Falls back to the active company.
+        company_id = (params.get("company_id") or "").strip() or current_company_id()
         mode = (getattr(fiat, "mode", "test") or "test").strip().lower()
         provider = StripeFiatProvider(fiat, self._vault)
         ledger = ResourceLedger(self._db)
@@ -117,12 +133,52 @@ class FiatReconcileTool(BaseTool):
             mirrored += 1
             total += amount
 
+        # Refund reversal (spec §6.5): a refund reduces realized revenue, so
+        # record each as a compensating usd-OUT row (net drops by the refund).
+        # Best-effort — a refund-list failure must not undo the payment
+        # recording above; surface refunds_checked=False so the operator knows
+        # refunds weren't reconciled this run (don't silently overstate net).
+        refunds_recorded = 0
+        refund_total = 0.0
+        refunds_checked = True
+        try:
+            refunds = await provider.list_recent_refunds(limit=limit)
+            for rf in refunds:
+                rid = rf.get("id")
+                amt = float(rf.get("amount") or 0.0)
+                if not rid or amt <= 0:
+                    continue
+                rnote = f"stripe:refund:{rid}"
+                if await ledger.note_exists(company_id, rnote):
+                    continue
+                await ledger.write(
+                    LedgerEntry(
+                        company_id=company_id,
+                        direction="out",
+                        type="usd",
+                        amount=amt,
+                        unit="usd",
+                        source_table="stripe_refund",
+                        note=rnote,
+                        mode=mode,
+                    )
+                )
+                refunds_recorded += 1
+                refund_total += amt
+        except Exception as e:
+            refunds_checked = False
+            logger.warning("fiat_reconcile: refund pass skipped: %s", e)
+
         return ToolResult(
             success=True,
             data={
                 "mirrored": mirrored,
                 "already_recorded": already,
                 "total_recorded_usd": round(total, 2),
+                "refunds_recorded": refunds_recorded,
+                "refunds_total_usd": round(refund_total, 2),
+                "refunds_checked": refunds_checked,
+                "net_recorded_usd": round(total - refund_total, 2),
                 "mode": mode,
                 "note": (
                     "recorded as live revenue"
