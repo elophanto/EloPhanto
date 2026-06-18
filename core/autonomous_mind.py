@@ -1530,6 +1530,54 @@ class AutonomousMind:
             logger.debug("workable goals status failed: %s", e)
             return (999, [])
 
+    async def _finance_marker(self, company: Any) -> str:
+        """Render the per-company finance suffix for the [COMPANY] state line.
+
+        Always best-effort (never raises). Shows rail + mode awareness; only
+        a LIVE + verified fiat business surfaces real cash → runway (test-mode
+        balance is fake and must never read as real cash — finance spec §6.8).
+        The live path is the only one that hits the Stripe network, so test
+        mode (the default) adds zero per-cycle latency.
+        """
+        rail = getattr(company, "payment_rail", None)
+        if not rail:
+            return ""
+        if rail != "fiat":
+            return f" rail={rail}"
+        try:
+            fiat_cfg = self._agent._config.payments.fiat
+        except Exception:
+            return " rail=fiat"
+        if not getattr(fiat_cfg, "enabled", False):
+            return " rail=fiat(off)"
+        mode = (getattr(fiat_cfg, "mode", "test") or "test").strip().lower()
+        if mode != "live":
+            # Test mode → fake money. Never compute/show real cash or runway.
+            return " rail=fiat[mode=TEST]"
+        entity = getattr(company, "entity_state", "none")
+        if entity != "verified":
+            return f" rail=fiat[LIVE,entity={entity}]"
+        # Live + verified → real balance → real runway. Best-effort.
+        try:
+            from core.ledger import ResourceLedger, runway_weeks
+            from core.payments.fiat_stripe import StripeFiatProvider
+
+            provider = StripeFiatProvider(
+                fiat_cfg, getattr(self._agent, "_vault", None)
+            )
+            cash = await provider.cash_on_hand()
+            burn = await ResourceLedger(self._agent._db).trailing_weekly_burn(
+                company.id
+            )
+            rw = runway_weeks(cash, burn)
+            if rw is None:
+                return f" rail=fiat[LIVE] cash=${cash:.0f} net-positive"
+            warn = " RUNWAY<12wk" if rw < 12 else ""
+            return f" rail=fiat[LIVE] cash=${cash:.0f} runway~{rw:.0f}wk{warn}"
+        except Exception as e:
+            logger.debug("finance marker (live cash) skipped: %s", e)
+            return " rail=fiat[LIVE]"
+
     async def _count_workable_goals(self) -> int:
         """Back-compat shim — returns just the count.
 
@@ -1694,11 +1742,15 @@ class AutonomousMind:
                                 blockers_marker = f", blockers={n_block}"
                     except Exception:
                         pass
+                    # ABE finance rail (2026-06-18): rail + mode awareness,
+                    # and (live + verified only) real cash → runway. Test mode
+                    # never shows cash/runway — the balance is fake (§6.8).
+                    finance_marker = await self._finance_marker(c)
                     rows.append(
                         f"[COMPANY] {c.id}{active_marker} "
                         f"({product_marker}, trust={trust}, "
                         f"{voice_marker}, {strategy_marker}"
-                        f"{blockers_marker}) — "
+                        f"{blockers_marker}{finance_marker}) — "
                         f"{ledger_summary}"
                     )
                 if rows:

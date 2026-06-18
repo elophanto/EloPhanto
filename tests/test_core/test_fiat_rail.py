@@ -227,3 +227,108 @@ class TestCompanyFinanceState:
     def test_valid_sets(self) -> None:
         assert VALID_PAYMENT_RAILS == ("fiat", "crypto")
         assert "verified" in VALID_ENTITY_STATES and "none" in VALID_ENTITY_STATES
+
+
+# ── State-line finance marker (rendering branches, no network) ────────
+
+
+def _mind_with_fiat(mode: str = "test", enabled: bool = True):
+    from types import SimpleNamespace
+
+    from core.autonomous_mind import AutonomousMind
+
+    fiat = PaymentFiatConfig(enabled=enabled, mode=mode)
+    agent = SimpleNamespace(
+        _config=SimpleNamespace(payments=SimpleNamespace(fiat=fiat)),
+        _vault=None,
+        _db=None,
+    )
+    mind = AutonomousMind.__new__(AutonomousMind)
+    mind._agent = agent
+    return mind
+
+
+def _company(rail=None, entity="none"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(id="acme", payment_rail=rail, entity_state=entity)
+
+
+class TestFinanceMarker:
+    @pytest.mark.asyncio
+    async def test_no_rail_blank(self) -> None:
+        m = _mind_with_fiat()
+        assert await m._finance_marker(_company(rail=None)) == ""
+
+    @pytest.mark.asyncio
+    async def test_crypto_rail(self) -> None:
+        m = _mind_with_fiat()
+        assert await m._finance_marker(_company(rail="crypto")) == " rail=crypto"
+
+    @pytest.mark.asyncio
+    async def test_fiat_disabled(self) -> None:
+        m = _mind_with_fiat(enabled=False)
+        assert await m._finance_marker(_company(rail="fiat")) == " rail=fiat(off)"
+
+    @pytest.mark.asyncio
+    async def test_fiat_test_mode_no_cash_or_runway(self) -> None:
+        # §6.8: test-mode balance is fake — must NOT surface cash/runway.
+        m = _mind_with_fiat(mode="test")
+        marker = await m._finance_marker(_company(rail="fiat", entity="verified"))
+        assert marker == " rail=fiat[mode=TEST]"
+        assert "cash" not in marker and "runway" not in marker
+
+    @pytest.mark.asyncio
+    async def test_fiat_live_unverified_no_money(self) -> None:
+        # Live mode but KYC not done → no cash read, just the gated marker.
+        m = _mind_with_fiat(mode="live")
+        marker = await m._finance_marker(_company(rail="fiat", entity="kyc_pending"))
+        assert marker == " rail=fiat[LIVE,entity=kyc_pending]"
+        assert "cash" not in marker
+
+    @pytest.mark.asyncio
+    async def test_finance_marker_never_raises(self) -> None:
+        # Broken agent config must degrade to a safe string, not crash the
+        # whole state-snapshot build.
+        from types import SimpleNamespace
+
+        from core.autonomous_mind import AutonomousMind
+
+        mind = AutonomousMind.__new__(AutonomousMind)
+        mind._agent = SimpleNamespace()  # no _config at all
+        assert await mind._finance_marker(_company(rail="fiat")) == " rail=fiat"
+
+
+class TestDoctorFiatCheck:
+    def _cfg(self, tmp_path, body: str):
+        p = tmp_path / "config.yaml"
+        p.write_text(body, encoding="utf-8")
+        return tmp_path
+
+    def test_disabled_skips(self, tmp_path) -> None:
+        from cli.doctor_cmd import _check_fiat
+
+        r = _check_fiat(self._cfg(tmp_path, "payments:\n  enabled: true\n"))
+        assert r.status == "skip"
+
+    def test_test_mode_ok(self, tmp_path) -> None:
+        from cli.doctor_cmd import _check_fiat
+
+        r = _check_fiat(
+            self._cfg(
+                tmp_path, "payments:\n  fiat:\n    enabled: true\n    mode: test\n"
+            )
+        )
+        assert r.status == "ok"
+        assert "TEST" in r.detail
+
+    def test_live_mode_warns(self, tmp_path) -> None:
+        from cli.doctor_cmd import _check_fiat
+
+        r = _check_fiat(
+            self._cfg(
+                tmp_path, "payments:\n  fiat:\n    enabled: true\n    mode: live\n"
+            )
+        )
+        assert r.status == "warn"
+        assert "LIVE" in r.detail

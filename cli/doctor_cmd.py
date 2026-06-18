@@ -898,6 +898,36 @@ def _check_update(project_root: Path) -> CheckResult:
     )
 
 
+def _check_fiat(project_root: Path) -> CheckResult:
+    """Surface the fiat-rail mode so it's never ambiguous whether real money
+    can move. Slice 1 is read-only (no money movement), so this is
+    informational: TEST → ok; LIVE → warn (real money; the money tools, when
+    they ship, gate on company entity_state=verified). The mode/key-mismatch
+    safety check lives in StripeFiatProvider at the point of use."""
+    cfg_path = project_root / "config.yaml"
+    if not cfg_path.exists():
+        return CheckResult("payments: fiat", "skip", "no config yet")
+    try:
+        from core.config import load_config
+
+        cfg = load_config(str(cfg_path))
+    except Exception as e:
+        return CheckResult("payments: fiat", "warn", f"config load failed: {e}")
+    fiat = cfg.payments.fiat
+    if not fiat.enabled:
+        return CheckResult("payments: fiat", "skip", "disabled")
+    mode = (fiat.mode or "test").strip().lower()
+    if mode != "live":
+        return CheckResult("payments: fiat", "ok", "Stripe [mode=TEST] — no real money")
+    return CheckResult(
+        "payments: fiat",
+        "warn",
+        "Stripe [mode=LIVE] — real money can move",
+        "Confirm company entity_state=verified (KYC done) + an sk_live_ key "
+        "is in the vault before relying on live mode.",
+    )
+
+
 def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows: list[CheckResult] = []
     rows.append(_check_python())
@@ -919,6 +949,7 @@ def _run_all_checks(project_root: Path) -> list[CheckResult]:
     rows.append(_check_p2p_sidecar(project_root))
     rows.append(_check_p2p_bootstrap_diversity(project_root))
     rows.append(_check_proxy(project_root))
+    rows.append(_check_fiat(project_root))
     rows.append(_check_update(project_root))
     return rows
 

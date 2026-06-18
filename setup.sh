@@ -186,6 +186,14 @@ if grep -q "provider: agentkit" config.yaml 2>/dev/null; then
         echo "  ⚠ AgentKit install failed (optional — switch to provider: local in config.yaml)"
 fi
 
+# Install Stripe fiat support if the fiat rail is configured (ABE finance rail).
+# Only matches the payments.fiat block (`provider: stripe`); crypto uses
+# provider: local|agentkit, so this never false-fires.
+if grep -q "provider: stripe" config.yaml 2>/dev/null; then
+    _spin "Installing Stripe fiat support" uv pip install -e '.[payments-fiat]' || \
+        echo "  ⚠ Stripe deps failed — run: uv pip install -e '.[payments-fiat]'"
+fi
+
 # Build browser bridge if Node.js is available
 if command -v node &>/dev/null && [ -f "bridge/browser/package.json" ]; then
     if [ ! -d "bridge/browser/dist" ]; then
@@ -335,6 +343,7 @@ echo ""
 echo "  Optional extras:"
 echo "    uv pip install -e '.[desktop]'        # Desktop GUI agent (pyautogui)"
 echo "    uv pip install -e '.[payments-cdp]'   # Coinbase AgentKit (managed wallet)"
+echo "    uv pip install -e '.[payments-fiat]'  # Stripe fiat rail (cards/bank — starts in test mode)"
 echo ""
 echo "  Wallet chains (set default_chain in config.yaml):"
 echo "    base (default)  — EVM, low gas fees"
