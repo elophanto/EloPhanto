@@ -65,8 +65,7 @@ Do NOT write `what_we_sell` blind and call onboard. Research first, propose the 
 
 See [[strategy-pipeline]] for the exact procedure. Briefly:
 
-1. **Audit capabilities.** `company_capabilities(<slug>)` — vault + tools + skills, writes `capabilities.md`.
-2. **Research, THEN propose strategy_inputs.** Do NOT ask the operator blank questions. Ground every field in research first, then present recommendations with one-line rationale. Operator approves all / modifies specific items / overrides:
+1. **Research, THEN propose strategy_inputs.** Do NOT ask the operator blank questions. Ground every field in research first, then present recommendations with one-line rationale. Operator approves all / modifies specific items / overrides:
    - **Research moves to run first** (parallel where possible): `browser_navigate(<url>)` + `browser_extract` + revisit `/about`, `/pricing`, `/hire` if they exist; `web_search('<domain> competitors')` or `web_search('<industry> top tools 2026')`; `company_report(<slug>)` for ledger/pipeline state; `file_read companies/<slug>/company.yaml` for declared channels/KPIs.
    - **Then propose** each field with rationale. Most CAN be derived from research:
      - `target_audience` ← from homepage + /hire positioning
@@ -81,11 +80,11 @@ See [[strategy-pipeline]] for the exact procedure. Briefly:
      - `risk_tolerance` (0-100) — suggest 50 (balanced) unless brand tone is aggressive
      - `timeline_hint` — suggest "first paid customer in 30 days, repeatable cadence in 90" or similar based on stage
    - **Present as a table** in chat. Example format: `field | recommended value | rationale (≤15 words)`. Add: *"Approve all, or tell me which to change."*
-3. **Capture inputs.** After operator confirms/modifies: `company_set_strategy_inputs(slug, …)` — MODERATE. Uses the operator-approved values.
-4. **Generate strategy.** `company_plan(<slug>, override_strategy_mode=…, override_focus=…)` — LLM strategy generation.
-5. **Apply.** `company_plan_apply(<slug>)` — MODERATE. Creates mission + goals + schedules + `voice_proposed.yaml` + `blockers.yaml`.
-6. **Approve.** `company_plan_approve(<slug>)` — MODERATE finalize.
-7. **Surface blockers** to operator. Stop — autonomous mind picks up tactics on next wakeup.
+2. **Bundle the rest in one call.** After operator confirms: `company_plan_full(slug, …strategy_inputs…)` — ONE MODERATE. Internally runs capabilities audit + writes strategy_inputs to `company.yaml` + generates the proposal + applies it (mission + goals + schedules + `voice_proposed.yaml` + `blockers.yaml`). Saves 2 of the previously chained MODERATE gates.
+3. **Approve.** `company_plan_approve(<slug>)` — MODERATE finalize. Trust act for `voice_proposed.yaml` — kept separate by design so operator sees the voice draft before promoting.
+4. **Surface blockers** to operator. Stop — autonomous mind picks up tactics on next wakeup.
+
+**Fallback (legacy 4-call chain):** if `company_plan_full` is unavailable, fall back to `company_capabilities` → `company_set_strategy_inputs` → `company_plan` → `company_plan_apply` → `company_plan_approve`. Same result, 3 extra MODERATE gates.
 
 ## PATH C — execute existing strategy
 

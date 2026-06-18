@@ -2195,6 +2195,9 @@ class Agent:
             "company_plan_apply",
             "company_plan_approve",
             "company_set_strategy_inputs",
+            # Tier 1 #3 — wrapper looks up the four above from
+            # registry, so it only needs _registry + _project_root.
+            "company_plan_full",
         )
         # Phase 10 — lazy-construct VoiceManager on first injection
         # pass. The manager itself is cheap (no DB, no IO until a
