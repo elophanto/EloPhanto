@@ -260,3 +260,90 @@ class StripeFiatProvider:
     async def list_recent_refunds(self, *, limit: int = 100) -> list[dict[str, Any]]:
         """Recent succeeded refunds (for the reconcile reversal pass)."""
         return await asyncio.to_thread(self._list_recent_refunds_sync, limit=limit)
+
+    # ── Spend (Slice 3a): provision a bounded virtual card ───────────
+
+    def _issue_card_sync(
+        self,
+        *,
+        spend_limit_cents: int,
+        interval: str,
+        allowed_categories: list[str] | None,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Issue a virtual Issuing card under the configured cardholder,
+        bounded by spend controls (blocking).
+
+        PCI boundary (spec §6.4): we create the card and return ONLY
+        non-sensitive fields (id / last4 / brand / expiry). We NEVER pass
+        ``expand=['number','cvc']``, so the raw PAN/CVC never enter this
+        process, let alone an LLM prompt or a log. The cardholder is
+        operator-provisioned (config ``cardholder_id``) because it's tied to
+        the legal entity/KYC — the agent does not mint cardholder identities.
+        Bounded via GA ``spending_controls`` (not the preview lifecycle
+        cancel-after field), so it works on any Issuing-enabled account.
+        """
+        # Fail fast on config before importing the SDK or touching the vault.
+        cardholder_id = (self._config.cardholder_id or "").strip()
+        if not cardholder_id:
+            raise FiatRailError(
+                "no Issuing cardholder configured — set "
+                "payments.fiat.cardholder_id to a Stripe cardholder id "
+                "(ich_...). Create one in the Stripe dashboard "
+                "(Issuing → Cardholders); it represents your legal entity."
+            )
+        stripe = self._import_stripe()
+        key = self._secret_key()
+        controls: dict[str, Any] = {
+            "spending_limits": [{"amount": spend_limit_cents, "interval": interval}]
+        }
+        if allowed_categories:
+            controls["allowed_categories"] = list(allowed_categories)
+        try:
+            card = stripe.issuing.Card.create(
+                cardholder=cardholder_id,
+                currency=(self._config.base_currency or "USD").lower(),
+                type="virtual",
+                status="active",
+                spending_controls=controls,
+                api_key=key,
+                idempotency_key=idempotency_key,
+            )
+        except FiatRailError:
+            raise
+        except Exception as e:  # normalize; never echo the key
+            raise FiatRailError(f"Stripe card issue failed: {type(e).__name__}") from e
+        # ONLY non-sensitive fields. The PAN/CVC are deliberately not read.
+        return {
+            "id": card.get("id"),
+            "last4": card.get("last4"),
+            "brand": card.get("brand"),
+            "exp_month": card.get("exp_month"),
+            "exp_year": card.get("exp_year"),
+            "spend_limit": spend_limit_cents / 100.0,
+            "interval": interval,
+            "mode": "test" if self.is_test_mode else "live",
+        }
+
+    async def create_virtual_card(
+        self,
+        *,
+        spend_limit: float,
+        interval: str = "per_authorization",
+        allowed_categories: list[str] | None = None,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Provision a bounded virtual card. ``spend_limit`` is in major units
+        (e.g. 200.0 = $200), ``interval`` ∈ per_authorization | daily | weekly
+        | monthly | yearly | all_time. Returns only non-sensitive card fields
+        (never the PAN/CVC). Runs the blocking SDK call off the loop."""
+        cents = int(round(float(spend_limit) * 100))
+        if cents <= 0:
+            raise FiatRailError("spend_limit must be positive")
+        return await asyncio.to_thread(
+            self._issue_card_sync,
+            spend_limit_cents=cents,
+            interval=interval,
+            allowed_categories=allowed_categories,
+            idempotency_key=idempotency_key,
+        )

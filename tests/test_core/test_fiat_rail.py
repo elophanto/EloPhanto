@@ -788,3 +788,153 @@ class TestFiatReconcileSeed:
     async def test_seed_no_scheduler_is_safe(self) -> None:
         agent = _agent_for_seed(None, None)
         await agent._seed_fiat_reconcile_schedules()  # must not raise
+
+
+# ── Slice 3a: Spend (issue card) ─────────────────────────────────────
+
+
+class _FakeIssuingStripe:
+    """Stand-in for stripe.issuing.Card.create — captures kwargs, returns
+    only non-sensitive card fields (mirrors a no-expand create)."""
+
+    def __init__(self) -> None:
+        self.captured: dict[str, dict] = {}
+
+    @property
+    def issuing(self):
+        captured = self.captured
+
+        class _Card:
+            @staticmethod
+            def create(**kw):
+                captured["card"] = kw
+                return {
+                    "id": "ic_1",
+                    "last4": "4242",
+                    "brand": "Visa",
+                    "exp_month": 12,
+                    "exp_year": 2030,
+                }
+
+        class _Issuing:
+            Card = _Card
+
+        return _Issuing
+
+
+class TestIssueCardProvider:
+    @pytest.mark.asyncio
+    async def test_issue_card_never_returns_pan(self, monkeypatch) -> None:
+        cfg = PaymentFiatConfig(mode="test", base_currency="USD", cardholder_id="ich_1")
+        p = StripeFiatProvider(cfg, _FakeVault({"stripe_secret_key": "sk_test_x"}))
+        fake = _FakeIssuingStripe()
+        monkeypatch.setattr(p, "_import_stripe", lambda: fake)
+        res = await p.create_virtual_card(
+            spend_limit=200.0,
+            interval="per_authorization",
+            allowed_categories=["cloud_computing"],
+            idempotency_key="k1",
+        )
+        # Non-sensitive fields returned; PAN/CVC NEVER present.
+        assert res["id"] == "ic_1" and res["last4"] == "4242"
+        assert "number" not in res and "cvc" not in res
+        assert res["spend_limit"] == 200.0 and res["interval"] == "per_authorization"
+        # Card create params built correctly.
+        card = fake.captured["card"]
+        assert card["cardholder"] == "ich_1"
+        assert card["type"] == "virtual" and card["status"] == "active"
+        assert card["spending_controls"]["spending_limits"][0]["amount"] == 20000
+        assert card["spending_controls"]["allowed_categories"] == ["cloud_computing"]
+        assert card["idempotency_key"] == "k1"
+        # We must NOT have asked Stripe to expand the PAN.
+        assert "expand" not in card
+
+    @pytest.mark.asyncio
+    async def test_issue_card_requires_cardholder(self) -> None:
+        cfg = PaymentFiatConfig(mode="test", cardholder_id="")
+        p = StripeFiatProvider(cfg, _FakeVault({"stripe_secret_key": "sk_test_x"}))
+        with pytest.raises(FiatRailError, match="cardholder"):
+            await p.create_virtual_card(spend_limit=50.0, idempotency_key="k")
+
+    @pytest.mark.asyncio
+    async def test_issue_card_rejects_nonpositive(self) -> None:
+        cfg = PaymentFiatConfig(mode="test", cardholder_id="ich_1")
+        p = StripeFiatProvider(cfg, _FakeVault({"stripe_secret_key": "sk_test_x"}))
+        with pytest.raises(FiatRailError, match="positive"):
+            await p.create_virtual_card(spend_limit=0, idempotency_key="k")
+
+
+def _card_tool(mode="test", enabled=True, issuing=True, company_manager=None):
+    from types import SimpleNamespace
+
+    from tools.payments.fiat_card_tool import FiatIssueCardTool
+
+    fiat = PaymentFiatConfig(
+        enabled=enabled, mode=mode, issuing_enabled=issuing, cardholder_id="ich_1"
+    )
+    t = FiatIssueCardTool()
+    t._config = SimpleNamespace(payments=SimpleNamespace(fiat=fiat))
+    t._vault = _FakeVault({"stripe_secret_key": "sk_test_x"})
+    t._company_manager = company_manager
+    return t
+
+
+class TestFiatIssueCardTool:
+    def test_is_critical(self) -> None:
+        from tools.base import PermissionLevel
+
+        assert _card_tool().permission_level == PermissionLevel.CRITICAL
+
+    @pytest.mark.asyncio
+    async def test_fiat_disabled(self) -> None:
+        r = await _card_tool(enabled=False).execute({"spend_limit": 50})
+        assert r.success is False and "not enabled" in (r.error or "")
+
+    @pytest.mark.asyncio
+    async def test_issuing_disabled(self) -> None:
+        r = await _card_tool(issuing=False).execute({"spend_limit": 50})
+        assert r.success is False and "issuing is not enabled" in (r.error or "")
+
+    @pytest.mark.asyncio
+    async def test_live_unverified_blocked(self) -> None:
+        class CM:
+            async def get_entity_state(self, cid):
+                return "kyc_pending"
+
+        r = await _card_tool(mode="live", company_manager=CM()).execute(
+            {"spend_limit": 50}
+        )
+        assert r.success is False and "verified" in (r.error or "")
+
+    @pytest.mark.asyncio
+    async def test_invalid_limit_and_interval(self) -> None:
+        r1 = await _card_tool().execute({"spend_limit": 0})
+        assert r1.success is False
+        r2 = await _card_tool().execute({"spend_limit": 50, "interval": "hourly"})
+        assert r2.success is False and "interval" in (r2.error or "")
+
+    @pytest.mark.asyncio
+    async def test_test_mode_success_strips_any_pan(self, monkeypatch) -> None:
+        # Even if the provider somehow returned card data, the tool strips it.
+        async def _fake_create(
+            self, *, spend_limit, interval, allowed_categories, idempotency_key
+        ):
+            return {
+                "id": "ic_1",
+                "last4": "4242",
+                "exp_month": 12,
+                "exp_year": 2030,
+                "spend_limit": spend_limit,
+                "interval": interval,
+                "mode": "test",
+                "number": "4242424242424242",  # must be stripped
+                "cvc": "123",  # must be stripped
+            }
+
+        monkeypatch.setattr(StripeFiatProvider, "create_virtual_card", _fake_create)
+        r = await _card_tool(mode="test").execute({"spend_limit": 200})
+        assert r.success is True
+        assert r.data["id"] == "ic_1" and r.data["last4"] == "4242"
+        # Defense in depth: no raw card data leaves the tool.
+        assert "number" not in r.data and "cvc" not in r.data
+        assert "TEST" in r.data["note"]

@@ -927,6 +927,11 @@ class PaymentFiatConfig:
     publishable_key_ref: str = "stripe_publishable_key"
     webhook_secret_ref: str = "stripe_webhook_secret"
     issuing_enabled: bool = False
+    # Stripe Issuing cardholder id (ich_...) that issued cards are created
+    # under. Operator-provisioned (Stripe dashboard → Issuing → Cardholders),
+    # because the cardholder is tied to the legal entity/KYC — the agent does
+    # not invent cardholder identities. Plain id, not a secret. Empty until set.
+    cardholder_id: str = ""
 
 
 @dataclass
@@ -1882,6 +1887,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
                 "webhook_secret_ref", "stripe_webhook_secret"
             ),
             issuing_enabled=pay_fiat_raw.get("issuing_enabled", False),
+            cardholder_id=pay_fiat_raw.get("cardholder_id", ""),
         ),
     )
 
