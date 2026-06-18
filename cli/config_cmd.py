@@ -163,6 +163,7 @@ allow_metered_fallback_in_chat: false
   publishable_key_ref: stripe_publishable_key
   webhook_secret_ref: stripe_webhook_secret
   issuing_enabled: false
+  cardholder_id: ""
 """,
     ),
 ]

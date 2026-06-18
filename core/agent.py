@@ -2496,6 +2496,11 @@ class Agent:
             fiat_reconcile._vault = getattr(self, "_vault", None)
             fiat_reconcile._company_manager = self._company_manager
             fiat_reconcile._db = self._db
+        fiat_card = self._registry.get("fiat_issue_card")
+        if fiat_card is not None:
+            fiat_card._config = self._config
+            fiat_card._vault = getattr(self, "_vault", None)
+            fiat_card._company_manager = self._company_manager
 
     def _inject_prospecting_deps(self) -> None:
         """Inject database into prospecting tools."""
