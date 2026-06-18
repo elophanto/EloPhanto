@@ -17,6 +17,7 @@ from tools.companies.management_tools import (
     CompanyUseTool,
 )
 from tools.companies.onboard_tool import CompanyOnboardTool
+from tools.companies.plan_full_tool import CompanyPlanFullTool
 from tools.companies.set_product_tool import CompanySetProductTool
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "CompanyResumeTool",
     "CompanyArchiveTool",
     "CompanyPurgeTool",
+    "CompanyPlanFullTool",
 ]

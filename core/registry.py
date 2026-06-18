@@ -346,6 +346,15 @@ class ToolRegistry:
         self.register(CompanyPlanApproveTool())
         self.register(CompanySetStrategyInputsTool())
 
+        # Tier 1 #3 (2026-06-18) — bundled PATH B wrapper. Operator
+        # supplies strategy_inputs once, the wrapper chains
+        # capabilities + set_inputs + plan + apply under one MODERATE
+        # gate. Compresses 3 MODERATE approvals → 2 (the wrapper +
+        # company_plan_approve which stays separate by design).
+        from tools.companies import CompanyPlanFullTool
+
+        self.register(CompanyPlanFullTool())
+
         # Identity tools
         from tools.identity.reflect_tool import IdentityReflectTool
         from tools.identity.status_tool import IdentityStatusTool
