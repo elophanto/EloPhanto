@@ -62,13 +62,19 @@ case "${1:-}" in
     doctor|init|vault|skills|mcp|update|rollback|--help|-h|"")
         # for empty arg (default → chat) we DO want to gate
         if [ -z "${1:-}" ] || [ "${1:-}" = "--web" ]; then
-            if ! elophanto doctor >/dev/null 2>&1; then
+            # Run doctor ONCE and gate on the exact run we display. Running it
+            # twice (silently for the exit code, then again for output) let a
+            # flaky network-dependent check disagree between runs — which is how
+            # "doctor found blockers" could be followed by "No blockers" in the
+            # same start. One run = the shown report always matches the decision.
+            doctor_out="$(elophanto doctor 2>&1)"
+            doctor_rc=$?
+            if [ "$doctor_rc" -ne 0 ]; then
                 echo ""
-                echo "  ⚠ EloPhanto doctor found blockers. Running again with full output:"
+                printf '%s\n' "$doctor_out"
                 echo ""
-                elophanto doctor || true
-                echo ""
-                echo "  Fix the items above, then re-run ./start.sh."
+                echo "  ⚠ EloPhanto doctor found a blocker (see the ✗ row above)."
+                echo "  Fix it, then re-run ./start.sh."
                 echo "  (skip the gate with: SKIP_DOCTOR=1 ./start.sh)"
                 if [ "${SKIP_DOCTOR:-0}" != "1" ]; then
                     exit 1
