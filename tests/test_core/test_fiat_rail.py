@@ -561,6 +561,10 @@ def _reconcile_tool(db, mode: str = "test", enabled: bool = True):
     return t
 
 
+async def _no_refunds(self, *, limit=100):
+    return []
+
+
 class TestFiatReconcile:
     @pytest.mark.asyncio
     async def test_disabled(self, db) -> None:
@@ -582,6 +586,7 @@ class TestFiatReconcile:
             return payments
 
         monkeypatch.setattr(StripeFiatProvider, "list_recent_payments", fake_list)
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_refunds", _no_refunds)
         tool = _reconcile_tool(db, mode="test")
 
         r1 = await tool.execute({})
@@ -610,6 +615,7 @@ class TestFiatReconcile:
             return [{"id": "pi_x", "amount": 49.0, "currency": "usd"}]
 
         monkeypatch.setattr(StripeFiatProvider, "list_recent_payments", fake_list)
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_refunds", _no_refunds)
         r = await _reconcile_tool(db, mode="live").execute({})
         assert r.data["mirrored"] == 1
         ledger = ResourceLedger(db)
@@ -617,3 +623,91 @@ class TestFiatReconcile:
         assert (
             await ledger.sum(current_company_id(), type="usd", direction="in") == 49.0
         )
+
+    @pytest.mark.asyncio
+    async def test_refund_reverses_revenue(self, db, monkeypatch) -> None:
+        # §6.5: a refund records a compensating usd-OUT → net drops by it.
+        from core.company import current_company_id
+
+        async def fake_pay(self, *, limit=100):
+            return [{"id": "pi_1", "amount": 49.0, "currency": "usd"}]
+
+        async def fake_ref(self, *, limit=100):
+            return [
+                {
+                    "id": "re_1",
+                    "amount": 49.0,
+                    "currency": "usd",
+                    "payment_intent": "pi_1",
+                }
+            ]
+
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_payments", fake_pay)
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_refunds", fake_ref)
+        r = await _reconcile_tool(db, mode="live").execute({})
+        assert r.data["mirrored"] == 1
+        assert r.data["refunds_recorded"] == 1
+        assert r.data["net_recorded_usd"] == 0.0
+        # net = revenue_in(49) - spend_out(49) = 0
+        met = await ResourceLedger(db).metabolism(current_company_id())
+        assert met.revenue_usd == 49.0
+        assert met.spend_usd == 49.0
+        assert met.net_usd == 0.0
+
+    @pytest.mark.asyncio
+    async def test_refund_idempotent(self, db, monkeypatch) -> None:
+        async def fake_pay(self, *, limit=100):
+            return []
+
+        async def fake_ref(self, *, limit=100):
+            return [
+                {
+                    "id": "re_1",
+                    "amount": 10.0,
+                    "currency": "usd",
+                    "payment_intent": "pi_1",
+                }
+            ]
+
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_payments", fake_pay)
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_refunds", fake_ref)
+        tool = _reconcile_tool(db, mode="live")
+        r1 = await tool.execute({})
+        assert r1.data["refunds_recorded"] == 1
+        r2 = await tool.execute({})
+        assert r2.data["refunds_recorded"] == 0
+
+    @pytest.mark.asyncio
+    async def test_refund_list_failure_is_best_effort(self, db, monkeypatch) -> None:
+        # A refund-list failure must NOT undo the payment recording; it just
+        # flags refunds_checked=False so net isn't silently overstated.
+        async def fake_pay(self, *, limit=100):
+            return [{"id": "pi_1", "amount": 49.0, "currency": "usd"}]
+
+        async def fake_ref_fail(self, *, limit=100):
+            raise RuntimeError("stripe down")
+
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_payments", fake_pay)
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_refunds", fake_ref_fail)
+        r = await _reconcile_tool(db, mode="live").execute({})
+        assert r.success is True
+        assert r.data["mirrored"] == 1
+        assert r.data["refunds_checked"] is False
+
+    @pytest.mark.asyncio
+    async def test_explicit_company_id_routing(self, db, monkeypatch) -> None:
+        # A scheduled reconcile passes company_id explicitly so it records
+        # under the right business regardless of fire-time context.
+        from core.company import current_company_id
+
+        async def fake_pay(self, *, limit=100):
+            return [{"id": "pi_z", "amount": 20.0, "currency": "usd"}]
+
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_payments", fake_pay)
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_refunds", _no_refunds)
+        r = await _reconcile_tool(db, mode="live").execute({"company_id": "acme-co"})
+        assert r.data["mirrored"] == 1
+        ledger = ResourceLedger(db)
+        # Recorded under acme-co, NOT the default/active company.
+        assert await ledger.sum("acme-co", type="usd", direction="in") == 20.0
+        assert await ledger.sum(current_company_id(), type="usd", direction="in") == 0.0
