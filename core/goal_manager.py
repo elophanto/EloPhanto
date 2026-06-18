@@ -34,6 +34,15 @@ GOAL_STAGES: tuple[str, ...] = (
     "scale",
 )
 
+# Stages that must NOT run before validation has succeeded. `operate`
+# (support/billing/books) is intentionally excluded — it can legitimately
+# precede a paying-party signal (e.g. setting up the inbox). The hard gate
+# (GoalManager.validate_gate_reason + goal_runner) blocks these when the goal
+# still has an unfinished `validate` checkpoint.
+POST_VALIDATION_STAGES: frozenset[str] = frozenset(
+    {"build", "launch", "acquire", "scale"}
+)
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -671,6 +680,44 @@ class GoalManager:
         if not rows:
             return None
         return self._row_to_checkpoint(rows[0])
+
+    async def validate_gate_reason(
+        self, goal_id: str, checkpoint: Checkpoint
+    ) -> str | None:
+        """Hard validate-first gate (founder-doctrine Stage 0, #2 hardening).
+
+        Returns a human-readable reason if executing ``checkpoint`` would
+        violate validate-before-build, else None. The gate fires when a
+        post-validation checkpoint (build / launch / acquire / scale) is about
+        to run while the goal still has a ``validate`` checkpoint that has NOT
+        completed — i.e. pending, active, failed, or skipped. A failed or
+        skipped validate means no paying-party signal was obtained, and
+        building on that is the exact silent-failure mode the founder audit
+        flagged (tmp/founder-vs-elophanto-audit-2026-06-18.md §1.2.4).
+
+        Goals with no ``validate`` checkpoint at all (pure research, learning,
+        internal tooling) never trip the gate — the decompose prompt is
+        allowed to omit a validate stage for those, so absence is not a
+        violation. This is the code-level backstop for when the LLM ignores
+        the decompose prompt's validate-first instruction, or a ``revise``
+        re-introduces a build step after validation failed.
+        """
+        if (checkpoint.stage or "unknown") not in POST_VALIDATION_STAGES:
+            return None
+        rows = await self._db.execute(
+            "SELECT COUNT(*) AS c FROM goal_checkpoints "
+            "WHERE goal_id = ? AND stage = 'validate' AND status != 'completed'",
+            (goal_id,),
+        )
+        incomplete = int(rows[0]["c"]) if rows else 0
+        if incomplete <= 0:
+            return None
+        return (
+            f"validate-first gate: checkpoint #{checkpoint.order} "
+            f"('{checkpoint.title}', stage={checkpoint.stage}) cannot run while "
+            f"{incomplete} validate checkpoint(s) are unfinished — no paying-party "
+            f"signal yet. Validate before build; pivot or kill if validation failed."
+        )
 
     async def mark_checkpoint_active(self, goal_id: str, order: int) -> None:
         """Mark a checkpoint as actively being worked on."""

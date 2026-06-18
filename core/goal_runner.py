@@ -249,6 +249,20 @@ class GoalRunner:
                         )
                     return
 
+                # --- Founder-doctrine validate-first gate (hard enforcement) ---
+                # Refuse to execute a build/launch/acquire/scale checkpoint while
+                # the goal still has an unfinished `validate` checkpoint. Building
+                # on failed/absent validation is the audit's #1 silent-failure
+                # mode (§1.2.4). Pause + surface to the operator rather than burn
+                # spend — the operator decides pivot / kill / override.
+                gate_reason = await self._gm.validate_gate_reason(goal_id, checkpoint)
+                if gate_reason:
+                    logger.warning(
+                        "Goal %s blocked by validate gate: %s", goal_id, gate_reason
+                    )
+                    await self._pause_goal(goal_id, gate_reason)
+                    return
+
                 # --- Execute checkpoint ---
                 success = await self._execute_checkpoint(goal, checkpoint)
 

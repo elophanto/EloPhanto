@@ -77,6 +77,31 @@ _LEGACY_ARRAY = json.dumps(
     ]
 )
 
+# A pure-research / internal-tooling plan: scan + build, NO validate stage.
+# These goals legitimately have no paying-party signal, so the gate must
+# never fire for them.
+_NO_VALIDATE_PLAN = json.dumps(
+    {
+        "kill_criterion": "If no usable finding in 7 days, stop.",
+        "checkpoints": [
+            {
+                "order": 1,
+                "title": "Research the space",
+                "description": "Survey approaches.",
+                "success_criteria": "Notes written",
+                "stage": "scan",
+            },
+            {
+                "order": 2,
+                "title": "Build an internal helper",
+                "description": "A tool only the agent uses.",
+                "success_criteria": "It runs",
+                "stage": "build",
+            },
+        ],
+    }
+)
+
 
 class TestGoalStageAndKill:
     @pytest.mark.asyncio
@@ -185,6 +210,67 @@ class TestLenientJsonAndKill:
         items = [{"title": s, "stage": s} for s in GOAL_STAGES]
         cps = gm._parse_checkpoint_json(json.dumps(items), "g")
         assert [c.stage for c in cps] == list(GOAL_STAGES)
+
+
+class TestValidateGate:
+    """Hard validate-first gate — GoalManager.validate_gate_reason."""
+
+    async def _decomposed(self, gm: GoalManager, plan: str):
+        gm._router.complete.return_value = FakeLLMResponse(content=plan)
+        goal = await gm.create_goal("Launch a thing")
+        await gm.decompose(goal)
+        return goal
+
+    def _cp(self, cps, stage):
+        return next(c for c in cps if c.stage == stage)
+
+    @pytest.mark.asyncio
+    async def test_build_blocked_when_validate_pending(self, gm: GoalManager) -> None:
+        goal = await self._decomposed(gm, _OBJECT_PLAN)
+        cps = await gm.get_checkpoints(goal.goal_id)
+        reason = await gm.validate_gate_reason(goal.goal_id, self._cp(cps, "build"))
+        assert reason is not None
+        assert "validate-first gate" in reason
+
+    @pytest.mark.asyncio
+    async def test_build_allowed_when_validate_completed(self, gm: GoalManager) -> None:
+        goal = await self._decomposed(gm, _OBJECT_PLAN)
+        await gm.mark_checkpoint_complete(goal.goal_id, 1, "got 5 paid pre-orders")
+        cps = await gm.get_checkpoints(goal.goal_id)
+        assert (
+            await gm.validate_gate_reason(goal.goal_id, self._cp(cps, "build")) is None
+        )
+
+    @pytest.mark.asyncio
+    async def test_build_blocked_when_validate_failed(self, gm: GoalManager) -> None:
+        # The key case: validation FAILED → must not build on it.
+        goal = await self._decomposed(gm, _OBJECT_PLAN)
+        await gm._db.execute(
+            "UPDATE goal_checkpoints SET status='failed' "
+            "WHERE goal_id=? AND checkpoint_order=1",
+            (goal.goal_id,),
+        )
+        cps = await gm.get_checkpoints(goal.goal_id)
+        reason = await gm.validate_gate_reason(goal.goal_id, self._cp(cps, "build"))
+        assert reason is not None
+
+    @pytest.mark.asyncio
+    async def test_pure_research_goal_never_gated(self, gm: GoalManager) -> None:
+        # scan + build, no validate stage → gate must not fire.
+        goal = await self._decomposed(gm, _NO_VALIDATE_PLAN)
+        cps = await gm.get_checkpoints(goal.goal_id)
+        assert (
+            await gm.validate_gate_reason(goal.goal_id, self._cp(cps, "build")) is None
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_checkpoint_itself_not_gated(self, gm: GoalManager) -> None:
+        goal = await self._decomposed(gm, _OBJECT_PLAN)
+        cps = await gm.get_checkpoints(goal.goal_id)
+        assert (
+            await gm.validate_gate_reason(goal.goal_id, self._cp(cps, "validate"))
+            is None
+        )
 
 
 class TestDecomposePromptContent:
