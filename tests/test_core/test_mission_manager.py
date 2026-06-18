@@ -232,3 +232,124 @@ class TestUpdate:
     async def test_update_with_no_fields_is_noop(self, mgr: MissionManager) -> None:
         await mgr.create("M", mission_id="m")
         assert await mgr.update("m") is False
+
+
+class TestCompanyScoping:
+    """Tier 1 #1 (2026-06-18). Every read defaults to the contextvar
+    company; writes stamp it at INSERT. Operators in company A must
+    not see / modify company B's missions by accident."""
+
+    @pytest.mark.asyncio
+    async def test_create_stamps_current_company(self, mgr: MissionManager) -> None:
+        from core.company import (
+            DEFAULT_COMPANY_ID,
+            reset_current_company,
+            set_current_company,
+        )
+
+        token = set_current_company("acme-inc")
+        try:
+            m = await mgr.create("Acme mission", mission_id="acme1")
+            assert m.company_id == "acme-inc"
+        finally:
+            reset_current_company(token)
+
+        # After reset, default context's get refuses to see acme-inc's row.
+        assert await mgr.get("acme1") is None  # current ctx = default
+        # And the default context can't list it either.
+        assert await mgr.list_missions(status=None) == []
+        # Pre-existing rows under DEFAULT_COMPANY_ID stay reachable.
+        await mgr.create("Self mission", mission_id="self1")
+        listed = await mgr.list_missions(status=None)
+        assert {m.mission_id for m in listed} == {"self1"}
+        assert listed[0].company_id == DEFAULT_COMPANY_ID
+
+    @pytest.mark.asyncio
+    async def test_list_filters_by_active_company(self, mgr: MissionManager) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        # Seed one mission per company.
+        a = set_current_company("acme-inc")
+        try:
+            await mgr.create("Acme one", mission_id="a1")
+        finally:
+            reset_current_company(a)
+
+        b = set_current_company("beta-co")
+        try:
+            await mgr.create("Beta one", mission_id="b1")
+        finally:
+            reset_current_company(b)
+
+        # acme context sees only acme's
+        a2 = set_current_company("acme-inc")
+        try:
+            seen = await mgr.list_missions(status=None)
+            assert {m.mission_id for m in seen} == {"a1"}
+        finally:
+            reset_current_company(a2)
+
+        # beta context sees only beta's
+        b2 = set_current_company("beta-co")
+        try:
+            seen = await mgr.list_missions(status=None)
+            assert {m.mission_id for m in seen} == {"b1"}
+        finally:
+            reset_current_company(b2)
+
+    @pytest.mark.asyncio
+    async def test_all_companies_sentinel_bypasses_filter(
+        self, mgr: MissionManager
+    ) -> None:
+        from core.company import (
+            ALL_COMPANIES,
+            reset_current_company,
+            set_current_company,
+        )
+
+        a = set_current_company("acme-inc")
+        try:
+            await mgr.create("A", mission_id="a")
+        finally:
+            reset_current_company(a)
+        b = set_current_company("beta-co")
+        try:
+            await mgr.create("B", mission_id="b")
+        finally:
+            reset_current_company(b)
+
+        # default context — neither visible by default
+        assert await mgr.list_missions(status=None) == []
+        # ALL_COMPANIES — both visible regardless of context
+        seen = await mgr.list_missions(status=None, company_id=ALL_COMPANIES)
+        assert {m.mission_id for m in seen} == {"a", "b"}
+        # get by id with ALL_COMPANIES also bypasses
+        assert (await mgr.get("a", company_id=ALL_COMPANIES)).mission_id == "a"
+
+    @pytest.mark.asyncio
+    async def test_cross_company_update_refused_softly(
+        self, mgr: MissionManager
+    ) -> None:
+        """update/set_status/touch all go through get() — which now filters
+        by current company — so a cross-company mutation silently returns
+        False/None instead of corrupting another tenant's row."""
+        from core.company import reset_current_company, set_current_company
+
+        a = set_current_company("acme-inc")
+        try:
+            await mgr.create("Acme M", mission_id="acme-m")
+        finally:
+            reset_current_company(a)
+
+        # In default context, mutations on acme's mission must refuse.
+        assert await mgr.set_status("acme-m", STATUS_PAUSED) is False
+        assert await mgr.update("acme-m", title="hacked") is False
+        assert await mgr.touch("acme-m") is None
+
+        # Acme's mission should be untouched.
+        from core.company import ALL_COMPANIES
+
+        m = await mgr.get("acme-m", company_id=ALL_COMPANIES)
+        assert m.status == STATUS_ACTIVE
+        assert m.title == "Acme M"
+        assert m.momentum_score == 0.0

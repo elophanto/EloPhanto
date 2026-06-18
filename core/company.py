@@ -23,6 +23,12 @@ if TYPE_CHECKING:
 
 DEFAULT_COMPANY_ID = "elophanto-self"
 
+# Sentinel for read-side queries that explicitly want cross-company
+# results (admin dashboards, "list goals for every company I drive").
+# Pass as the ``company_id`` argument to skip the WHERE filter.
+# WRITES never accept this — a row must land in exactly one company.
+ALL_COMPANIES = "__all__"
+
 # Module-level context var. The default exists so unit tests and any
 # legacy code path that doesn't yet thread company context still get a
 # valid company_id at write time. The mind loop and the CLI flip this
