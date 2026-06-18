@@ -241,3 +241,91 @@ class TestValidation:
         result = await tool.execute({"slug": "dup", "what_we_sell": "real deliverable"})
         assert not result.success
         assert "company_create failed" in result.error
+
+
+class TestPaymentRail:
+    @pytest.mark.asyncio
+    async def test_onboard_sets_fiat_rail_and_guidance(
+        self, tool: CompanyOnboardTool, company_mgr: CompanyManager
+    ) -> None:
+        result = await tool.execute(
+            {
+                "slug": "fiatco",
+                "what_we_sell": "A real downloadable report for real buyers.",
+                "payment_rail": "fiat",
+            }
+        )
+        assert result.success is True
+        assert result.data["payment_rail"] == "fiat"
+        assert result.data["fiat_setup"] and "sk_test_" in result.data["fiat_setup"]
+        # Rail persisted on the company.
+        c = await company_mgr.get("fiatco")
+        assert c is not None and c.payment_rail == "fiat"
+        # Entity state starts at 'none' (KYC not done).
+        assert c.entity_state == "none"
+
+    @pytest.mark.asyncio
+    async def test_onboard_crypto_rail_no_fiat_setup(
+        self, tool: CompanyOnboardTool, company_mgr: CompanyManager
+    ) -> None:
+        result = await tool.execute(
+            {
+                "slug": "cryptoco",
+                "what_we_sell": "A real on-chain service real users pay for.",
+                "payment_rail": "crypto",
+            }
+        )
+        assert result.success is True
+        assert result.data["payment_rail"] == "crypto"
+        assert result.data["fiat_setup"] is None
+        assert (await company_mgr.get("cryptoco")).payment_rail == "crypto"
+
+    @pytest.mark.asyncio
+    async def test_onboard_without_rail_leaves_unset(
+        self, tool: CompanyOnboardTool, company_mgr: CompanyManager
+    ) -> None:
+        result = await tool.execute(
+            {"slug": "norail", "what_we_sell": "A real thing real people buy."}
+        )
+        assert result.success is True
+        assert result.data["payment_rail"] is None
+        assert (await company_mgr.get("norail")).payment_rail is None
+
+
+class TestEntityStateTool:
+    @pytest.fixture
+    def entity_tool(self, company_mgr: CompanyManager):
+        from tools.companies.entity_state_tool import CompanySetEntityStateTool
+
+        t = CompanySetEntityStateTool()
+        t._company_manager = company_mgr
+        return t
+
+    @pytest.mark.asyncio
+    async def test_advance_to_verified(self, entity_tool, company_mgr) -> None:
+        await company_mgr.create("acme", "Acme")
+        r = await entity_tool.execute({"slug": "acme", "state": "verified"})
+        assert r.success is True
+        assert r.data["entity_state"] == "verified"
+        assert "live fiat" in (r.data["note"] or "")
+        assert await company_mgr.get_entity_state("acme") == "verified"
+
+    @pytest.mark.asyncio
+    async def test_invalid_state(self, entity_tool, company_mgr) -> None:
+        await company_mgr.create("acme", "Acme")
+        r = await entity_tool.execute({"slug": "acme", "state": "live"})
+        assert r.success is False
+        assert "invalid state" in (r.error or "")
+
+    @pytest.mark.asyncio
+    async def test_unknown_company(self, entity_tool) -> None:
+        r = await entity_tool.execute({"slug": "ghost", "state": "verified"})
+        assert r.success is False
+        assert "not found" in (r.error or "")
+
+    @pytest.mark.asyncio
+    async def test_restricted_note(self, entity_tool, company_mgr) -> None:
+        await company_mgr.create("acme", "Acme")
+        r = await entity_tool.execute({"slug": "acme", "state": "restricted"})
+        assert r.success is True
+        assert "blocked" in (r.data["note"] or "")

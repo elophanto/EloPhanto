@@ -280,6 +280,11 @@ class ToolRegistry:
         self.register(CompanyArchiveTool())
         self.register(CompanyPurgeTool())
 
+        # ABE finance rail — KYC / financial-readiness state walkthrough.
+        from tools.companies.entity_state_tool import CompanySetEntityStateTool
+
+        self.register(CompanySetEntityStateTool())
+
         # Role management tools (ABE Phase 8) — chat-callable
         # equivalents of `elophanto role …` CLI commands.
         from tools.roles import (
