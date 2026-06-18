@@ -711,3 +711,80 @@ class TestFiatReconcile:
         # Recorded under acme-co, NOT the default/active company.
         assert await ledger.sum("acme-co", type="usd", direction="in") == 20.0
         assert await ledger.sum(current_company_id(), type="usd", direction="in") == 0.0
+
+
+class _FakeScheduler:
+    def __init__(self) -> None:
+        self.created: list[dict] = []
+        self._existing: list = []
+
+    async def list_schedules(self):
+        return list(self._existing)
+
+    async def create_schedule(self, **kw):
+        from types import SimpleNamespace
+
+        e = SimpleNamespace(name=kw["name"], direct_tool=kw.get("direct_tool"))
+        self.created.append(kw)
+        self._existing.append(e)
+        return e
+
+
+class _FakeCM:
+    def __init__(self, companies) -> None:
+        self._c = companies
+
+    async def list(self):
+        return self._c
+
+
+def _agent_for_seed(scheduler, company_manager, fiat_enabled=True):
+    from types import SimpleNamespace
+
+    from core.agent import Agent
+
+    a = Agent.__new__(Agent)
+    a._scheduler = scheduler
+    a._company_manager = company_manager
+    a._config = SimpleNamespace(
+        payments=SimpleNamespace(fiat=PaymentFiatConfig(enabled=fiat_enabled))
+    )
+    return a
+
+
+class TestFiatReconcileSeed:
+    @pytest.mark.asyncio
+    async def test_seeds_only_active_fiat_companies(self) -> None:
+        from types import SimpleNamespace
+
+        companies = [
+            SimpleNamespace(id="acme", status="active", payment_rail="fiat"),
+            SimpleNamespace(id="selfco", status="active", payment_rail=None),
+            SimpleNamespace(id="cryptoco", status="active", payment_rail="crypto"),
+            SimpleNamespace(id="old", status="archived", payment_rail="fiat"),
+        ]
+        sched = _FakeScheduler()
+        agent = _agent_for_seed(sched, _FakeCM(companies))
+        await agent._seed_fiat_reconcile_schedules()
+        # Only the active fiat company gets a reconcile schedule.
+        assert [c["name"] for c in sched.created] == ["fiat-reconcile-acme"]
+        assert sched.created[0]["direct_tool"] == "fiat_reconcile"
+        assert sched.created[0]["direct_params"] == {"company_id": "acme"}
+        # Idempotent — second run creates nothing new.
+        await agent._seed_fiat_reconcile_schedules()
+        assert len(sched.created) == 1
+
+    @pytest.mark.asyncio
+    async def test_seed_skips_when_fiat_disabled(self) -> None:
+        from types import SimpleNamespace
+
+        sched = _FakeScheduler()
+        companies = [SimpleNamespace(id="acme", status="active", payment_rail="fiat")]
+        agent = _agent_for_seed(sched, _FakeCM(companies), fiat_enabled=False)
+        await agent._seed_fiat_reconcile_schedules()
+        assert sched.created == []
+
+    @pytest.mark.asyncio
+    async def test_seed_no_scheduler_is_safe(self) -> None:
+        agent = _agent_for_seed(None, None)
+        await agent._seed_fiat_reconcile_schedules()  # must not raise

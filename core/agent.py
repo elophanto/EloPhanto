@@ -1328,6 +1328,12 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Payments system setup failed: {e}")
 
+        # Auto-create the fiat reconcile schedule(s) once payments + scheduler
+        # + companies are up. Best-effort + idempotent; no-op unless a company
+        # uses the fiat rail. Outside the payments try so a payments hiccup
+        # doesn't skip it, and vice-versa.
+        await self._seed_fiat_reconcile_schedules()
+
         # Prospecting tools (always available — only need DB)
         self._inject_prospecting_deps()
 
@@ -2265,6 +2271,49 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool is not None and hasattr(tool, "_role_manager"):
                 tool._role_manager = self._role_manager
+
+    async def _seed_fiat_reconcile_schedules(self) -> None:
+        """Auto-create a periodic reconcile schedule per fiat-rail company so
+        received Stripe payments get recorded hands-off (ABE finance rail).
+
+        Idempotent (dedupe by schedule name). Best-effort — never blocks
+        startup. The schedule fires ``fiat_reconcile`` via the SAFE direct-tool
+        fast path (no LLM, ~$0) every 30m, and passes ``company_id`` in
+        ``direct_params`` so it records under the right business regardless of
+        the scheduler's fire-time context (scheduler._run_direct_tool does not
+        set the company contextvar). See tmp/abe-finance-rail-spec §17.
+        """
+        if self._scheduler is None or self._company_manager is None:
+            return
+        fiat = getattr(self._config.payments, "fiat", None)
+        if fiat is None or not getattr(fiat, "enabled", False):
+            return
+        try:
+            companies = await self._company_manager.list()
+            existing_names = {s.name for s in await self._scheduler.list_schedules()}
+            created = 0
+            for c in companies:
+                if c.status != "active" or getattr(c, "payment_rail", None) != "fiat":
+                    continue
+                name = f"fiat-reconcile-{c.id}"
+                if name in existing_names:
+                    continue
+                await self._scheduler.create_schedule(
+                    name=name,
+                    task_goal="",
+                    cron_expression="30m",
+                    description=(
+                        f"Record received Stripe payments for {c.id} "
+                        "(ABE fiat rail)."
+                    ),
+                    direct_tool="fiat_reconcile",
+                    direct_params={"company_id": c.id},
+                )
+                created += 1
+            if created:
+                logger.info("Seeded %d fiat-reconcile schedule(s)", created)
+        except Exception as e:
+            logger.warning("fiat-reconcile schedule seeding failed: %s", e)
 
     async def _seed_default_missions(self) -> None:
         """First-run seeding of missions from identity (Phase 2.6).

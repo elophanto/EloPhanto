@@ -893,7 +893,19 @@ class TaskScheduler:
             return
 
         try:
-            result = await tool.execute(params)
+            # Run the tool in the schedule's company context so company-scoped
+            # direct tools (e.g. fiat_reconcile) attribute to the right
+            # business — the contextvar otherwise stays at the process default
+            # here. Best-effort: a stale/blank company_id falls back cleanly.
+            from core.company import reset_current_company, set_current_company
+
+            _company_token = set_current_company(
+                schedule.company_id or "elophanto-self"
+            )
+            try:
+                result = await tool.execute(params)
+            finally:
+                reset_current_company(_company_token)
             success = bool(getattr(result, "success", True))
             data = getattr(result, "data", {}) or {}
             error = getattr(result, "error", None)
