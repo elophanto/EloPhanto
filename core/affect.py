@@ -320,55 +320,70 @@ class AffectManager:
     def __init__(self, db: Database, config: IdentityConfig | None = None) -> None:
         self._db = db
         self._config = config
-        self._state: AffectState | None = None
+        # ABE Phase 12 (Tier 2 #5, 2026-06-18) — per-company cache.
+        # Each company gets its own PAD state so frustration on acme
+        # doesn't cool elophanto-self's temperature mid-cycle.
+        self._cache: dict[str, AffectState] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     async def load_or_create(self) -> AffectState:
-        rows = await self._db.execute("SELECT * FROM affect_state WHERE id = 'self'")
+        from core.company import current_company_id
+
+        company_id = current_company_id()
+        rows = await self._db.execute(
+            "SELECT * FROM affect_state WHERE company_id = ? AND id = 'self'",
+            (company_id,),
+        )
         if rows:
             r = rows[0]
-            self._state = AffectState(
+            state = AffectState(
                 pleasure=float(r["pleasure"] or 0.0),
                 arousal=float(r["arousal"] or 0.0),
                 dominance=float(r["dominance"] or 0.0),
                 last_decay_at=r["last_decay_at"] or "",
                 updated_at=r["updated_at"] or "",
             )
-            await self._load_recent_events(self._state)
+            self._cache[company_id] = state
+            await self._load_recent_events(state)
             # Decay through any wall-clock gap since last persist. A
             # process that was offline for 6h wakes up at near-zero,
             # which is right — emotions don't survive sleep at full
             # intensity in humans either.
-            decayed = self._apply_decay_pure(self._state)
+            decayed = self._apply_decay_pure(state)
             if decayed:
-                await self._persist_state(self._state)
+                await self._persist_state(state)
             logger.info(
-                "Affect loaded (P=%+.2f A=%+.2f D=%+.2f, label=%s)",
-                self._state.pleasure,
-                self._state.arousal,
-                self._state.dominance,
-                self._dominant_label(self._state),
+                "Affect loaded for company=%s (P=%+.2f A=%+.2f D=%+.2f, label=%s)",
+                company_id,
+                state.pleasure,
+                state.arousal,
+                state.dominance,
+                self._dominant_label(state),
             )
-            return self._state
+            return state
 
         now = datetime.now(UTC).isoformat()
         await self._db.execute_insert(
             """INSERT INTO affect_state
-               (id, pleasure, arousal, dominance, last_decay_at, updated_at)
-               VALUES ('self', 0.0, 0.0, 0.0, ?, ?)""",
-            (now, now),
+               (id, company_id, pleasure, arousal, dominance, last_decay_at, updated_at)
+               VALUES ('self', ?, 0.0, 0.0, 0.0, ?, ?)""",
+            (company_id, now, now),
         )
-        self._state = AffectState(last_decay_at=now, updated_at=now)
-        return self._state
+        state = AffectState(last_decay_at=now, updated_at=now)
+        self._cache[company_id] = state
+        return state
 
     async def get_state(self) -> AffectState:
-        if self._state is None:
-            await self.load_or_create()
-        assert self._state is not None
-        return self._state
+        from core.company import current_company_id
+
+        company_id = current_company_id()
+        cached = self._cache.get(company_id)
+        if cached is not None:
+            return cached
+        return await self.load_or_create()
 
     # ------------------------------------------------------------------
     # Event recording — the only way state moves
@@ -425,12 +440,23 @@ class AffectManager:
         applied_p = pleasure_delta * eff_mult
         applied_a = arousal_delta * eff_mult
         applied_d = dominance_delta * eff_mult
+        from core.company import current_company_id
+
         await self._db.execute_insert(
             """INSERT INTO affect_events
                (label, source, pleasure_delta, arousal_delta,
-                dominance_delta, halflife_seconds, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (label, source, applied_p, applied_a, applied_d, halflife_seconds, now),
+                dominance_delta, halflife_seconds, created_at, company_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                label,
+                source,
+                applied_p,
+                applied_a,
+                applied_d,
+                halflife_seconds,
+                now,
+                current_company_id(),
+            ),
         )
 
         # Append to in-memory recent list, evict oldest beyond cap.
@@ -832,27 +858,33 @@ See [docs/69-AFFECT.md](../../docs/69-AFFECT.md). Last updated: {now}.*
     # ------------------------------------------------------------------
 
     async def _persist_state(self, state: AffectState) -> None:
+        from core.company import current_company_id
+
         await self._db.execute_insert(
             """UPDATE affect_state
                SET pleasure = ?, arousal = ?, dominance = ?,
                    last_decay_at = ?, updated_at = ?
-               WHERE id = 'self'""",
+               WHERE company_id = ? AND id = 'self'""",
             (
                 state.pleasure,
                 state.arousal,
                 state.dominance,
                 state.last_decay_at,
                 state.updated_at,
+                current_company_id(),
             ),
         )
 
     async def _load_recent_events(self, state: AffectState) -> None:
+        from core.company import current_company_id
+
         rows = await self._db.execute(
             """SELECT label, source, pleasure_delta, arousal_delta,
                       dominance_delta, halflife_seconds, created_at
                FROM affect_events
+               WHERE company_id = ?
                ORDER BY id DESC LIMIT ?""",
-            (_RECENT_EVENTS_CAP,),
+            (current_company_id(), _RECENT_EVENTS_CAP),
         )
         state.recent_events = [
             AffectEvent(

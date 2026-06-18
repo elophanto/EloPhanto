@@ -904,3 +904,124 @@ class TestContentSourceSimulations:
         assert "<affect>" in block
         assert "pleasure=" in block
         assert "You ARE feeling" in block
+
+
+# ----------------------------------------------------------------------
+# ABE Phase 12 (Tier 2 #5, 2026-06-18) — per-company affect partitioning
+# ----------------------------------------------------------------------
+
+
+class TestCompanyScoping:
+    """Each company gets its own PAD state + its own affect_events.
+    Frustration on acme cannot cool elophanto-self's temperature."""
+
+    @pytest.mark.asyncio
+    async def test_pad_state_isolated_per_company(self, db: Database) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        mgr = AffectManager(db=db)
+
+        # Default: a strong positive emotion.
+        await mgr.load_or_create()
+        await mgr.record_event(
+            label="joy",
+            source="content",
+            pleasure_delta=0.7,
+            arousal_delta=0.2,
+            dominance_delta=0.3,
+        )
+        self_pleasure_high = (await mgr.get_state()).pleasure
+
+        # acme: strong negative emotion.
+        token = set_current_company("acme-inc")
+        try:
+            await mgr.load_or_create()
+            await mgr.record_event(
+                label="frustration",
+                source="content",
+                pleasure_delta=-0.6,
+                arousal_delta=0.4,
+                dominance_delta=-0.3,
+            )
+            acme_pleasure_low = (await mgr.get_state()).pleasure
+        finally:
+            reset_current_company(token)
+
+        # Default's pleasure is untouched by acme's frustration.
+        again = await mgr.get_state()
+        assert again.pleasure == self_pleasure_high
+        assert acme_pleasure_low < 0
+        assert self_pleasure_high > 0
+
+    @pytest.mark.asyncio
+    async def test_recent_events_isolated_per_company(self, db: Database) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        mgr = AffectManager(db=db)
+        await mgr.load_or_create()
+        await mgr.record_event(
+            label="self_event",
+            source="content",
+            pleasure_delta=0.1,
+            arousal_delta=0.1,
+            dominance_delta=0.0,
+        )
+
+        token = set_current_company("acme-inc")
+        try:
+            await mgr.load_or_create()
+            await mgr.record_event(
+                label="acme_event",
+                source="content",
+                pleasure_delta=0.1,
+                arousal_delta=0.1,
+                dominance_delta=0.0,
+            )
+            # Force reload to exercise _load_recent_events with the
+            # company filter applied.
+            mgr._cache.pop("acme-inc", None)
+            acme_state = await mgr.load_or_create()
+            acme_labels = [e.label for e in acme_state.recent_events]
+            assert acme_labels == ["acme_event"]
+        finally:
+            reset_current_company(token)
+
+        # Default reload likewise sees only its own event.
+        mgr._cache.pop("elophanto-self", None)
+        self_state = await mgr.load_or_create()
+        self_labels = [e.label for e in self_state.recent_events]
+        assert self_labels == ["self_event"]
+
+    @pytest.mark.asyncio
+    async def test_persist_lands_on_correct_company_row(self, db: Database) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        mgr = AffectManager(db=db)
+        await mgr.load_or_create()
+        await mgr.record_event(
+            label="joy",
+            source="content",
+            pleasure_delta=0.5,
+            arousal_delta=0.0,
+            dominance_delta=0.0,
+        )
+
+        token = set_current_company("acme-inc")
+        try:
+            await mgr.load_or_create()
+            await mgr.record_event(
+                label="frustration",
+                source="content",
+                pleasure_delta=-0.5,
+                arousal_delta=0.0,
+                dominance_delta=0.0,
+            )
+        finally:
+            reset_current_company(token)
+
+        rows = await db.execute(
+            "SELECT company_id, pleasure FROM affect_state ORDER BY company_id"
+        )
+        by_company = {r["company_id"]: r["pleasure"] for r in rows}
+        assert by_company["elophanto-self"] > 0
+        assert by_company["acme-inc"] < 0

@@ -211,7 +211,14 @@ class IdentityManager:
         # identities preserve whatever display_name they were created
         # with — renaming after first boot needs explicit identity_update.
         self._agent_name = agent_name or "EloPhanto"
-        self._identity: Identity | None = None
+        # ABE Phase 12 (Tier 2 #5, 2026-06-18) — cache is per-company so
+        # operator's `company_use acme-inc` flip immediately sees acme's
+        # identity instead of the previous company's cached row. Prior
+        # behavior (single `_identity` field) was the muddle: identity
+        # for acme writes leaked into elophanto-self's prompt and vice
+        # versa. Background mind cycles in different companies likewise
+        # now each touch their own row via the contextvar.
+        self._cache: dict[str, Identity] = {}
         self._tasks_since_deep_reflect: int = 0
         self._tasks_since_light_reflect: int = 0
         # Wired by Agent after construction (Agent has the indexer
@@ -233,13 +240,21 @@ class IdentityManager:
 
     async def load_or_create(self) -> Identity:
         """Load identity from DB, or perform first awakening if none exists."""
-        rows = await self._db.execute("SELECT * FROM identity WHERE id = 'self'")
+        from core.company import current_company_id
+
+        company_id = current_company_id()
+        rows = await self._db.execute(
+            "SELECT * FROM identity WHERE company_id = ? AND id = 'self'",
+            (company_id,),
+        )
         if rows:
-            self._identity = self._row_to_identity(rows[0])
+            identity = self._row_to_identity(rows[0])
+            self._cache[company_id] = identity
             logger.info(
-                "Identity loaded: %s (v%d)",
-                self._identity.display_name,
-                self._identity.version,
+                "Identity loaded for company=%s: %s (v%d)",
+                company_id,
+                identity.display_name,
+                identity.version,
             )
             # Reconcile identity.display_name with config.agent_name when
             # they disagree. Config is authoritative — operators rename
@@ -250,15 +265,15 @@ class IdentityManager:
             # without this, the agent introduces itself as EloPhanto
             # because identity_context injects display_name into the
             # system prompt and overrides the planner's templated name.
-            if self._identity.display_name != self._agent_name and self._agent_name:
-                old_name = self._identity.display_name
+            if identity.display_name != self._agent_name and self._agent_name:
+                old_name = identity.display_name
                 logger.info(
                     "Reconciling identity.display_name %r -> %r (config wins)",
                     old_name,
                     self._agent_name,
                 )
-                self._identity.display_name = self._agent_name
-                await self._persist_identity(self._identity)
+                identity.display_name = self._agent_name
+                await self._persist_identity(identity)
                 # Sweep the agent's self-narrative markdown files for
                 # the old name. The DB has the new name now, the
                 # system prompt template has the new name, but if we
@@ -292,8 +307,8 @@ class IdentityManager:
                 except Exception as e:
                     logger.warning("Static-file EloPhanto sweep failed: %s", e)
             # One-time prune: trim any lists that exceed current caps
-            await self._prune_lists_if_needed(self._identity)
-            return self._identity
+            await self._prune_lists_if_needed(identity)
+            return identity
 
         # First awakening
         if self._config.first_awakening:
@@ -303,11 +318,19 @@ class IdentityManager:
         return await self._create_default_identity()
 
     async def get_identity(self) -> Identity:
-        """Get current identity, loading if needed."""
-        if self._identity is None:
-            await self.load_or_create()
-        assert self._identity is not None
-        return self._identity
+        """Get current identity, loading if needed.
+
+        Per-company cache (ABE Phase 12). First access for a new
+        company-context triggers a DB load (and first_awakening or
+        defaults if no row exists yet).
+        """
+        from core.company import current_company_id
+
+        company_id = current_company_id()
+        cached = self._cache.get(company_id)
+        if cached is not None:
+            return cached
+        return await self.load_or_create()
 
     async def update_field(
         self, field_name: str, value: Any, reason: str, trigger: str = "explicit"
@@ -395,8 +418,10 @@ class IdentityManager:
             logger.warning("First awakening LLM call failed: %s — using defaults", e)
             identity = self._default_identity()
 
+        from core.company import current_company_id
+
         await self._persist_identity(identity)
-        self._identity = identity
+        self._cache[current_company_id()] = identity
         logger.info("First awakening complete: %s", identity.display_name)
         return identity
 
@@ -847,22 +872,28 @@ updated: {now}
 
     async def _create_default_identity(self) -> Identity:
         """Create and persist a default identity."""
+        from core.company import current_company_id
+
         identity = self._default_identity()
         await self._persist_identity(identity)
-        self._identity = identity
+        self._cache[current_company_id()] = identity
         return identity
 
     async def _persist_identity(self, identity: Identity) -> None:
-        """Insert or replace identity in DB."""
+        """Insert or replace identity in DB. Stamps current company id
+        so each company gets its own row keyed by (company_id, id)."""
+        from core.company import current_company_id
+
         await self._db.execute_insert(
             "INSERT OR REPLACE INTO identity "
-            "(id, creator, display_name, purpose, values_json, beliefs_json, "
+            "(id, company_id, creator, display_name, purpose, values_json, beliefs_json, "
             "curiosities_json, boundaries_json, capabilities_json, personality_json, "
             "communication_style, initial_thoughts, version, created_at, updated_at, "
             "role_persona) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 identity.id,
+                current_company_id(),
                 "EloPhanto",  # Always immutable
                 identity.display_name,
                 identity.purpose,
