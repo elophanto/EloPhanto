@@ -55,7 +55,7 @@ payments-cdp = [
 # See tmp/abe-finance-rail-spec-2026-06-18.md.
 payments-fiat = [
     "stripe>=11.0.0",
-    "stripe-agent-toolkit>=0.7.0",
+    "stripe-agent-toolkit>=0.6.0",
 ]
 mcp = [
     "mcp[cli]>=1.0.0",

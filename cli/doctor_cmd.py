@@ -870,8 +870,20 @@ def _check_proxy(project_root: Path) -> CheckResult:
             )
         return CheckResult("proxy", "warn", f"{display} returned HTTP {r.status_code}")
     except Exception as e:
+        # WARN, not fail: a live egress probe is network-flaky (timeouts), the
+        # proxy is browser-only (LLM/API calls go direct — see docs/73), and the
+        # browser launches on first use, not at startup. So an unreachable probe
+        # must NOT block `chat` from starting — that turned a transient proxy
+        # timeout into an intermittent ./start.sh gate. Browser-launch enforces
+        # the proxy at the point it actually matters.
         return CheckResult(
-            "proxy", "fail", f"{display} not reachable: {type(e).__name__}: {e}"
+            "proxy",
+            "warn",
+            f"{display} not reachable right now "
+            f"({type(e).__name__}) — browser traffic won't be proxied until "
+            f"it's back; chat is unaffected",
+            "Check the proxy is up / creds in config.yaml; or set "
+            "proxy.enabled=false if you don't need it.",
         )
 
 
