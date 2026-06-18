@@ -148,13 +148,17 @@ Phase 1 ships the **ego-driven** four (frustration, relief, anxiety, repeat-frus
 ## Storage
 
 ```sql
+-- Schema as of ABE Phase 12 (Tier 2 #5, commit 547ed5d, 2026-06-18).
+-- Was a singleton id='self' row; now per-company keyed by (company_id, id).
 CREATE TABLE affect_state (
-    id TEXT PRIMARY KEY DEFAULT 'self',
+    id TEXT NOT NULL DEFAULT 'self',
+    company_id TEXT NOT NULL DEFAULT 'elophanto-self',
     pleasure REAL NOT NULL DEFAULT 0.0,
     arousal REAL NOT NULL DEFAULT 0.0,
     dominance REAL NOT NULL DEFAULT 0.0,
     last_decay_at TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (company_id, id)
 );
 
 CREATE TABLE affect_events (
@@ -165,13 +169,14 @@ CREATE TABLE affect_events (
     arousal_delta REAL NOT NULL,
     dominance_delta REAL NOT NULL,
     halflife_seconds REAL NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    company_id TEXT NOT NULL DEFAULT 'elophanto-self'  -- added Phase 12
 );
 
 CREATE INDEX idx_affect_events_created ON affect_events(created_at);
 ```
 
-Singleton state row, append-only events. Same shape as `ego_state` / `ego_outcomes`.
+**Per-company state row** (one per active company), append-only events scoped to the active company via the `company_id` column. Same shape as `ego_state` / `ego_outcomes`. Frustration on `acme-inc` cannot cool `elophanto-self`'s temperature — the `AffectManager`'s in-memory cache is `dict[company_id, AffectState]` and every SELECT/INSERT scopes to `current_company_id()` via the contextvar.
 
 ## Integration with existing layers
 

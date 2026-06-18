@@ -1,10 +1,12 @@
 # EloPhanto — Cross-Session Search
 
-> **Status: Planned** — SQLite FTS5-based search across past conversation sessions.
+> **Status: Shipped** — SQLite FTS5-based search across past conversation sessions, **scoped to the active company** (ABE Phase 12 post-audit, commit `2ce2064`, 2026-06-18).
 
 ## Why This Matters
 
 EloPhanto persists conversation history per channel/user in `core/session.py`, but sessions are isolated — the agent cannot search or recall what happened in previous conversations. When a user asks "remember when we debugged that API issue last week?" or the agent needs to recall a past approach, it has no mechanism to look back.
+
+**Tenancy:** as of the 2026-06-18 audit, `session_search` always filters by `current_company_id()` via a subquery against the now company-scoped `sessions` table. Operator searching while in `elophanto-self` cannot see `acme-inc`'s session messages, even if both sessions shared the same channel + user_id (which is itself now allowed by the wider UNIQUE constraint — see [Tier 2 #4](76-ABE-FRAMEWORK.md)). `session_messages` rows have no `company_id` column of their own; tenancy is inherited from the parent session.
 
 This is distinct from the knowledge system (`05-KNOWLEDGE-SYSTEM.md`) which stores curated information. Session search provides access to raw conversational history — the full context of past interactions including tool calls, results, reasoning, and user feedback.
 
