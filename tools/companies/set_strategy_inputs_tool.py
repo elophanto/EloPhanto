@@ -42,6 +42,10 @@ _VALID_FOCUS: tuple[str, ...] = (
     "email",
     "brand",
 )
+# Founder-doctrine Stage 0 (2026-06-18) — business maturity gates channel
+# breadth in build_system_prompt. Default 'scaling' preserves the prior
+# multi-surface behavior; 'pre_revenue' forces one channel + validation-first.
+_VALID_MATURITY: tuple[str, ...] = ("pre_revenue", "early", "scaling")
 
 
 class CompanySetStrategyInputsTool(BaseTool):
@@ -65,7 +69,8 @@ class CompanySetStrategyInputsTool(BaseTool):
         return (
             "Capture business context for company_plan: target_audience, "
             "competitors, budget, risk_tolerance, primary_goals, "
-            "strategy_mode, focus. Updates strategy_inputs section of "
+            "strategy_mode, focus, maturity (pre_revenue|early|scaling — "
+            "gates channel breadth). Updates strategy_inputs section of "
             "company.yaml. MODERATE. See strategy-pipeline skill."
         )
 
@@ -100,6 +105,17 @@ class CompanySetStrategyInputsTool(BaseTool):
                     "enum": list(_VALID_MODES),
                 },
                 "focus": {"type": "string", "enum": list(_VALID_FOCUS)},
+                "maturity": {
+                    "type": "string",
+                    "enum": list(_VALID_MATURITY),
+                    "description": (
+                        "Business maturity — gates how broad the strategy may "
+                        "be. 'pre_revenue' (no proven paying customers → ONE "
+                        "channel, validation-first), 'early' (early signal → "
+                        "one primary + one capped experiment), 'scaling' "
+                        "(proven → full multi-surface coverage; default)."
+                    ),
+                },
                 "timeline_hint": {"type": "string"},
                 "context": {
                     "type": "string",
@@ -157,6 +173,7 @@ class CompanySetStrategyInputsTool(BaseTool):
             "unique_selling_points",
             "strategy_mode",
             "focus",
+            "maturity",
             "timeline_hint",
             "context",
         ):
@@ -196,6 +213,12 @@ class CompanySetStrategyInputsTool(BaseTool):
         if updated.get("focus") and updated["focus"] not in _VALID_FOCUS:
             logger.warning(
                 "unknown focus %r; valid: %s", updated["focus"], _VALID_FOCUS
+            )
+        if updated.get("maturity") and updated["maturity"] not in _VALID_MATURITY:
+            logger.warning(
+                "unknown maturity %r; valid: %s",
+                updated["maturity"],
+                _VALID_MATURITY,
             )
 
         doc["strategy_inputs"] = updated

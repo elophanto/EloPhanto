@@ -919,6 +919,18 @@ _MIGRATIONS = [
     "ALTER TABLE ego_outcomes        ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
     "ALTER TABLE ego_humbling_events ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
     "ALTER TABLE affect_events       ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    # Founder-doctrine Stage 0 (tmp/founder-vs-elophanto-audit-2026-06-18.md
+    # Phase 6, 2026-06-18). Every goal now carries (a) its position in the
+    # founder loop — scan|validate|build|launch|acquire|operate|scale, default
+    # 'unknown' for pre-migration rows — and (b) a kill_criterion: the
+    # measurable threshold (number + date/volume) at which the goal should be
+    # abandoned, written before work starts. kill_criterion is nullable so
+    # pre-Stage-0 goals stay valid; new goals get one populated by the
+    # decompose prompt. The checkpoint-level `stage` lets the validate-first
+    # gate mark which checkpoint produces the paying-party signal.
+    "ALTER TABLE goals            ADD COLUMN stage TEXT NOT NULL DEFAULT 'unknown'",
+    "ALTER TABLE goals            ADD COLUMN kill_criterion TEXT",
+    "ALTER TABLE goal_checkpoints ADD COLUMN stage TEXT NOT NULL DEFAULT 'unknown'",
 ]
 
 

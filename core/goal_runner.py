@@ -35,6 +35,7 @@ GOAL: {goal}
 
 CURRENT CHECKPOINT ({order} of {total}):
   Title: {title}
+  Stage: {stage}
   Description: {description}
   Success Criteria: {criteria}
 
@@ -44,6 +45,10 @@ CONTEXT FROM PREVIOUS CHECKPOINTS:
 INSTRUCTIONS:
 - Focus ONLY on this checkpoint's objective.
 - Use the success criteria to determine when you are done.
+- If the Stage is `validate`, you are looking for a signal that a real outside
+  party will PAY (pre-order, LOI, paid pilot, advertiser/sponsor/affiliate
+  commitment). Do not substitute interest signals (signups, follows, likes) for
+  it, and do not slide into building — that is a later stage.
 - When finished, provide a summary of what was accomplished.
 """
 
@@ -335,6 +340,7 @@ class GoalRunner:
                 order=checkpoint.order,
                 total=goal.total_checkpoints,
                 title=checkpoint.title,
+                stage=checkpoint.stage or "unknown",
                 description=checkpoint.description,
                 criteria=checkpoint.success_criteria,
                 context=goal.context_summary or "(no prior context)",
