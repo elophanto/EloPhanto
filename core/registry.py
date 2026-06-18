@@ -426,6 +426,11 @@ class ToolRegistry:
 
         self.register(PaymentRequestTool())
 
+        # Fiat rail (Stripe) — ABE finance rail Slice 2 (Receive).
+        from tools.payments.fiat_link_tool import FiatPaymentLinkTool
+
+        self.register(FiatPaymentLinkTool())
+
         # Web search tools (Search.sh)
         from tools.data.web_search import WebExtractTool, WebSearchTool
 

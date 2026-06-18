@@ -86,15 +86,22 @@ class StripeFiatProvider:
                     cents += int(entry.get("amount") or 0)
         return cents / 100.0
 
-    def _retrieve_balance_sync(self) -> float:
-        """Blocking Balance API read. Runs in a worker thread (see
-        cash_on_hand). Lazy-imports stripe so the dep stays optional."""
+    def _import_stripe(self) -> Any:
+        """Lazy-import the stripe SDK (the dep is an optional extra). A
+        single seam so balance + payment-link share it and tests can
+        monkeypatch it without a real install."""
         try:
             import stripe
         except ImportError as e:  # pragma: no cover - depends on extra
             raise FiatRailError(
                 "stripe is not installed — run: " "uv pip install -e '.[payments-fiat]'"
             ) from e
+        return stripe
+
+    def _retrieve_balance_sync(self) -> float:
+        """Blocking Balance API read. Runs in a worker thread (see
+        cash_on_hand)."""
+        stripe = self._import_stripe()
         try:
             bal = stripe.Balance.retrieve(api_key=self._secret_key())
         except FiatRailError:
@@ -117,3 +124,72 @@ class StripeFiatProvider:
         Runs the blocking SDK call off the event loop.
         """
         return await asyncio.to_thread(self._retrieve_balance_sync)
+
+    # ── Receive (Slice 2): create a way to get paid ──────────────────
+
+    def _create_payment_link_sync(
+        self,
+        *,
+        amount_cents: int,
+        currency: str,
+        description: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Create a Stripe Payment Link for a one-off amount (blocking).
+
+        Creates an inline Price (auto-creates the backing product), then a
+        reusable, shareable Payment Link. Idempotency keys make the SDK's
+        network retries safe — a retried create returns the same objects,
+        not duplicates. In test mode these are sandbox objects (no money).
+        """
+        stripe = self._import_stripe()
+        key = self._secret_key()
+        try:
+            price = stripe.Price.create(
+                currency=currency.lower(),
+                unit_amount=amount_cents,
+                product_data={"name": (description or "Payment")[:250]},
+                api_key=key,
+                idempotency_key=f"{idempotency_key}:price",
+            )
+            link = stripe.PaymentLink.create(
+                line_items=[{"price": price["id"], "quantity": 1}],
+                api_key=key,
+                idempotency_key=f"{idempotency_key}:link",
+            )
+        except FiatRailError:
+            raise
+        except Exception as e:  # normalize; never echo the key
+            raise FiatRailError(
+                f"Stripe payment link creation failed: {type(e).__name__}"
+            ) from e
+        return {
+            "id": link["id"],
+            "url": link["url"],
+            "price_id": price["id"],
+            "amount": amount_cents / 100.0,
+            "currency": currency.lower(),
+            "mode": "test" if self.is_test_mode else "live",
+        }
+
+    async def create_payment_link(
+        self,
+        *,
+        amount: float,
+        description: str,
+        currency: str | None = None,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Create a shareable payment link. ``amount`` is in major units
+        (e.g. 49.0 = $49.00). Runs the blocking SDK call off the loop."""
+        cur = currency or self._config.base_currency or "USD"
+        cents = int(round(float(amount) * 100))
+        if cents <= 0:
+            raise FiatRailError("amount must be positive")
+        return await asyncio.to_thread(
+            self._create_payment_link_sync,
+            amount_cents=cents,
+            currency=cur,
+            description=description,
+            idempotency_key=idempotency_key,
+        )
