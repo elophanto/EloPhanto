@@ -332,3 +332,137 @@ class TestDoctorFiatCheck:
         )
         assert r.status == "warn"
         assert "LIVE" in r.detail
+
+
+# ── Receive: payment link (Slice 2) ──────────────────────────────────
+
+
+class _FakeStripe:
+    """Minimal stand-in for the stripe SDK — captures call kwargs."""
+
+    def __init__(self) -> None:
+        self.captured: dict[str, dict] = {}
+
+    class _Price:
+        def __init__(self, outer):
+            self._outer = outer
+
+        def create(self, **kw):
+            self._outer.captured["price"] = kw
+            return {"id": "price_1"}
+
+    class _PaymentLink:
+        def __init__(self, outer):
+            self._outer = outer
+
+        def create(self, **kw):
+            self._outer.captured["link"] = kw
+            return {"id": "plink_1", "url": "https://pay.stripe.com/test_abc"}
+
+    @property
+    def Price(self):
+        return self._Price(self)
+
+    @property
+    def PaymentLink(self):
+        return self._PaymentLink(self)
+
+
+class TestCreatePaymentLink:
+    @pytest.mark.asyncio
+    async def test_create_link_converts_amount_and_passes_idempotency(
+        self, monkeypatch
+    ) -> None:
+        provider = StripeFiatProvider(
+            PaymentFiatConfig(mode="test", base_currency="USD"),
+            _FakeVault({"stripe_secret_key": "sk_test_x"}),
+        )
+        fake = _FakeStripe()
+        monkeypatch.setattr(provider, "_import_stripe", lambda: fake)
+        res = await provider.create_payment_link(
+            amount=49.0, description="2026 SE Guide", idempotency_key="abc"
+        )
+        assert res["id"] == "plink_1"
+        assert res["url"].startswith("https://pay.stripe.com/")
+        assert res["amount"] == 49.0
+        assert res["mode"] == "test"
+        # $49.00 → 4900 cents
+        assert fake.captured["price"]["unit_amount"] == 4900
+        # idempotency keys make SDK retries safe
+        assert fake.captured["price"]["idempotency_key"] == "abc:price"
+        assert fake.captured["link"]["idempotency_key"] == "abc:link"
+
+    @pytest.mark.asyncio
+    async def test_create_link_rejects_nonpositive(self) -> None:
+        provider = StripeFiatProvider(
+            PaymentFiatConfig(mode="test"),
+            _FakeVault({"stripe_secret_key": "sk_test_x"}),
+        )
+        with pytest.raises(FiatRailError, match="positive"):
+            await provider.create_payment_link(
+                amount=0, description="x", idempotency_key="k"
+            )
+
+
+def _link_tool(mode: str = "test", enabled: bool = True, company_manager=None):
+    from types import SimpleNamespace
+
+    from tools.payments.fiat_link_tool import FiatPaymentLinkTool
+
+    fiat = PaymentFiatConfig(enabled=enabled, mode=mode)
+    t = FiatPaymentLinkTool()
+    t._config = SimpleNamespace(payments=SimpleNamespace(fiat=fiat))
+    t._vault = _FakeVault({"stripe_secret_key": "sk_test_x"})
+    t._company_manager = company_manager
+    return t
+
+
+class TestFiatLinkTool:
+    @pytest.mark.asyncio
+    async def test_disabled(self) -> None:
+        r = await _link_tool(enabled=False).execute({"amount": 49, "description": "x"})
+        assert r.success is False
+        assert "not enabled" in (r.error or "")
+
+    @pytest.mark.asyncio
+    async def test_live_unverified_blocked(self) -> None:
+        class CM:
+            async def get_entity_state(self, cid):
+                return "kyc_pending"
+
+        r = await _link_tool(mode="live", company_manager=CM()).execute(
+            {"amount": 49, "description": "x"}
+        )
+        assert r.success is False
+        assert "verified" in (r.error or "")
+
+    @pytest.mark.asyncio
+    async def test_invalid_amount(self) -> None:
+        r = await _link_tool().execute({"amount": 0, "description": "x"})
+        assert r.success is False
+
+    @pytest.mark.asyncio
+    async def test_missing_description(self) -> None:
+        r = await _link_tool().execute({"amount": 49, "description": "  "})
+        assert r.success is False
+
+    @pytest.mark.asyncio
+    async def test_test_mode_success(self, monkeypatch) -> None:
+        async def _fake_create(
+            self, *, amount, description, currency=None, idempotency_key
+        ):
+            return {
+                "id": "plink_1",
+                "url": "https://pay.stripe.com/test_abc",
+                "amount": amount,
+                "currency": "usd",
+                "mode": "test",
+            }
+
+        monkeypatch.setattr(StripeFiatProvider, "create_payment_link", _fake_create)
+        r = await _link_tool(mode="test").execute(
+            {"amount": 49, "description": "2026 Guide"}
+        )
+        assert r.success is True
+        assert r.data["url"].startswith("https://pay.stripe.com/")
+        assert "TEST" in r.data["note"]

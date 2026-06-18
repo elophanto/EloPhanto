@@ -2432,6 +2432,14 @@ class Agent:
             if tool and self._payments_manager:
                 tool._payments_manager = self._payments_manager
 
+        # Fiat rail (Stripe) tool needs config + vault + company_manager
+        # (for the live-mode entity_state gate), not the crypto manager.
+        fiat_tool = self._registry.get("fiat_payment_link")
+        if fiat_tool is not None:
+            fiat_tool._config = self._config
+            fiat_tool._vault = getattr(self, "_vault", None)
+            fiat_tool._company_manager = self._company_manager
+
     def _inject_prospecting_deps(self) -> None:
         """Inject database into prospecting tools."""
         prospecting_tools = (
