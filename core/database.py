@@ -1007,6 +1007,87 @@ def _rebuild_self_singletons_for_abe_phase12(conn: sqlite3.Connection) -> None:
             raise
 
 
+def _rebuild_sessions_unique_for_abe_phase12(conn: sqlite3.Connection) -> None:
+    """Tier 2 #4 (2026-06-18) — widen the sessions UNIQUE constraint.
+
+    Before: UNIQUE(channel, user_id) → operator running two companies
+    against the same channel+user_id collides on insert and the second
+    session silently overwrites the first via INSERT OR REPLACE.
+    After:  UNIQUE(channel, user_id, company_id) → each company gets
+    its own row per (channel, user_id), conversation histories stay
+    isolated.
+
+    The company_id column was added in Phase 1 via plain ALTER TABLE
+    so every existing row already has 'elophanto-self'. The only
+    rebuild work is swapping the constraint, which SQLite cannot do
+    in place — same CREATE-COPY-DROP-RENAME pattern as the singleton
+    PK rebuild. Idempotent: detects the new constraint via
+    `index_info` on the auto-generated UNIQUE index and skips if
+    already present.
+    """
+    cols = conn.execute("PRAGMA table_info(sessions)").fetchall()
+    if not cols:
+        return
+    col_names = [c["name"] for c in cols]
+    # The Phase-1 ALTER added company_id. If it's missing we're on a
+    # very-pre-Phase-1 DB and the rebuild would lose data; bail.
+    if "company_id" not in col_names:
+        logger.warning(
+            "sessions rebuild skipped: company_id column missing "
+            "(pre-Phase-1 DB?). Run normal migrations first."
+        )
+        return
+
+    # Detect: does any UNIQUE index on sessions cover all three of
+    # (channel, user_id, company_id)? If yes, rebuild already ran.
+    indexes = conn.execute("PRAGMA index_list(sessions)").fetchall()
+    for idx in indexes:
+        if not idx["unique"]:
+            continue
+        idx_cols = conn.execute(f"PRAGMA index_info({idx['name']})").fetchall()
+        idx_col_names = {c["name"] for c in idx_cols}
+        if idx_col_names == {"channel", "user_id", "company_id"}:
+            return  # already rebuilt
+
+    # Build the new schema with the same columns + the wider UNIQUE.
+    col_ddl_parts: list[str] = []
+    for c in cols:
+        name = c["name"]
+        ctype = c["type"] or "TEXT"
+        # Strip inline PRIMARY KEY off `session_id` so we can declare
+        # it at the table level (same shape as before — just rebuilding
+        # the UNIQUE clause).
+        is_pk = c["pk"] == 1
+        notnull = " NOT NULL" if (c["notnull"] or is_pk) else ""
+        default = f" DEFAULT {c['dflt_value']}" if c["dflt_value"] is not None else ""
+        col_ddl_parts.append(f"{name} {ctype}{notnull}{default}")
+    col_ddl_parts.append("PRIMARY KEY (session_id)")
+    col_ddl_parts.append("UNIQUE (channel, user_id, company_id)")
+    col_ddl = ",\n            ".join(col_ddl_parts)
+
+    conn.execute("DROP TABLE IF EXISTS sessions_phase12_new")
+    conn.execute("BEGIN")
+    try:
+        conn.execute(
+            f"CREATE TABLE sessions_phase12_new (\n            {col_ddl}\n        )"
+        )
+        cols_csv = ", ".join(col_names)
+        conn.execute(
+            f"INSERT INTO sessions_phase12_new ({cols_csv}) "
+            f"SELECT {cols_csv} FROM sessions"
+        )
+        conn.execute("DROP TABLE sessions")
+        conn.execute("ALTER TABLE sessions_phase12_new RENAME TO sessions")
+        conn.execute("COMMIT")
+        logger.info(
+            "Rebuilt sessions with UNIQUE(channel, user_id, company_id) "
+            "for ABE Phase 12 per-company session isolation"
+        )
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
 class Database:
     """SQLite database with optional sqlite-vec vector search."""
 
@@ -1070,6 +1151,21 @@ class Database:
                 "self-model singleton PK rebuild failed; managers will "
                 "still work in single-tenant mode but per-company "
                 "isolation won't activate: %s",
+                e,
+            )
+
+        # Tier 2 #4 (2026-06-18) — sessions UNIQUE rebuild. Idempotent
+        # (skips if the wider UNIQUE is already present). Same try/log
+        # discipline as the singleton rebuild so a one-table issue
+        # doesn't block the rest of init.
+        try:
+            _rebuild_sessions_unique_for_abe_phase12(self._conn)
+            self._conn.commit()
+        except Exception as e:
+            logger.warning(
+                "sessions UNIQUE rebuild failed; multi-tenant session "
+                "isolation degraded — two companies sharing channel+user_id "
+                "may collide on insert: %s",
                 e,
             )
 
