@@ -161,7 +161,12 @@ RULES:
    - acquire: prove ONE channel (CAC < LTV) before adding a second.
    - operate: retention beats chasing new revenue.
    Money funds your existence — but spend with a stage-appropriate reason, not
-   to look busy.
+   to look busy. You also COST money to think: the [COMPANY] line shows
+   net=$ (revenue − spend, where spend already includes your cognition cost,
+   shown in parentheses). A company marked BURNING earns less than it costs to
+   run including your own thinking — prefer actions that move its net positive,
+   and do not pour metered budget into a BURNING company that has no path to
+   revenue.
 4. Never message the owner unless it matters. Silence is professionalism.
 5. Update your scratchpad with what you did and what's next — use update_scratchpad.
 6. When you complete a goal checkpoint, ALWAYS call goal_status to mark it complete in the DB.
@@ -260,6 +265,11 @@ RULES:
    never advance a goal into `build` before a `validate` checkpoint has
    produced a paying-party signal, and don't spend on acquisition before one
    channel is proven. Stage discipline beats raw momentum.
+10. Watch METABOLISM. The [COMPANY] line shows net=$ (revenue − spend; spend
+   already includes your own cognition cost, shown in parentheses) and flags
+   BURNING when negative. You cost money to think; favor candidates that move a
+   BURNING company toward positive net, and avoid metered spend on a company
+   with no revenue path.
 
 CANDIDATE MENU (top {top_k} of {total_candidates}):
 {candidate_menu}
@@ -1626,7 +1636,13 @@ class AutonomousMind:
                     )
                     active_marker = " (active)" if c.id == active_now else ""
                     try:
-                        usd_out = await ledger.sum(c.id, type="usd", direction="out")
+                        # Metabolism (organ 1): net = revenue - spend, where
+                        # spend ALREADY includes the agent's cognition cost
+                        # (CostTracker mirrors every LLM call into the ledger
+                        # as usd-out). cognition is shown as a sub-component of
+                        # spend so the agent sees how much of its burn is its
+                        # own thinking. BURNING = costs more than it earns.
+                        met = await ledger.metabolism(c.id)
                         emails = await ledger.sum(
                             c.id, type="email_sent", direction="out"
                         )
@@ -1635,9 +1651,13 @@ class AutonomousMind:
                             type="pipeline_advance",
                             direction="in",
                         )
+                        burn = " BURNING" if met.is_burning else ""
                         ledger_summary = (
-                            f"spend=${usd_out:.2f} emails={int(emails)} "
-                            f"pipeline_advances={int(advances)}"
+                            f"rev=${met.revenue_usd:.2f} "
+                            f"spend=${met.spend_usd:.2f} "
+                            f"(cognition=${met.cognition_usd:.2f}) "
+                            f"net=${met.net_usd:.2f}{burn} "
+                            f"emails={int(emails)} pipeline_advances={int(advances)}"
                         )
                     except Exception:
                         ledger_summary = "(ledger sums unavailable)"

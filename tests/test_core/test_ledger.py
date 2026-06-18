@@ -20,7 +20,7 @@ from core.company import (
     set_current_company,
 )
 from core.database import Database
-from core.ledger import LedgerEntry, ResourceLedger
+from core.ledger import LedgerEntry, Metabolism, ResourceLedger
 from core.router import CostTracker
 
 
@@ -76,6 +76,140 @@ class TestLedger:
         # Different company → 0
         zero = await ledger.sum("acme-inc", type="usd")
         assert zero == 0.0
+
+
+async def _add_llm_usage(
+    db: Database,
+    *,
+    company_id: str,
+    cost: float,
+    created_at: str = "2026-06-18T00:00:00",
+) -> None:
+    """Insert a raw llm_usage row (the cognition-cost source)."""
+    await db.execute_insert(
+        "INSERT INTO llm_usage (model, provider, input_tokens, output_tokens, "
+        "cost_usd, task_type, created_at, company_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("m", "p", 10, 20, cost, "simple", created_at, company_id),
+    )
+
+
+class TestMetabolism:
+    """Organ 1 — per-company P&L including the agent's own cognition cost."""
+
+    @pytest.mark.asyncio
+    async def test_net_is_revenue_minus_spend(self, db: Database) -> None:
+        ledger = ResourceLedger(db)
+        await ledger.write(
+            LedgerEntry(
+                company_id=DEFAULT_COMPANY_ID,
+                direction="in",
+                type="usd",
+                amount=100.0,
+                unit="usd",
+            )
+        )
+        await ledger.write(
+            LedgerEntry(
+                company_id=DEFAULT_COMPANY_ID,
+                direction="out",
+                type="usd",
+                amount=30.0,
+                unit="usd",
+            )
+        )
+        met = await ledger.metabolism(DEFAULT_COMPANY_ID)
+        assert met.revenue_usd == 100.0
+        assert met.spend_usd == 30.0
+        assert met.net_usd == 70.0
+        assert met.is_burning is False
+
+    @pytest.mark.asyncio
+    async def test_no_double_count_of_cognition(self, db: Database) -> None:
+        # The CostTracker mirror writes BOTH an llm_usage row AND a usd-out
+        # ledger row for each LLM call. metabolism() must count cognition
+        # once (via spend), not twice. Simulate the mirror: one llm_usage
+        # row ($2) + the matching usd-out ledger row ($2).
+        ledger = ResourceLedger(db)
+        await ledger.write(
+            LedgerEntry(
+                company_id=DEFAULT_COMPANY_ID,
+                direction="in",
+                type="usd",
+                amount=10.0,
+                unit="usd",
+            )
+        )
+        await ledger.write(
+            LedgerEntry(
+                company_id=DEFAULT_COMPANY_ID,
+                direction="out",
+                type="usd",
+                amount=2.0,
+                unit="usd",
+                source_table="llm_usage",
+            )
+        )
+        await _add_llm_usage(db, company_id=DEFAULT_COMPANY_ID, cost=2.0)
+
+        met = await ledger.metabolism(DEFAULT_COMPANY_ID)
+        assert met.spend_usd == 2.0
+        assert met.cognition_usd == 2.0  # visible sub-component of spend
+        # net = 10 - 2 = 8, NOT 10 - 2 - 2 = 6 (no double count).
+        assert met.net_usd == 8.0
+
+    @pytest.mark.asyncio
+    async def test_burning_when_cognition_exceeds_revenue(self, db: Database) -> None:
+        ledger = ResourceLedger(db)
+        await ledger.write(
+            LedgerEntry(
+                company_id=DEFAULT_COMPANY_ID,
+                direction="out",
+                type="usd",
+                amount=5.0,
+                unit="usd",
+                source_table="llm_usage",
+            )
+        )
+        await _add_llm_usage(db, company_id=DEFAULT_COMPANY_ID, cost=5.0)
+        met = await ledger.metabolism(DEFAULT_COMPANY_ID)
+        assert met.cognition_usd == 5.0
+        assert met.net_usd == -5.0
+        assert met.is_burning is True
+
+    @pytest.mark.asyncio
+    async def test_cognition_isolated_by_company(self, db: Database) -> None:
+        ledger = ResourceLedger(db)
+        await _add_llm_usage(db, company_id=DEFAULT_COMPANY_ID, cost=3.0)
+        await _add_llm_usage(db, company_id="acme-inc", cost=9.0)
+        assert await ledger.cognition_cost(DEFAULT_COMPANY_ID) == 3.0
+        assert await ledger.cognition_cost("acme-inc") == 9.0
+
+    @pytest.mark.asyncio
+    async def test_since_windows_cognition(self, db: Database) -> None:
+        ledger = ResourceLedger(db)
+        await _add_llm_usage(
+            db,
+            company_id=DEFAULT_COMPANY_ID,
+            cost=1.0,
+            created_at="2026-01-01T00:00:00",
+        )
+        await _add_llm_usage(
+            db,
+            company_id=DEFAULT_COMPANY_ID,
+            cost=4.0,
+            created_at="2026-06-01T00:00:00",
+        )
+        recent = await ledger.cognition_cost(
+            DEFAULT_COMPANY_ID, since="2026-05-01T00:00:00"
+        )
+        assert recent == 4.0
+
+    def test_metabolism_dataclass_pure(self) -> None:
+        m = Metabolism(revenue_usd=50.0, spend_usd=20.0, cognition_usd=8.0)
+        assert m.net_usd == 30.0  # 50 - 20 (cognition is inside spend)
+        assert m.is_burning is False
+        assert Metabolism(0.0, 1.0, 1.0).is_burning is True
 
     @pytest.mark.asyncio
     async def test_recent_orders_newest_first(self, db: Database) -> None:
