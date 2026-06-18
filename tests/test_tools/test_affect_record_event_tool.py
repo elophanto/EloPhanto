@@ -101,11 +101,12 @@ class TestAffectRecordEventTool:
 
         # Reset for a clean strong test.
         affect_mgr2 = AffectManager(db=affect_mgr._db)
-        await affect_mgr2.load_or_create()
-        # Wipe state to zero.
-        affect_mgr2._state.pleasure = 0.0
-        affect_mgr2._state.arousal = 0.0
-        affect_mgr2._state.dominance = 0.0
+        state2 = await affect_mgr2.load_or_create()
+        # Wipe state to zero. (ABE Phase 12 — cache is now per-company;
+        # poke the loaded object directly instead of the old _state field.)
+        state2.pleasure = 0.0
+        state2.arousal = 0.0
+        state2.dominance = 0.0
         tool2 = AffectRecordEventTool()
         tool2._affect_manager = affect_mgr2
         await tool2.execute(

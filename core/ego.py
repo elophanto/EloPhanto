@@ -319,7 +319,11 @@ class EgoManager:
         self._db = db
         self._router = router
         self._config = config
-        self._ego: Ego | None = None
+        # ABE Phase 12 (Tier 2 #5, 2026-06-18) — per-company cache. Same
+        # rationale as IdentityManager._cache. Was a single Ego field;
+        # now keyed by company_id so confidence updates for acme don't
+        # bleed into elophanto-self's prompt.
+        self._cache: dict[str, Ego] = {}
         # Optional handle to AffectManager. Injected at agent startup.
         # When present, ego signal sources also emit state-level affect
         # events (frustration on correction, anxiety/relief on
@@ -334,41 +338,53 @@ class EgoManager:
     # ------------------------------------------------------------------
 
     async def load_or_create(self) -> Ego:
-        rows = await self._db.execute("SELECT * FROM ego_state WHERE id = 'self'")
+        from core.company import current_company_id
+
+        company_id = current_company_id()
+        rows = await self._db.execute(
+            "SELECT * FROM ego_state WHERE company_id = ? AND id = 'self'",
+            (company_id,),
+        )
         if rows:
-            self._ego = self._row_to_ego(rows[0])
-            await self._load_humbling_events(self._ego)
-            await self._load_per_capability_last_used(self._ego)
+            ego = self._row_to_ego(rows[0])
+            self._cache[company_id] = ego
+            await self._load_humbling_events(ego)
+            await self._load_per_capability_last_used(ego)
             # Decay sweep on load — drift unused capabilities back toward 0.50.
             # Cheap (no LLM call), idempotent (rate-limited internally), and
             # this is the natural moment to do it: process restart is when
             # "real-world time has passed" most predictably.
-            decayed = self._apply_decay(self._ego)
+            decayed = self._apply_decay(ego)
             if decayed:
-                await self._persist_state(self._ego)
+                await self._persist_state(ego)
             logger.info(
-                "Ego loaded (coherence=%.2f, decayed=%d)",
-                self._ego.coherence_score,
+                "Ego loaded for company=%s (coherence=%.2f, decayed=%d)",
+                company_id,
+                ego.coherence_score,
                 decayed,
             )
-            return self._ego
+            return ego
 
         now = datetime.now(UTC).isoformat()
         await self._db.execute_insert(
             """INSERT INTO ego_state
-               (id, self_image, confidence_json, coherence_score,
+               (id, company_id, self_image, confidence_json, coherence_score,
                 last_self_critique, tasks_since_recompute, updated_at)
-               VALUES ('self', '', '{}', 1.0, '', 0, ?)""",
-            (now,),
+               VALUES ('self', ?, '', '{}', 1.0, '', 0, ?)""",
+            (company_id, now),
         )
-        self._ego = Ego(updated_at=now, last_decay_at=now)
-        return self._ego
+        ego = Ego(updated_at=now, last_decay_at=now)
+        self._cache[company_id] = ego
+        return ego
 
     async def get_ego(self) -> Ego:
-        if self._ego is None:
-            await self.load_or_create()
-        assert self._ego is not None
-        return self._ego
+        from core.company import current_company_id
+
+        company_id = current_company_id()
+        cached = self._cache.get(company_id)
+        if cached is not None:
+            return cached
+        return await self.load_or_create()
 
     # ------------------------------------------------------------------
     # Outcome recording — the only way confidence moves
@@ -398,11 +414,16 @@ class EgoManager:
         ego = await self.get_ego()
         now = datetime.now(UTC).isoformat()
 
-        # Persist outcome row (audit trail)
+        # Persist outcome row (audit trail). Stamped with company_id so
+        # recompute_self_image only pulls from the active company's
+        # outcomes — otherwise an acme failure would distort
+        # elophanto-self's self_image (and vice versa).
+        from core.company import current_company_id
+
         await self._db.execute_insert(
             """INSERT INTO ego_outcomes
-               (capability, success, task_goal, notes, created_at, source)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (capability, success, task_goal, notes, created_at, source, company_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 capability,
                 1 if success else 0,
@@ -410,6 +431,7 @@ class EgoManager:
                 notes[:500],
                 now,
                 source,
+                current_company_id(),
             ),
         )
 
@@ -453,11 +475,24 @@ class EgoManager:
         """
         ego = await self.get_ego()
         now = datetime.now(UTC).isoformat()
+        # Same rationale as record_outcome: stamp company_id so a
+        # humbling event for acme doesn't pollute elophanto-self's
+        # _load_humbling_events read on the next ego load.
+        from core.company import current_company_id
+
         await self._db.execute_insert(
             """INSERT INTO ego_humbling_events
-               (capability, claimed, actual, task_goal, created_at, source)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (capability, claimed[:300], actual[:300], task_goal[:500], now, source),
+               (capability, claimed, actual, task_goal, created_at, source, company_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                capability,
+                claimed[:300],
+                actual[:300],
+                task_goal[:500],
+                now,
+                source,
+                current_company_id(),
+            ),
         )
         event = HumblingEvent(
             capability=capability,
@@ -1082,6 +1117,8 @@ The numbers below are the evidence; the writing above is how I feel about it.
         # otherwise reject the heterogeneous assignment.
         confidence_payload: dict[str, Any] = dict(ego.confidence)
         confidence_payload["__last_used__"] = ego.last_used
+        from core.company import current_company_id
+
         await self._db.execute_insert(
             """UPDATE ego_state
                SET self_image = ?,
@@ -1098,7 +1135,7 @@ The numbers below are the evidence; the writing above is how I feel about it.
                    ideal_self = ?,
                    last_capability = ?,
                    last_decay_at = ?
-               WHERE id = 'self'""",
+               WHERE company_id = ? AND id = 'self'""",
             (
                 ego.self_image,
                 json.dumps(confidence_payload),
@@ -1114,15 +1151,19 @@ The numbers below are the evidence; the writing above is how I feel about it.
                 ego.ideal_self,
                 ego.last_capability,
                 ego.last_decay_at,
+                current_company_id(),
             ),
         )
 
     async def _load_humbling_events(self, ego: Ego) -> None:
+        from core.company import current_company_id
+
         rows = await self._db.execute(
             """SELECT capability, claimed, actual, task_goal, created_at
                FROM ego_humbling_events
+               WHERE company_id = ?
                ORDER BY id DESC LIMIT ?""",
-            (_HUMBLING_CAP,),
+            (current_company_id(), _HUMBLING_CAP),
         )
         ego.humbling_events = [
             HumblingEvent(
@@ -1142,10 +1183,14 @@ The numbers below are the evidence; the writing above is how I feel about it.
         DB with no last_used JSON gets sensible decay anchors. Pulls the
         most recent created_at per capability.
         """
+        from core.company import current_company_id
+
         rows = await self._db.execute(
             """SELECT capability, MAX(created_at) AS last_at
                FROM ego_outcomes
-               GROUP BY capability"""
+               WHERE company_id = ?
+               GROUP BY capability""",
+            (current_company_id(),),
         )
         for r in rows:
             cap = r["capability"]

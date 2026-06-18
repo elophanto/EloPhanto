@@ -418,3 +418,89 @@ class TestEvolutionHistory:
             await im.add_capability(f"cap_{i}")
         history = await im.get_evolution_history(limit=3)
         assert len(history) == 3
+
+
+# ----------------------------------------------------------------------
+# ABE Phase 12 (Tier 2 #5, 2026-06-18) — per-company identity partitioning
+# ----------------------------------------------------------------------
+
+
+class TestCompanyScoping:
+    """Each company gets its own identity row keyed by (company_id, id).
+    Operator switching from elophanto-self to acme-inc sees acme's
+    purpose/name/values, not the muddle of the previous singleton."""
+
+    @pytest.mark.asyncio
+    async def test_create_stamps_current_company_and_isolated_per_tenant(
+        self, im: IdentityManager
+    ) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        im._config.first_awakening = False
+
+        # Default-context create (elophanto-self).
+        default = await im.load_or_create()
+        await im.update_field("purpose", "Self-purpose", "test")
+
+        # Switch to acme-inc — cache miss → DB load → no row yet →
+        # _create_default_identity stamps acme-inc.
+        token = set_current_company("acme-inc")
+        try:
+            acme = await im.load_or_create()
+            assert acme.id == "self"  # always 'self' per-table; PK is composite
+            await im.update_field("purpose", "Acme-purpose", "test")
+            assert (await im.get_identity()).purpose == "Acme-purpose"
+        finally:
+            reset_current_company(token)
+
+        # Default context is unchanged after the acme work.
+        again = await im.get_identity()
+        assert again.purpose == "Self-purpose"
+        assert again is default  # same cached instance
+
+    @pytest.mark.asyncio
+    async def test_cache_serves_per_company_without_db_hit(
+        self, im: IdentityManager
+    ) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        im._config.first_awakening = False
+
+        # Prime both companies.
+        await im.load_or_create()  # default
+        token = set_current_company("acme-inc")
+        try:
+            await im.load_or_create()
+        finally:
+            reset_current_company(token)
+
+        # Cache holds entries for both — verify by direct dict inspection.
+        assert "elophanto-self" in im._cache
+        assert "acme-inc" in im._cache
+        # Different objects per company (not the same identity reused).
+        assert im._cache["elophanto-self"] is not im._cache["acme-inc"]
+
+    @pytest.mark.asyncio
+    async def test_persist_lands_in_correct_company_row(
+        self, im: IdentityManager, db: Database
+    ) -> None:
+        """A persist call while the contextvar points at acme-inc must
+        write to acme's row, not collide on the legacy 'self' row that
+        elophanto-self owns. Direct DB readback verifies the split."""
+        from core.company import reset_current_company, set_current_company
+
+        im._config.first_awakening = False
+        await im.load_or_create()  # elophanto-self
+        await im.update_field("display_name", "SelfBot", "test")
+
+        token = set_current_company("acme-inc")
+        try:
+            await im.load_or_create()
+            await im.update_field("display_name", "AcmeBot", "test")
+        finally:
+            reset_current_company(token)
+
+        rows = await db.execute("SELECT company_id, display_name FROM identity")
+        by_company = {r["company_id"]: r["display_name"] for r in rows}
+        assert by_company["elophanto-self"] == "SelfBot"
+        assert by_company["acme-inc"] == "AcmeBot"

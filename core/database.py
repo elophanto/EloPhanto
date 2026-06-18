@@ -907,7 +907,104 @@ _MIGRATIONS = [
     # JSON column. Default '{}' so pre-Phase-11 goals stay valid and
     # the existing `Goal.plan = list[checkpoints]` semantics stay intact.
     "ALTER TABLE goals ADD COLUMN tactic_metadata TEXT NOT NULL DEFAULT '{}'",
+    # ABE Phase 12 (Tier 2 #5, 2026-06-18) — self-model partitioning.
+    # The three singleton self-model tables (identity, ego_state,
+    # affect_state) get company_id via a PK rebuild handled in
+    # _rebuild_self_singletons_for_abe_phase12 below. The three event-
+    # log tables can use simple ALTER ADD COLUMN since their PK is
+    # AUTOINCREMENT id; no rebuild needed. Scoping the event logs is
+    # what stops cross-company ego.recompute_self_image (which pulls
+    # from ego_outcomes) and cross-company affect context (which pulls
+    # from affect_events) from muddling per-company self_image / mood.
+    "ALTER TABLE ego_outcomes        ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE ego_humbling_events ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
+    "ALTER TABLE affect_events       ADD COLUMN company_id TEXT NOT NULL DEFAULT 'elophanto-self'",
 ]
+
+
+# ABE Phase 12 (Tier 2 #5, 2026-06-18) — primary-key rebuild on the
+# three singleton self-model tables. SQLite cannot ALTER the PRIMARY
+# KEY in place, so each table needs a CREATE-NEW → COPY → DROP-OLD →
+# RENAME pass. The rebuild is idempotent (no-op if company_id is
+# already present), runs in a transaction, and preserves every
+# previously-migrated column via PRAGMA introspection so this code
+# stays correct if future ALTER ADD COLUMN migrations land before the
+# rebuild has been run on a given DB.
+_SELF_SINGLETON_TABLES: tuple[str, ...] = (
+    "identity",
+    "ego_state",
+    "affect_state",
+)
+
+
+def _rebuild_self_singletons_for_abe_phase12(conn: sqlite3.Connection) -> None:
+    """One-shot PK rebuild for the three self-model singletons.
+
+    Before: PRIMARY KEY (id) where id is always 'self' → one row per
+    table for the whole agent.
+    After:  PRIMARY KEY (company_id, id) → one row per (company, 'self').
+
+    Existing rows are stamped with 'elophanto-self' so single-tenant
+    deployments see zero behavior change.
+    """
+    for table in _SELF_SINGLETON_TABLES:
+        cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        if not cols:
+            # Table doesn't exist yet (fresh DB before _SCHEMA ran).
+            # _init_sync runs _SCHEMA before the migrations, so this
+            # only fires in corrupt/partial-init states. Skip safely.
+            continue
+        col_names = [c["name"] for c in cols]
+        if "company_id" in col_names:
+            continue  # already rebuilt
+
+        # Build the new table's column DDL list, preserving every
+        # original column's type/null/default. Append company_id and
+        # use a composite PRIMARY KEY clause at the table level so the
+        # column-level "PRIMARY KEY" on `id` doesn't conflict.
+        col_ddl_parts: list[str] = []
+        for c in cols:
+            name = c["name"]
+            ctype = c["type"] or "TEXT"
+            notnull = " NOT NULL" if c["notnull"] else ""
+            default = (
+                f" DEFAULT {c['dflt_value']}" if c["dflt_value"] is not None else ""
+            )
+            # Strip the inline PRIMARY KEY from `id` — the composite
+            # PK lives in a table-level clause below. Without this we
+            # get "table can't have multiple PRIMARY KEY"s.
+            col_ddl_parts.append(f"{name} {ctype}{notnull}{default}")
+        col_ddl_parts.append("company_id TEXT NOT NULL DEFAULT 'elophanto-self'")
+        col_ddl_parts.append("PRIMARY KEY (company_id, id)")
+        col_ddl = ",\n            ".join(col_ddl_parts)
+
+        # Defensive: drop any leftover _new from a prior crashed run
+        # so the CREATE doesn't trip on a stale name.
+        conn.execute(f"DROP TABLE IF EXISTS {table}_phase12_new")
+
+        # Transaction wraps the swap so a crash mid-rebuild leaves
+        # the original table intact.
+        conn.execute("BEGIN")
+        try:
+            conn.execute(
+                f"CREATE TABLE {table}_phase12_new (\n            {col_ddl}\n        )"
+            )
+            old_cols_csv = ", ".join(col_names)
+            conn.execute(
+                f"INSERT INTO {table}_phase12_new ({old_cols_csv}, company_id) "
+                f"SELECT {old_cols_csv}, 'elophanto-self' FROM {table}"
+            )
+            conn.execute(f"DROP TABLE {table}")
+            conn.execute(f"ALTER TABLE {table}_phase12_new RENAME TO {table}")
+            conn.execute("COMMIT")
+            logger.info(
+                "Rebuilt %s with composite PRIMARY KEY (company_id, id) "
+                "for ABE Phase 12 self-model partitioning",
+                table,
+            )
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
 
 class Database:
@@ -958,6 +1055,23 @@ class Database:
                 self._conn.commit()
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # ABE Phase 12 (Tier 2 #5, 2026-06-18) — self-model singleton
+        # PK rebuild. Idempotent (skips if company_id already on the
+        # table). Wrapped in its own try so a rebuild crash on one
+        # table doesn't block init for other features; logged for
+        # visibility. Runs AFTER the ALTER list so it sees any
+        # previously-migrated columns and copies them through.
+        try:
+            _rebuild_self_singletons_for_abe_phase12(self._conn)
+            self._conn.commit()
+        except Exception as e:
+            logger.warning(
+                "self-model singleton PK rebuild failed; managers will "
+                "still work in single-tenant mode but per-company "
+                "isolation won't activate: %s",
+                e,
+            )
 
         # Seed default company for ABE framework (idempotent).
         # The DEFAULT 'elophanto-self' on company_id columns makes the

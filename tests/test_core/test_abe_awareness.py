@@ -168,12 +168,16 @@ class TestPersonalityShapeDoesNotCrashContext:
     async def test_string_personality_does_not_crash(self, db: Database) -> None:
         from core.identity import Identity
 
+        from core.company import current_company_id
+
         ident_cfg = IdentityConfig(enabled=True)
         router = MagicMock()
         im = IdentityManager(db=db, router=router, config=ident_cfg)
         # Inject a synthetic identity with personality as a STRING
         # (the production-DB shape that crashed the original code).
-        im._identity = Identity(
+        # ABE Phase 12 — cache is now per-company; inject into the
+        # contextvar's slot so get_identity returns this object.
+        im._cache[current_company_id()] = Identity(
             id="self",
             created_at="2026-05-25",
             updated_at="2026-05-25",

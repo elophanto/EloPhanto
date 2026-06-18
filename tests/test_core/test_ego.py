@@ -550,3 +550,112 @@ class TestFailureSignalPipeline:
         # 10th-time should be the loudest; "no" should be the quietest.
         assert max(sigs) >= 2.0
         assert min(sigs) <= 1.0
+
+
+# ----------------------------------------------------------------------
+# ABE Phase 12 (Tier 2 #5, 2026-06-18) — per-company ego partitioning
+# ----------------------------------------------------------------------
+
+
+class TestCompanyScoping:
+    """Each company gets its own ego_state row + its own event-log
+    slice. acme's email_send failure must not pull elophanto-self's
+    email_send confidence down, and acme's humbling events must not
+    show up in elophanto-self's recompute prompt."""
+
+    @pytest.mark.asyncio
+    async def test_outcome_recorded_per_company(
+        self, db: Database, router: AsyncMock
+    ) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        mgr = EgoManager(db=db, router=router)
+
+        # Default: succeed at email_send.
+        await mgr.load_or_create()
+        await mgr.record_outcome("email_send", success=True)
+        await mgr.record_outcome("email_send", success=True)
+        self_conf_high = (await mgr.get_ego()).confidence["email_send"]
+
+        # acme: fail repeatedly at email_send.
+        token = set_current_company("acme-inc")
+        try:
+            await mgr.load_or_create()
+            for _ in range(5):
+                await mgr.record_outcome(
+                    "email_send", success=False, source="correction"
+                )
+            acme_conf_low = (await mgr.get_ego()).confidence["email_send"]
+        finally:
+            reset_current_company(token)
+
+        # Default's email_send confidence is untouched by acme failures.
+        again = await mgr.get_ego()
+        assert again.confidence["email_send"] == self_conf_high
+        # acme's is dragged down.
+        assert acme_conf_low < self_conf_high
+
+    @pytest.mark.asyncio
+    async def test_humbling_events_isolated_per_company(
+        self, db: Database, router: AsyncMock
+    ) -> None:
+        from core.company import (
+            reset_current_company,
+            set_current_company,
+        )
+
+        mgr = EgoManager(db=db, router=router)
+        await mgr.load_or_create()
+        await mgr.record_humbling(
+            "self_capability", claimed="X", actual="X-failed", task_goal="g"
+        )
+
+        token = set_current_company("acme-inc")
+        try:
+            await mgr.load_or_create()
+            await mgr.record_humbling(
+                "acme_capability",
+                claimed="Y",
+                actual="Y-failed",
+                task_goal="g",
+            )
+            # Force a re-load on acme so _load_humbling_events runs.
+            mgr._cache.pop("acme-inc", None)
+            acme_ego = await mgr.load_or_create()
+            acme_labels = [e.capability for e in acme_ego.humbling_events]
+            assert acme_labels == ["acme_capability"]
+        finally:
+            reset_current_company(token)
+
+        # Default reload sees only its own humbling.
+        mgr._cache.pop("elophanto-self", None)
+        self_ego = await mgr.load_or_create()
+        self_labels = [e.capability for e in self_ego.humbling_events]
+        assert self_labels == ["self_capability"]
+
+    @pytest.mark.asyncio
+    async def test_persist_lands_on_correct_company_row(
+        self, db: Database, router: AsyncMock
+    ) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        mgr = EgoManager(db=db, router=router)
+        await mgr.load_or_create()
+        await mgr.record_outcome("ship_feature", success=True)
+        await mgr.record_outcome("ship_feature", success=True)
+
+        token = set_current_company("acme-inc")
+        try:
+            await mgr.load_or_create()
+            await mgr.record_outcome("ship_feature", success=False, source="correction")
+        finally:
+            reset_current_company(token)
+
+        # Two distinct ego_state rows exist, neither overwrote the other.
+        rows = await db.execute(
+            "SELECT company_id, confidence_json FROM ego_state ORDER BY company_id"
+        )
+        assert len(rows) == 2
+        companies = [r["company_id"] for r in rows]
+        assert "acme-inc" in companies
+        assert "elophanto-self" in companies
