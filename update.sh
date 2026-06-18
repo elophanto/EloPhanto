@@ -78,6 +78,20 @@ else
     python3 -m pip install -e . --quiet || echo "  ⚠ pip install failed; try ./setup.sh"
 fi
 
+# ── Stripe fiat rail deps (ABE finance rail) ──
+# Base install above doesn't pull optional extras, so an operator who enabled
+# the fiat rail needs its deps refreshed here too. Matches only the
+# payments.fiat block (`provider: stripe`).
+if grep -q "provider: stripe" config.yaml 2>/dev/null; then
+    if command -v uv &>/dev/null; then
+        uv pip install -e '.[payments-fiat]' --quiet || \
+            echo "  ⚠ Stripe deps failed; run: uv pip install -e '.[payments-fiat]'"
+    else
+        python3 -m pip install -e '.[payments-fiat]' --quiet || \
+            echo "  ⚠ Stripe deps failed; run: pip install -e '.[payments-fiat]'"
+    fi
+fi
+
 # ── Rebuild browser bridge ──
 if [ -f "bridge/browser/package.json" ] && command -v npm &>/dev/null; then
     echo "  → Rebuilding browser bridge..."

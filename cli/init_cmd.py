@@ -1184,6 +1184,40 @@ def _edit_payments(config: dict) -> None:
         f"${limits['daily']}/day limit.[/green]"
     )
 
+    # ── Fiat rail (Stripe) — ABE finance rail, 2026-06-18 ──
+    # Starts in TEST mode: full flow, zero real money, no KYC. Going live is
+    # a deliberate, KYC-gated step done later — never in first-run setup.
+    console.print()
+    console.print("  [bold]Fiat payments (Stripe)[/bold]")
+    console.print(
+        "  [dim]Accept card / bank payments. Starts in TEST mode — full flow,\n"
+        "  zero real money, no KYC. Free test key: dashboard.stripe.com.[/dim]"
+    )
+    fiat = pay_cfg.setdefault("fiat", {})
+    fiat_enabled = Confirm.ask(
+        "  Enable Stripe (test mode)?", default=fiat.get("enabled", False)
+    )
+    fiat["enabled"] = fiat_enabled
+    if fiat_enabled:
+        fiat.setdefault("provider", "stripe")
+        # Always start in test — flipping to live is a separate, gated step.
+        fiat["mode"] = "test"
+        fiat.setdefault("base_currency", "USD")
+        fiat.setdefault("secret_key_ref", "stripe_secret_key")
+        fiat.setdefault("publishable_key_ref", "stripe_publishable_key")
+        fiat.setdefault("webhook_secret_ref", "stripe_webhook_secret")
+        fiat.setdefault("issuing_enabled", False)
+        console.print(
+            "  [dim]Store your TEST key in the vault (never in config):[/dim]"
+        )
+        console.print(
+            "    [bold]elophanto vault set stripe_secret_key sk_test_...[/bold]"
+        )
+        console.print(
+            "  [green]Stripe enabled — mode=TEST (no real money). "
+            "Going live is a separate KYC-gated step.[/green]"
+        )
+
 
 def _edit_replicate(config: dict) -> None:
     """Edit Replicate image generation settings."""
