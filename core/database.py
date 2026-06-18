@@ -931,6 +931,12 @@ _MIGRATIONS = [
     "ALTER TABLE goals            ADD COLUMN stage TEXT NOT NULL DEFAULT 'unknown'",
     "ALTER TABLE goals            ADD COLUMN kill_criterion TEXT",
     "ALTER TABLE goal_checkpoints ADD COLUMN stage TEXT NOT NULL DEFAULT 'unknown'",
+    # ABE finance rail (tmp/abe-finance-rail-spec-2026-06-18.md, 2026-06-18).
+    # payment_rail = fiat|crypto (NULL = not yet chosen at onboard).
+    # entity_state = financial-readiness/KYC machine (none→forming→kyc_pending
+    # →verified→restricted); real money movement gates on 'verified'.
+    "ALTER TABLE companies        ADD COLUMN payment_rail TEXT",
+    "ALTER TABLE companies        ADD COLUMN entity_state TEXT NOT NULL DEFAULT 'none'",
 ]
 
 

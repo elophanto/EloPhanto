@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -210,3 +210,36 @@ class ResourceLedger:
             ),
             cognition_usd=await self.cognition_cost(company_id, since=since),
         )
+
+    async def trailing_weekly_burn(self, company_id: str, *, weeks: int = 4) -> float:
+        """Average weekly net burn over the trailing ``weeks`` window.
+
+        Positive = burning that many dollars/week (spend, incl. cognition,
+        exceeds revenue). 0.0 when net-positive over the window. Uses a
+        trailing window (not lifetime) so a single past spike doesn't
+        whipsaw the runway estimate. Feeds ``runway_weeks`` (§5 of the
+        finance spec)."""
+        if weeks <= 0:
+            weeks = 4
+        since = (datetime.now(UTC) - timedelta(weeks=weeks)).isoformat()
+        met = await self.metabolism(company_id, since=since)
+        if met.net_usd >= 0:
+            return 0.0
+        return -met.net_usd / weeks
+
+
+def runway_weeks(cash_on_hand: float, weekly_burn: float) -> float | None:
+    """Weeks of runway = cash on hand ÷ weekly burn.
+
+    Returns None when ``weekly_burn <= 0`` (net-positive → no finite
+    runway to report) and 0.0 when cash is non-positive while burning
+    (already out of money). This is the stock ÷ flow calc the metabolism
+    work (audit §6.13) deferred for lack of a cash-on-hand source — the
+    rail provider supplies that stock; this combines it with the ledger
+    flow. Caller owns the conservatism of ``cash_on_hand`` (settled-ish
+    fiat balance; stablecoin-only haircut for crypto)."""
+    if weekly_burn <= 0:
+        return None
+    if cash_on_hand <= 0:
+        return 0.0
+    return cash_on_hand / weekly_burn
