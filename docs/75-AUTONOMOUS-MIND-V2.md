@@ -151,6 +151,14 @@ Smallest schema that supports drives. No arbiter yet.
       `list_by_neglect(limit)` for the dream phase. `Mission` carries
       read-side `decayed_momentum()` (7-day half-life) and
       `staleness_hours()`. 19 focused tests
+- [x] **2.3-PATCH** (ABE Phase 12, Tier 1 #1, commit `72e2a13`,
+      2026-06-18) — every `mission_manager` read defaults to
+      `current_company_id()` via contextvar; `create` stamps the
+      active company at INSERT; `Mission.company_id` field; `get`
+      and `list_missions` accept `ALL_COMPANIES` sentinel for admin
+      cross-company queries. Same pattern applied to
+      `goal_manager`. Was previously global (single-tenant
+      assumption); now correct under multi-company operation
 - [x] **2.4** Tools: `mission_list`, `mission_create`, `mission_status`
       (read+set in one), `mission_touch`, `mission_update`. All in
       `tools/missions/tools.py` sharing a `_MissionToolBase`. Registry

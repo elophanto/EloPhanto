@@ -75,6 +75,19 @@ into self-referential goals.
 
 ## Creating a second ABE
 
+**Recommended (Phase 8.5+):** ask the agent in chat and let it run
+`company_onboard` for you. The agent does the website research,
+proposes `what_we_sell` + price + channels + KPIs + optional
+`seed_goal` as a table for you to approve, then calls the tool
+once. ONE MODERATE approval, the company row + sidecar +
+`company.yaml` + exemplars dir + seed goal all land atomically.
+
+> "Drive my new business at acme.com" → agent invokes the
+> `drive-business` skill, PATH A. See
+> [`skills/drive-business/SKILL.md`](../skills/drive-business/SKILL.md).
+
+**Direct CLI** (when you don't want chat in the loop):
+
 ```bash
 elophanto company create acme-inc "Acme Inc"
 elophanto company use acme-inc       # scope this CLI session to acme-inc
@@ -83,12 +96,25 @@ elophanto company use acme-inc       # scope this CLI session to acme-inc
 The `use` selection persists at `~/.elophanto/current_company`
 across CLI invocations. The contextvar default is
 `elophanto-self`, so any code path that hasn't been wired to set
-it gets safe behavior.
+it gets safe behavior. Tier 2 #5 (commit `547ed5d`, 2026-06-18)
+extended this to identity / ego / affect — each company gets its
+own self-model snapshot loaded by the contextvar, so an operator
+who has switched into acme-inc sees acme's confidence per
+capability and PAD state, not elophanto-self's.
+
+After onboard, drive the strategy pipeline in one call too —
+[`company_plan_full`](../tools/companies/plan_full_tool.py) (Tier
+1 #3, commit `28c7ecf`) wraps `company_capabilities` +
+`company_set_strategy_inputs` + `company_plan` +
+`company_plan_apply` behind one MODERATE approval, saving two of
+the three approvals the original Phase 11 sequence required.
+`company_plan_approve` stays separate by design — it's the trust
+act that promotes `voice_proposed.yaml`, and you should always see
+the voice draft before approving.
 
 Now write the product file. There are two paths:
 
-**Path A — operator hand-writes** (the recommended path, gives
-you full control):
+**Path A — operator hand-writes** (full control):
 
 ```bash
 # Create companies/acme-inc/company.yaml by hand. Use
@@ -273,9 +299,21 @@ arbiter's `from_unproductized_companies` candidate disappears.
 
 `data/companies/<slug>/` is materialized on `company create` (and
 backfilled for `elophanto-self` on first run). It's the
-**per-company runtime-state location** — tools that opt into
-per-company file state write here. As of Phase 6 nothing does
-this yet; the directory is a primitive for future tool work.
+**per-company runtime-state location**. Tools writing here as of
+Phase 11 + Phase 12:
+
+- `strategy/active/strategy.yaml` + `strategy/proposed/*.yaml`
+  — `company_plan` artifact + `company_plan_apply` promotion
+- `voice.yaml` + `voice_proposed.yaml` — per-company writing
+  voice contract (Phase 10), promoted via `company_plan_approve`
+- `blockers.yaml` + `blockers.md` — per-company resolution queue
+- `exemplars/{twitter,email}/` — per-company reference posts
+  seeded by `company_onboard`, consumed by `voice_extract`
+- `capabilities.md` — per-company audit written by
+  `company_capabilities`
+- `self_snapshot.json` (reserved for future swap-based self-
+  model approaches; the shipped Tier 2 #5 implementation uses
+  schema partitioning instead, so this file is unused today)
 
 ---
 
@@ -360,14 +398,11 @@ against them now.
 ## When to revisit the framework
 
 The deferred items in [`docs/76-ABE-FRAMEWORK.md`](76-ABE-FRAMEWORK.md)
-each have a stated trigger. The ones most likely to fire first:
+each have a stated trigger. Most-likely-next:
 
 - **Phase 5 (board view)** — when you genuinely feel the gap
   between `company report` (transactional) and "I want to watch
   the agent decide in real time" (continuous)
-- **Sessions UNIQUE constraint rebuild** (Phase 6 deferral) —
-  when you run >1 company that shares a channel (e.g. both
-  publishing through the same Telegram bot)
 - **`roles.scope='company'` enforcement** (Phase 6 deferral) —
   when you want a role to mean different things in different
   companies (acme-inc's sales has different rules than
@@ -375,6 +410,29 @@ each have a stated trigger. The ones most likely to fire first:
 - **KPI calibration reflex** (Phase 7 deferral) — when target
   numbers in role YAMLs are obviously wrong for weeks and you
   want the agent to propose adjustments
+- **Tier 2 #6 — per-company DB write lock** — when concurrent
+  agent loops across companies start showing contention on the
+  global `threading.Lock` (only matters at N≥3-5 simultaneous
+  active cycles)
 
-None of these are urgent today. The Phase 1-7 substrate covers
-the realistic use cases for one operator running 1-3 companies.
+**Recently completed** (Phase 12, June 2026):
+
+- **Mission/goal queries scoped by company_id** (Tier 1 #1,
+  commit `72e2a13`) — onboarding seed goals now land in the new
+  company; cross-company reads return None
+- **`company_plan_full` wrapper tool** (Tier 1 #3, commit
+  `28c7ecf`) — PATH B chain collapsed from 3 MODERATE to 1
+- **Identity / ego / affect partitioned per company** (Tier 2 #5,
+  commit `547ed5d`) — the muddle is fixed; per-company
+  confidence, PAD state, and self-model snapshots
+- **Sessions UNIQUE rebuilt** (Tier 2 #4, commit `0a5d32c`) —
+  `(channel, user_id, company_id)`; running multiple companies
+  through the same channel no longer collides
+- **`session_search` cross-tenant leak closed** (commit
+  `2ce2064`) — search now filters by active company via the
+  sessions join
+
+The Phase 1-12 substrate covers operator scenarios up to N=3-5
+companies running concurrently. Beyond that, the Tier 3 items
+(knowledge_chunks scoping, multi-channel adapters, swarm worker
+queue) start to matter.
