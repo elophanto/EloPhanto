@@ -65,6 +65,10 @@ def _strategy_inputs_from_company(
         "channels": company_yaml.get("channels") or [],
         "timeline": si.get("timeline_hint") or "",
         "context": si.get("context") or "",
+        # Founder-doctrine Stage 0: business maturity gates channel breadth in
+        # build_system_prompt. Default 'scaling' preserves the prior
+        # multi-surface behavior for companies that haven't set it.
+        "maturity": si.get("maturity") or "scaling",
     }
 
 
@@ -238,6 +242,16 @@ class CompanyPlanTool(BaseTool):
                 },
                 "override_strategy_mode": {"type": "string"},
                 "override_focus": {"type": "string"},
+                "override_maturity": {
+                    "type": "string",
+                    "enum": ["pre_revenue", "early", "scaling"],
+                    "description": (
+                        "Override the company's business maturity for this "
+                        "plan. pre_revenue → one channel, validation-first; "
+                        "early → one primary + one capped experiment; scaling "
+                        "→ full multi-surface coverage (default)."
+                    ),
+                },
             },
         }
 
@@ -301,6 +315,11 @@ class CompanyPlanTool(BaseTool):
         focus = str(
             params.get("override_focus") or prompt_inputs.get("focus") or "full"
         )
+        maturity = str(
+            params.get("override_maturity")
+            or prompt_inputs.get("maturity")
+            or "scaling"
+        )
         budget = float(prompt_inputs.get("budget") or 0)
         risk = int(prompt_inputs.get("riskTolerance") or 50)
 
@@ -327,6 +346,7 @@ class CompanyPlanTool(BaseTool):
             risk_tolerance=risk,
             context=str(prompt_inputs.get("context") or ""),
             available_tools=available_tools,
+            maturity=maturity,
         )
         user_prompt = build_user_prompt(inputs=prompt_inputs)
 

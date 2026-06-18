@@ -26,7 +26,11 @@ class GoalCreateTool(BaseTool):
     def description(self) -> str:
         return (
             "Start a long-running goal that spans multiple sessions. "
-            "The agent decomposes it into ordered checkpoints and executes them step by step."
+            "The agent decomposes it into ordered checkpoints and executes them "
+            "step by step. For any goal that builds, sells, launches, or grows "
+            "something, the decomposition enforces validate-before-build and "
+            "every goal gets a measurable kill_criterion — provide one if you "
+            "already know the abandon-threshold, else the planner writes it."
         )
 
     @property
@@ -45,6 +49,32 @@ class GoalCreateTool(BaseTool):
                         "(durable drive). Use mission_list to see the "
                         "available slugs. Goals parented under a mission "
                         "bump that mission's momentum on completion."
+                    ),
+                },
+                "kill_criterion": {
+                    "type": "string",
+                    "description": (
+                        "Optional. The measurable condition under which this "
+                        "goal should be ABANDONED, with a number + date/volume "
+                        "(e.g. 'if <5 paid pre-orders in 14 days, abandon'). "
+                        "If omitted, the planner derives one from the goal."
+                    ),
+                },
+                "stage": {
+                    "type": "string",
+                    "enum": [
+                        "scan",
+                        "validate",
+                        "build",
+                        "launch",
+                        "acquire",
+                        "operate",
+                        "scale",
+                    ],
+                    "description": (
+                        "Optional founder-loop stage this goal starts in. "
+                        "Usually left unset — the planner tags it from the "
+                        "first checkpoint."
                     ),
                 },
             },
@@ -67,8 +97,13 @@ class GoalCreateTool(BaseTool):
             mission_id = params.get("mission_id")
             if mission_id:
                 mission_id = mission_id.strip() or None
+            kill_criterion = (params.get("kill_criterion") or "").strip() or None
+            stage = (params.get("stage") or "").strip() or "unknown"
             goal = await self._goal_manager.create_goal(
-                goal_text, mission_id=mission_id
+                goal_text,
+                mission_id=mission_id,
+                stage=stage,
+                kill_criterion=kill_criterion,
             )
             checkpoints = await self._goal_manager.decompose(goal)
 

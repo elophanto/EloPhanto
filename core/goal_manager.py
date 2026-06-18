@@ -20,6 +20,20 @@ from core.database import Database
 
 logger = logging.getLogger(__name__)
 
+# The founder loop (tmp/founder-vs-elophanto-audit-2026-06-18.md Phase 1).
+# Every goal + checkpoint is tagged with where in this loop it sits so the
+# decompose prompt can enforce validate-before-build and the mind/weekly
+# review can reason about stage. 'unknown' is the pre-Stage-0 default.
+GOAL_STAGES: tuple[str, ...] = (
+    "scan",
+    "validate",
+    "build",
+    "launch",
+    "acquire",
+    "operate",
+    "scale",
+)
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -39,6 +53,10 @@ class Checkpoint:
     attempts: int = 0
     started_at: str | None = None
     completed_at: str | None = None
+    # Founder-loop stage (Stage 0, 2026-06-18). One of GOAL_STAGES, or
+    # 'unknown' for pre-migration / legacy checkpoints. Lets the decompose
+    # prompt mark which checkpoint is the validate gate.
+    stage: str = "unknown"
 
 
 @dataclass
@@ -80,6 +98,13 @@ class Goal:
     # belongs to. Stamped from the contextvar at INSERT time; pre-
     # migration rows default to 'elophanto-self' via the schema.
     company_id: str = "elophanto-self"
+    # Founder-doctrine Stage 0 (2026-06-18). Position in the founder loop
+    # (one of GOAL_STAGES) and the measurable abandon-threshold written
+    # before work starts. Unlike most fields these are set by the decompose
+    # prompt (or the caller of create_goal) rather than inferred at runtime.
+    # 'unknown'/None for pre-Stage-0 goals.
+    stage: str = "unknown"
+    kill_criterion: str | None = None
 
 
 @dataclass
@@ -99,24 +124,60 @@ class EvaluationResult:
 _DECOMPOSE_SYSTEM = """\
 <goal_decomposition>
 You are the goal planning subsystem. Given a user's goal, decompose it into
-3-15 ordered checkpoints. Each checkpoint should be:
-- Concrete and actionable (produces a tangible result)
-- Independently verifiable (clear success criteria)
-- Sequenced logically (dependencies flow left-to-right)
+3-15 ordered checkpoints AND state the single condition that should make the
+agent abandon the goal.
 
-Return ONLY a JSON array. No markdown, no explanation. Each element:
+Each checkpoint must be:
+- Concrete and actionable (produces a tangible result)
+- Independently verifiable (clear, measurable success criteria)
+- Sequenced logically (dependencies flow left-to-right)
+- Tagged with the founder-loop STAGE it belongs to (see below)
+
+FOUNDER-LOOP STAGES — tag every checkpoint with exactly one:
+- scan      : choosing what to do; comparing options; research that picks a direction
+- validate  : getting evidence a real outside party will PAY — a paid pre-order,
+              signed LOI, paid pilot, or advertiser/sponsor/affiliate commitment
+- build     : making the smallest thing that delivers the validated promise
+- launch    : putting it in front of the first customers with tracked attribution
+- acquire   : repeatable customer acquisition on ONE proven channel
+- operate   : support, fulfilment, billing, books
+- scale     : removing the next constraint once 1-6 are healthy
+
+VALIDATE-FIRST GATE (the most important rule):
+If the goal involves building, selling, launching, or growing anything, and
+there is NO evidence yet that a paying party wants it, the FIRST checkpoint
+MUST be a `validate` checkpoint whose success criteria is a signal of revenue
+intent from a real outside party (e.g. ">=3 paid pre-orders at $X" or "2 signed
+LOIs"). Do NOT make the first checkpoint generic research, and do NOT place any
+`build` checkpoint before a `validate` checkpoint has produced that signal.
+Research that does not end in a paying-party signal is procrastination.
+(Pure-research, learning, or internal-tooling goals that have no customer may
+legitimately have no validate stage — use `scan`/`build` and that is fine.)
+
+KILL CRITERION:
+State one measurable abandon-threshold, decided before work starts, with a
+NUMBER and a DATE or VOLUME. Good: "If after 50 outreach messages over 14 days
+fewer than 5 reply with buying intent, abandon." Bad: "If it doesn't work out."
+
+Return ONLY a JSON object. No markdown, no explanation:
 {
-  "order": <int starting at 1>,
-  "title": "<short title, max 60 chars>",
-  "description": "<what to do, 1-3 sentences>",
-  "success_criteria": "<how to verify completion, objective and measurable>"
+  "kill_criterion": "<measurable abandon-threshold with a number + date or volume>",
+  "checkpoints": [
+    {
+      "order": <int starting at 1>,
+      "title": "<short title, max 60 chars>",
+      "description": "<what to do, 1-3 sentences>",
+      "success_criteria": "<how to verify completion, objective and measurable>",
+      "stage": "<one of: scan|validate|build|launch|acquire|operate|scale>"
+    }
+  ]
 }
 
 Guidelines:
-- First checkpoint should always be research/information gathering
-- Front-load risky or uncertain steps
-- Keep each checkpoint achievable in 5-30 tool calls
-- Avoid subjective criteria ("good quality") — use measurable ones ("3+ items found")
+- Front-load risky or uncertain steps; the validate gate above overrides the
+  old "research first" habit.
+- Keep each checkpoint achievable in 5-30 tool calls.
+- Avoid subjective criteria ("good quality") — use measurable ones ("3+ items found").
 </goal_decomposition>"""
 
 _SUMMARIZE_SYSTEM = """\
@@ -146,9 +207,52 @@ You are revising the remaining checkpoints for a goal. The completed
 checkpoints are fixed — only generate replacement checkpoints for the
 remaining (uncompleted) portion of the plan.
 
-Return ONLY a JSON array of new checkpoints (same format as decomposition).
+Return ONLY a JSON array of new checkpoint objects, each with:
+{"order": <int>, "title": "...", "description": "...",
+ "success_criteria": "...", "stage": "scan|validate|build|launch|acquire|operate|scale"}
 Start ordering from the next checkpoint number after the last completed one.
+Honor the validate-first rule: do not introduce a `build` checkpoint if no
+`validate` checkpoint has yet produced a paying-party signal.
 </goal_revision>"""
+
+
+# ---------------------------------------------------------------------------
+# JSON parsing
+# ---------------------------------------------------------------------------
+
+
+def _loads_json_lenient(raw: str) -> Any:
+    """Best-effort JSON parse tolerant of markdown fences + surrounding prose.
+
+    Returns the parsed value (object or array), or None if nothing
+    parseable is found. The decompose prompt emits an object; the
+    revise prompt (and pre-Stage-0 decompose) emit a bare array — both
+    must round-trip. Tries a clean parse first, then falls back to the
+    widest ``{...}`` and then ``[...]`` substring so a trailing comma
+    or stray prose line doesn't discard the whole plan.
+    """
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = text[3:]
+        if text[:4].lower() == "json":
+            text = text[4:]
+        if text.rstrip().endswith("```"):
+            text = text.rsplit("```", 1)[0]
+        text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Object first (Stage-0 decompose shape), then array (revise shape).
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start = text.find(opener)
+        end = text.rfind(closer)
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                continue
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +302,8 @@ class GoalManager:
         mission_id: str | None = None,
         assigned_to_role: str | None = None,
         tactic_metadata: dict[str, Any] | None = None,
+        stage: str = "unknown",
+        kill_criterion: str | None = None,
     ) -> Goal:
         """Create a new goal and persist it.
 
@@ -209,6 +315,14 @@ class GoalManager:
         to a role persona — e.g. ``assigned_to_role='sales'``. The
         autonomous mind biases candidate selection accordingly. Null
         means the goal works for any role (CEO default).
+
+        ``stage`` + ``kill_criterion`` (founder-doctrine Stage 0,
+        2026-06-18) let a caller stamp the founder-loop stage and the
+        abandon-threshold up front. Both are usually left at the
+        defaults here and filled in by ``decompose`` from the LLM
+        plan; an operator/mind that already knows them can pass them
+        in and ``decompose`` will not overwrite a caller-set
+        kill_criterion.
 
         Company is captured from the contextvar at create time and
         stored on the Goal object so subsequent ``_persist_goal`` calls
@@ -231,6 +345,8 @@ class GoalManager:
             assigned_to_role=assigned_to_role,
             tactic_metadata=dict(tactic_metadata or {}),
             company_id=current_company_id(),
+            stage=stage or "unknown",
+            kill_criterion=(kill_criterion or None),
         )
         await self._persist_goal(g)
         return g
@@ -369,9 +485,8 @@ class GoalManager:
         )
         goal.llm_calls_used += 1
 
-        checkpoints = self._parse_checkpoint_json(
-            response.content or "[]", goal.goal_id
-        )
+        raw = response.content or "[]"
+        checkpoints = self._parse_checkpoint_json(raw, goal.goal_id)
         if not checkpoints:
             logger.warning(
                 "Decomposition returned no checkpoints for goal %s", goal.goal_id
@@ -385,21 +500,36 @@ class GoalManager:
         for cp in checkpoints:
             await self._db.execute_insert(
                 "INSERT INTO goal_checkpoints "
-                "(goal_id, checkpoint_order, title, description, success_criteria) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (cp.goal_id, cp.order, cp.title, cp.description, cp.success_criteria),
+                "(goal_id, checkpoint_order, title, description, success_criteria, "
+                "stage) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    cp.goal_id,
+                    cp.order,
+                    cp.title,
+                    cp.description,
+                    cp.success_criteria,
+                    cp.stage,
+                ),
             )
 
-        # Update goal
+        # Update goal. Founder-doctrine Stage 0: the goal's stage tracks the
+        # first checkpoint (where the goal currently sits in the loop), and
+        # the kill_criterion comes from the decompose plan unless the caller
+        # already set one (operator/mind providing it up front wins).
         goal.status = "active"
         goal.total_checkpoints = len(checkpoints)
         goal.current_checkpoint = 1
+        goal.stage = checkpoints[0].stage if checkpoints else (goal.stage or "unknown")
+        if not goal.kill_criterion:
+            goal.kill_criterion = self._extract_kill_criterion(raw)
         goal.plan = [
             {
                 "order": c.order,
                 "title": c.title,
                 "description": c.description,
                 "success_criteria": c.success_criteria,
+                "stage": c.stage,
             }
             for c in checkpoints
         ]
@@ -481,9 +611,17 @@ class GoalManager:
         for cp in new_checkpoints:
             await self._db.execute_insert(
                 "INSERT INTO goal_checkpoints "
-                "(goal_id, checkpoint_order, title, description, success_criteria) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (cp.goal_id, cp.order, cp.title, cp.description, cp.success_criteria),
+                "(goal_id, checkpoint_order, title, description, success_criteria, "
+                "stage) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    cp.goal_id,
+                    cp.order,
+                    cp.title,
+                    cp.description,
+                    cp.success_criteria,
+                    cp.stage,
+                ),
             )
 
         # Update goal
@@ -495,6 +633,7 @@ class GoalManager:
                 "title": c.title,
                 "description": c.description,
                 "success_criteria": c.success_criteria,
+                "stage": c.stage,
             }
             for c in all_cps
         ]
@@ -826,8 +965,9 @@ class GoalManager:
                 context_summary, current_checkpoint, total_checkpoints,
                 attempts, max_attempts, llm_calls_used, cost_usd,
                 created_at, updated_at, completed_at, mission_id,
-                assigned_to_role, tactic_metadata, company_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                assigned_to_role, tactic_metadata, company_id,
+                stage, kill_criterion)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(goal_id) DO UPDATE SET
                 status = excluded.status,
                 plan_json = excluded.plan_json,
@@ -841,7 +981,9 @@ class GoalManager:
                 completed_at = excluded.completed_at,
                 mission_id = excluded.mission_id,
                 assigned_to_role = excluded.assigned_to_role,
-                tactic_metadata = excluded.tactic_metadata
+                tactic_metadata = excluded.tactic_metadata,
+                stage = excluded.stage,
+                kill_criterion = excluded.kill_criterion
             """,
             (
                 goal.goal_id,
@@ -863,6 +1005,8 @@ class GoalManager:
                 goal.assigned_to_role,
                 json.dumps(goal.tactic_metadata or {}),
                 goal.company_id,
+                goal.stage or "unknown",
+                goal.kill_criterion,
             ),
         )
 
@@ -888,6 +1032,13 @@ class GoalManager:
     ) -> list[Checkpoint]:
         """Parse LLM JSON output into Checkpoint objects.
 
+        Accepts EITHER a bare JSON array (the ``revise`` path, and
+        pre-Stage-0 decompose output) OR an object of the shape
+        ``{"kill_criterion": ..., "checkpoints": [...]}`` (the
+        Stage-0 decompose output). The kill_criterion is ignored here
+        — ``_extract_kill_criterion`` pulls it; this method only
+        returns the checkpoint list.
+
         The ``order`` field emitted by the LLM is **ignored** — we
         renumber sequentially from ``start_order`` so the resulting
         list is guaranteed to be collision-free against the UNIQUE
@@ -898,21 +1049,15 @@ class GoalManager:
         revise. The DB constraint is the truth; this parser conforms
         to it instead of fighting it.
         """
-        # Try to extract JSON array from response
-        text = raw.strip()
-        # Handle markdown code blocks
-        if "```" in text:
-            start = text.find("[")
-            end = text.rfind("]")
-            if start != -1 and end != -1:
-                text = text[start : end + 1]
-
-        try:
-            items = json.loads(text)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse checkpoint JSON: %s", text[:200])
+        data = _loads_json_lenient(raw)
+        if data is None:
+            logger.warning("Failed to parse checkpoint JSON: %s", (raw or "")[:200])
             return []
 
+        if isinstance(data, dict):
+            items = data.get("checkpoints", [])
+        else:
+            items = data
         if not isinstance(items, list):
             return []
 
@@ -921,6 +1066,9 @@ class GoalManager:
         for item in items:
             if not isinstance(item, dict):
                 continue
+            stage = str(item.get("stage", "unknown")).strip().lower() or "unknown"
+            if stage not in GOAL_STAGES:
+                stage = "unknown"
             checkpoints.append(
                 Checkpoint(
                     goal_id=goal_id,
@@ -928,10 +1076,24 @@ class GoalManager:
                     title=str(item.get("title", "Untitled"))[:60],
                     description=str(item.get("description", "")),
                     success_criteria=str(item.get("success_criteria", "")),
+                    stage=stage,
                 )
             )
             next_order += 1
         return checkpoints
+
+    @staticmethod
+    def _extract_kill_criterion(raw: str) -> str | None:
+        """Pull the goal-level kill_criterion from a decompose response.
+
+        Returns the trimmed string, or None if the response is a bare
+        array (revise path) / has no kill_criterion field."""
+        data = _loads_json_lenient(raw)
+        if isinstance(data, dict):
+            kc = data.get("kill_criterion")
+            if isinstance(kc, str) and kc.strip():
+                return kc.strip()
+        return None
 
     @staticmethod
     def _row_to_goal(row: Any) -> Goal:
@@ -964,6 +1126,10 @@ class GoalManager:
             company_id=(
                 row["company_id"] if "company_id" in row.keys() else "elophanto-self"
             ),
+            stage=(row["stage"] if "stage" in row.keys() else "unknown") or "unknown",
+            kill_criterion=(
+                row["kill_criterion"] if "kill_criterion" in row.keys() else None
+            ),
         )
 
     @staticmethod
@@ -980,4 +1146,5 @@ class GoalManager:
             attempts=row["attempts"],
             started_at=row["started_at"],
             completed_at=row["completed_at"],
+            stage=(row["stage"] if "stage" in row.keys() else "unknown") or "unknown",
         )

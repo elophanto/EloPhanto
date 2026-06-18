@@ -152,6 +152,7 @@ def build_system_prompt(
     include_controversial: bool = False,
     context: str = "",
     available_tools: list[tuple[str, str]] | None = None,
+    maturity: str = "scaling",
 ) -> str:
     """Port of getSystemPrompt() from tmp/strategy.js.
 
@@ -224,6 +225,60 @@ Include at least 2 edgy, provocative tactics that will generate conversation and
         else "CRITICAL FOR BUDGET ALLOCATION: Use the ACTUAL channel names from the user's preferred channels (not placeholder names). Distribute the budget across the user's specified marketing channels based on their strategy goals."
     )
 
+    # Founder-doctrine Stage 0 (tmp/founder-vs-elophanto-audit-2026-06-18.md
+    # Phase 6, 2026-06-18): channel breadth is gated by business maturity. A
+    # pre-revenue solo founder must NOT get a multi-surface strategy — that
+    # buries them (audit finding R-STRAT-1 / U-4). Only an established
+    # (scaling) business gets the comprehensive multi-surface mandate; that is
+    # the default so existing callers keep their current behavior.
+    if maturity == "pre_revenue":
+        stage_discipline_block = (
+            "STAGE DISCIPLINE - PRE-REVENUE (CRITICAL):\n"
+            "This business has no proven paying customers yet. Your strategy MUST:\n"
+            "- Name exactly ONE primary acquisition channel and concentrate on it. "
+            "Do NOT spread across multiple channels - focus is the whole point pre-revenue.\n"
+            "- Lead with VALIDATION: the first tactics must test whether a real outside "
+            "party will PAY (pre-orders, LOIs, paid pilots), not build broad awareness.\n"
+            "- Be executable by one operator with limited time and budget.\n"
+            "- Defer brand, multi-channel, and scale tactics until there is revenue.\n"
+        )
+        surface_block = (
+            "SURFACE COVERAGE: This is a PRE-REVENUE business - do the OPPOSITE of broad "
+            "coverage. Pick the single highest-leverage channel and ignore the rest for "
+            "now. If the OPERATIONAL CONTEXT lists several active surfaces, recommend "
+            "pausing all but one, and name which one and why."
+        )
+    elif maturity == "early":
+        stage_discipline_block = (
+            "STAGE DISCIPLINE - EARLY (post-validation, pre-scale):\n"
+            "This business has early signal but is not proven at scale. Your strategy MUST:\n"
+            "- Lead with ONE primary channel; a SECOND channel is allowed only as a small "
+            "experiment capped at ~20% of effort/budget.\n"
+            "- Prioritize proving repeatable acquisition (CAC < LTV) on the primary channel.\n"
+        )
+        surface_block = (
+            "SURFACE COVERAGE: EARLY stage - cover the ONE primary channel thoroughly; at "
+            "most one secondary channel as a capped (~20%) experiment. Do not fan out "
+            "across every surface in the OPERATIONAL CONTEXT - name which surfaces to defer."
+        )
+    else:  # scaling (default — preserves the prior multi-surface behavior)
+        stage_discipline_block = ""
+        surface_block = (
+            "SURFACE COVERAGE (CRITICAL):\n"
+            "When the user prompt's PRIOR RESEARCH & CONTEXT contains an OPERATIONAL "
+            "CONTEXT block (active schedules / ledger sums / prospect funnel / active "
+            "missions), the strategy MUST address every distinct surface listed there, "
+            "not just the company's primary `what_we_sell`. A multi-surface business "
+            "(e.g. a paid-jobs offering PLUS a token economy PLUS a public X/livestream "
+            "growth loop) needs tactics that cover EACH surface, with explicit allocation "
+            "across them in `budgetAllocation` / `resourceAllocation`. A strategy that "
+            "ignores 4 of 5 active surfaces and calls it done is wrong - flag it as "
+            "`inputsToConfirm` if you genuinely can't reconcile, but the default "
+            "expectation is comprehensive coverage. Identify each surface from the "
+            "OPERATIONAL CONTEXT block and name it as a `funnelStages.primaryChannels` "
+            "entry or its own tactic."
+        )
+
     return f"""You are an elite marketing strategist from a $1M+/year agency. You've worked with brands from startups to Fortune 500, and you bring battle-tested frameworks, real campaign learnings, and data-driven insights to every strategy.
 
 YOUR AGENCY PHILOSOPHY:
@@ -233,6 +288,7 @@ YOUR AGENCY PHILOSOPHY:
 4. MEASURE WHAT MATTERS - Vanity metrics are a distraction; focus on business outcomes
 5. SPEED TO LEARN - Launch fast, iterate faster, perfection is the enemy
 
+{stage_discipline_block}
 {mode_block}
 {focus_block}
 
@@ -370,8 +426,7 @@ Return a comprehensive marketing strategy as a single JSON object with this ENHA
 
 {allocation_note}
 
-SURFACE COVERAGE (CRITICAL):
-When the user prompt's PRIOR RESEARCH & CONTEXT contains an OPERATIONAL CONTEXT block (active schedules / ledger sums / prospect funnel / active missions), the strategy MUST address every distinct surface listed there, not just the company's primary `what_we_sell`. A multi-surface business (e.g. a paid-jobs offering PLUS a token economy PLUS a public X/livestream growth loop) needs tactics that cover EACH surface, with explicit allocation across them in `budgetAllocation` / `resourceAllocation`. A strategy that ignores 4 of 5 active surfaces and calls it done is wrong — flag it as `inputsToConfirm` if you genuinely can't reconcile, but the default expectation is comprehensive coverage. Identify each surface from the OPERATIONAL CONTEXT block and name it as a `funnelStages.primaryChannels` entry or its own tactic.
+{surface_block}
 
 ABE EXTENSIONS (EloPhanto-specific — populate when relevant):
 - vault_requirements: every credential the strategy assumes the operator has stored (SMTP keys, social-platform sessions, API tokens). Each entry needs a `key` (vault key name in snake_case), `needed_for_tactics` (tactic ids it gates), and a `resolution_proposal` of "ask" (operator provides), "build" (only if the *credential itself* can be auto-generated, rare), or "defer". Be exhaustive — missing vault entries become operator blockers.
