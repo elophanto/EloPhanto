@@ -904,3 +904,188 @@ class TestCompletionHooks:
 
         assert a == [goal.goal_id]
         assert b == [goal.goal_id]
+
+
+# ---------------------------------------------------------------------------
+# Company scoping (Tier 1 #1, 2026-06-18)
+# ---------------------------------------------------------------------------
+
+
+class TestCompanyScoping:
+    """Every read defaults to the contextvar company; writes stamp it at
+    INSERT. Operators in company A must not see / modify company B's
+    goals by accident. Long-running goals survive context flips via the
+    ALL_COMPANIES bypass on the internal mark_checkpoint_* path."""
+
+    @pytest.mark.asyncio
+    async def test_create_stamps_current_company(self, gm: GoalManager) -> None:
+        from core.company import (
+            DEFAULT_COMPANY_ID,
+            reset_current_company,
+            set_current_company,
+        )
+
+        token = set_current_company("acme-inc")
+        try:
+            g = await gm.create_goal("Acme goal", session_id="s")
+            assert g.company_id == "acme-inc"
+        finally:
+            reset_current_company(token)
+
+        # After reset, default-context get refuses to see acme's row.
+        assert await gm.get_goal(g.goal_id) is None
+        assert await gm.list_goals() == []
+        # Default-context creates land in DEFAULT_COMPANY_ID.
+        self_goal = await gm.create_goal("Self goal", session_id="s")
+        assert self_goal.company_id == DEFAULT_COMPANY_ID
+
+    @pytest.mark.asyncio
+    async def test_list_filters_by_active_company(self, gm: GoalManager) -> None:
+        from core.company import reset_current_company, set_current_company
+
+        a = set_current_company("acme-inc")
+        try:
+            await gm.create_goal("Acme A")
+            await gm.create_goal("Acme B")
+        finally:
+            reset_current_company(a)
+        b = set_current_company("beta-co")
+        try:
+            await gm.create_goal("Beta only")
+        finally:
+            reset_current_company(b)
+
+        a2 = set_current_company("acme-inc")
+        try:
+            seen = await gm.list_goals()
+            assert {g.goal for g in seen} == {"Acme A", "Acme B"}
+        finally:
+            reset_current_company(a2)
+
+        b2 = set_current_company("beta-co")
+        try:
+            seen = await gm.list_goals()
+            assert {g.goal for g in seen} == {"Beta only"}
+        finally:
+            reset_current_company(b2)
+
+    @pytest.mark.asyncio
+    async def test_all_companies_sentinel_bypasses_filter(
+        self, gm: GoalManager
+    ) -> None:
+        from core.company import (
+            ALL_COMPANIES,
+            reset_current_company,
+            set_current_company,
+        )
+
+        a = set_current_company("acme-inc")
+        try:
+            ag = await gm.create_goal("A")
+        finally:
+            reset_current_company(a)
+        b = set_current_company("beta-co")
+        try:
+            await gm.create_goal("B")
+        finally:
+            reset_current_company(b)
+
+        assert await gm.list_goals() == []
+        seen = await gm.list_goals(company_id=ALL_COMPANIES)
+        assert {g.goal for g in seen} == {"A", "B"}
+        assert (await gm.get_goal(ag.goal_id, company_id=ALL_COMPANIES)).goal == "A"
+
+    @pytest.mark.asyncio
+    async def test_cross_company_cancel_pause_refused_softly(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """cancel/pause/resume go through _update_status → get_goal which
+        now filters by current company. Cross-tenant mutations return
+        False without touching the other tenant's row."""
+        from core.company import (
+            ALL_COMPANIES,
+            reset_current_company,
+            set_current_company,
+        )
+
+        router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
+
+        a = set_current_company("acme-inc")
+        try:
+            g = await gm.create_goal("Acme goal")
+            await gm.decompose(g)  # status -> active
+        finally:
+            reset_current_company(a)
+
+        # Default context — can't cancel acme's goal.
+        assert await gm.cancel_goal(g.goal_id) is False
+        assert await gm.pause_goal(g.goal_id) is False
+
+        # The goal is untouched.
+        survivor = await gm.get_goal(g.goal_id, company_id=ALL_COMPANIES)
+        assert survivor.status == "active"
+
+    @pytest.mark.asyncio
+    async def test_mark_checkpoint_complete_survives_context_flip(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """A goal created in company A, then the operator flips to B
+        (e.g. via company_use), then a long-running tool finally calls
+        mark_checkpoint_complete. The internal goal fetch must use
+        ALL_COMPANIES so the goal advance lands, or the DB ends up
+        half-updated (checkpoint=complete, goal=stale)."""
+        from core.company import reset_current_company, set_current_company
+
+        router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
+
+        a = set_current_company("acme-inc")
+        try:
+            g = await gm.create_goal("Long task")
+            await gm.decompose(g)
+            await gm.mark_checkpoint_active(g.goal_id, 1)
+        finally:
+            reset_current_company(a)
+
+        # Operator switched companies mid-run.
+        b = set_current_company("beta-co")
+        try:
+            await gm.mark_checkpoint_complete(g.goal_id, 1, "done")
+        finally:
+            reset_current_company(b)
+
+        # The goal advanced — current_checkpoint = 2 — despite the flip.
+        from core.company import ALL_COMPANIES
+
+        after = await gm.get_goal(g.goal_id, company_id=ALL_COMPANIES)
+        assert after is not None
+        assert after.current_checkpoint == 2
+
+    @pytest.mark.asyncio
+    async def test_persist_does_not_move_goal_between_companies(
+        self, gm: GoalManager
+    ) -> None:
+        """_persist_goal omits company_id from the ON CONFLICT update
+        set, so subsequent persist calls (status flip, checkpoint
+        advance) can never relocate a goal to another tenant even if
+        someone hands us a Goal object with a tampered company_id."""
+        from core.company import (
+            ALL_COMPANIES,
+            reset_current_company,
+            set_current_company,
+        )
+
+        a = set_current_company("acme-inc")
+        try:
+            g = await gm.create_goal("Anchored")
+        finally:
+            reset_current_company(a)
+
+        # Tamper in-memory: pretend a subsequent persist tries to move it.
+        g.company_id = "beta-co"
+        g.status = "cancelled"
+        await gm._persist_goal(g)
+
+        row = await gm.get_goal(g.goal_id, company_id=ALL_COMPANIES)
+        assert row is not None
+        assert row.company_id == "acme-inc"  # stayed
+        assert row.status == "cancelled"  # status DID advance

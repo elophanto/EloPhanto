@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from core.company import ALL_COMPANIES, current_company_id
 from core.config import GoalsConfig
 from core.database import Database
 
@@ -75,6 +76,10 @@ class Goal:
     # channel, budget, expectedImpact, riskLevel, dependencies,
     # successMetrics, inspiredBy. Empty dict for non-strategy goals.
     tactic_metadata: dict[str, Any] = field(default_factory=dict)
+    # ABE Phase 12 (Tier 1 #1, 2026-06-18). Company this goal
+    # belongs to. Stamped from the contextvar at INSERT time; pre-
+    # migration rows default to 'elophanto-self' via the schema.
+    company_id: str = "elophanto-self"
 
 
 @dataclass
@@ -204,6 +209,14 @@ class GoalManager:
         to a role persona — e.g. ``assigned_to_role='sales'``. The
         autonomous mind biases candidate selection accordingly. Null
         means the goal works for any role (CEO default).
+
+        Company is captured from the contextvar at create time and
+        stored on the Goal object so subsequent ``_persist_goal`` calls
+        (from checkpoint advances etc.) preserve it even if the
+        contextvar later flips. Before Tier 1 #1 (2026-06-18) this
+        relied on the schema DEFAULT, which silently routed every
+        create into 'elophanto-self' regardless of the operator's
+        active company.
         """
         now = datetime.now(UTC).isoformat()
         g = Goal(
@@ -217,44 +230,90 @@ class GoalManager:
             mission_id=mission_id,
             assigned_to_role=assigned_to_role,
             tactic_metadata=dict(tactic_metadata or {}),
+            company_id=current_company_id(),
         )
         await self._persist_goal(g)
         return g
 
-    async def get_goal(self, goal_id: str) -> Goal | None:
-        """Fetch a goal by ID."""
-        rows = await self._db.execute(
-            "SELECT * FROM goals WHERE goal_id = ?", (goal_id,)
-        )
+    async def get_goal(
+        self, goal_id: str, *, company_id: str | None = None
+    ) -> Goal | None:
+        """Fetch a goal by ID.
+
+        Defaults to the contextvar company — passing a known
+        goal_id from another tenant returns None instead of leaking
+        the row. Pass ``company_id=ALL_COMPANIES`` to bypass the
+        filter (admin / diagnostics only).
+        """
+        scope = current_company_id() if company_id is None else company_id
+        if scope == ALL_COMPANIES:
+            rows = await self._db.execute(
+                "SELECT * FROM goals WHERE goal_id = ?", (goal_id,)
+            )
+        else:
+            rows = await self._db.execute(
+                "SELECT * FROM goals WHERE goal_id = ? AND company_id = ?",
+                (goal_id, scope),
+            )
         if not rows:
             return None
         return self._row_to_goal(rows[0])
 
-    async def get_active_goal(self, session_id: str) -> Goal | None:
-        """Get the active goal for a session (if any)."""
-        rows = await self._db.execute(
-            "SELECT * FROM goals WHERE session_id = ? AND status IN ('planning', 'active') "
-            "ORDER BY updated_at DESC LIMIT 1",
-            (session_id,),
-        )
+    async def get_active_goal(
+        self, session_id: str, *, company_id: str | None = None
+    ) -> Goal | None:
+        """Get the active goal for a session (if any).
+
+        Filters by the contextvar company so a stale session shared
+        across companies (Tier 2 #4 — sessions UNIQUE doesn't include
+        company_id yet) doesn't return another company's active goal.
+        """
+        scope = current_company_id() if company_id is None else company_id
+        if scope == ALL_COMPANIES:
+            rows = await self._db.execute(
+                "SELECT * FROM goals WHERE session_id = ? "
+                "AND status IN ('planning', 'active') "
+                "ORDER BY updated_at DESC LIMIT 1",
+                (session_id,),
+            )
+        else:
+            rows = await self._db.execute(
+                "SELECT * FROM goals WHERE session_id = ? AND company_id = ? "
+                "AND status IN ('planning', 'active') "
+                "ORDER BY updated_at DESC LIMIT 1",
+                (session_id, scope),
+            )
         if not rows:
             return None
         return self._row_to_goal(rows[0])
 
     async def list_goals(
-        self, status: str | None = None, limit: int = 20
+        self,
+        status: str | None = None,
+        limit: int = 20,
+        *,
+        company_id: str | None = None,
     ) -> list[Goal]:
-        """List goals, optionally filtered by status."""
+        """List goals, optionally filtered by status.
+
+        Defaults to the contextvar company. Pass ``company_id=
+        ALL_COMPANIES`` to list across every tenant (admin only).
+        """
+        scope = current_company_id() if company_id is None else company_id
+        clauses: list[str] = []
+        params: list[Any] = []
+        if scope != ALL_COMPANIES:
+            clauses.append("company_id = ?")
+            params.append(scope)
         if status:
-            rows = await self._db.execute(
-                "SELECT * FROM goals WHERE status = ? ORDER BY updated_at DESC LIMIT ?",
-                (status, limit),
-            )
-        else:
-            rows = await self._db.execute(
-                "SELECT * FROM goals ORDER BY updated_at DESC LIMIT ?",
-                (limit,),
-            )
+            clauses.append("status = ?")
+            params.append(status)
+        where_sql = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        params.append(limit)
+        rows = await self._db.execute(
+            f"SELECT * FROM goals {where_sql}" "ORDER BY updated_at DESC LIMIT ?",
+            tuple(params),
+        )
         return [self._row_to_goal(r) for r in rows]
 
     async def cancel_goal(self, goal_id: str) -> bool:
@@ -486,7 +545,14 @@ class GoalManager:
     async def mark_checkpoint_complete(
         self, goal_id: str, order: int, summary: str
     ) -> None:
-        """Mark a checkpoint as completed and advance the goal."""
+        """Mark a checkpoint as completed and advance the goal.
+
+        Uses ALL_COMPANIES on the internal goal fetch so a context
+        flip during a long-running goal cannot leave the DB in a
+        half-updated state (checkpoint marked complete but goal not
+        advanced). The goal runner already vouches for the goal_id —
+        soft-guard scoping belongs on the operator-facing surface.
+        """
         now = datetime.now(UTC).isoformat()
         await self._db.execute(
             "UPDATE goal_checkpoints SET status = 'completed', result_summary = ?, "
@@ -494,7 +560,7 @@ class GoalManager:
             (summary, now, goal_id, order),
         )
 
-        goal = await self.get_goal(goal_id)
+        goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
         if not goal:
             return
 
@@ -574,7 +640,9 @@ class GoalManager:
                 "WHERE goal_id = ? AND checkpoint_order = ?",
                 (f"Failed after {attempts} attempts: {error}", goal_id, order),
             )
-            goal = await self.get_goal(goal_id)
+            # ALL_COMPANIES on internal fetch — see mark_checkpoint_complete
+            # for rationale (avoid half-updated state on context flip).
+            goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
             if goal:
                 goal.status = "paused"
                 goal.updated_at = now
@@ -744,15 +812,22 @@ class GoalManager:
     # --- Persistence helpers ---
 
     async def _persist_goal(self, goal: Goal) -> None:
-        """Upsert a goal to the database."""
+        """Upsert a goal to the database.
+
+        ``company_id`` is written only on INSERT (it stays out of the
+        ON CONFLICT update set), so subsequent persist calls from
+        checkpoint advances or status flips cannot move a goal
+        between companies even if the contextvar has flipped in the
+        meantime.
+        """
         await self._db.execute_insert(
             """
             INSERT INTO goals (goal_id, session_id, goal, status, plan_json,
                 context_summary, current_checkpoint, total_checkpoints,
                 attempts, max_attempts, llm_calls_used, cost_usd,
                 created_at, updated_at, completed_at, mission_id,
-                assigned_to_role, tactic_metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                assigned_to_role, tactic_metadata, company_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(goal_id) DO UPDATE SET
                 status = excluded.status,
                 plan_json = excluded.plan_json,
@@ -787,6 +862,7 @@ class GoalManager:
                 goal.mission_id,
                 goal.assigned_to_role,
                 json.dumps(goal.tactic_metadata or {}),
+                goal.company_id,
             ),
         )
 
@@ -884,6 +960,9 @@ class GoalManager:
                 json.loads(row["tactic_metadata"] or "{}")
                 if "tactic_metadata" in row.keys()
                 else {}
+            ),
+            company_id=(
+                row["company_id"] if "company_id" in row.keys() else "elophanto-self"
             ),
         )
 

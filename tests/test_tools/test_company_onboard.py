@@ -129,6 +129,39 @@ class TestHappyPath:
         assert "acme-inc" in goal.goal
 
     @pytest.mark.asyncio
+    async def test_seed_goal_lands_in_new_company_not_self(
+        self,
+        tool: CompanyOnboardTool,
+        goal_mgr: GoalManager,
+    ) -> None:
+        """Tier 1 #1 regression (2026-06-18). Before the fix, the seed
+        goal inserted without an explicit ``company_id`` defaulted to
+        'elophanto-self' via the schema DEFAULT, so onboarding acme-inc
+        with a seed goal silently created acme's first goal under
+        elophanto-self. The fix stamps the contextvar at INSERT time."""
+        from core.company import DEFAULT_COMPANY_ID
+
+        result = await tool.execute(
+            {
+                "slug": "acme-inc",
+                "what_we_sell": "Real product for real customers.",
+                "seed_goal": "First customer call.",
+            }
+        )
+        assert result.success
+        gid = result.data["seed_goal_id"]
+        assert gid is not None
+
+        # The seed goal is reachable via the new company's scope.
+        in_acme = await goal_mgr.get_goal(gid, company_id="acme-inc")
+        assert in_acme is not None
+        assert in_acme.company_id == "acme-inc"
+
+        # And NOT reachable via the default/self scope (the bug we fixed).
+        in_self = await goal_mgr.get_goal(gid, company_id=DEFAULT_COMPANY_ID)
+        assert in_self is None
+
+    @pytest.mark.asyncio
     async def test_no_seed_goal_returns_none(self, tool: CompanyOnboardTool) -> None:
         result = await tool.execute(
             {"slug": "acme", "what_we_sell": "Concrete deliverable for clients."}

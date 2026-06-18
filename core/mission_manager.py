@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from core.company import ALL_COMPANIES, current_company_id
 from core.database import Database
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,10 @@ class Mission:
     # arbiter biases candidates of role X toward missions with the
     # matching owner_role.
     owner_role: str | None = None
+    # ABE Phase 12 (Tier 1 #1, 2026-06-18). Company this mission
+    # belongs to. Stamped from the contextvar at INSERT time; pre-
+    # migration rows default to 'elophanto-self' via the schema.
+    company_id: str = "elophanto-self"
 
     def staleness_hours(self, now: datetime | None = None) -> float:
         """How many hours since this mission was last touched.
@@ -119,15 +124,22 @@ class MissionManager:
         stable slug (e.g. ``alphascala-launch``) so seeds and config
         files can reference missions by name, fall back to a uuid for
         ad-hoc missions. ``owner_role`` (ABE Phase 2) optionally
-        attaches the mission to a role persona; null = CEO."""
+        attaches the mission to a role persona; null = CEO.
+
+        Company is stamped from the contextvar at INSERT time. Before
+        Tier 1 #1 (2026-06-18) this relied on the schema DEFAULT,
+        which silently routed every create into 'elophanto-self'
+        regardless of operator's active company.
+        """
         mid = mission_id or f"m_{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC).isoformat()
+        company_id = current_company_id()
         await self._db.execute_insert(
             "INSERT INTO missions "
             "(mission_id, title, description, status, priority_weight, "
             "momentum_score, last_touched_at, created_at, updated_at, "
-            "owner_role) "
-            "VALUES (?, ?, ?, ?, ?, 0.0, NULL, ?, ?, ?)",
+            "owner_role, company_id) "
+            "VALUES (?, ?, ?, ?, ?, 0.0, NULL, ?, ?, ?, ?)",
             (
                 mid,
                 title,
@@ -137,6 +149,7 @@ class MissionManager:
                 now,
                 now,
                 owner_role,
+                company_id,
             ),
         )
         return Mission(
@@ -150,32 +163,61 @@ class MissionManager:
             created_at=now,
             updated_at=now,
             owner_role=owner_role,
+            company_id=company_id,
         )
 
-    async def get(self, mission_id: str) -> Mission | None:
-        rows = await self._db.execute(
-            "SELECT * FROM missions WHERE mission_id = ?", (mission_id,)
-        )
-        return self._row_to_mission(rows[0]) if rows else None
+    async def get(
+        self, mission_id: str, *, company_id: str | None = None
+    ) -> Mission | None:
+        """Fetch a mission by id.
 
-    async def list_missions(
-        self, status: str | None = STATUS_ACTIVE, limit: int = 100
-    ) -> list[Mission]:
-        """List missions, optionally filtered by status. Default to
-        active because that's the common case from the dream phase
-        and CLI; pass ``status=None`` to list everything."""
-        if status is None:
+        Defaults to the contextvar company — passing a known
+        mission_id from another tenant returns None instead of
+        leaking the row. Pass ``company_id=ALL_COMPANIES`` to bypass
+        the filter (admin / diagnostics only).
+        """
+        scope = current_company_id() if company_id is None else company_id
+        if scope == ALL_COMPANIES:
             rows = await self._db.execute(
-                "SELECT * FROM missions "
-                "ORDER BY priority_weight DESC, updated_at DESC LIMIT ?",
-                (limit,),
+                "SELECT * FROM missions WHERE mission_id = ?", (mission_id,)
             )
         else:
             rows = await self._db.execute(
-                "SELECT * FROM missions WHERE status = ? "
-                "ORDER BY priority_weight DESC, updated_at DESC LIMIT ?",
-                (status, limit),
+                "SELECT * FROM missions WHERE mission_id = ? AND company_id = ?",
+                (mission_id, scope),
             )
+        return self._row_to_mission(rows[0]) if rows else None
+
+    async def list_missions(
+        self,
+        status: str | None = STATUS_ACTIVE,
+        limit: int = 100,
+        *,
+        company_id: str | None = None,
+    ) -> list[Mission]:
+        """List missions, optionally filtered by status. Default to
+        active because that's the common case from the dream phase
+        and CLI; pass ``status=None`` to list everything.
+
+        Defaults to the contextvar company. Pass ``company_id=
+        ALL_COMPANIES`` to list across every tenant (admin only).
+        """
+        scope = current_company_id() if company_id is None else company_id
+        clauses: list[str] = []
+        params: list[Any] = []
+        if scope != ALL_COMPANIES:
+            clauses.append("company_id = ?")
+            params.append(scope)
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
+        where_sql = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        params.append(limit)
+        rows = await self._db.execute(
+            f"SELECT * FROM missions {where_sql}"
+            "ORDER BY priority_weight DESC, updated_at DESC LIMIT ?",
+            tuple(params),
+        )
         return [self._row_to_mission(r) for r in rows]
 
     async def set_status(self, mission_id: str, status: str) -> bool:
@@ -307,6 +349,9 @@ class MissionManager:
         # migration ran. Defensive lookup so legacy test fixtures
         # that mock the row shape don't break.
         owner_role = row["owner_role"] if "owner_role" in row.keys() else None
+        company_id = (
+            row["company_id"] if "company_id" in row.keys() else "elophanto-self"
+        )
         return Mission(
             mission_id=row["mission_id"],
             title=row["title"],
@@ -318,4 +363,5 @@ class MissionManager:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             owner_role=owner_role,
+            company_id=company_id,
         )
