@@ -4,6 +4,16 @@
 
 The Goal Loop allows EloPhanto to pursue multi-phase goals that span sessions, require progress tracking, and may need mid-run replanning. Any task that spans distinct phases — research, execution, verification — across minutes, hours, or days gets decomposed into ordered checkpoints with persistent state.
 
+## Founder doctrine: stage, kill criterion, validate-first gate
+
+(Added 2026-06-18.) Every goal and checkpoint carries a **founder-loop stage** — one of `scan | validate | build | launch | acquire | operate | scale` (default `unknown` for legacy rows) — and every goal carries a measurable **`kill_criterion`** (the abandon-threshold, decided before work starts: a number + a date/volume). Both are columns on `goals` (`stage`, `kill_criterion`) / `goal_checkpoints` (`stage`), populated by the decompose prompt or the `goal_create` tool.
+
+**The validate-first gate** is the load-bearing rule: if a goal involves building, selling, launching, or growing something and there is no evidence yet that a paying party wants it, the decomposer makes the **first checkpoint a `validate`-stage checkpoint** whose success criterion is a real revenue-intent signal (paid pre-order, signed LOI, advertiser/sponsor/affiliate commitment) — never generic research, never a `build` step first. Research that doesn't end in a paying-party signal is treated as procrastination. Pure-research / internal-tooling goals legitimately have no `validate` stage.
+
+Enforced two ways: (1) the `_DECOMPOSE_SYSTEM` prompt orders checkpoints accordingly, and (2) **`GoalManager.validate_gate_reason` + the goal runner hard-block** execution of a `build`/`launch`/`acquire`/`scale` checkpoint while the goal still has an unfinished `validate` checkpoint — the goal is paused and surfaced to the operator (pivot / kill / override) rather than building on failed or absent validation. The autonomous mind's prompts (`_MIND_PROMPT` rule 3, `_ARBITER_PROMPT`) are stage-anchored: validate beats everything pre-revenue; build means "a stranger can pay end-to-end"; acquire means one proven channel; operate means retention.
+
+This pairs with the metabolism signal (the `[COMPANY]` state line shows net including the agent's own cognition cost) and the ABE finance rail ([80-ABE-FINANCE-RAIL.md](80-ABE-FINANCE-RAIL.md)).
+
 ## How Goal Creation is Triggered
 
 Goal creation is **LLM-driven, not rule-based**. There is no keyword matcher or heuristic that auto-creates goals. Instead, the system prompt includes a `<goals>` section that teaches the agent *when* to call `goal_create` vs working directly. Two mechanisms guide this decision:

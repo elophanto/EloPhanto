@@ -1,16 +1,18 @@
 # EloPhanto
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![Stars](https://img.shields.io/github/stars/elophanto/EloPhanto)](https://github.com/elophanto/EloPhanto/stargazers)
 [![CI](https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI)](https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2400%2B-success)](https://github.com/elophanto/EloPhanto/actions)
-[![Docs](https://img.shields.io/badge/docs-84%2B%20pages-blue)](https://docs.elophanto.com)
+[![Tests](https://img.shields.io/badge/tests-2600%2B-success)](https://github.com/elophanto/EloPhanto/actions)
+[![Docs](https://img.shields.io/badge/docs-85%2B%20pages-blue)](https://docs.elophanto.com)
 [![X](https://img.shields.io/badge/X-%40EloPhanto-black)](https://x.com/EloPhanto)
 
-**An open-source autonomous AI agent with a self-model that actually moves — identity, ego, and affect that change as it runs.**
+**A source-available autonomous AI agent with a self-model that actually moves — identity, ego, and affect that change as it runs.**
 
-Most "AI agents" are stateless prompts wrapped in a CLI: the same cold start every conversation. EloPhanto carries an evolving self-model — who it claims to be, how reality has graded that claim, and what it's feeling right now — built on published psychology (Higgins' Self-Discrepancy Theory, Mehrabian's PAD, OCC appraisal). The agent at the end of week three is not the one you started with. To our knowledge, no other open-source autonomous agent ships all of this.
+> **License note:** source-available under the [PolyForm Noncommercial License](LICENSE) — free for personal, research, education, and non-profit use. **Commercial use requires a separate license / prior approval** (see [License](#license)).
+
+Most "AI agents" are stateless prompts wrapped in a CLI: the same cold start every conversation. EloPhanto carries an evolving self-model — who it claims to be, how reality has graded that claim, and what it's feeling right now — built on published psychology (Higgins' Self-Discrepancy Theory, Mehrabian's PAD, OCC appraisal). The agent at the end of week three is not the one you started with. To our knowledge, no other autonomous agent we know of ships all of this.
 
 Runs locally. Your data, your keys, your machine. Works with OpenAI, OpenRouter, Z.ai, Kimi, HuggingFace, free local models, or your existing ChatGPT Plus/Pro subscription (via Codex OAuth).
 
@@ -54,7 +56,7 @@ See [`core/ego.py`](core/ego.py), [`core/affect.py`](core/affect.py), [docs/17-I
 
 The two modes share one codebase. Flip between them by changing `agent.permission_mode` in `config.yaml` (`ask_always` | `smart_auto` | `full_auto`).
 
-> **Coming soon — OpenEloPhanto (always-on cloud).** Today EloPhanto runs while your machine is on. OpenEloPhanto is the same open-source agent running in the cloud, always-on, so it keeps thinking, working, and earning 24/7. Self-hosted on your own server — your keys, your box — with the built-in cloud browser backend, so no local Chrome is needed. **Not available yet — in the works.**
+> **Coming soon — OpenEloPhanto (always-on cloud).** Today EloPhanto runs while your machine is on. OpenEloPhanto is the same source-available agent running in the cloud, always-on, so it keeps thinking, working, and earning 24/7. Self-hosted on your own server — your keys, your box — with the built-in cloud browser backend, so no local Chrome is needed. **Not available yet — in the works.**
 
 ![Chat Interface](misc/screenshots/chat.png)
 
@@ -185,8 +187,8 @@ EloPhanto/
 ├── tools/             # 200+ built-in tools (MCP servers add more at runtime)
 ├── skills/            # 177+ bundled SKILL.md files (each ships with a ## Verify gate)
 ├── bridge/browser/    # Node.js browser bridge (Playwright)
-├── tests/             # Test suite (2400+ passing)
-└── docs/              # Full specification (84+ docs)
+├── tests/             # Test suite (2600+ passing)
+└── docs/              # Full specification (85+ docs)
 ```
 
 ---
@@ -244,7 +246,7 @@ Dangerous commands (`rm -rf /`, `mkfs`, `DROP DATABASE`) are always blocked rega
 <summary><strong>Autonomy &amp; cognition</strong></summary>
 
 - **Autonomous mind** — data-driven background loop between your messages; queries real system state to decide what to do, self-bootstraps, every tool call visible in real time.
-- **Autonomous goal loop** — decomposes goals into checkpoints, tracks across sessions, self-evaluates. Dream phase v2 rotates seven value lenses, dedups against existing goals, and force-dreams when no workable goals exist.
+- **Autonomous goal loop** — decomposes goals into checkpoints, tracks across sessions, self-evaluates. Every goal carries a founder-loop **stage** + a measurable **kill criterion**, and the decomposer enforces **validate-before-build** (no `build` checkpoint runs before a `validate` one produces a paying-party signal — [docs/13-GOAL-LOOP.md](docs/13-GOAL-LOOP.md)). Dream phase v2 rotates seven value lenses, dedups against existing goals, and force-dreams when no workable goals exist.
 - **Evolving identity** — discovers identity on first run, evolves through reflection, maintains a living nature document.
 - **State-level affect** — PAD substrate + OCC labels, per-channel decay, wired into ego, executor, goal runner, and router. Inspect with `elophanto affect status` / `simulate`.
 - **Knowledge & memory** — persistent markdown with semantic search via embeddings, lesson extraction after every task, KB write compression.
@@ -258,6 +260,7 @@ Dangerous commands (`rm -rf /`, `mkfs`, `DROP DATABASE`) are always blocked rega
 - **Agent email** — own inbox (AgentMail or SMTP/IMAP), send/receive/search, background monitoring.
 - **TOTP authenticator** — own 2FA; enroll secrets, generate codes, handle verification.
 - **Crypto payments** — own wallet on Base or Solana (self-custody or Coinbase AgentKit), USDC/ETH/SOL, DEX swaps via Jupiter, spending limits, audit trail, on-chain payment links.
+- **Fiat payments (Stripe)** — a per-business fiat rail (chosen at onboard, fiat *or* crypto). Create payment links to get paid, auto-reconcile received payments into the books (refund-aware, every 30 min), and provision spend-controlled virtual cards — all **test-mode by default; live is KYC-gated**, with cash-on-hand feeding runway. Card numbers never touch the LLM. See [docs/80-ABE-FINANCE-RAIL.md](docs/80-ABE-FINANCE-RAIL.md).
 - **Prediction markets** — places real CLOB orders on Polymarket with an owner-approval gate, risk engine (edge filter + Kelly sizing + circuit breaker), and a calibration audit (Brier score, realized vs claimed probability). See [docs/71-POLYMARKET-RISK.md](docs/71-POLYMARKET-RISK.md), [docs/72-POLYMARKET-CALIBRATION.md](docs/72-POLYMARKET-CALIBRATION.md).
 - **Prospecting** — autonomous lead-gen: search, score, track outreach, monitor pipeline.
 - **Social posting** — `twitter_post` is exercised daily by the reference instance at [@EloPhanto](https://x.com/EloPhanto); `youtube_upload` / `tiktok_upload` ship as scaffolding.
@@ -294,7 +297,7 @@ Dangerous commands (`rm -rf /`, `mkfs`, `DROP DATABASE`) are always blocked rega
 | Identity | 4 |
 | Affect | 1 |
 | Email | 7 |
-| Payments | 9 |
+| Payments (crypto + fiat) | 12 |
 | Prospecting | 4 |
 | Verification | 4 |
 | Swarm | 6 |
@@ -386,7 +389,7 @@ Channel setup (Telegram / Discord / Slack / VS Code): see [docs/11-TELEGRAM.md](
 ```bash
 ./setup.sh
 source .venv/bin/activate
-pytest tests/ -v     # 2400+ passing
+pytest tests/ -v     # 2600+ passing
 ruff check .         # lint
 ```
 
@@ -400,6 +403,6 @@ Built by Petr Royce. Browser engine from [FellouAI/eko](https://github.com/Fello
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+**Source-available, non-commercial.** EloPhanto is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free to use, modify, and share for any **non-commercial** purpose (personal, research, education, non-profit organizations). **Commercial use requires a separate license and prior approval** — contact Petr Royce via [GitHub](https://github.com/elophanto/EloPhanto) or [X @EloPhanto](https://x.com/EloPhanto) before any commercial use. Third-party components retain their own licenses — see [NOTICE](NOTICE).
 
 [中文 README](README.zh-CN.md)

@@ -12,6 +12,33 @@ How to use the Autonomous Business Entity framework shipped in
 why); this doc is the **operator playbook** (commands you run,
 files you edit, what to watch).
 
+## Running a fiat business (Stripe rail) — quick path
+
+(Added 2026-06-18. Full design: [80-ABE-FINANCE-RAIL.md](80-ABE-FINANCE-RAIL.md).)
+
+1. **Onboard with a rail:** `company_onboard(..., payment_rail="fiat")` (or
+   `crypto`). One rail per business, chosen here.
+2. **Enable Stripe in test mode:** run the wizard (or set
+   `payments.fiat.enabled: true`), then store a free test key:
+   `elophanto vault set stripe_secret_key sk_test_...`. No KYC, no real money.
+3. **Get paid (sandbox):** the agent uses `fiat_payment_link` to create
+   checkout links. `fiat_reconcile` (auto-scheduled every 30 min) records paid
+   ones into the books — test-mode receipts are flagged and excluded from real
+   revenue.
+4. **Go live (real money):** finish KYC — bring your own entity + Stripe account,
+   or form one via **Stripe Atlas**. Then advance the company:
+   `company_set_entity_state(state="verified")` and flip
+   `payments.fiat.mode: live`. Money tools refuse live operation until
+   `entity_state == verified`.
+5. **Spend (optional):** set `payments.fiat.issuing_enabled: true` +
+   `cardholder_id` (a Stripe Issuing cardholder you create), then
+   `fiat_issue_card` provisions spend-controlled virtual cards (CRITICAL
+   approval; card numbers never reach the agent).
+
+`elophanto doctor` shows `payments: fiat [mode=TEST|LIVE]` so you always know
+whether real money can move. Cash-on-hand feeds runway on the company state
+line in live+verified mode.
+
 ---
 
 ## What an ABE is
