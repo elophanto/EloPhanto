@@ -135,6 +135,18 @@ class CompanyOnboardTool(BaseTool):
                         "company."
                     ),
                 },
+                "payment_rail": {
+                    "type": "string",
+                    "enum": ["fiat", "crypto"],
+                    "description": (
+                        "How this business gets paid — ONE rail per "
+                        "business: 'fiat' (Stripe — cards/bank) or 'crypto' "
+                        "(wallet). Fiat starts in TEST mode (no real money "
+                        "or KYC until the operator finishes KYC and goes "
+                        "live). Ask the operator which they want. Optional "
+                        "— can be set later."
+                    ),
+                },
             },
             "required": ["slug", "what_we_sell"],
         }
@@ -193,6 +205,21 @@ class CompanyOnboardTool(BaseTool):
             company = await self._company_manager.create(slug=slug, name=name)
         except ValueError as e:
             return ToolResult(success=False, error=f"company_create failed: {e}")
+
+        # Step 1.5: payment rail (ABE finance rail). One rail per business,
+        # chosen here. Non-fatal on a bad value — the company still onboards
+        # and the operator can set it later via company_set_product/edit.
+        payment_rail = str(params.get("payment_rail") or "").strip().lower() or None
+        if payment_rail:
+            try:
+                await self._company_manager.set_payment_rail(slug, payment_rail)
+            except ValueError as e:
+                logger.warning(
+                    "company_onboard: invalid payment_rail %r (%s); left unset",
+                    payment_rail,
+                    e,
+                )
+                payment_rail = None
 
         # Step 2: Persist company use so the autonomous mind picks
         # it up on its next wakeup. This is the load-bearing step —
@@ -325,6 +352,23 @@ class CompanyOnboardTool(BaseTool):
                 ),
                 "active_session_persisted": True,
                 "seed_goal_id": seed_goal_id,
+                "payment_rail": payment_rail,
+                "fiat_setup": (
+                    (
+                        "Fiat rail selected. To accept payments: (1) enable "
+                        "Stripe + paste a free sk_test_ key (wizard or "
+                        "`elophanto vault set stripe_secret_key sk_test_...`) "
+                        "— this works in TEST mode with no KYC; (2) when "
+                        "ready for real money, finish KYC (existing entity or "
+                        "Stripe Atlas) and call company_set_entity_state to "
+                        "advance to 'verified', then flip payments.fiat.mode "
+                        "to live. fiat_payment_link creates checkout links; "
+                        "fiat_reconcile (auto-scheduled every 30m) records "
+                        "payments."
+                    )
+                    if payment_rail == "fiat"
+                    else None
+                ),
                 "next_step": (
                     "Phase 11 canonical post-onboard sequence: "
                     "1) `company_capabilities` to audit available "

@@ -2170,6 +2170,7 @@ class Agent:
             "company_use",
             "company_pause",
             "company_resume",
+            "company_set_entity_state",
             # Phase 5 follow-on (2026-05-27): archive (soft delete) +
             # purge (hard delete + cascade) — both need db +
             # company_manager + project_root via the _CompanyToolBase.
