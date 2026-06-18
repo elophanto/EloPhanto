@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from core.company import ALL_COMPANIES, current_company_id
 from core.database import Database
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,10 @@ class Session:
     session_id: str
     channel: str
     user_id: str
+    # Tier 2 #4 (2026-06-18) — sessions are now keyed per-company. Two
+    # companies can share (channel, user_id) without colliding because
+    # the DB UNIQUE constraint includes company_id.
+    company_id: str = "elophanto-self"
     conversation_history: list[dict[str, Any]] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_active: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -101,21 +106,31 @@ class SessionManager:
         self._cache: dict[str, Session] = {}
         self._max_cache_size = max_cache_size
 
-    async def create(self, channel: str, user_id: str) -> Session:
-        """Create a new session for a channel+user pair."""
+    async def create(
+        self,
+        channel: str,
+        user_id: str,
+        *,
+        company_id: str | None = None,
+    ) -> Session:
+        """Create a new session for a channel+user pair, scoped to the
+        active company (or the explicit ``company_id`` override)."""
+        resolved_company = company_id or current_company_id()
         session = Session(
             session_id=str(uuid.uuid4()),
             channel=channel,
             user_id=user_id,
+            company_id=resolved_company,
         )
         await self._persist(session)
         self._cache[session.session_id] = session
         self._evict_lru()
         logger.info(
-            "Created session %s for %s/%s",
+            "Created session %s for %s/%s/%s",
             session.session_id[:8],
             channel,
             user_id,
+            resolved_company,
         )
         return session
 
@@ -136,18 +151,37 @@ class SessionManager:
         self._evict_lru()
         return session
 
-    async def get_or_create(self, channel: str, user_id: str) -> Session:
-        """Get existing session for channel+user, or create one."""
-        # Check cache first
+    async def get_or_create(
+        self,
+        channel: str,
+        user_id: str,
+        *,
+        company_id: str | None = None,
+    ) -> Session:
+        """Get existing session for channel+user+company, or create one.
+
+        Tier 2 #4 (2026-06-18): keyed on the active company in addition
+        to (channel, user_id). Operator running two companies against
+        the same channel+user no longer collides — each company gets
+        its own conversation history.
+        """
+        resolved_company = company_id or current_company_id()
+
+        # Cache first.
         for s in self._cache.values():
-            if s.channel == channel and s.user_id == user_id:
+            if (
+                s.channel == channel
+                and s.user_id == user_id
+                and s.company_id == resolved_company
+            ):
                 s.touch()
                 return s
 
-        # Check DB
+        # DB.
         rows = await self._db.execute(
-            "SELECT * FROM sessions WHERE channel = ? AND user_id = ?",
-            (channel, user_id),
+            "SELECT * FROM sessions WHERE channel = ? AND user_id = ? "
+            "AND company_id = ?",
+            (channel, user_id, resolved_company),
         )
         if rows:
             session = self._row_to_session(rows[0])
@@ -156,18 +190,36 @@ class SessionManager:
             self._evict_lru()
             return session
 
-        return await self.create(channel, user_id)
+        return await self.create(channel, user_id, company_id=resolved_company)
 
     async def save(self, session: Session) -> None:
         """Persist session state to database."""
         await self._persist(session)
 
-    async def list_active(self, limit: int = 20) -> list[Session]:
-        """List most recently active sessions."""
-        rows = await self._db.execute(
-            "SELECT * FROM sessions ORDER BY last_active DESC LIMIT ?",
-            (limit,),
-        )
+    async def list_active(
+        self,
+        limit: int = 20,
+        *,
+        company_id: str | None = None,
+    ) -> list[Session]:
+        """List most recently active sessions.
+
+        Defaults to the active company's sessions (same pattern as
+        mission/goal managers in Tier 1 #1). Pass ``company_id=
+        ALL_COMPANIES`` for an admin / diagnostic cross-tenant view.
+        """
+        scope = current_company_id() if company_id is None else company_id
+        if scope == ALL_COMPANIES:
+            rows = await self._db.execute(
+                "SELECT * FROM sessions ORDER BY last_active DESC LIMIT ?",
+                (limit,),
+            )
+        else:
+            rows = await self._db.execute(
+                "SELECT * FROM sessions WHERE company_id = ? "
+                "ORDER BY last_active DESC LIMIT ?",
+                (scope, limit),
+            )
         return [self._row_to_session(r) for r in rows]
 
     async def cleanup_stale(self, max_age_hours: int = 24) -> int:
@@ -236,13 +288,15 @@ class SessionManager:
         logger.debug("LRU evicted %d sessions from cache", evict_count)
 
     async def _persist(self, session: Session) -> None:
-        """Upsert session to database."""
+        """Upsert session to database. Writes the session's own
+        company_id (captured at create-time) so subsequent saves never
+        move a session between tenants."""
         await self._db.execute_insert(
             """
             INSERT OR REPLACE INTO sessions
                 (session_id, channel, user_id, conversation_json,
-                 created_at, last_active, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 created_at, last_active, metadata_json, company_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.session_id,
@@ -252,16 +306,21 @@ class SessionManager:
                 session.created_at.isoformat(),
                 session.last_active.isoformat(),
                 json.dumps(session.metadata),
+                session.company_id,
             ),
         )
 
     @staticmethod
     def _row_to_session(row: Any) -> Session:
         """Convert a database row to a Session object."""
+        company_id = (
+            row["company_id"] if "company_id" in row.keys() else "elophanto-self"
+        )
         return Session(
             session_id=row["session_id"],
             channel=row["channel"],
             user_id=row["user_id"],
+            company_id=company_id,
             conversation_history=json.loads(row["conversation_json"] or "[]"),
             created_at=datetime.fromisoformat(row["created_at"]),
             last_active=datetime.fromisoformat(row["last_active"]),
