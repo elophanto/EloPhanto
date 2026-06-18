@@ -71,9 +71,27 @@ class Company:
     # The seed `elophanto-self` is bumped to 'operating' on init
     # so existing production schedules keep working.
     trust_state: str = "learning"
+    # ABE finance rail (tmp/abe-finance-rail-spec-2026-06-18.md, 2026-06-18).
+    # How this business gets paid / holds / spends money. Chosen at onboard,
+    # one rail per business (fiat XOR crypto). None = not yet chosen.
+    payment_rail: str | None = None
+    # Financial-readiness / KYC state — orthogonal to the trust ladder above.
+    # The trust ladder gates live ACTIONS; entity_state gates live MONEY.
+    # Real money movement requires entity_state == 'verified'. See the spec
+    # §2 for the full state machine; 'restricted' = processor froze the
+    # account (P0). Defaults to 'none' (no legal entity / no payment account).
+    entity_state: str = "none"
 
 
 VALID_TRUST_STATES: tuple[str, ...] = ("learning", "trial", "operating")
+VALID_PAYMENT_RAILS: tuple[str, ...] = ("fiat", "crypto")
+VALID_ENTITY_STATES: tuple[str, ...] = (
+    "none",
+    "forming",
+    "kyc_pending",
+    "verified",
+    "restricted",
+)
 
 
 # Where the CLI persists the operator's selected company between
@@ -143,6 +161,10 @@ class CompanyManager:
         trust = (
             r["trust_state"] if "trust_state" in r.keys() else "learning"
         ) or "learning"
+        # Defensive reads — finance columns added 2026-06-18; legacy fixtures
+        # / pre-migration rows may lack them. payment_rail None = unchosen.
+        rail = r["payment_rail"] if "payment_rail" in r.keys() else None
+        entity = (r["entity_state"] if "entity_state" in r.keys() else "none") or "none"
         return Company(
             id=r["id"],
             name=r["name"],
@@ -151,19 +173,22 @@ class CompanyManager:
             created_at=r["created_at"],
             updated_at=r["updated_at"],
             trust_state=trust,
+            payment_rail=rail,
+            entity_state=entity,
         )
 
     async def list(self) -> list[Company]:
         rows = await self._db.execute(
             "SELECT id, name, status, product_yaml, created_at, updated_at, "
-            "trust_state FROM companies ORDER BY created_at"
+            "trust_state, payment_rail, entity_state FROM companies "
+            "ORDER BY created_at"
         )
         return [self._row_to_company(r) for r in rows]
 
     async def get(self, company_id: str) -> Company | None:
         rows = await self._db.execute(
             "SELECT id, name, status, product_yaml, created_at, updated_at, "
-            "trust_state FROM companies WHERE id = ?",
+            "trust_state, payment_rail, entity_state FROM companies WHERE id = ?",
             (company_id,),
         )
         if not rows:
@@ -197,6 +222,51 @@ class CompanyManager:
         when the company doesn't exist (fail safe — gate denies)."""
         company = await self.get(company_id)
         return company.trust_state if company else "learning"
+
+    async def set_payment_rail(self, company_id: str, rail: str) -> bool:
+        """Set the business's payment rail (fiat | crypto). Intended to be
+        set once at onboard — one rail per business. Returns False if the
+        slug doesn't exist; raises ValueError on an invalid rail."""
+        if rail not in VALID_PAYMENT_RAILS:
+            raise ValueError(
+                f"invalid payment_rail {rail!r}; expected one of "
+                f"{VALID_PAYMENT_RAILS}"
+            )
+        company = await self.get(company_id)
+        if company is None:
+            return False
+        now_iso = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            "UPDATE companies SET payment_rail = ?, updated_at = ? WHERE id = ?",
+            (rail, now_iso, company_id),
+        )
+        return True
+
+    async def set_entity_state(self, company_id: str, state: str) -> bool:
+        """Advance the financial-readiness / KYC state machine. Returns
+        False if the slug doesn't exist; raises ValueError on an invalid
+        state. Real money movement is gated on 'verified' (enforced by the
+        money tools + doctor, not here)."""
+        if state not in VALID_ENTITY_STATES:
+            raise ValueError(
+                f"invalid entity_state {state!r}; expected one of "
+                f"{VALID_ENTITY_STATES}"
+            )
+        company = await self.get(company_id)
+        if company is None:
+            return False
+        now_iso = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            "UPDATE companies SET entity_state = ?, updated_at = ? WHERE id = ?",
+            (state, now_iso, company_id),
+        )
+        return True
+
+    async def get_entity_state(self, company_id: str) -> str:
+        """Convenience for the money gate. Falls through to 'none' when the
+        company doesn't exist (fail safe — gate denies money movement)."""
+        company = await self.get(company_id)
+        return company.entity_state if company else "none"
 
     async def create(
         self,

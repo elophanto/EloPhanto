@@ -138,6 +138,33 @@ allow_metered_fallback_in_chat: false
     mission_weight: 0.5
 """,
     ),
+    # ABE fiat rail (Stripe) — added 2026-06-18.
+    # tmp/abe-finance-rail-spec-2026-06-18.md. Safe by default: mode=test
+    # uses Stripe TEST keys (no real money, no KYC). Going live requires the
+    # company's entity_state=verified + an explicit operator go-live flip —
+    # enforced by the tools + doctor, never by editing this file alone.
+    Migration(
+        id="payments-fiat-stripe-2026-06",
+        key_path="payments.fiat",
+        banner=(
+            "Fiat payment rail (Stripe). mode=test by default — full API, "
+            "zero real money, no KYC needed to develop. Set up with the "
+            "wizard (paste a free sk_test_ key) or `elophanto init edit "
+            "payments`. Live mode is a separate KYC-gated operator step."
+        ),
+        inner_yaml="""fiat:
+  enabled: false
+  provider: stripe
+  mode: test            # test (no real money, no KYC) | live
+  base_currency: USD
+  account_id: ""
+  # API keys live in the vault under these refs — never in this file:
+  secret_key_ref: stripe_secret_key
+  publishable_key_ref: stripe_publishable_key
+  webhook_secret_ref: stripe_webhook_secret
+  issuing_enabled: false
+""",
+    ),
 ]
 
 

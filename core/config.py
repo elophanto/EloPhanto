@@ -907,6 +907,29 @@ class PaymentCryptoConfig:
 
 
 @dataclass
+class PaymentFiatConfig:
+    """Fiat payment settings — Stripe rail (ABE finance rail, 2026-06-18).
+
+    Safe by default: ``mode='test'`` uses Stripe TEST keys → full API, zero
+    real money, no KYC. ``mode='live'`` moves real money and requires the
+    company's ``entity_state=='verified'`` plus an explicit per-capability
+    operator go-live flip (enforced by the tools + doctor, never autonomous).
+    API keys live in the vault under the *_ref names — never in this file.
+    See tmp/abe-finance-rail-spec-2026-06-18.md.
+    """
+
+    enabled: bool = False
+    provider: str = "stripe"
+    mode: str = "test"  # "test" (no real money, no KYC) | "live"
+    base_currency: str = "USD"
+    account_id: str = ""
+    secret_key_ref: str = "stripe_secret_key"
+    publishable_key_ref: str = "stripe_publishable_key"
+    webhook_secret_ref: str = "stripe_webhook_secret"
+    issuing_enabled: bool = False
+
+
+@dataclass
 class PaymentsConfig:
     """Agent payments configuration."""
 
@@ -916,6 +939,7 @@ class PaymentsConfig:
     limits: PaymentLimitsConfig = field(default_factory=PaymentLimitsConfig)
     approval: PaymentApprovalConfig = field(default_factory=PaymentApprovalConfig)
     crypto: PaymentCryptoConfig = field(default_factory=PaymentCryptoConfig)
+    fiat: PaymentFiatConfig = field(default_factory=PaymentFiatConfig)
 
 
 @dataclass
@@ -1808,6 +1832,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
     pay_limits_raw = pay_raw.get("limits", {})
     pay_approval_raw = pay_raw.get("approval", {})
     pay_crypto_raw = pay_raw.get("crypto", {})
+    pay_fiat_raw = pay_raw.get("fiat", {})
     payments_config = PaymentsConfig(
         enabled=pay_raw.get("enabled", False),
         default_currency=pay_raw.get("default_currency", "USD"),
@@ -1842,6 +1867,21 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
             gas_priority=pay_crypto_raw.get("gas_priority", "normal"),
             max_gas_percentage=pay_crypto_raw.get("max_gas_percentage", 10),
             chains=pay_crypto_raw.get("chains", ["base"]),
+        ),
+        fiat=PaymentFiatConfig(
+            enabled=pay_fiat_raw.get("enabled", False),
+            provider=pay_fiat_raw.get("provider", "stripe"),
+            mode=pay_fiat_raw.get("mode", "test"),
+            base_currency=pay_fiat_raw.get("base_currency", "USD"),
+            account_id=pay_fiat_raw.get("account_id", ""),
+            secret_key_ref=pay_fiat_raw.get("secret_key_ref", "stripe_secret_key"),
+            publishable_key_ref=pay_fiat_raw.get(
+                "publishable_key_ref", "stripe_publishable_key"
+            ),
+            webhook_secret_ref=pay_fiat_raw.get(
+                "webhook_secret_ref", "stripe_webhook_secret"
+            ),
+            issuing_enabled=pay_fiat_raw.get("issuing_enabled", False),
         ),
     )
 
