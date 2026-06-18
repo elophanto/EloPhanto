@@ -473,11 +473,7 @@ live SQLite DB. Confirmed facts (so we don't re-verify these):
    would break every existing caller.** Use a `contextvars.ContextVar`
    for current_role + company_id instead — the executor reads from
    context, callback signature unchanged.
-6. **`sessions` table has `UNIQUE(channel, user_id)`** (`core/database.py:125`).
-   SQLite cannot drop a UNIQUE constraint via ALTER. **For Phase 1 we
-   leave the constraint alone** and scope by `company_id` in app code
-   (3 sessions live; collision risk negligible). A proper table-rebuild
-   migration is **deferred to Phase 6** (multi-company hardening).
+6. **`sessions` table** — Phase 1 left `UNIQUE(channel, user_id)` in place and scoped by `company_id` in app code (3 sessions live then; collision risk negligible). **Phase 12 (Tier 2 #4, commit 0a5d32c, 2026-06-18)** completed the table-rebuild migration: `UNIQUE(channel, user_id, company_id)` now enforced at the DB level. See `core/database.py:_rebuild_sessions_unique_for_abe_phase12`.
 7. **`MissionManager.create`** signature is
    `(title, description, priority_weight, *, mission_id)` — keyword-only
    tail. Adding `owner_role: str | None = None` as another kw-only is
@@ -486,8 +482,7 @@ live SQLite DB. Confirmed facts (so we don't re-verify these):
    `(goal, session_id, *, mission_id)` — same pattern. Adding
    `assigned_to_role: str | None = None` is non-breaking (Phase 2).
 9. **`IdentityManager.__init__`** = `(db, router, config, agent_name="EloPhanto")`
-   (`core/identity.py:193-217`). Singleton row at `id='self'`. Phase 1
-   does NOT touch identity (role_persona lands in Phase 2).
+   (`core/identity.py:193-217`). Phase 1: singleton row at `id='self'` (role_persona lands in Phase 2). **Phase 12 (Tier 2 #5, commit 547ed5d, 2026-06-18)** rebuilt to `PRIMARY KEY (company_id, id)`; one identity row per company, in-memory cache became `dict[company_id, Identity]`. Same pattern applied to `ego_state` and `affect_state` plus `company_id` column on the 3 event-log tables (`ego_outcomes`, `ego_humbling_events`, `affect_events`).
 10. **Live row counts**: `llm_usage` = 12,968; `payment_audit` = 30;
     `email_log` = 187; `scheduled_tasks` = 45; `sessions` = 3;
     `prospects` / `outreach_log` / `goals` / `missions` / `payment_requests` = 0.

@@ -80,6 +80,14 @@ async def cancel_active_goals(db: Any) -> int:
 
     ``db`` is a ``core.database.Database`` instance. Kept ``Any`` to
     avoid the import cycle (database.py is core, kill_switch is core).
+
+    Intentionally **global** — cancels goals across every company, not
+    just the active one. The kill switch is a panic-stop; an operator
+    pulling it wants everything halted, not "only this tenant". Same
+    semantics as ``GoalManager.delete_all_goals``. Operator confirmed
+    2026-06-18 during the Tier 2 audit pass. Do NOT add company_id
+    scoping here without an explicit product decision to change that
+    behavior — the global sweep is load-bearing.
     """
     rows = await db.execute(
         "SELECT goal_id FROM goals WHERE status IN ('active', 'planning')"
