@@ -2,7 +2,9 @@
 
 > [English README](README.md)
 
-一个开源 AI 智能体，能创建企业、扩大受众、交付代码、自主赚钱——在你睡觉的时候。告诉它你想要什么，它负责其余一切：验证市场、构建产品、部署上线、在合适的平台发布、生成营销团队、持续自主增长。遇到做不了的事，它自己造工具。任务复杂时，它克隆自己成为专业智能体。它用得越多越聪明。
+一个源码可得（非商业）的 AI 智能体，能创建企业、扩大受众、交付代码、自主赚钱——在你睡觉的时候。告诉它你想要什么，它负责其余一切：验证市场、构建产品、部署上线、在合适的平台发布、生成营销团队、持续自主增长。遇到做不了的事，它自己造工具。任务复杂时，它克隆自己成为专业智能体。它用得越多越聪明。
+
+> **许可说明：** 采用 [PolyForm Noncommercial License](LICENSE)（非商业许可证）授权——个人、研究、教育和非营利用途免费。**任何商业使用均需单独许可并事先获得批准**（见下方[许可证](#许可证)）。
 
 本地运行。数据留在你的机器上。支持 OpenAI、Kimi、免费本地模型、Z.ai、OpenRouter、HuggingFace 或 ChatGPT Plus/Pro 订阅（通过 Codex OAuth）。
 
@@ -30,6 +32,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 - **自建工具** — 遇到不会的，自己造。完整流水线：设计 → 编码 → 测试 → 部署
 - **用户建模** — 从对话中构建用户画像（角色、专长、偏好），自动适应每个人的沟通风格和技术深度
 - **内容变现** — 自动发布视频到 YouTube、Twitter/X、TikTok。联盟营销：抓取商品数据、LLM 生成推广文案、创建跨平台营销活动
+- **法币收款（Stripe）** — 每个业务可选法币或加密货币收款轨道（二选一）。创建支付链接收款、自动对账（含退款处理，每 30 分钟一次）、并签发带消费限额的虚拟卡——默认测试模式（无真实资金、无需 KYC），上线需 KYC 门控，现金余额计入可用资金跑道。卡号永不进入 LLM。详见 [docs/80-ABE-FINANCE-RAIL.md](docs/80-ABE-FINANCE-RAIL.md)
 - **目标梦想** — 没有目标时，智能体会审查自身能力、生成 3-5 个候选目标、逐一评估可行性/价值/成本/风险，选择最优目标执行
 - **G0DM0D3 神模式** — 说"trigger plinys godmode"激活四层能力解锁：无限制系统提示、多模型竞赛、上下文自适应参数调优、输出清理
 - **上下文智能** — 6项效率优化：延迟工具加载（每次调用只加载~30个工具而非168+）、三级上下文压缩+断路器、知识库自动整合、主动通报工具、验证型智能体提示、协调器结果综合
@@ -48,7 +51,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 
 ## 许可证
 
-Apache 2.0 — 详见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
+**源码可得，仅限非商业使用。** EloPhanto 采用 [PolyForm Noncommercial License 1.0.0](LICENSE)（非商业许可证）授权——可免费用于任何**非商业**目的（个人、研究、教育、非营利组织），允许使用、修改和分享。**任何商业使用都需要单独的许可证并事先获得批准**——商业使用前请通过 [GitHub](https://github.com/elophanto/EloPhanto) 或 [X @EloPhanto](https://x.com/EloPhanto) 联系 Petr Royce。第三方组件保留各自的许可证——详见 [NOTICE](NOTICE)。
 
 ---
 
