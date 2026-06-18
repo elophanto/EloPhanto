@@ -466,3 +466,154 @@ class TestFiatLinkTool:
         assert r.success is True
         assert r.data["url"].startswith("https://pay.stripe.com/")
         assert "TEST" in r.data["note"]
+
+
+# ── Slice 2b: mode-aware ledger + reconcile ──────────────────────────
+
+
+class TestModeAwareLedger:
+    @pytest.mark.asyncio
+    async def test_test_receipts_excluded_from_live_metabolism(self, db) -> None:
+        # §6.8: test-mode receipts must NOT count as real revenue.
+        ledger = ResourceLedger(db)
+        await ledger.write(LedgerEntry("acme", "in", "usd", 100.0, "usd", mode="live"))
+        await ledger.write(LedgerEntry("acme", "in", "usd", 999.0, "usd", mode="test"))
+        live = await ledger.metabolism("acme")  # default mode='live'
+        assert live.revenue_usd == 100.0
+        test = await ledger.metabolism("acme", mode="test")
+        assert test.revenue_usd == 999.0
+        both = await ledger.sum("acme", type="usd", direction="in", mode=None)
+        assert both == 1099.0
+
+    @pytest.mark.asyncio
+    async def test_write_defaults_to_live(self, db) -> None:
+        ledger = ResourceLedger(db)
+        await ledger.write(LedgerEntry("acme", "in", "usd", 50.0, "usd"))
+        assert await ledger.sum("acme", type="usd", direction="in") == 50.0
+
+    @pytest.mark.asyncio
+    async def test_note_exists_dedupe(self, db) -> None:
+        ledger = ResourceLedger(db)
+        assert await ledger.note_exists("acme", "stripe:pi_1") is False
+        await ledger.write(
+            LedgerEntry("acme", "in", "usd", 10.0, "usd", note="stripe:pi_1")
+        )
+        assert await ledger.note_exists("acme", "stripe:pi_1") is True
+
+
+class _FakeStripeList:
+    def __init__(self, payments: list[dict]) -> None:
+        self._payments = payments
+
+    @property
+    def PaymentIntent(self):
+        payments = self._payments
+
+        class _PI:
+            @staticmethod
+            def list(**kw):
+                return {"data": payments}
+
+        return _PI
+
+
+class TestListRecentPayments:
+    @pytest.mark.asyncio
+    async def test_filters_succeeded_and_converts(self, monkeypatch) -> None:
+        provider = StripeFiatProvider(
+            PaymentFiatConfig(mode="test"),
+            _FakeVault({"stripe_secret_key": "sk_test_x"}),
+        )
+        fake = _FakeStripeList(
+            [
+                {
+                    "id": "pi_1",
+                    "status": "succeeded",
+                    "amount": 4900,
+                    "currency": "usd",
+                },
+                {
+                    "id": "pi_2",
+                    "status": "requires_payment_method",
+                    "amount": 100,
+                    "currency": "usd",
+                },
+            ]
+        )
+        monkeypatch.setattr(provider, "_import_stripe", lambda: fake)
+        out = await provider.list_recent_payments()
+        assert len(out) == 1
+        assert out[0]["id"] == "pi_1"
+        assert out[0]["amount"] == 49.0
+
+
+def _reconcile_tool(db, mode: str = "test", enabled: bool = True):
+    from types import SimpleNamespace
+
+    from tools.payments.fiat_reconcile_tool import FiatReconcileTool
+
+    fiat = PaymentFiatConfig(enabled=enabled, mode=mode)
+    t = FiatReconcileTool()
+    t._config = SimpleNamespace(payments=SimpleNamespace(fiat=fiat))
+    t._vault = _FakeVault({"stripe_secret_key": "sk_test_x"})
+    t._db = db
+    t._company_manager = None
+    return t
+
+
+class TestFiatReconcile:
+    @pytest.mark.asyncio
+    async def test_disabled(self, db) -> None:
+        r = await _reconcile_tool(db, enabled=False).execute({})
+        assert r.success is False
+
+    @pytest.mark.asyncio
+    async def test_mirrors_then_dedupes_and_excludes_test_from_live(
+        self, db, monkeypatch
+    ) -> None:
+        from core.company import current_company_id
+
+        payments = [
+            {"id": "pi_1", "amount": 49.0, "currency": "usd"},
+            {"id": "pi_2", "amount": 79.0, "currency": "usd"},
+        ]
+
+        async def fake_list(self, *, limit=100):
+            return payments
+
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_payments", fake_list)
+        tool = _reconcile_tool(db, mode="test")
+
+        r1 = await tool.execute({})
+        assert r1.success is True
+        assert r1.data["mirrored"] == 2
+        assert r1.data["total_recorded_usd"] == 128.0
+        assert r1.data["mode"] == "test"
+
+        # Idempotent — re-run records nothing new.
+        r2 = await tool.execute({})
+        assert r2.data["mirrored"] == 0
+        assert r2.data["already_recorded"] == 2
+
+        # §6.8: recorded as test → excluded from live revenue.
+        ledger = ResourceLedger(db)
+        cid = current_company_id()
+        assert await ledger.sum(cid, type="usd", direction="in") == 0.0  # live
+        assert await ledger.sum(cid, type="usd", direction="in", mode="test") == 128.0
+
+    @pytest.mark.asyncio
+    async def test_live_mode_records_real_revenue(self, db, monkeypatch) -> None:
+        # The "first unattended dollar" path: live reconcile → live revenue.
+        from core.company import current_company_id
+
+        async def fake_list(self, *, limit=100):
+            return [{"id": "pi_x", "amount": 49.0, "currency": "usd"}]
+
+        monkeypatch.setattr(StripeFiatProvider, "list_recent_payments", fake_list)
+        r = await _reconcile_tool(db, mode="live").execute({})
+        assert r.data["mirrored"] == 1
+        ledger = ResourceLedger(db)
+        # Counts as real (live) revenue → shows in metabolism.
+        assert (
+            await ledger.sum(current_company_id(), type="usd", direction="in") == 49.0
+        )

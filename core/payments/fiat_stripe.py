@@ -193,3 +193,38 @@ class StripeFiatProvider:
             description=description,
             idempotency_key=idempotency_key,
         )
+
+    def _list_recent_payments_sync(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Blocking list of recent SUCCEEDED payments (for reconcile). Each
+        item: {id, amount (major units), currency, created}. Only succeeded
+        PaymentIntents — pending/failed are skipped (no money landed)."""
+        stripe = self._import_stripe()
+        try:
+            resp = stripe.PaymentIntent.list(limit=limit, api_key=self._secret_key())
+        except FiatRailError:
+            raise
+        except Exception as e:
+            raise FiatRailError(
+                f"Stripe payment list failed: {type(e).__name__}"
+            ) from e
+        data = resp.get("data") if hasattr(resp, "get") else getattr(resp, "data", [])
+        out: list[dict[str, Any]] = []
+        # Both dicts and Stripe's StripeObject support .get(); the SDK yields
+        # StripeObjects, the tests yield dicts.
+        for pi in data or []:
+            if pi.get("status") != "succeeded":
+                continue
+            out.append(
+                {
+                    "id": pi.get("id"),
+                    "amount": int(pi.get("amount") or 0) / 100.0,
+                    "currency": str(pi.get("currency") or "").lower(),
+                    "created": pi.get("created"),
+                }
+            )
+        return out
+
+    async def list_recent_payments(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Recent succeeded payments (for the reconcile/mirror sweep). Runs
+        the blocking SDK call off the event loop."""
+        return await asyncio.to_thread(self._list_recent_payments_sync, limit=limit)

@@ -937,6 +937,12 @@ _MIGRATIONS = [
     # →verified→restricted); real money movement gates on 'verified'.
     "ALTER TABLE companies        ADD COLUMN payment_rail TEXT",
     "ALTER TABLE companies        ADD COLUMN entity_state TEXT NOT NULL DEFAULT 'none'",
+    # ABE finance rail Slice 2b — test/live mode on every ledger row so
+    # test-mode Stripe receipts never read as real revenue (spec §6.8).
+    # DEFAULT 'live' → all historical rows + the CostTracker cognition mirror
+    # stay real; only test-mode receipts are written 'test'. metabolism/sum
+    # read mode='live' by default.
+    "ALTER TABLE resource_ledger  ADD COLUMN mode TEXT NOT NULL DEFAULT 'live'",
 ]
 
 

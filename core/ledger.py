@@ -44,6 +44,10 @@ class LedgerEntry:
     source_id: int | None = None
     role_name: str | None = None
     note: str | None = None
+    # 'live' (real money — default; covers all historical rows + the cognition
+    # mirror) | 'test' (Stripe test-mode receipts). metabolism reads live-only
+    # so test rehearsals never inflate real revenue/runway (spec §6.8).
+    mode: str = "live"
 
 
 @dataclass(frozen=True)
@@ -104,8 +108,8 @@ class ResourceLedger:
             return await self._db.execute_insert(
                 "INSERT INTO resource_ledger "
                 "(company_id, ts, direction, type, amount, unit, "
-                "source_table, source_id, role_name, note) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "source_table, source_id, role_name, note, mode) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     entry.company_id,
                     now_iso,
@@ -117,6 +121,7 @@ class ResourceLedger:
                     entry.source_id,
                     entry.role_name,
                     entry.note,
+                    entry.mode or "live",
                 ),
             )
         except Exception as e:
@@ -136,13 +141,16 @@ class ResourceLedger:
         type: str | None = None,
         direction: str | None = None,
         since: str | None = None,
+        mode: str | None = "live",
     ) -> float:
         """Sum ledger amounts for a company, optionally filtered.
 
-        ``since`` is an ISO8601 lower bound (inclusive). Returns 0.0 on
-        no rows. Caller should know what units they're summing —
-        summing ``type='usd'`` is meaningful; summing across types is
-        not.
+        ``since`` is an ISO8601 lower bound (inclusive). ``mode`` defaults to
+        ``'live'`` so real-money P&L never includes test-mode Stripe receipts
+        (spec §6.8); pass ``mode=None`` to sum across all modes, or
+        ``mode='test'`` for a test-only view. Returns 0.0 on no rows. Caller
+        should know what units they're summing — summing ``type='usd'`` is
+        meaningful; summing across types is not.
         """
         sql = "SELECT COALESCE(SUM(amount), 0.0) AS s FROM resource_ledger WHERE company_id = ?"
         params: list[Any] = [company_id]
@@ -155,8 +163,21 @@ class ResourceLedger:
         if since is not None:
             sql += " AND ts >= ?"
             params.append(since)
+        if mode is not None:
+            sql += " AND mode = ?"
+            params.append(mode)
         rows = await self._db.execute(sql, tuple(params))
         return float(rows[0]["s"]) if rows else 0.0
+
+    async def note_exists(self, company_id: str, note: str) -> bool:
+        """True if a ledger row with this ``note`` already exists for the
+        company. Used by the Stripe reconcile to dedupe mirrored payments
+        (note = ``stripe:<payment_id>``) so re-running it is idempotent."""
+        rows = await self._db.execute(
+            "SELECT 1 FROM resource_ledger WHERE company_id = ? AND note = ? LIMIT 1",
+            (company_id, note),
+        )
+        return bool(rows)
 
     async def recent(self, company_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         """Most recent ledger rows for a company, newest first."""
@@ -193,20 +214,24 @@ class ResourceLedger:
         return float(rows[0]["s"]) if rows else 0.0
 
     async def metabolism(
-        self, company_id: str, *, since: str | None = None
+        self, company_id: str, *, since: str | None = None, mode: str | None = "live"
     ) -> Metabolism:
         """Per-company P&L INCLUDING the agent's own cognition cost.
 
         ``since`` (ISO8601) optionally windows all three sums to a trailing
         period — pass it to compute, e.g., trailing-30d metabolism for a
-        trend/runway read. Without it, the figures are all-time.
+        trend/runway read. Without it, the figures are all-time. ``mode``
+        defaults to ``'live'`` so test-mode receipts never count as real
+        revenue (spec §6.8); pass ``mode='test'`` for a test-only view.
+        Cognition is real spend regardless of Stripe mode, so it is NOT
+        mode-filtered.
         """
         return Metabolism(
             revenue_usd=await self.sum(
-                company_id, type="usd", direction="in", since=since
+                company_id, type="usd", direction="in", since=since, mode=mode
             ),
             spend_usd=await self.sum(
-                company_id, type="usd", direction="out", since=since
+                company_id, type="usd", direction="out", since=since, mode=mode
             ),
             cognition_usd=await self.cognition_cost(company_id, since=since),
         )
