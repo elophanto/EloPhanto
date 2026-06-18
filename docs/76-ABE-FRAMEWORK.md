@@ -2,6 +2,15 @@
 
 **Status**: Plan · **Owner**: Petr Royce + Claude + GPT-5.5 · **Started**: 2026-05-24
 
+> **2026-06-18 — Finance rail + founder doctrine.** Two additions extend this
+> framework: (1) a **fiat (Stripe) payment rail** — per-business rail choice
+> (fiat XOR crypto), a KYC/financial-readiness state machine
+> (`companies.entity_state`), test/live mode, get-paid + auto-reconcile +
+> spend-controlled card issuing — see **[80-ABE-FINANCE-RAIL.md](80-ABE-FINANCE-RAIL.md)**;
+> and (2) **founder doctrine** in the goal loop — validate-before-build gate,
+> per-goal stage + kill criterion, and metabolism (net incl. the agent's own
+> cognition cost) — see [13-GOAL-LOOP.md](13-GOAL-LOOP.md).
+
 > **Concept attribution**: The Autonomous Business Entity (ABE) framing —
 > EloPhanto playing one identity that wears role masks, with a general
 > typed ledger as the honest progress signal, missions as role mandates,

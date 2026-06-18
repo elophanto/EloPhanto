@@ -3,7 +3,7 @@ name = "elophanto"
 version = "2026.05.28.1"
 description = "A self-evolving AI agent that acts as a personal AI operating system"
 requires-python = ">=3.12"
-license = { text = "Apache-2.0" }
+license = { text = "PolyForm-Noncommercial-1.0.0" }
 authors = [
     { name = "Petr Royce" },
 ]
