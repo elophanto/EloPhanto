@@ -77,6 +77,16 @@ class SessionSearchTool(BaseTool):
             # Search FTS5 index
             fts_query = query.replace("'", "''")
 
+            # Always scope to the active company's sessions. session_messages
+            # has no company_id column of its own (FTS-indexed; messages
+            # inherit tenancy from their parent session), so we filter via
+            # the join. Pre-Tier-2 #4 (2026-06-18) the channel-only filter
+            # could return messages from another company's session that
+            # shared the same (channel, user_id) — fixed here.
+            from core.company import current_company_id
+
+            company_id = current_company_id()
+
             # Find matching message IDs via FTS5
             match_sql = """
                 SELECT sm.id, sm.session_id, sm.role, sm.content, sm.tool_name, sm.created_at,
@@ -85,8 +95,15 @@ class SessionSearchTool(BaseTool):
                 JOIN session_messages sm ON sm.id = session_messages_fts.rowid
                 WHERE session_messages_fts MATCH ?
                   AND sm.created_at >= datetime('now', ?)
+                  AND sm.session_id IN (
+                      SELECT session_id FROM sessions WHERE company_id = ?
+                  )
             """
-            match_params: list[Any] = [fts_query, f"-{days_back} days"]
+            match_params: list[Any] = [
+                fts_query,
+                f"-{days_back} days",
+                company_id,
+            ]
 
             if channel:
                 match_sql += """

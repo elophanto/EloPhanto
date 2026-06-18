@@ -82,9 +82,9 @@ CREATE TABLE IF NOT EXISTS identity_evolution (
 );
 ```
 
-**`identity`** — single row (id='self') with the current identity state. JSON columns for flexible list/dict fields.
+**`identity`** — one row per company keyed by `PRIMARY KEY (company_id, id)` where `id` is always `'self'`. JSON columns for flexible list/dict fields. (Pre-ABE-Phase-12 this was a single global `id='self'` row; the schema was rebuilt in commit 547ed5d so each company gets its own identity profile — name, purpose, values, capabilities, etc. — without muddling across tenants. See `core/database.py:_rebuild_self_singletons_for_abe_phase12`.)
 
-**`identity_evolution`** — audit log of every identity change. Enables rollback and understanding how the agent evolved.
+**`identity_evolution`** — audit log of every identity change. Enables rollback and understanding how the agent evolved. Intentionally **stays global** — it's audit, not derived state, so cross-company visibility is the right default.
 
 ## IdentityManager (`core/identity.py`)
 
