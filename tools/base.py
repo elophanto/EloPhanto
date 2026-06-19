@@ -150,6 +150,15 @@ class BaseTool(abc.ABC):
 
         for param_name, value in params.items():
             if param_name in properties:
+                # An explicit null on an OPTIONAL field means "not provided".
+                # LLMs routinely pass `field: null` for optionals they have no
+                # value for; rejecting that as a type error (e.g. price expected
+                # 'object', got 'NoneType') is a papercut that fails otherwise
+                # valid calls. execute() reads optionals with .get() defaults, so
+                # skipping null here is safe. Required fields still get checked,
+                # so a null required field is still rejected.
+                if value is None and param_name not in required:
+                    continue
                 expected_type = properties[param_name].get("type")
                 if expected_type and not _check_type(value, expected_type):
                     errors.append(
