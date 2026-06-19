@@ -1347,15 +1347,19 @@ class Gateway:
                 return True
             resume_result = clear_sentinel(data_dir)
             if not resume_result.was_stopped:
-                body = "No STOP sentinel — nothing to clear."
-            else:
-                body = (
-                    f"✅  STOP sentinel removed: {resume_result.sentinel_path}\n"
-                    "Mind will think on its next wakeup; scheduler will "
-                    "dispatch on its next tick. Cancelled goals + "
-                    "disabled schedules stay that way unless you "
-                    "re-enable them manually."
-                )
+                # Nothing was paused — so a bare "go" / "continue" / "resume"
+                # here is normal conversation (the operator nudging the agent to
+                # keep going), NOT a kill-switch resume. Don't swallow it with
+                # "nothing to clear"; fall through so the message reaches the
+                # agent. clear_sentinel was a no-op (no sentinel existed).
+                return False
+            body = (
+                f"✅  STOP sentinel removed: {resume_result.sentinel_path}\n"
+                "Mind will think on its next wakeup; scheduler will "
+                "dispatch on its next tick. Cancelled goals + "
+                "disabled schedules stay that way unless you "
+                "re-enable them manually."
+            )
             await client.websocket.send(
                 response_message(session_id, body, done=True).to_json()
             )
