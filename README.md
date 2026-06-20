@@ -22,7 +22,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
 ./start.sh --web    # terminal chat + dashboard at localhost:3000
 ```
 
-⭐ **Star the repo** if the self-model approach is interesting — it's the fastest signal that this direction is worth pushing. Then clone it and run it; the agent only grows into shape once it's running.
+⭐ **Star the repo** if the self-model approach is interesting — it's the fastest signal that this direction is worth pushing. **Fork it** if you want to inspect the architecture, adapt the agent, or build your own local-first operator on top of it. Then clone it and run it; the agent only grows into shape once it's running.
 
 ![Web Dashboard](misc/screenshots/dashboard.png)
 
@@ -59,6 +59,16 @@ The two modes share one codebase. Flip between them by changing `agent.permissio
 > **Coming soon — OpenEloPhanto (always-on cloud).** Today EloPhanto runs while your machine is on. OpenEloPhanto is the same source-available agent running in the cloud, always-on, so it keeps thinking, working, and earning 24/7. Self-hosted on your own server — your keys, your box — with the built-in cloud browser backend, so no local Chrome is needed. **Not available yet — in the works.**
 
 ![Chat Interface](misc/screenshots/chat.png)
+
+---
+
+## Star / fork / run
+
+- **Star** the repo if the self-model direction is worth more work. It is the cleanest public signal that people want a local autonomous agent with memory, tools, wallet, browser, and an evolving identity.
+- **Fork** it if you want to study the architecture, patch it, or build a specialized operator from it. Interesting places to start: `core/ego.py`, `core/affect.py`, `tools/`, `plugins/`, and `skills/`.
+- **Run** it if you want the actual thing. EloPhanto only becomes useful after it has your tools, your feedback, and enough history to calibrate itself.
+
+Commercial use is separate: use [elophanto.com/hire](https://elophanto.com/hire) or contact EloPhanto for implementation help, paid job execution, or licensing.
 
 ---
 
