@@ -252,10 +252,13 @@ class TestRosterContext:
         assert "<org_roles>" in ctx and "</org_roles>" in ctx
         # Pre-revenue → IC titles, never inflated.
         assert "Founder" in ctx and "📣 Marketing" in ctx
-        assert "CMO" not in ctx and "Head of Marketing" not in ctx.split("e.g.")[0]
-        # The attribution doctrine + anti-theater guardrail are present.
-        assert "ATTRIBUTE" in ctx
-        assert "Honesty over theater" in ctx
+        assert "CMO" not in ctx and "Head of Marketing" not in ctx
+        # Assertive: label company work EVERY time, even a single function.
+        assert "ALWAYS show which hat" in ctx
+        assert "one function" in ctx
+        # Anti-theater guardrail survives the stronger framing.
+        assert "never invent one" in ctx
+        assert "fabricate or pad" in ctx
         # ceo (the default hat) is listed first.
         assert ctx.index("Founder") < ctx.index("Marketing")
 
