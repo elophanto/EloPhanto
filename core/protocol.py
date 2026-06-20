@@ -137,13 +137,27 @@ def response_message(
     reply_to: str = "",
     provider: str = "",
     model: str = "",
+    role_name: str = "",
+    role_title: str = "",
+    role_emoji: str = "",
 ) -> GatewayMessage:
-    """Create a response message from the gateway to a channel."""
+    """Create a response message from the gateway to a channel.
+
+    ``role_*`` carry the org-role the agent was operating as (ABE role
+    visibility, docs/76 §Phase 2) so a channel can badge the reply with
+    e.g. "📣 Head of Marketing". All optional — omitted when unknown.
+    """
     data: dict[str, Any] = {"content": content, "done": done, "reply_to": reply_to}
     if provider:
         data["provider"] = provider
     if model:
         data["model"] = model
+    if role_name:
+        data["role_name"] = role_name
+    if role_title:
+        data["role_title"] = role_title
+    if role_emoji:
+        data["role_emoji"] = role_emoji
     return GatewayMessage(
         type=MessageType.RESPONSE,
         session_id=session_id,

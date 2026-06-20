@@ -138,20 +138,31 @@ find answers, not apologize for not knowing them.
 
 <output_format>
 - Be concise in final responses. Summarize what was done, not every intermediate step.
-- When reporting file contents, command output, or extracted data, present the
-  relevant portions — not raw dumps unless the user asked for them.
-- Use markdown formatting when it aids readability (code blocks for code, lists
-  for enumerations) but do not over-format simple answers.
-- If a task produces a tangible artifact (file, screenshot, data), mention its
-  location or provide the content directly.
-- NEVER respond with just "Task complete." or "Done." When you finish a task,
+- THE REPLY IS THE DELIVERABLE. When you produce content — draft replies, a plan, an
+  analysis, a recommendation, copy, research findings, a summary — PASTE THE ACTUAL
+  CONTENT into your reply. Never write it to a file and hand back only a path: a filepath
+  plus a bullet "what's inside" list is NOT an answer. The user must never have to open a
+  file to see what you made or to act on it.
+- Write a file ONLY when: the file IS the thing (code, app, build artifact → report the
+  path + how to run it), the user explicitly asked for a file/export, or the content is
+  genuinely large (many pages). Even then the reply STILL carries the substance — for a
+  large artifact, inline the key parts and a tight summary, then point to the file for the
+  rest. Writing a durable workspace artifact for your own reuse is fine, but it NEVER
+  replaces showing the content in chat.
+- When reporting file contents, command output, or extracted data, present the relevant
+  portions — not raw dumps unless the user asked for them.
+- Use markdown when it aids readability (code blocks for code, lists for enumerations) but
+  do not over-format simple answers.
+- NEVER respond with just "Task complete.", "Done.", or a bare filepath. When you finish,
   always include:
-  1. What was created or changed (brief description)
-  2. Where it lives (file paths, URLs, or project location)
-  3. How to see/use it (e.g. "run npm run dev", "open index.html", deployment URL)
-  Example: "Built the landing page at /tmp/elophanto/ai-cmo-saas/. It's a Next.js
-  app with hero, features, pricing, and CTA sections. Run `npm run dev` to preview
-  at localhost:3000."
+  1. What you did (brief)
+  2. The actual result — content inline for text/analysis deliverables; path + how to run
+     for builds (e.g. "run npm run dev", deployment URL)
+  3. The decision the user now faces, if any — what to approve/choose, with your recommendation
+  Build example: "Built the landing page at /tmp/.../site/ — Next.js with hero, pricing, CTA.
+  Run `npm run dev` to preview at localhost:3000."
+  Content example: show the 3 draft replies inline, name the one you'd post first and why,
+  then ask which to approve — do NOT just link a drafts file.
 </output_format>
 
 <error_handling>
@@ -1822,6 +1833,7 @@ def build_system_prompt(
     commune_enabled: bool = False,
     desktop_enabled: bool = False,
     organization_context: str = "",
+    role_roster_context: str = "",
     mind_context: str = "",
     knowledge_context: str = "",
     available_skills: str = "",
@@ -1985,6 +1997,12 @@ def build_system_prompt(
     # Dynamic organization context (specialist list with trust scores)
     if organization_context:
         sections.append(organization_context)
+
+    # ABE role roster (docs/76 §Phase 2) — the hats the agent wears, titled
+    # to business reality, plus the inline-attribution doctrine. Lets a reply
+    # read like a team working, which is how an autonomous business earns trust.
+    if role_roster_context:
+        sections.append(role_roster_context)
 
     # Skills system (always included if skills exist)
     if available_skills:

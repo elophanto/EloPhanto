@@ -43,6 +43,11 @@ export interface ResponseData {
   content: string;
   done: boolean;
   reply_to: string;
+  // ABE role visibility (docs/76 §Phase 2) — the org-role the agent operated
+  // as, titled to business reality (e.g. "📣 Head of Marketing"). Optional.
+  role_name?: string;
+  role_title?: string;
+  role_emoji?: string;
 }
 
 export interface ApprovalRequestData {

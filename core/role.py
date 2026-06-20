@@ -85,9 +85,23 @@ class Role:
     allowed_tool_groups: list[str] = field(default_factory=list)
     kpi: dict[str, float] = field(default_factory=dict)
     scope: str = "global"  # 'global' | 'company'
+    # Display identity (user-facing). emoji is a single glyph; titles is a
+    # seniority ladder keyed to business reality: {"ic","lead","chief"}.
+    # core/role_display.py picks the tier from the company's metabolism so a
+    # pre-revenue org shows "Founder"/"Marketing", not "CEO"/"CMO".
+    emoji: str = ""
+    titles: dict[str, str] = field(default_factory=dict)
     last_active_at: str | None = None
     created_at: str = ""
     updated_at: str = ""
+
+
+def _row_get(r: Any, key: str, default: Any = None) -> Any:
+    """sqlite3.Row has no .get() — tolerate columns absent from a SELECT."""
+    try:
+        return r[key]
+    except (IndexError, KeyError):
+        return default
 
 
 def _row_to_role(r: Any) -> Role:
@@ -99,6 +113,8 @@ def _row_to_role(r: Any) -> Role:
         allowed_tool_groups=json.loads(r["allowed_tool_groups"] or "[]"),
         kpi=json.loads(r["kpi_json"] or "{}"),
         scope=r["scope"] or "global",
+        emoji=_row_get(r, "emoji", "") or "",
+        titles=json.loads(_row_get(r, "titles_json", "{}") or "{}"),
         last_active_at=r["last_active_at"],
         created_at=r["created_at"] or "",
         updated_at=r["updated_at"] or "",
@@ -117,16 +133,16 @@ class RoleManager:
     async def list_roles(self) -> list[Role]:
         rows = await self._db.execute(
             "SELECT role_name, description, prompt_overlay, allowed_tools, "
-            "allowed_tool_groups, kpi_json, scope, last_active_at, "
-            "created_at, updated_at FROM roles ORDER BY role_name"
+            "allowed_tool_groups, kpi_json, scope, emoji, titles_json, "
+            "last_active_at, created_at, updated_at FROM roles ORDER BY role_name"
         )
         return [_row_to_role(r) for r in rows]
 
     async def get(self, name: str) -> Role | None:
         rows = await self._db.execute(
             "SELECT role_name, description, prompt_overlay, allowed_tools, "
-            "allowed_tool_groups, kpi_json, scope, last_active_at, "
-            "created_at, updated_at FROM roles WHERE role_name = ?",
+            "allowed_tool_groups, kpi_json, scope, emoji, titles_json, "
+            "last_active_at, created_at, updated_at FROM roles WHERE role_name = ?",
             (name,),
         )
         return _row_to_role(rows[0]) if rows else None
@@ -143,6 +159,8 @@ class RoleManager:
         allowed_tool_groups: list[str] | None = None,
         kpi: dict[str, float] | None = None,
         scope: str = "global",
+        emoji: str = "",
+        titles: dict[str, str] | None = None,
     ) -> Role:
         """Insert or replace a role row. Returns the persisted Role."""
         if scope not in ("global", "company"):
@@ -153,9 +171,9 @@ class RoleManager:
         await self._db.execute_insert(
             "INSERT OR REPLACE INTO roles "
             "(role_name, description, prompt_overlay, allowed_tools, "
-            "allowed_tool_groups, kpi_json, scope, last_active_at, "
-            "created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "allowed_tool_groups, kpi_json, scope, emoji, titles_json, "
+            "last_active_at, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 name,
                 description,
@@ -164,6 +182,8 @@ class RoleManager:
                 json.dumps(allowed_tool_groups or []),
                 json.dumps(kpi or {}),
                 scope,
+                emoji,
+                json.dumps(titles or {}),
                 existing.last_active_at if existing else None,
                 created_at,
                 now_iso,
@@ -221,6 +241,8 @@ class RoleManager:
             allowed_tool_groups=list(data.get("allowed_tool_groups") or []),
             kpi=dict(data.get("kpi") or {}),
             scope=str(data.get("scope") or "global"),
+            emoji=str(data.get("emoji") or ""),
+            titles={str(k): str(v) for k, v in (data.get("titles") or {}).items()},
         )
 
     # ── Neglect ranking ────────────────────────────────────────────
@@ -235,8 +257,8 @@ class RoleManager:
         """
         rows = await self._db.execute(
             "SELECT role_name, description, prompt_overlay, allowed_tools, "
-            "allowed_tool_groups, kpi_json, scope, last_active_at, "
-            "created_at, updated_at FROM roles "
+            "allowed_tool_groups, kpi_json, scope, emoji, titles_json, "
+            "last_active_at, created_at, updated_at FROM roles "
             "ORDER BY last_active_at IS NULL DESC, last_active_at ASC "
             "LIMIT ?",
             (limit,),

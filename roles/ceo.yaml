@@ -6,6 +6,14 @@ name: ceo
 description: |
   Strategic vision, capital allocation, role rotation, final decisions.
   This is EloPhanto's default voice — no overlay, no tool restriction.
+# Display identity (user-facing). The title scales with business reality:
+# ic = pre-revenue (founder wears the hat), lead = some revenue,
+# chief = self-sustaining. See core/role_display.py.
+emoji: "👔"
+titles:
+  ic: Founder
+  lead: CEO
+  chief: CEO
 prompt_overlay: ""
 allowed_tools: []
 allowed_tool_groups: []

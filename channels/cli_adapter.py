@@ -43,6 +43,18 @@ _C_BORDER = "grey50"
 _LOGO_SMALL = f"[{_C_PRIMARY}]◆[/] [{_C_ACCENT}]EloPhanto[/]"
 
 
+def _role_badge_title(data: dict) -> str:
+    """Panel title with the org-role badge, e.g. "◆ EloPhanto · 📣 Head of
+    Marketing". Falls back to the bare logo when the gateway sent no role
+    (ABE role visibility, docs/76 §Phase 2)."""
+    title = str(data.get("role_title") or "")
+    if not title:
+        return _LOGO_SMALL
+    emoji = str(data.get("role_emoji") or "")
+    badge = f"{emoji} {title}".strip()
+    return f"{_LOGO_SMALL}  [{_C_DIM}]·[/]  [{_C_ACCENT}]{badge}[/]"
+
+
 class CLIAdapter(ChannelAdapter):
     """CLI interface as a gateway channel adapter."""
 
@@ -89,7 +101,7 @@ class CLIAdapter(ChannelAdapter):
             console.print(
                 Panel(
                     Markdown(content),
-                    title=_LOGO_SMALL,
+                    title=_role_badge_title(msg.data),
                     border_style=_C_BORDER,
                     padding=(1, 2),
                 )
@@ -303,7 +315,7 @@ class CLIAdapter(ChannelAdapter):
                     console.print(
                         Panel(
                             Markdown(content),
-                            title=_LOGO_SMALL,
+                            title=_role_badge_title(response.data),
                             border_style=_C_BORDER,
                             padding=(1, 2),
                         )
@@ -442,7 +454,15 @@ class CLIAdapter(ChannelAdapter):
             elapsed = data.get("elapsed", "")
             tool_count = data.get("tool_count", 0)
 
-            console.print(f"  [{_M}]◆ Result:[/] {summary[:200]}")
+            # ABE role visibility — show which exec was on duty this cycle.
+            role_title = data.get("role_title", "")
+            if role_title:
+                badge = f"{data.get('role_emoji', '')} {role_title}".strip()
+                console.print(
+                    f"  [{_M}]◆[/] [{_C_ACCENT}]{badge}[/][{_M}]:[/] {summary[:200]}"
+                )
+            else:
+                console.print(f"  [{_M}]◆ Result:[/] {summary[:200]}")
             parts = []
             if cost:
                 parts.append(cost)

@@ -1059,6 +1059,28 @@ class Gateway:
                 _last_provider = _last_call.get("provider", "")
                 _last_model = _last_call.get("model", "")
 
+            # ABE role visibility (docs/76 §Phase 2) — badge the reply with
+            # the org-role the agent operated as, titled to business reality
+            # (e.g. "📣 Head of Marketing"). A read-only ledger lookup; any
+            # failure degrades to no badge and never blocks the response.
+            _role_name = _role_title = _role_emoji = ""
+            try:
+                from core.company import current_company_id
+                from core.ledger import ResourceLedger
+                from core.role_context import current_role
+                from core.role_display import display_for_company_role
+
+                _rm = getattr(self._agent, "_role_manager", None)
+                if _rm is not None:
+                    _role_name = current_role() or "ceo"
+                    _role_emoji, _role_title = await display_for_company_role(
+                        role_manager=_rm,
+                        ledger=ResourceLedger(self._agent._db),
+                        company_id=current_company_id(),
+                    )
+            except Exception as _badge_err:
+                logger.debug("role badge resolve skipped: %s", _badge_err)
+
             resp = response_message(
                 session.session_id,
                 agent_response.content,
@@ -1066,6 +1088,9 @@ class Gateway:
                 reply_to=msg.id,
                 provider=_last_provider,
                 model=_last_model,
+                role_name=_role_name,
+                role_title=_role_title,
+                role_emoji=_role_emoji,
             )
             # DEBUG: investigate empty reply_to bug (web second-message
             # not updating without refresh). Log the actual id we're
