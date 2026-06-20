@@ -265,7 +265,13 @@ function GatewayWiring() {
 
         // Regular chat response
         const chat = useChatStore.getState();
-        chat.appendAgentChunk(data.reply_to, content, data.done);
+        chat.appendAgentChunk(
+          data.reply_to,
+          content,
+          data.done,
+          data.role_title,
+          data.role_emoji
+        );
 
         if (msg.session_id && !chat.sessionId) {
           chat.setSessionId(msg.session_id);

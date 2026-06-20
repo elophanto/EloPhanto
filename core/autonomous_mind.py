@@ -1396,6 +1396,11 @@ class AutonomousMind:
             # in Phase 4, the arbiter) set — the mind doesn't choose
             # the role itself in Phase 2, it just records that the
             # role was active this cycle. None-safe.
+            # ABE role visibility (docs/76 §Phase 2) — resolve the exec on
+            # duty this cycle (emoji + reality-based title) so the activity
+            # feed reads like a team working, then touch it for neglect
+            # ranking. Read-only; degrades to no badge on any failure.
+            cycle_role_emoji = cycle_role_title = ""
             try:
                 from core.role_context import current_role
 
@@ -1403,8 +1408,18 @@ class AutonomousMind:
                 rm = getattr(self._agent, "_role_manager", None)
                 if active_role and rm is not None:
                     await rm.touch(active_role)
+                if rm is not None:
+                    from core.company import current_company_id
+                    from core.ledger import ResourceLedger
+                    from core.role_display import display_for_company_role
+
+                    cycle_role_emoji, cycle_role_title = await display_for_company_role(
+                        role_manager=rm,
+                        ledger=ResourceLedger(self._agent._db),
+                        company_id=current_company_id(),
+                    )
             except Exception as e:
-                logger.debug("role touch at cycle end failed: %s", e)
+                logger.debug("role touch/display at cycle end failed: %s", e)
 
             # Broadcast action with full details
             elapsed = time.monotonic() - cycle_start
@@ -1417,6 +1432,8 @@ class AutonomousMind:
                     "elapsed": f"{elapsed:.1f}s",
                     "tools_used": [t["tool"] for t in _tool_uses],
                     "tool_count": len(_tool_uses),
+                    "role_emoji": cycle_role_emoji,
+                    "role_title": cycle_role_title,
                 },
             )
 

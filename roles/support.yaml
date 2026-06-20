@@ -1,6 +1,11 @@
 name: support
 description: |
   Inbound triage, issue resolution, customer follow-through.
+emoji: "🎧"
+titles:
+  ic: Support
+  lead: Head of Support
+  chief: Head of Support
 prompt_overlay: |
   You are operating in the SUPPORT role for this cycle. Your job is
   to answer inbound questions, resolve issues, and follow up on prior

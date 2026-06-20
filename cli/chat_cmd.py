@@ -1148,11 +1148,36 @@ async def _chat_loop(config_path: str | None, profile: str = "") -> None:
                 f"[{_C_DIM}]{' · '.join(subtitle_parts)}[/]" if subtitle_parts else None
             )
 
+            # ABE role visibility (docs/76 §Phase 2) — badge the panel with
+            # the org-role the agent operated as, titled to business reality
+            # (pre-revenue → "Founder", not "CEO"). Read-only; any failure
+            # degrades to the bare logo.
+            _panel_title = _LOGO_SMALL
+            try:
+                from core.company import current_company_id
+                from core.ledger import ResourceLedger
+                from core.role_display import display_for_company_role
+
+                _rm = getattr(agent, "_role_manager", None)
+                if _rm is not None:
+                    _re, _rt = await display_for_company_role(
+                        role_manager=_rm,
+                        ledger=ResourceLedger(agent._db),
+                        company_id=current_company_id(),
+                    )
+                    if _rt:
+                        _panel_title = (
+                            f"{_LOGO_SMALL}  [{_C_DIM}]·[/]  "
+                            f"[{_C_ACCENT}]{_re} {_rt}[/]"
+                        )
+            except Exception:
+                _panel_title = _LOGO_SMALL
+
             console.print()
             console.print(
                 Panel(
                     Markdown(response.content),
-                    title=_LOGO_SMALL,
+                    title=_panel_title,
                     subtitle=subtitle,
                     border_style=_C_BORDER,
                     padding=(1, 2),

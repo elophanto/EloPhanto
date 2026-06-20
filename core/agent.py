@@ -3455,6 +3455,25 @@ class Agent:
             except Exception:
                 pass
 
+        # ABE role roster (docs/76 §Phase 2) — the hats the agent wears, titled
+        # to the active company's current reality, plus the inline-attribution
+        # doctrine. Injected whenever the role system is live so a reply can read
+        # like a team working. Read-only; any failure degrades to no roster.
+        _role_roster_ctx = ""
+        if getattr(self, "_role_manager", None) is not None:
+            try:
+                from core.company import current_company_id
+                from core.ledger import ResourceLedger
+                from core.role_display import build_role_roster_context
+
+                _role_roster_ctx = await build_role_roster_context(
+                    role_manager=self._role_manager,
+                    ledger=ResourceLedger(self._db),
+                    company_id=current_company_id(),
+                )
+            except Exception:
+                _role_roster_ctx = ""
+
         system_content = build_system_prompt(
             agent_name=self._config.agent_name,
             permission_mode=self._config.permission_mode,
@@ -3480,6 +3499,7 @@ class Agent:
             commune_enabled=self._config.commune.enabled,
             desktop_enabled=self._config.desktop.enabled,
             organization_context=_org_ctx,
+            role_roster_context=_role_roster_ctx,
             mind_context=_mind_ctx,
             knowledge_context=knowledge_context,
             available_skills=available_skills,

@@ -340,6 +340,47 @@ risk reborn.
 - ✅ `companies/<slug>/company.yaml` (the only per-company config surface)
 - ❌ Do not build a `company_config` key-value table
 
+### G. Roles are VISIBLE, and titled to reality.
+
+An autonomous business earns trust by being **legible**: the operator has to
+watch a *team* work — "👔 Founder decided X", "📣 Marketing drafted Y" — not an
+opaque "Agent" emitting files. The roles were always operationally real (they
+gate tools and shape the prompt); they were just invisible. Surfacing them is
+honesty, not decoration.
+
+Each role carries a **display identity**: an `emoji` and a `titles` ladder
+(`ic` / `lead` / `chief`). The shown title is **reality-based** — picked by the
+company's trailing-window `Metabolism` (real money), never a configured vibe:
+
+| tier | condition | example (marketing) |
+|---|---|---|
+| `ic` | `revenue ≤ 0` — pre-traction, founder wears the hat | 📣 Marketing |
+| `lead` | `revenue > 0` but `net ≤ 0` — real function, still subsidized | 📣 Head of Marketing |
+| `chief` | `net > 0` — self-sustaining, a real company | 📣 CMO |
+
+This is the founder-doctrine refusal to LARP as a big company: you don't get a
+"CMO" until there's a business that warrants one. `resolve_role_display`
+degrades **down** a partial ladder, never up — a label can never inflate above
+the business's real stage.
+
+Three surfaces, all fed from the same resolver (`core/role_display.py`):
+
+1. **Inline attribution** (primary; surface-agnostic) — the `<org_roles>` prompt
+   block (injected by `build_role_roster_context`) tells the agent to prefix
+   each part of a multi-function reply with the role hat. Renders identically on
+   every channel because it lives in the content. Anti-theater guardrail: label
+   only real role-work; never invent a role or split a trivial reply to look busy.
+2. **Structural badge** — `response_message` carries `role_{name,title,emoji}`;
+   the panel title shows `◆ EloPhanto · 📣 Head of Marketing` (gateway/CLI).
+3. **Mind announcement** — each autonomous cycle's `MIND_ACTION` event carries
+   the exec on duty, so the activity feed reads `◆ 📣 Marketing: <summary>`.
+
+- ✅ `roles/*.yaml` gain `emoji` + `titles`; `roles` table gains `emoji` +
+  `titles_json` (idempotent migration); `core/role_display.py` is the one
+  resolver; `core/role_context.current_role()` is still the source of "which hat".
+- ❌ Do not hardcode titles in render code, and do not show a title the
+  economics haven't earned.
+
 ---
 
 ## What the audit found (the reuse map)

@@ -58,6 +58,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground/60">
           EloPhanto
         </span>
+        {message.roleTitle && (
+          <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-primary/70">
+            {message.roleEmoji} {message.roleTitle}
+          </span>
+        )}
         <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground/40">
           {time}
         </span>

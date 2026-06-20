@@ -9,6 +9,10 @@ export interface Message {
   timestamp: number;
   isStreaming: boolean;
   replyTo?: string;
+  // ABE role visibility (docs/76 §Phase 2) — the org-role the agent operated
+  // as, titled to business reality. Set on the final response of an agent turn.
+  roleTitle?: string;
+  roleEmoji?: string;
 }
 
 export interface ApprovalRequest {
@@ -59,7 +63,13 @@ interface ChatStore {
   conversationsLoaded: boolean;
 
   sendMessage: (content: string) => void;
-  appendAgentChunk: (replyTo: string, content: string, done: boolean) => void;
+  appendAgentChunk: (
+    replyTo: string,
+    content: string,
+    done: boolean,
+    roleTitle?: string,
+    roleEmoji?: string
+  ) => void;
   addApprovalRequest: (req: ApprovalRequest) => void;
   respondToApproval: (requestId: string, approved: boolean) => void;
   addToolStep: (step: ToolStep) => void;
@@ -122,7 +132,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }));
   },
 
-  appendAgentChunk: (replyTo, content, done) => {
+  appendAgentChunk: (replyTo, content, done, roleTitle, roleEmoji) => {
     set((s) => {
       // 1) Exact-match by replyTo — the happy path.
       const exactIdx = s.messages.findIndex(
@@ -157,6 +167,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           // Capture the wire reply_to even when we matched by fallback,
           // so subsequent chunks for the same turn hit the exact path.
           replyTo: replyTo || target.replyTo,
+          // Role badge arrives on the final response; keep any prior value
+          // so a late empty chunk can't blank it.
+          roleTitle: roleTitle || target.roleTitle,
+          roleEmoji: roleEmoji || target.roleEmoji,
         };
         return { messages: updated, isAgentTyping: !done };
       }
@@ -173,6 +187,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             timestamp: Date.now(),
             isStreaming: !done,
             replyTo,
+            roleTitle,
+            roleEmoji,
           },
         ],
         isAgentTyping: !done,

@@ -283,6 +283,8 @@ _SCHEMA = [
         kpi_json TEXT NOT NULL DEFAULT '{}',
         scope TEXT NOT NULL DEFAULT 'global'
             CHECK (scope IN ('global','company')),
+        emoji TEXT NOT NULL DEFAULT '',
+        titles_json TEXT NOT NULL DEFAULT '{}',
         last_active_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -943,6 +945,13 @@ _MIGRATIONS = [
     # stay real; only test-mode receipts are written 'test'. metabolism/sum
     # read mode='live' by default.
     "ALTER TABLE resource_ledger  ADD COLUMN mode TEXT NOT NULL DEFAULT 'live'",
+    # ABE role visibility (docs/76-ABE-FRAMEWORK.md §Phase 2) — display
+    # identity for the org roles surfaced to the operator. emoji + a titles
+    # ladder (ic/lead/chief) keyed to business reality. Empty for pre-migration
+    # rows until the next roles/*.yaml sync repopulates them on boot.
+    # See core/role_display.py.
+    "ALTER TABLE roles ADD COLUMN emoji TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE roles ADD COLUMN titles_json TEXT NOT NULL DEFAULT '{}'",
 ]
 
 
