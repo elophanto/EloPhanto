@@ -3603,13 +3603,14 @@ class Agent:
             system_content += _deferred_section
 
         logger.info(
-            "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d (tiered from %d, profiled %d) | messages=%d",
+            "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d (tiered from %d, profiled %d) | messages=%d | roster=%s",
             _time.monotonic() - _prompt_start,
             len(system_content),
             len(_tools),
             len(authorized_tools),
             len(profiled_tools),
             len(messages),
+            "on" if _role_roster_ctx else "off",
         )
 
         # Browser execution state — evidence gating + stagnation detection
