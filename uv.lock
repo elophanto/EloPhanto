@@ -916,7 +916,7 @@ wheels = [
 
 [[package]]
 name = "elophanto"
-version = "2026.5.22"
+version = "2026.6.20"
 source = { editable = "." }
 dependencies = [
     { name = "agentmail" },
@@ -967,6 +967,10 @@ payments = [
 payments-cdp = [
     { name = "coinbase-agentkit" },
 ]
+payments-fiat = [
+    { name = "stripe" },
+    { name = "stripe-agent-toolkit" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1002,10 +1006,12 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
     { name = "solders", specifier = ">=0.27.1" },
     { name = "sqlite-vec", specifier = ">=0.1.1" },
+    { name = "stripe", marker = "extra == 'payments-fiat'", specifier = ">=11.0.0" },
+    { name = "stripe-agent-toolkit", marker = "extra == 'payments-fiat'", specifier = ">=0.6.0" },
     { name = "textual", specifier = ">=0.70" },
     { name = "websockets", specifier = ">=13.0" },
 ]
-provides-extras = ["dev", "payments", "payments-cdp", "mcp", "desktop"]
+provides-extras = ["dev", "payments", "payments-cdp", "payments-fiat", "mcp", "desktop"]
 
 [[package]]
 name = "email-validator"
@@ -3838,6 +3844,32 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889ad680d79a40f339082c1978b5cfcf62c2d8d196873ac/starlette-0.52.1.tar.gz", hash = "sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933", size = 2653702, upload-time = "2026-01-18T13:34:11.062Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
+]
+
+[[package]]
+name = "stripe"
+version = "15.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/04/a41c498352317d0c3d52dfb265f3c3c3e50f1468fcacef5b6794dd57c967/stripe-15.2.1.tar.gz", hash = "sha256:5821a802abf70be900d7b1b6bb609697cc25c9aa521eb86430e68b994dac9f78", size = 1520402, upload-time = "2026-06-12T22:44:12.519Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b4/be/b16d1222b8b47b5c1bf188523df679f28a9ff9662ad8276a02a56101463c/stripe-15.2.1-py3-none-any.whl", hash = "sha256:49571ffbfd7944daae4000e33d3b42705012ee7aae003b7b67868c1e59d442f5", size = 2168627, upload-time = "2026-06-12T22:44:10.458Z" },
+]
+
+[[package]]
+name = "stripe-agent-toolkit"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mcp" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ed/80/0f3d3c94bd345e4edc1aa0b346466123b734887c206883f8f66b47bcf697/stripe_agent_toolkit-0.7.0.tar.gz", hash = "sha256:332f7cb4e4284926ff5ff4efd47e314fdce34d800a925b8b862ea9abbda17131", size = 17511, upload-time = "2026-02-12T15:28:15.719Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/0c/0297097d4a5584dfaeda0f8d44140cdff2c2d3a2af6f2cf8a4cac1be730d/stripe_agent_toolkit-0.7.0-py3-none-any.whl", hash = "sha256:27ca9da0c87b0754914cff7441e6b7ac1554a4dd7016b84f2cb8eaf021808576", size = 19746, upload-time = "2026-02-12T15:28:14.227Z" },
 ]
 
 [[package]]
