@@ -523,6 +523,15 @@ class CompanyPlanApplyTool(BaseTool):
         created_schedule_ids: list[str] = []
         timeline = proposal.get("timeline") or {}
         if isinstance(timeline, dict) and self._scheduler is not None:
+            # Re-applying a strategy should REFRESH its cadence, not pile up
+            # duplicates. The schedule name is stable per (strategy, month), so
+            # map existing names → id and drop the prior one before re-creating.
+            try:
+                _existing_by_name = {
+                    s.name: s.id for s in await self._scheduler.list_schedules()
+                }
+            except Exception:
+                _existing_by_name = {}
             for month_key in ("month1", "month2", "month3"):
                 entries = timeline.get(month_key) or []
                 if not entries:
@@ -530,9 +539,21 @@ class CompanyPlanApplyTool(BaseTool):
                 cron = _cron_for_timeline(month_key, execution_priority)
                 # Soft label for the schedule's task_goal
                 joined = "; ".join(str(e) for e in entries[:5])
+                # Human, month-FIRST name. The old "{company}-{timestamp}-monthN"
+                # led with a timestamp, so a truncated sidebar showed all three
+                # as "elophanto-20…" — the monthN that differs was past the
+                # cutoff. Lead with the month so the phases stay distinguishable
+                # at any width.
+                _month_n = month_key.removeprefix("month")
+                sched_name = f"Month {_month_n} · {(strategy_name or company_id)[:48]}"
                 try:
+                    # Dedupe: replace a same-named schedule from a prior apply.
+                    if sched_name in _existing_by_name:
+                        await self._scheduler.delete_schedule(
+                            _existing_by_name[sched_name]
+                        )
                     sched = await self._scheduler.create_schedule(
-                        name=f"{company_id}-{strategy_id}-{month_key}",
+                        name=sched_name,
                         task_goal=(
                             f"[{company_id} / {strategy_name}] "
                             f"{month_key} cadence: {joined[:200]}"
@@ -542,6 +563,7 @@ class CompanyPlanApplyTool(BaseTool):
                             f"Auto-created by company_plan_apply "
                             f"(execution_priority={execution_priority})"
                         ),
+                        company_id=company_id,
                     )
                     created_schedule_ids.append(sched.id)
                 except Exception as e:
