@@ -268,6 +268,7 @@ class TestWorkableCheckpointStalledRecovery:
     @pytest.mark.asyncio
     async def test_stalled_goal_yields_revise_candidate(self, tmp_path) -> None:
         from unittest.mock import AsyncMock
+
         from core.config import GoalsConfig
         from core.database import Database
         from core.goal_manager import GoalManager
