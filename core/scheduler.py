@@ -223,6 +223,7 @@ class TaskScheduler:
         max_retries: int = 3,
         direct_tool: str | None = None,
         direct_params: dict[str, Any] | str | None = None,
+        company_id: str | None = None,
     ) -> ScheduleEntry:
         """Create a new scheduled task and persist it.
 
@@ -249,6 +250,14 @@ class TaskScheduler:
         schedule_id = str(uuid.uuid4())[:8]
         now = datetime.now(UTC).isoformat()
 
+        # Tag the schedule with its owning company so per-company views and
+        # execution context are correct. Explicit arg wins; otherwise inherit
+        # the active company. Falls back to the self-company sentinel (the
+        # column is NOT NULL) so a blank context can never break the insert.
+        from core.company import current_company_id
+
+        owner_company = company_id or current_company_id() or "elophanto-self"
+
         # Direct-tool schedules bypass the agent loop and never contend
         # for AGENT_LOOP — cadence flag is irrelevant there. For
         # agent-loop schedules, auto-classify from the cron expression.
@@ -267,14 +276,15 @@ class TaskScheduler:
             direct_tool=direct_tool,
             direct_params=params_json,
             cadence=is_cadence,
+            company_id=owner_company,
         )
 
         await self._db.execute_insert(
             """INSERT INTO scheduled_tasks
                (id, name, description, cron_expression, task_goal, enabled,
                 max_retries, created_at, updated_at, direct_tool, direct_params,
-                cadence)
-               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)""",
+                cadence, company_id)
+               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 entry.id,
                 entry.name,
@@ -287,6 +297,7 @@ class TaskScheduler:
                 entry.direct_tool,
                 entry.direct_params,
                 1 if entry.cadence else 0,
+                entry.company_id,
             ),
         )
 
