@@ -187,8 +187,8 @@ def neglected(
         table.add_row(name, state, last or "never")
     console.print(table)
     console.print(
-        f"[dim]Pin a skill to opt out of auto-flagging — see "
-        f"core/skill_usage.py:set_pinned.[/dim]"
+        "[dim]Pin a skill to opt out of auto-flagging — see "
+        "core/skill_usage.py:set_pinned.[/dim]"
     )
 
 

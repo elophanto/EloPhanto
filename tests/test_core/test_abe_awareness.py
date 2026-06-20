@@ -166,9 +166,8 @@ class TestPersonalityShapeDoesNotCrashContext:
 
     @pytest.mark.asyncio
     async def test_string_personality_does_not_crash(self, db: Database) -> None:
-        from core.identity import Identity
-
         from core.company import current_company_id
+        from core.identity import Identity
 
         ident_cfg = IdentityConfig(enabled=True)
         router = MagicMock()
