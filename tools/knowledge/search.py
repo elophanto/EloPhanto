@@ -100,6 +100,11 @@ class KnowledgeSearchTool(BaseTool):
         query = params["query"]
         scope = params.get("scope", "all")
         limit = params.get("limit", 5)
+        # The 0-result auto-rewrite spends one LLM completion. Callers that
+        # must not incur an LLM call (e.g. the agent's best-effort pre-loop
+        # context retrieval) pass rewrite=False; explicit agent tool calls
+        # default to True. Internal flag — not exposed in the LLM schema.
+        allow_rewrite = bool(params.get("rewrite", True))
 
         if not self._db:
             return ToolResult(success=False, error="Knowledge database not initialized")
@@ -155,7 +160,7 @@ class KnowledgeSearchTool(BaseTool):
             # keywords and we retry. If the retry also misses, we
             # return the original empty result — never a loop, never
             # more than one extra LLM call per search.
-            if count == 0 and self._router is not None:
+            if count == 0 and self._router is not None and allow_rewrite:
                 rewritten = await self._rewrite_query(query)
                 if (
                     rewritten

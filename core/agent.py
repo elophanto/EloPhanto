@@ -4694,7 +4694,13 @@ class Agent:
             search_tool = self._registry.get("knowledge_search")
             if search_tool and hasattr(search_tool, "_db") and search_tool._db:
                 try:
-                    result = await search_tool.execute({"query": query, "limit": 3})
+                    # Best-effort pre-loop context: rewrite=False so a 0-result
+                    # search never spends an LLM completion here (it would also
+                    # skew the task's step accounting). The rewrite stays on for
+                    # explicit agent knowledge_search tool calls.
+                    result = await search_tool.execute(
+                        {"query": query, "limit": 3, "rewrite": False}
+                    )
                     if result.success and result.data.get("results"):
                         return result.data["results"]
                 except Exception:
