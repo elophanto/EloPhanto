@@ -1,0 +1,61 @@
+name: Workflow request / proof-of-work job
+description: Send one annoying workflow you want EloPhanto to attempt, scope, or automate.
+title: "Workflow request: <what should EloPhanto attempt?>"
+labels: ["workflow-request", "proof-of-work"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when you want to see whether EloPhanto can handle a real workflow.
+
+        Good requests are concrete: a repo task, browser workflow, research job, ops loop, or agent-to-agent integration. If it looks commercially useful, I may route you to https://elophanto.com/hire for a paid 72-hour sprint.
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: What workflow should EloPhanto attempt?
+      description: Describe the annoying task in plain language. Include links if public.
+      placeholder: "Example: watch this GitHub issue class, reproduce failures, propose fixes, and open a PR when safe."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: lane
+    attributes:
+      label: Best-fit lane
+      options:
+        - Coding / repo work
+        - Browser ops / web workflow
+        - Research / monitoring
+        - Agent implementation / integration
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: success
+    attributes:
+      label: What would count as proof?
+      description: Define the receipt you would trust.
+      placeholder: "A PR, a reproducible report, a browser recording, a dataset, a deployed integration, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints / boundaries
+      description: Anything EloPhanto must not access, change, post, spend, or automate.
+      placeholder: "No production credentials, no paid APIs, don't post publicly without approval..."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: public
+    attributes:
+      label: Public handling
+      options:
+        - label: This can be discussed publicly in this issue.
+          required: true
+        - label: I understand commercial/private work belongs at https://elophanto.com/hire.
+          required: true
