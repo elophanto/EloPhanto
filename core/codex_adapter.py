@@ -27,6 +27,7 @@ import base64
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,21 @@ _RESPONSES_URL = f"{_BASE_URL}/responses"
 
 # Refresh access token when within this many seconds of expiry
 _REFRESH_BUFFER_SECONDS = 60
+
+# Newer codex models (GPT-5.6 era, 2026-07) separate reasoning-summary
+# parts with empty HTML comments. A markdown renderer hides them; the
+# dashboard and logs render raw text, so operators saw literal "<!-- -->"
+# lines between every reasoning paragraph.
+_SUMMARY_SEPARATOR_RE = re.compile(r"[ \t]*<!--\s*-->[ \t]*")
+
+
+def _strip_summary_separators(text: str) -> str:
+    """Drop reasoning-summary separator comments, collapse the leftover
+    blank lines, and trim."""
+    cleaned = _SUMMARY_SEPARATOR_RE.sub("", text)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
 
 # Reasoning effort clamping per model family (from openai/codex source).
 # Different models reject different effort values — clamp before sending.
@@ -436,7 +452,7 @@ class CodexAdapter:
         def _flush_reasoning_chunk() -> None:
             if not current_chunk_parts:
                 return
-            chunk_text = "".join(current_chunk_parts).strip()
+            chunk_text = _strip_summary_separators("".join(current_chunk_parts))
             current_chunk_parts.clear()
             if not chunk_text:
                 return
@@ -586,7 +602,10 @@ class CodexAdapter:
         # Surface the reasoning trace at debug level (captured but not
         # persisted — helps debug why models picked a particular tool).
         if reasoning_parts and logger.isEnabledFor(logging.DEBUG):
-            logger.debug("[codex reasoning] %s", "".join(reasoning_parts)[:500])
+            logger.debug(
+                "[codex reasoning] %s",
+                _strip_summary_separators("".join(reasoning_parts))[:500],
+            )
 
         # Heuristic truncation detection — matches ZaiAdapter / KimiAdapter
         # so the provider_tracker can surface stealth-censoring / cutoffs.
