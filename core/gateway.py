@@ -1273,8 +1273,10 @@ class Gateway:
         from core.kill_switch import (
             clear_sentinel,
             hard_stop,
+            is_stopped,
             parse_kill_command,
             resolve_data_dir,
+            stop_file_path,
         )
 
         content = ""
@@ -1282,6 +1284,43 @@ class Gateway:
             content = str(msg.data.get("content") or "")
         verb, flags = parse_kill_command(content)
         if verb is None:
+            # Not a kill/resume command — but if the STOP sentinel is set,
+            # running the agent is pointless (it halts at step 0) and the
+            # generic halt text used to promise that a follow-up would work.
+            # Observed: operator wedged for 3 days replying to that promise
+            # ("you can continue, no need to stop, resume" is not a bare
+            # `resume`, so nothing cleared the sentinel). Answer here with
+            # the one instruction that works, without burning an agent run.
+            try:
+                data_dir = resolve_data_dir(self._agent._config)
+                if is_stopped(data_dir):
+                    sentinel = stop_file_path(data_dir)
+                    try:
+                        from datetime import UTC as _UTC
+                        from datetime import datetime as _dt
+
+                        stopped_since = _dt.fromtimestamp(
+                            sentinel.stat().st_mtime, tz=_UTC
+                        ).strftime("%Y-%m-%d %H:%M UTC")
+                        since = f" (stopped since {stopped_since})"
+                    except OSError:
+                        since = ""
+                    body = (
+                        f"⛔ Hard-stopped{since}: the STOP sentinel is set at "
+                        f"{sentinel}, so no tasks will run. Reply exactly "
+                        "`resume` to clear it and I'll be back — then re-send "
+                        "your request. (Or run `elophanto resume` / delete the "
+                        "file.)"
+                    )
+                    await client.websocket.send(
+                        response_message(session.session_id, body, done=True).to_json()
+                    )
+                    return True
+            except Exception:
+                # Sentinel probe is best-effort — fall through to the normal
+                # chat path; agent.run halts with its own (now truthful)
+                # STOP message.
+                pass
             return False
 
         session_id = session.session_id

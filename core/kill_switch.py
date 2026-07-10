@@ -194,7 +194,10 @@ def parse_kill_command(text: str) -> tuple[str | None, dict[str, bool]]:
     if not raw:
         return None, {}
     parts = raw.split()
-    head = parts[0].lower()
+    # Tolerate trailing punctuation on the verb ("resume.", "Stop!") —
+    # operators type these naturally and a missed resume wedges the
+    # system behind the sentinel.
+    head = parts[0].lower().rstrip(".,!?;:")
     rest = [p.lower() for p in parts[1:]]
     flags: dict[str, bool] = {
         "cancel_goals": False,

@@ -85,6 +85,22 @@ class TestParseKillCommand:
     def test_resume_with_followup_not_a_kill(self) -> None:
         assert parse_kill_command("resume the email loop")[0] is None
 
+    def test_trailing_punctuation_tolerated(self) -> None:
+        # Operators type "resume." / "Resume!" naturally; a missed match
+        # used to leave the system wedged behind the sentinel.
+        assert parse_kill_command("resume.")[0] == "resume"
+        assert parse_kill_command("Resume!")[0] == "resume"
+        assert parse_kill_command("stop.")[0] == "stop"
+        assert parse_kill_command("go!")[0] == "resume"
+
+    def test_resume_intent_sentence_still_not_a_command(self) -> None:
+        # The message that wedged the operator for 3 days. It must NOT
+        # parse as resume (too ambiguous) — the gateway's stopped-state
+        # intercept answers it with the exact `resume` instruction instead.
+        assert (
+            parse_kill_command("you can continue, no need to stop, resume")[0] is None
+        )
+
     def test_empty(self) -> None:
         assert parse_kill_command("")[0] is None
         assert parse_kill_command("   ")[0] is None

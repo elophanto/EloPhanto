@@ -4407,10 +4407,22 @@ class Agent:
             reason = stagnation_reason
         else:
             reason = f"safety limit ({step} steps)"
-        max_steps_msg = (
-            f"Task stopped: {reason} after {step} steps. "
-            f"You can continue by sending a follow-up message."
-        )
+        if reason == "operator STOP file present":
+            # The generic "send a follow-up message" advice is FALSE here —
+            # any follow-up run halts on the same sentinel (observed: operator
+            # wedged for 3 days replying to this message). Tell them the one
+            # thing that actually works.
+            max_steps_msg = (
+                "⛔ Hard-stopped: the operator STOP sentinel (data/STOP) is set, "
+                "so every task halts immediately. Reply exactly `resume` (or run "
+                "`elophanto resume`, or delete data/STOP) to clear it — then "
+                "re-send your request."
+            )
+        else:
+            max_steps_msg = (
+                f"Task stopped: {reason} after {step} steps. "
+                f"You can continue by sending a follow-up message."
+            )
         asyncio.create_task(
             self._store_task_memory(
                 goal, "Max steps reached", "incomplete", tool_calls_made

@@ -248,3 +248,91 @@ class TestHandleChatGate:
         if c.websocket.send.call_args is not None:
             sent = c.websocket.send.call_args.args[0]
             assert "chat refused" not in sent
+
+
+# ---------------------------------------------------------------------------
+# Kill-switch intercept while hard-stopped
+# ---------------------------------------------------------------------------
+
+
+class TestKillInterceptWhileStopped:
+    """A hard-stopped gateway must tell the operator the way out.
+
+    Regression: with data/STOP set, a normal chat message ran the agent,
+    halted at step 0, and replied "you can continue by sending a follow-up
+    message" — false, since the follow-up halts on the same sentinel. The
+    operator was wedged for 3 days. Now the gateway answers stopped-state
+    messages with the exact `resume` instruction without burning a run.
+    """
+
+    def _gw_with_data_dir(self, tmp_path: Path) -> Gateway:
+        gw = _build_gateway()
+        cfg = MagicMock()
+        cfg.database.db_path = str(tmp_path / "data" / "t.db")
+        (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+        gw._agent._config = cfg
+        return gw
+
+    def _msg(self, content: str) -> MagicMock:
+        m = MagicMock()
+        m.data = {"content": content}
+        return m
+
+    def _session(self) -> MagicMock:
+        s = MagicMock()
+        s.session_id = "s1"
+        return s
+
+    @pytest.mark.asyncio
+    async def test_stopped_normal_message_gets_resume_instruction(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest.mock import AsyncMock
+
+        from core.kill_switch import is_stopped, write_sentinel
+
+        gw = self._gw_with_data_dir(tmp_path)
+        write_sentinel(tmp_path / "data")
+        c = _client()
+        c.websocket.send = AsyncMock()
+        handled = await gw._maybe_handle_kill_command(
+            c, self._msg("you can continue, no need to stop, resume"), self._session()
+        )
+        assert handled is True
+        sent = c.websocket.send.call_args.args[0]
+        assert "Hard-stopped" in sent and "resume" in sent
+        # Guidance only — the sentinel stays until an explicit resume.
+        assert is_stopped(tmp_path / "data")
+
+    @pytest.mark.asyncio
+    async def test_stopped_bare_resume_with_punctuation_clears(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest.mock import AsyncMock
+
+        from core.kill_switch import is_stopped, write_sentinel
+
+        gw = self._gw_with_data_dir(tmp_path)
+        write_sentinel(tmp_path / "data")
+        c = _client()
+        c.websocket.send = AsyncMock()
+        handled = await gw._maybe_handle_kill_command(
+            c, self._msg("Resume."), self._session()
+        )
+        assert handled is True
+        assert not is_stopped(tmp_path / "data")
+
+    @pytest.mark.asyncio
+    async def test_not_stopped_normal_message_falls_through(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest.mock import AsyncMock
+
+        gw = self._gw_with_data_dir(tmp_path)
+        c = _client()
+        c.websocket.send = AsyncMock()
+        handled = await gw._maybe_handle_kill_command(
+            c, self._msg("post on X about the new models"), self._session()
+        )
+        assert handled is False
+        c.websocket.send.assert_not_called()
