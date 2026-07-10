@@ -353,3 +353,44 @@ class TestBuildInput:
         messages = [{"role": "user", "content": "hi"}]
         instructions, _ = adapter._build_input(messages)
         assert instructions is None
+
+
+class TestReasoningSummarySeparators:
+    """GPT-5.6-era codex models separate reasoning-summary parts with
+    empty HTML comments; raw-text surfaces (dashboard, logs) showed
+    literal "<!-- -->" lines. The adapter strips them at the source."""
+
+    def test_trailing_separator_stripped(self) -> None:
+        from core.codex_adapter import _strip_summary_separators
+
+        assert (
+            _strip_summary_separators("**Verifying skills**\n\n<!-- -->")
+            == "**Verifying skills**"
+        )
+
+    def test_interior_separators_collapse_blank_lines(self) -> None:
+        from core.codex_adapter import _strip_summary_separators
+
+        out = _strip_summary_separators(
+            "<!-- -->\n\n**Planning**\n\nBody.\n\n<!-- -->\n\nNext."
+        )
+        assert out == "**Planning**\n\nBody.\n\nNext."
+
+    def test_separator_only_chunk_becomes_empty(self) -> None:
+        from core.codex_adapter import _strip_summary_separators
+
+        assert _strip_summary_separators("<!-- -->") == ""
+
+    def test_normal_text_untouched(self) -> None:
+        from core.codex_adapter import _strip_summary_separators
+
+        text = "Regular reasoning with **bold** and\n\ntwo paragraphs."
+        assert _strip_summary_separators(text) == text
+
+    def test_real_comment_content_preserved(self) -> None:
+        # Only EMPTY separator comments are dropped — a comment with
+        # content is (weird but) real model output, keep it.
+        from core.codex_adapter import _strip_summary_separators
+
+        text = "before\n<!-- keep me -->\nafter"
+        assert _strip_summary_separators(text) == text
