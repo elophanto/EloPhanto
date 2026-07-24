@@ -2291,16 +2291,25 @@ class Agent:
             "watch_snapshot",
             "watch_diff",
             "watch_board_report",
+            "watch_observe",
+            "watch_queue",
         ):
             tool = self._registry.get(tool_name)
             if tool is None:
                 continue
             if hasattr(tool, "_watch_manager"):
                 tool._watch_manager = self._watch_manager
-            # watch_board_report turns the factual diff into implications via
-            # the router. Optional — without it the report still ships facts.
+            # watch_board_report turns the factual diff into implications, and
+            # watch_observe reads pages, via the router. Optional for the
+            # report (it still ships facts); required for observation.
             if hasattr(tool, "_router"):
                 tool._router = self._router
+            # watch_observe needs config for the per-state proxy pool.
+            if hasattr(tool, "_config"):
+                tool._config = self._config
+            # watch_queue installs the recurring refresh jobs.
+            if hasattr(tool, "_scheduler"):
+                tool._scheduler = getattr(self, "_scheduler", None)
 
     async def _seed_fiat_reconcile_schedules(self) -> None:
         """Auto-create a periodic reconcile schedule per fiat-rail company so

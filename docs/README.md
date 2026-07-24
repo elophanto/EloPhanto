@@ -88,7 +88,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 66 | [Kid Agents](66-KID-AGENTS.md) | Sandboxed child EloPhanto in hardened Docker containers — `--cap-drop=ALL`, read-only rootfs, non-root uid 10001, no host bind-mounts (named volume only), default-empty vault scope, sync request/response via gateway hook |
 | 79 | [Dashboard Themes](79-DASHBOARD-THEMES.md) | YAML-declared, user-extensible terminal themes — colors + layout slots + dark/light, `extends` inheritance, `elophanto themes` CLI, built-in default / nocturne / mocha |
 | 80 | [ABE Finance Rail](80-ABE-FINANCE-RAIL.md) | Per-business fiat rail (Stripe) — payment links, refund-aware auto-reconcile, runway, spend-controlled virtual cards; test-mode by default, live is KYC-gated |
-| 81 | [Competitive Intelligence](81-COMPETITIVE-INTEL.md) | Market model (ABE organ 2) — tracked brands × weighted dimensions, evidence register with provenance, evidence-gated 1–5 scoring, XLSX scorecard, material-change diffing, board report with no-regret classification |
+| 81 | [Competitive Intelligence](81-COMPETITIVE-INTEL.md) | Market model (ABE organ 2) — tracked brands × weighted dimensions, evidence register with provenance, evidence-gated 1–5 scoring, XLSX scorecard, material-change diffing, board report with no-regret classification, autonomous collection with verbatim-quote verification, per-state proxy exits |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 

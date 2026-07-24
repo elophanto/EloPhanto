@@ -644,3 +644,286 @@ class TestBoardReportTool:
         res = await t.execute({"company_id": "c1"})
         assert res.data["snapshot_id"]
         assert len(await wm.list_snapshots("c1")) == 1
+
+
+# ── P3: autonomous collection, proxy pool, refresh queue ────────────────
+
+
+_PAGE = (
+    "<html><head><style>.a{color:red}</style><script>var x=1;</script></head>"
+    "<body><h1>Welcome</h1>"
+    "<p>Get 57,500 Gold Coins &amp; 27.5 Sweepstakes Coins on your first purchase.</p>"
+    "<p>Minimum purchase is $4.99 per package.</p></body></html>"
+)
+
+
+class TestHtmlToText:
+    def test_drops_script_and_style_bodies(self) -> None:
+        from core.watch_observe import html_to_text
+
+        out = html_to_text(_PAGE)
+        assert "var x=1" not in out and "color:red" not in out
+
+    def test_unescapes_entities_and_collapses_whitespace(self) -> None:
+        from core.watch_observe import html_to_text
+
+        out = html_to_text(_PAGE)
+        assert "Gold Coins & 27.5" in out
+        assert "  " not in out
+
+    def test_empty_input_is_safe(self) -> None:
+        from core.watch_observe import html_to_text
+
+        assert html_to_text("") == ""
+
+
+class TestExcerptVerification:
+    """The anti-hallucination guarantee: a claim survives only if its quote is
+    genuinely in the source."""
+
+    def test_real_quote_verifies_despite_case_and_spacing(self) -> None:
+        from core.watch_observe import html_to_text, verify_excerpt
+
+        text = html_to_text(_PAGE)
+        assert verify_excerpt("get 57,500 gold coins &  27.5 sweepstakes coins", text)
+
+    def test_fabricated_quote_is_rejected(self) -> None:
+        from core.watch_observe import html_to_text, verify_excerpt
+
+        text = html_to_text(_PAGE)
+        assert not verify_excerpt(
+            "Claim your daily login bonus of 10,000 Gold Coins every day.", text
+        )
+
+    def test_trivially_short_quote_is_rejected(self) -> None:
+        from core.watch_observe import html_to_text, verify_excerpt
+
+        # A 7-char quote would match half the web and prove nothing.
+        assert not verify_excerpt("Welcome", html_to_text(_PAGE))
+
+    def test_filter_splits_and_explains_rejections(self) -> None:
+        from core.watch_observe import filter_verified_claims, html_to_text
+
+        text = html_to_text(_PAGE)
+        claims = [
+            {"claim": "real", "excerpt": "Minimum purchase is $4.99 per package."},
+            {"claim": "made up", "excerpt": "We offer a 200% cashback guarantee always"},
+            {"claim": "too short", "excerpt": "Welcome"},
+            {"claim": "", "excerpt": "Minimum purchase is $4.99 per package."},
+        ]
+        ok, bad = filter_verified_claims(claims, text)
+        assert [c["claim"] for c in ok] == ["real"]
+        assert {b["reason"] for b in bad} == {
+            "excerpt not found in source",
+            "excerpt too short",
+        }
+
+
+class _FakeRouter:
+    """Returns one verifiable claim and one fabrication."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, **kwargs):
+        import json as _json
+        from types import SimpleNamespace
+
+        self.calls += 1
+        return SimpleNamespace(
+            content=_json.dumps(
+                {
+                    "claims": [
+                        {
+                            "subcriterion": "welcome",
+                            "claim": "First purchase grants 57,500 GC and 27.5 SC",
+                            "value_text": "57,500 GC",
+                            "excerpt": (
+                                "Get 57,500 Gold Coins & 27.5 Sweepstakes Coins "
+                                "on your first purchase."
+                            ),
+                        },
+                        {
+                            "subcriterion": "ongoing",
+                            "claim": "Daily 10,000 GC login bonus",
+                            "value_text": "10,000 GC",
+                            "excerpt": "Claim your daily login bonus of 10,000 GC daily.",
+                        },
+                    ]
+                }
+            )
+        )
+
+
+class TestWatchObserveTool:
+    async def _tool(self, wm, router=None):
+        from tools.watch.tools import WatchObserveTool
+
+        t = WatchObserveTool()
+        t._watch_manager = wm
+        t._router = router if router is not None else _FakeRouter()
+        t._config = None
+        return t
+
+    @pytest.mark.asyncio
+    async def test_only_verifiable_claims_are_persisted(
+        self, wm, monkeypatch
+    ) -> None:
+        import core.watch_observe as wo
+
+        subj = await wm.add_subject(
+            name="Rival", company_id="c1", url="https://rival.example"
+        )
+        await wm.upsert_dimension(
+            name="Promos", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "welcome", "weight_pct": 100}],
+        )
+        text = wo.html_to_text(_PAGE)
+
+        async def fake_fetch(url, **kw):
+            return (text, None)
+
+        monkeypatch.setattr(wo, "fetch_page", fake_fetch)
+        res = await (await self._tool(wm)).execute(
+            {"subject": "Rival", "dimension": "Promos", "company_id": "c1"}
+        )
+        assert res.success
+        assert res.data["evidence_written"] == 1
+        assert res.data["claims_rejected"] == 1
+
+        rows = await wm.list_evidence("c1", subject_id=subj.subject_id)
+        assert len(rows) == 1
+        assert "57,500" in rows[0].claim
+        # Agent collection is public/logged-out and labelled as such.
+        assert rows[0].collector == "agent"
+        assert rows[0].customer_state == "logged_out"
+        assert rows[0].source_url == "https://rival.example"
+
+    @pytest.mark.asyncio
+    async def test_fetch_failure_is_reported_not_fabricated(
+        self, wm, monkeypatch
+    ) -> None:
+        import core.watch_observe as wo
+
+        await wm.add_subject(name="Rival", company_id="c1", url="https://x.example")
+        await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
+
+        async def dead_fetch(url, **kw):
+            return ("", "HTTP 403")
+
+        monkeypatch.setattr(wo, "fetch_page", dead_fetch)
+        res = await (await self._tool(wm)).execute(
+            {"subject": "Rival", "dimension": "Promos", "company_id": "c1"}
+        )
+        assert res.success and res.data["evidence_written"] == 0
+        assert res.data["pages"][0]["error"] == "HTTP 403"
+        assert await wm.list_evidence("c1") == []
+
+    @pytest.mark.asyncio
+    async def test_requires_a_router(self, wm) -> None:
+        await wm.add_subject(name="Rival", company_id="c1", url="https://x.example")
+        await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
+        t = await self._tool(wm)
+        t._router = None
+        res = await t.execute(
+            {"subject": "Rival", "dimension": "Promos", "company_id": "c1"}
+        )
+        assert not res.success and "router" in res.error
+
+    @pytest.mark.asyncio
+    async def test_missing_url_is_a_clear_error(self, wm) -> None:
+        await wm.add_subject(name="NoUrl", company_id="c1")
+        await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
+        res = await (await self._tool(wm)).execute(
+            {"subject": "NoUrl", "dimension": "Promos", "company_id": "c1"}
+        )
+        assert not res.success and "no URL" in res.error
+
+
+class TestProxyPool:
+    def test_state_exit_selected_from_pool(self) -> None:
+        from core.config import ProxyConfig
+
+        p = ProxyConfig(
+            enabled=True, type="http", host="default.example", port=1,
+            pool=[
+                {"state": "TX", "host": "tx.example", "port": 8080,
+                 "username": "u", "password": "p"},
+                {"state": "CA", "host": "ca.example", "port": 8081},
+            ],
+        )
+        assert p.exit_for_state("tx")["host"] == "tx.example"
+        assert p.request_proxy_url("TX") == "http://u:p@tx.example:8080"
+        assert p.request_proxy_url("CA") == "http://ca.example:8081"
+
+    def test_falls_back_to_single_exit(self) -> None:
+        from core.config import ProxyConfig
+
+        p = ProxyConfig(enabled=True, type="http", host="d.example", port=3128)
+        assert p.exit_for_state("TX") is None
+        assert p.request_proxy_url("TX") == "http://d.example:3128"
+        assert p.request_proxy_url("n/a") == "http://d.example:3128"
+
+    def test_disabled_proxy_means_direct(self) -> None:
+        from core.config import ProxyConfig
+
+        assert ProxyConfig(enabled=False, host="d.example", port=1).request_proxy_url(
+            "TX"
+        ) == ""
+
+    def test_pool_works_even_when_single_proxy_disabled(self) -> None:
+        from core.config import ProxyConfig
+
+        # A geo pool is about *observation*, not about routing all traffic.
+        p = ProxyConfig(
+            enabled=False,
+            pool=[{"state": "NY", "host": "ny.example", "port": 9, "type": "http"}],
+        )
+        assert p.request_proxy_url("NY") == "http://ny.example:9"
+
+
+class TestWatchQueueTool:
+    async def _tool(self, wm):
+        from tools.watch.tools import WatchQueueTool
+
+        t = WatchQueueTool()
+        t._watch_manager = wm
+        return t
+
+    @pytest.mark.asyncio
+    async def test_never_observed_ranks_above_merely_stale(self, wm) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        s1 = await wm.add_subject(name="Stale", company_id="c1")
+        await wm.add_subject(name="Never", company_id="c1")
+        dim = await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
+        await wm.add_evidence(
+            company_id="c1", subject_id=s1.subject_id, dimension_id=dim.dimension_id,
+            claim="old",
+            observed_at=(datetime.now(UTC) - timedelta(days=99)).isoformat(),
+        )
+        res = await (await self._tool(wm)).execute({"company_id": "c1"})
+        assert res.data["never_observed"] == 1 and res.data["stale"] == 1
+        assert res.data["queue"][0]["subject"] == "Never"
+
+    @pytest.mark.asyncio
+    async def test_cadence_filter(self, wm) -> None:
+        await wm.add_subject(name="A", company_id="c1")
+        await wm.upsert_dimension(
+            name="Weekly thing", company_id="c1", refresh_cadence="weekly"
+        )
+        await wm.upsert_dimension(
+            name="Quarterly thing", company_id="c1", refresh_cadence="quarterly"
+        )
+        res = await (await self._tool(wm)).execute(
+            {"company_id": "c1", "cadence": "weekly"}
+        )
+        assert res.data["due_count"] == 1
+        assert res.data["queue"][0]["dimension"] == "Weekly thing"
+
+    @pytest.mark.asyncio
+    async def test_schedule_requires_scheduler(self, wm) -> None:
+        res = await (await self._tool(wm)).execute(
+            {"company_id": "c1", "action": "schedule"}
+        )
+        assert not res.success and "scheduler" in res.error

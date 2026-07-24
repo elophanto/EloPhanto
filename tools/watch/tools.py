@@ -1087,6 +1087,278 @@ class WatchBoardReportTool(_WatchToolBase):
         )
 
 
+class WatchObserveTool(_WatchToolBase):
+    """Collect evidence from public pages — every claim proof-checked."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+        self._config: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_observe"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Collect evidence about a tracked brand automatically: fetches the "
+            "brand's public pages, extracts facts for the given dimension, and "
+            "files them in the evidence register. Every claim must quote the "
+            "source verbatim and the quote is CHECKED against the fetched page "
+            "— unverifiable claims are discarded, not saved. Public/logged-out "
+            "pages only; anything behind an account is operator-collected."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "Brand name."},
+                "dimension": {"type": "string", "description": "Dimension name."},
+                "urls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Pages to read. Defaults to the brand's homepage.",
+                },
+                "geo_state": {
+                    "type": "string",
+                    "description": (
+                        "US state to observe as. Uses the matching proxy exit "
+                        "from proxy.pool when configured."
+                    ),
+                },
+                "max_claims": {
+                    "type": "integer",
+                    "description": "Per page. Default 8.",
+                },
+                "company_id": {"type": "string"},
+            },
+            "required": ["subject", "dimension"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        if self._router is None:
+            return ToolResult(
+                success=False,
+                error="watch_observe needs a model to read pages (router not injected)",
+            )
+        from core.watch_observe import (
+            extract_claims,
+            fetch_page,
+            filter_verified_claims,
+        )
+
+        cid = _company(params)
+        wm = self._watch_manager
+        subj = await wm.get_subject_by_name(str(params.get("subject") or ""), cid)
+        if subj is None:
+            return ToolResult(
+                success=False, error=f"no such brand: {params.get('subject')!r}"
+            )
+        dim = await wm.get_dimension_by_name(str(params.get("dimension") or ""), cid)
+        if dim is None:
+            return ToolResult(
+                success=False, error=f"no such dimension: {params.get('dimension')!r}"
+            )
+
+        urls = [str(u) for u in (params.get("urls") or []) if str(u).strip()]
+        if not urls:
+            if not subj.url:
+                return ToolResult(
+                    success=False,
+                    error=f"{subj.name} has no URL — pass urls, or set one via watch_subject",
+                )
+            urls = [subj.url]
+
+        geo_state = str(params.get("geo_state") or "n/a")
+        proxy_url = None
+        if self._config is not None and getattr(self._config, "proxy", None):
+            proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
+
+        subcriteria = [str(s.get("name", "")) for s in dim.subcriteria if s.get("name")]
+        max_claims = int(params.get("max_claims") or 8)
+
+        written = 0
+        rejected_total = 0
+        page_reports: list[dict[str, Any]] = []
+
+        for url in urls[:5]:
+            text, err = await fetch_page(url, proxy_url=proxy_url)
+            if err or not text:
+                page_reports.append({"url": url, "error": err or "no readable text"})
+                continue
+            claims = await extract_claims(
+                self._router,
+                page_text=text,
+                dimension_name=dim.name,
+                subcriteria=subcriteria,
+                max_claims=max_claims,
+            )
+            verified, rejected = filter_verified_claims(claims, text)
+            rejected_total += len(rejected)
+            for c in verified:
+                await wm.add_evidence(
+                    company_id=cid,
+                    subject_id=subj.subject_id,
+                    dimension_id=dim.dimension_id,
+                    subcriterion=str(c.get("subcriterion") or ""),
+                    claim=str(c.get("claim") or "")[:1000],
+                    value_text=str(c.get("value_text") or "")[:300],
+                    source_url=url,
+                    source_type="site",
+                    geo_state=geo_state,
+                    # Agent collection is logged-out only, by policy.
+                    customer_state="logged_out",
+                    # Quoted from a live page and substring-verified: solid on
+                    # provenance, but a marketing page is still the brand
+                    # talking about itself — hence medium, not high.
+                    confidence="medium",
+                    excerpt=str(c.get("excerpt") or "")[:1000],
+                    collector="agent",
+                )
+                written += 1
+            page_reports.append(
+                {
+                    "url": url,
+                    "chars": len(text),
+                    "proposed": len(claims),
+                    "verified": len(verified),
+                    "rejected": len(rejected),
+                    "rejections": [r["reason"] for r in rejected[:3]],
+                }
+            )
+
+        return ToolResult(
+            success=True,
+            data={
+                "subject": subj.name,
+                "dimension": dim.name,
+                "geo_state": geo_state,
+                "proxied": bool(proxy_url),
+                "evidence_written": written,
+                "claims_rejected": rejected_total,
+                "pages": page_reports,
+                "note": (
+                    "Claims are only saved when their verbatim excerpt is found "
+                    "in the fetched page. Score with watch_score once coverage "
+                    "is adequate."
+                ),
+            },
+        )
+
+
+class WatchQueueTool(_WatchToolBase):
+    """What needs re-observing, and the schedules that drive it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._scheduler: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_queue"
+
+    @property
+    def description(self) -> str:
+        return (
+            "The competitive-intelligence refresh queue: which brand × "
+            "dimension pairs have never been observed or are overdue against "
+            "their cadence (promotional weekly, operational monthly, financial "
+            "quarterly), most urgent first. action='schedule' installs the "
+            "recurring weekly/monthly/quarterly refresh jobs."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "schedule"]},
+                "cadence": {
+                    "type": "string",
+                    "enum": ["weekly", "monthly", "quarterly"],
+                    "description": "Only show pairs on this cadence.",
+                },
+                "limit": {"type": "integer", "description": "Default 25."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        action = str(params.get("action") or "list").lower()
+
+        if action == "schedule":
+            if self._scheduler is None:
+                return ToolResult(
+                    success=False, error="scheduler unavailable — cannot install jobs"
+                )
+            crons = {
+                "weekly": "0 9 * * 1",
+                "monthly": "0 9 1 * *",
+                "quarterly": "0 9 1 1,4,7,10 *",
+            }
+            existing = {s.name: s.id for s in await self._scheduler.list_schedules()}
+            created: list[str] = []
+            for cadence, cron in crons.items():
+                name = f"Competitive refresh · {cadence}"
+                if name in existing:
+                    await self._scheduler.delete_schedule(existing[name])
+                await self._scheduler.create_schedule(
+                    name=name,
+                    task_goal=(
+                        f"Refresh the {cadence} competitive-intelligence "
+                        f"dimensions for {cid}. Call watch_queue with "
+                        f"cadence={cadence} to see what is due, then "
+                        f"watch_observe each pair, then watch_score the ones "
+                        f"that now have enough evidence. Do not invent facts."
+                    ),
+                    cron_expression=cron,
+                    description="Auto-created by watch_queue action=schedule",
+                    company_id=cid,
+                )
+                created.append(f"{name} ({cron})")
+            return ToolResult(success=True, data={"schedules": created})
+
+        gaps = await self._watch_manager.staleness(cid)
+        cadence = str(params.get("cadence") or "").lower()
+        if cadence:
+            gaps = [g for g in gaps if g.get("cadence") == cadence]
+        # Never-observed first, then the most overdue.
+        gaps.sort(
+            key=lambda g: (
+                g["status"] != "never_observed",
+                -(g.get("age_days") or 0),
+            )
+        )
+        limit = int(params.get("limit") or 25)
+        return ToolResult(
+            success=True,
+            data={
+                "due_count": len(gaps),
+                "never_observed": sum(
+                    1 for g in gaps if g["status"] == "never_observed"
+                ),
+                "stale": sum(1 for g in gaps if g["status"] == "stale"),
+                "queue": gaps[:limit],
+            },
+        )
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -1098,4 +1370,6 @@ def create_watch_tools() -> list[BaseTool]:
         WatchSnapshotTool(),
         WatchDiffTool(),
         WatchBoardReportTool(),
+        WatchObserveTool(),
+        WatchQueueTool(),
     ]

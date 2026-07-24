@@ -802,6 +802,47 @@ class ProxyConfig:
     # 'browser' — other groups stay direct even if listed here.
     # Phase 2 will plumb per-tool routing.
     apply_to: list[str] = field(default_factory=lambda: ["browser"])
+    # Optional per-geography exits, for observing a site the way a customer in
+    # a specific US state sees it — offers, availability and pricing vary by
+    # state, so a single exit cannot answer "what does Texas see?".
+    # Each entry: {state, host, port, type?, username?, password?, label?}.
+    # Empty (the default) means every request uses the single exit above.
+    pool: list[dict[str, Any]] = field(default_factory=list)
+
+    def exit_for_state(self, state: str) -> dict[str, Any] | None:
+        """Return the pool entry serving ``state`` (case-insensitive), if any."""
+        want = (state or "").strip().lower()
+        if not want or want == "n/a":
+            return None
+        for entry in self.pool:
+            if str(entry.get("state", "")).strip().lower() == want:
+                return entry
+        return None
+
+    def request_proxy_url(self, state: str = "") -> str:
+        """Full proxy URL (credentials embedded) for an HTTP client.
+
+        Unlike ``proxy_url`` — which feeds Chrome's ``--proxy-server`` and must
+        omit credentials — httpx takes user:pass inline. Prefers the pool exit
+        for ``state``; falls back to the single configured proxy. Returns ""
+        when proxying is off or unconfigured, which callers treat as "direct".
+        """
+        entry = self.exit_for_state(state)
+        if entry is not None:
+            host = str(entry.get("host") or "")
+            port = int(entry.get("port") or 0)
+            if not host or not port:
+                return ""
+            scheme = str(entry.get("type") or self.type or "http")
+            user = str(entry.get("username") or "")
+            pwd = str(entry.get("password") or "")
+        else:
+            if not self.enabled or not self.host or not self.port:
+                return ""
+            host, port, scheme = self.host, self.port, self.type
+            user, pwd = self.username, self.password
+        creds = f"{user}:{pwd}@" if user and pwd else ""
+        return f"{scheme}://{creds}{host}:{port}"
 
     def proxy_url(self) -> str:
         """Build the host-and-port URL Chrome expects for --proxy-server.
@@ -1967,6 +2008,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         password=str(proxy_raw.get("password") or ""),
         bypass=[str(d) for d in proxy_bypass if isinstance(d, str)],
         apply_to=[str(g) for g in proxy_apply_to if isinstance(g, str)],
+        pool=[e for e in (proxy_raw.get("pool") or []) if isinstance(e, dict)],
     )
 
     # Parse MCP section
