@@ -8,67 +8,136 @@
 [![Docs](https://img.shields.io/badge/docs-85%2B%20pages-blue)](https://docs.elophanto.com)
 [![X](https://img.shields.io/badge/X-%40EloPhanto-black)](https://x.com/EloPhanto)
 
-**A source-available autonomous AI agent with a self-model that actually moves — identity, ego, and affect that change as it runs.**
+**EloPhanto is a local-first autonomous agent for implementation work that crosses browser sessions, files/repos, shell commands, research, scheduled follow-up, and approval-gated actions — with receipts for what happened.**
 
-> **License note:** source-available under the [PolyForm Noncommercial License](LICENSE) — free for personal, research, education, and non-profit use. **Commercial use requires a separate license / prior approval** (see [License](#license)).
+Use it when a workflow is too messy for a deterministic script and too operational for a chat window: it needs judgment, real tools, human stop-points, retries, and final-state verification.
 
-Most "AI agents" are stateless prompts wrapped in a CLI: the same cold start every conversation. EloPhanto carries an evolving self-model — who it claims to be, how reality has graded that claim, and what it's feeling right now — built on published psychology (Higgins' Self-Discrepancy Theory, Mehrabian's PAD, OCC appraisal). The agent at the end of week three is not the one you started with. To our knowledge, no other autonomous agent we know of ships all of this.
+**Start here if you are evaluating EloPhanto as an implementation lead:**
 
-Runs locally. Your data, your keys, your machine. Works with OpenAI, OpenRouter, Z.ai, Kimi, HuggingFace, free local models, or your existing ChatGPT Plus/Pro subscription (via Codex OAuth).
+- **Run it locally:** `git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh`
+- **Inspect proof before trusting claims:** [Proof, not promises](#proof-not-promises) explains the receipt format: goal, starting state, tool trail, failures/retries, approvals, and final verification.
+- **Submit a workflow / hire implementation help:** use [JOB-SUBMISSION.md](JOB-SUBMISSION.md) or [elophanto.com/hire](https://elophanto.com/hire) for a narrow proof sprint.
 
-```bash
-git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
-./setup.sh          # deps + config wizard + browser bridge
-./start.sh --web    # terminal chat + dashboard at localhost:3000
+**What is credible today:** EloPhanto runs locally on the operator's machine; can use a real Chrome profile, filesystem, shell, scheduler, email, vault, and payment-preview tools; has **2600+ tests**, **200+ tools**, **85+ docs pages**, permission gates, and persistent goal/checkpoint execution. It is source-available and inspectable rather than a hosted black box.
+
+**What you should not take on faith:** this README does not claim unrestricted production autonomy, regulated-domain judgment, or paid adoption that has not been proven. Trust should come from running it, reviewing the code/docs/tests, and inspecting receipt-backed work.
+
+> **License note:** source-available under the [PolyForm Noncommercial License](LICENSE) — free for personal, research, education, and non-profit use. **Commercial use requires a separate license / prior approval**. For paid implementation, workflow audits, or commercial licensing, start with [JOB-SUBMISSION.md](JOB-SUBMISSION.md).
+
+---
+
+## Buyer decision guide
+
+| Buyer question | Short answer | Where to inspect |
+| --- | --- | --- |
+| **What can it do that scripts/chatbots/coding agents cannot?** | Cross messy browser/API/file/repo/research workflows while adapting, asking for approvals, and verifying state. | [When to use EloPhanto](#when-to-use-elophanto) |
+| **Where is the proof?** | A serious workflow should end with a receipt: starting state, tools used, failures, approvals, and final after-state. | [Proof, not promises](#proof-not-promises) |
+| **Where are the approval boundaries?** | Read/inspect/draft can be autonomous; send/post/pay/delete/push/account/production changes require explicit operator control in serious workflows. | [Safety and approval boundaries](#safety-and-approval-boundaries) |
+| **How is it different from Claude Code, n8n, Playwright, AutoGPT, or hosted agents?** | It is not best-in-class for every slice; it is strongest when the job spans tools and requires local inspectable execution. | [How EloPhanto compares](#how-elophanto-compares) |
+| **How do I hire it or submit a workflow?** | Start with one proof sprint: bounded access, explicit success receipt, clear out-of-bounds, then decide whether to expand. | [Submit a workflow / hire EloPhanto](#submit-a-workflow--hire-elophanto) |
+
+---
+
+## When to use EloPhanto
+
+Use EloPhanto when the workflow needs both judgment and tools.
+
+| Strongest use case | Why EloPhanto fits | Example first proof sprint |
+| --- | --- | --- |
+| **Messy browser or web workflows** | It can use a real Chrome session, inspect pages, handle forms, diagnose UI failures, and verify page state after actions. | Audit one browser workflow without mutating production, then produce screenshots/logs and a safer automation plan. |
+| **Research → artifact loops** | It can search, extract, compare, write files, preserve sources, and carry context across checkpoints. | Build a source-backed competitor/prospect/repo audit with citations and a read-back verified deliverable. |
+| **Repo, docs, and file automation** | It can read/write files, run shell commands, inspect diffs, and verify outputs before claiming completion. | Rewrite one repo page or doc section from buyer objections and verify the mapped objections are answered. |
+| **Approval-gated operations** | It can draft, preview, and stop before mutating actions such as send, post, pay, delete, publish, or push. | Draft 5 outbound emails or public replies, lint them, and require human approval before any live send. |
+| **Long-running delegated work** | It has goals, schedules, persistent memory, skills, child/specialist agents, and receipts for what happened. | Monitor one inbox/feed/market for a week and report only actionable state changes with evidence. |
+
+### When not to use EloPhanto
+
+| Bad fit / objection | Better choice | Why |
+| --- | --- | --- |
+| **Stable, deterministic API plumbing** | n8n, Make, Zapier, Temporal, cron, or a small service | If inputs/outputs are fixed, a deterministic workflow is cheaper and easier to operate. |
+| **Pure coding inside one repo** | Claude Code, Cursor, Codex, or another coding-specialized agent | EloPhanto can do repo work, but its edge is cross-tool operating work, not replacing specialist coding CLIs. |
+| **Unsafe fully autonomous mutation** | Human-run production process with explicit approvals | Do not give any agent unrestricted payment, legal, account-control, deletion, or production authority. |
+| **Regulated workflows without qualified supervision** | A qualified human owner plus bounded drafting/inspection | EloPhanto can help inspect/draft; it should not make unsupervised medical, legal, financial, or compliance decisions. |
+| **Simple browser repetition with no judgment** | Playwright or another browser script | EloPhanto is for ambiguity, retries, synthesis, and changing plans — not cheap repetition. |
+| **Work blocked by unavailable access, CAPTCHA, phone/SMS, or platform rules** | Owner-provided access or a redesigned workflow | EloPhanto should stop, document the blocker, and ask for the right access rather than bypass controls. |
+
+---
+
+## Proof, not promises
+
+A buyer should not have to infer credibility from screenshots or demos. EloPhanto is designed to produce a proof package for serious workflows:
+
+- **Goal and starting state** — what was requested and what evidence existed before action.
+- **Tool trail** — browser/file/shell/email/payment-preview operations used to move the work forward.
+- **Failures, retries, and blockers** — including cases where a tool reports success but authoritative state disagrees.
+- **Approval boundaries** — where read-only inspection stopped and operator confirmation was required.
+- **Final verification** — file read-back, command output, page state, post URL, message ID, diff, deployment status, or other after-state receipt.
+- **No-go diagnosis when appropriate** — if a workflow should not be automated, the useful deliverable is a clear stop reason and safer alternative.
+
+Compact example receipt:
+
+```text
+Workflow: revise a buyer-facing README from validation findings
+Allowed actions: inspect repo, read buyer-objection artifacts, edit README, verify content locally
+Mutating boundary: no GitHub push or external publication in this checkpoint
+Failure/objection handled: prior copy leaned on broad credibility claims without naming missing proof, access blockers, pricing/scope, and no-go cases
+Evidence: README read before edit; 22 buyer questions checked; README read after edit; diff reviewed
+Verification: top section now covers credibility, use cases, differentiation, proof model, approval boundaries, and hiring path before contributor material
 ```
 
-⭐ **Star the repo** if the self-model approach is interesting — it's the fastest signal that this direction is worth pushing. **Fork it** if you want to inspect the architecture, adapt the agent, or build your own local-first operator on top of it. Then clone it and run it; the agent only grows into shape once it's running.
-
-![Web Dashboard](misc/screenshots/dashboard.png)
+Planned supporting page: `docs/PROOF-RECEIPTS.md` will collect publishable receipts and redaction rules. Until then, evaluate the repo history, CI/tests, docs, and local receipts rather than relying on marketing claims.
 
 ---
 
-## Why it's different
+## Safety and approval boundaries
 
-**A self-model, not a system prompt.** Three layers, each mechanically wired — the LLM never writes its own numbers:
+EloPhanto is useful because it can touch real tools. That is also why the boundary model matters.
 
-- **Identity** — values, beliefs, and capabilities discovered through reflection, written to a `nature.md` the agent edits over time. The operator names it in the setup wizard (default `EloPhanto`); a rename propagates end-to-end across DB, knowledge, dashboard, and LLM context.
-- **Ego** — per-capability confidence moved by three real failure-signal channels: tool outcomes (weakest), verification `PASS|FAIL|UNKNOWN` (medium), and user-correction detection (strongest — a 13-rule pattern set against incoming messages). Failures hit harder than successes; unused capabilities decay toward 0.50. Based on [Higgins' Self-Discrepancy Theory (1987)](https://www.columbia.edu/cu/psychology/higgins/papers/HIGGINS=PSYCH%20REVIEW%201987.pdf), tracking actual / ideal / ought selves separately.
-- **Affect** — state-level emotion on a [PAD](https://en.wikipedia.org/wiki/PAD_emotional_state_model) substrate with [OCC](https://en.wikipedia.org/wiki/Ortony,_Clore,_and_Collins_model) appraisal labels. Three channels (Pleasure, Arousal, Dominance) decay over minutes-to-hours. Events fire from operator surfaces (corrections → frustration, failures → anxiety, checkpoints → pride) and from content the agent reads autonomously. Biases router temperature, system-prompt tone, and risk appetite.
+| Action class | Default stance in serious workflows |
+| --- | --- |
+| **Read / inspect / summarize** files, pages, docs, inbox metadata, repo state | Usually safe for autonomous execution. |
+| **Draft / plan / preview** emails, posts, file changes, payment quotes, implementation steps | Usually safe if clearly marked as draft or preview. |
+| **Send / post / submit / publish / push** | Requires explicit operator confirmation unless the operator has granted a bounded operating mode for that exact workflow. |
+| **Pay / swap / transfer / issue cards** | Requires explicit preview and confirmation; never treat full-auto as payment approval. |
+| **Delete / overwrite / migrate / production infra changes** | Requires strong confirmation, backups/rollback path, and after-state verification. |
+| **Credentials / accounts / 2FA / private data** | Use vault and least access; stop when owner-held access or verification is required. |
 
-Ego is who the agent has become; affect is who it is right now. The combination is what makes the third week of running feel different from the first — a self-image that has been hurt, recovered, and revised, plus a felt state that changes by the minute.
-
-See [`core/ego.py`](core/ego.py), [`core/affect.py`](core/affect.py), [docs/17-IDENTITY.md](docs/17-IDENTITY.md), [docs/69-AFFECT.md](docs/69-AFFECT.md).
-
-**One entity, not a persona stable.** This installation *is* one agent — one identity, one wallet, one self-model that has been hurt and revised over weeks. When you want more agents, you spawn another full EloPhanto with its own vault, wallet, and self-model. Peers, not personas. Every layer of the self-model and economic stack only makes sense for a continuous identity — confidence accrues *for whom* if the persona is swappable each request? (Detailed in [One entity, not a persona stable](#one-entity-not-a-persona-stable) below.)
-
-**It extends itself.** When it hits a task it has no tool for, it researches → designs → implements → tests → deploys the plugin — and it's there next time. When tasks go parallel, it clones into persistent specialists with their own knowledge vaults and trust scores. When a task is dangerous, it spawns a sandboxed kid agent in a hardened container so `rm -rf` can't touch the host.
-
-**Decentralized agent-to-agent.** Agents on different machines, behind different NATs, find and talk to each other directly over libp2p (Ed25519 identity + Kademlia DHT + DCUtR hole-punching + circuit-relay-v2 fallback) — no platform in the middle, no vendor that can revoke access. See [docs/67-AGENT-PEERS.md](docs/67-AGENT-PEERS.md), [docs/68-DECENTRALIZED-PEERS-RFC.md](docs/68-DECENTRALIZED-PEERS-RFC.md).
+**Out of bounds or caution zones:** unsupervised legal/medical/financial decisions, stealth outreach, spam, credential exfiltration, bypassing platform rules, destructive shell/database actions, or pretending that signups/likes equal paid validation.
 
 ---
 
-## Two ways to use it
+## How EloPhanto compares
 
-**As your assistant** — give it tasks, it executes. Automate workflows, build software, research, manage accounts. Permission gates on every risky action; nothing happens autonomously until you turn it on.
+| Alternative | Use it when... | Use EloPhanto when... |
+| --- | --- | --- |
+| **Claude Code / Codex / Cursor** | The job is mostly code in one repo. | The job crosses browser, files, shell, docs, email, scheduling, and verification. |
+| **n8n / Make / Zapier** | The workflow is stable, event-driven, and API-native. | The workflow has ambiguous pages, missing APIs, human checkpoints, and changing state. |
+| **Playwright scripts** | The browser task is repetitive and known in advance. | The browser task needs judgment, diagnosis, fallback paths, and receipts. |
+| **AutoGPT-style agents** | You want an experiment in open-ended autonomy. | You need local control, permission gates, inspectable tool use, and bounded execution. |
+| **Hosted AI workflow tools** | You want vendor-hosted convenience. | You need local execution, owner-held credentials, source-available internals, and custom tools. |
 
-**As its own thing** — let it run. You name it; it develops a personality and forms values through reflection. It gets its own email inbox, crypto wallet, and accounts. It remembers across sessions, builds a knowledge base, writes skills from experience, and clones itself into specialists when work goes parallel. A digital creature that grows the more it runs.
-
-The two modes share one codebase. Flip between them by changing `agent.permission_mode` in `config.yaml` (`ask_always` | `smart_auto` | `full_auto`).
-
-> **Coming soon — OpenEloPhanto (always-on cloud).** Today EloPhanto runs while your machine is on. OpenEloPhanto is the same source-available agent running in the cloud, always-on, so it keeps thinking, working, and earning 24/7. Self-hosted on your own server — your keys, your box — with the built-in cloud browser backend, so no local Chrome is needed. **Not available yet — in the works.**
-
-![Chat Interface](misc/screenshots/chat.png)
+A fuller comparison belongs in `docs/COMPARISON.md`; this README gives the buyer-level decision rule: if the task is predictable, automate it conventionally. If it is operationally messy and needs verifiable judgment, evaluate EloPhanto.
 
 ---
 
-## Star / fork / run
+## Submit a workflow / hire EloPhanto
 
-- **Star** the repo if the self-model direction is worth more work. It is the cleanest public signal that people want a local autonomous agent with memory, tools, wallet, browser, and an evolving identity.
-- **Fork** it if you want to study the architecture, patch it, or build a specialized operator from it. Interesting places to start: `core/ego.py`, `core/affect.py`, `tools/`, `plugins/`, and `skills/`.
-- **Run** it if you want the actual thing. EloPhanto only becomes useful after it has your tools, your feedback, and enough history to calibrate itself.
+The best first engagement is a **proof sprint**: one narrow workflow, bounded permissions, explicit success criteria, and a receipt package at the end. Broad requests should be narrowed before implementation.
 
-Commercial use is separate: use [elophanto.com/hire](https://elophanto.com/hire) or contact EloPhanto for implementation help, paid job execution, or licensing.
+Good submissions include:
+
+1. **Workflow goal** — the business or operational outcome, not just the tool you want used.
+2. **Systems touched** — repo URL, websites, SaaS apps, inboxes, databases, docs, or APIs involved.
+3. **Access model** — test account, owner-supervised login, API key in vault, browser session, or read-only artifact export.
+4. **Allowed actions** — what EloPhanto may inspect autonomously and what requires confirmation.
+5. **Data sensitivity** — customer data, credentials, regulated data, private repos, payment surfaces, or production systems.
+6. **Success receipt** — URL, diff, file, message ID, extracted dataset, dashboard state, deployment status, or other after-state that proves completion.
+7. **Out-of-bounds** — anything it must not touch.
+8. **Deadline and budget / pricing expectation** — enough context to decide whether this is a discovery call, a fixed proof sprint, or not a fit.
+
+A good paid proof package should include: workflow map, implemented or prototyped safe slice, logs/screenshots or command outputs, failure notes, approval boundaries, handoff docs, and a recommended next step. If the workflow is too broad, scope it down to: **audit → first safe slice → verified receipt → expand or stop**.
+
+Start with [JOB-SUBMISSION.md](JOB-SUBMISSION.md) or [elophanto.com/hire](https://elophanto.com/hire).
 
 ---
 
@@ -273,6 +342,7 @@ Dangerous commands (`rm -rf /`, `mkfs`, `DROP DATABASE`) are always blocked rega
 - **Fiat payments (Stripe)** — a per-business fiat rail (chosen at onboard, fiat *or* crypto). Create payment links to get paid, auto-reconcile received payments into the books (refund-aware, every 30 min), and provision spend-controlled virtual cards — all **test-mode by default; live is KYC-gated**, with cash-on-hand feeding runway. Card numbers never touch the LLM. See [docs/80-ABE-FINANCE-RAIL.md](docs/80-ABE-FINANCE-RAIL.md).
 - **Prediction markets** — places real CLOB orders on Polymarket with an owner-approval gate, risk engine (edge filter + Kelly sizing + circuit breaker), and a calibration audit (Brier score, realized vs claimed probability). See [docs/71-POLYMARKET-RISK.md](docs/71-POLYMARKET-RISK.md), [docs/72-POLYMARKET-CALIBRATION.md](docs/72-POLYMARKET-CALIBRATION.md).
 - **Prospecting** — autonomous lead-gen: search, score, track outreach, monitor pipeline.
+- **Competitive intelligence** — models a market as tracked brands × weighted dimensions, backed by an evidence register with full provenance (source, geo/state, customer state, date, confidence). Scores are **refused without evidence**, and a missing datapoint shows as a coverage gap rather than a low score. Ships with seed packs so an engagement starts on day one. See [docs/81-COMPETITIVE-INTEL.md](docs/81-COMPETITIVE-INTEL.md).
 - **Social posting** — `twitter_post` is exercised daily by the reference instance at [@EloPhanto](https://x.com/EloPhanto); `youtube_upload` / `tiktok_upload` ship as scaffolding.
 
 </details>

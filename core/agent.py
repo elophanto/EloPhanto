@@ -622,6 +622,9 @@ class Agent:
         self._voice_manager: Any = (
             None  # VoiceManager (ABE Phase 10), set in _inject_company_deps
         )
+        self._watch_manager: Any = (
+            None  # WatchManager (ABE organ 2), set in _inject_company_deps
+        )
         self._strategy_manager: Any = (
             None  # StrategyManager (ABE Phase 11), set in _inject_company_deps
         )
@@ -2272,6 +2275,23 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool is not None and hasattr(tool, "_role_manager"):
                 tool._role_manager = self._role_manager
+
+        # Competitive intelligence (ABE organ 2). Lazily built here so the
+        # market model shares the agent's db handle like every other manager.
+        if self._watch_manager is None and self._db is not None:
+            from core.watch import WatchManager
+
+            self._watch_manager = WatchManager(db=self._db)
+        for tool_name in (
+            "watch_subject",
+            "watch_dimension",
+            "watch_evidence",
+            "watch_score",
+            "watch_scorecard",
+        ):
+            tool = self._registry.get(tool_name)
+            if tool is not None and hasattr(tool, "_watch_manager"):
+                tool._watch_manager = self._watch_manager
 
     async def _seed_fiat_reconcile_schedules(self) -> None:
         """Auto-create a periodic reconcile schedule per fiat-rail company so

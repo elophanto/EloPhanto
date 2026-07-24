@@ -294,6 +294,110 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_roles_last_active
         ON roles(last_active_at)
     """,
+    # ── Competitive intelligence (ABE organ 2 — market model) ──────────
+    # A scored, evidence-backed model of a market. Five tables:
+    # subjects (tracked brands), dimensions (the weighted scoring frame),
+    # evidence (every observed fact WITH provenance), scores (subject x
+    # dimension), snapshots (frozen scorecards for month-over-month diff).
+    # See tmp/competitive-intel-organ-spec.md.
+    """
+    CREATE TABLE IF NOT EXISTS watch_subjects (
+        subject_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        name TEXT NOT NULL,
+        group_name TEXT NOT NULL DEFAULT '',
+        url TEXT NOT NULL DEFAULT '',
+        product_offering TEXT NOT NULL DEFAULT '',
+        market_share_est TEXT NOT NULL DEFAULT '',
+        is_self INTEGER NOT NULL DEFAULT 0,
+        tags TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active','archived')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (company_id, name)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS watch_dimensions (
+        dimension_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        weight_pct REAL NOT NULL DEFAULT 0,
+        subcriteria_json TEXT NOT NULL DEFAULT '[]',
+        refresh_cadence TEXT NOT NULL DEFAULT 'monthly'
+            CHECK (refresh_cadence IN ('weekly','monthly','quarterly')),
+        view_weights_json TEXT NOT NULL DEFAULT '{}',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (company_id, name)
+    )
+    """,
+    # Evidence is APPEND-ONLY. A correction writes a new row and points the
+    # old one at it via superseded_by — that is what makes month-over-month
+    # diffing truthful instead of destructive.
+    """
+    CREATE TABLE IF NOT EXISTS watch_evidence (
+        evidence_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        subject_id TEXT NOT NULL,
+        dimension_id TEXT NOT NULL,
+        subcriterion TEXT NOT NULL DEFAULT '',
+        claim TEXT NOT NULL,
+        value_text TEXT NOT NULL DEFAULT '',
+        value_num REAL,
+        source_url TEXT NOT NULL DEFAULT '',
+        source_type TEXT NOT NULL DEFAULT 'site',
+        geo_state TEXT NOT NULL DEFAULT 'n/a',
+        customer_state TEXT NOT NULL DEFAULT 'logged_out',
+        journey_stage TEXT NOT NULL DEFAULT '',
+        observed_at TEXT NOT NULL,
+        confidence TEXT NOT NULL DEFAULT 'medium'
+            CHECK (confidence IN ('high','medium','low')),
+        excerpt TEXT NOT NULL DEFAULT '',
+        screenshot_path TEXT NOT NULL DEFAULT '',
+        collector TEXT NOT NULL DEFAULT 'agent'
+            CHECK (collector IN ('agent','human')),
+        superseded_by TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_watch_evidence_lookup
+        ON watch_evidence(company_id, subject_id, dimension_id, superseded_by)
+    """,
+    # score is NULLABLE by design: the SOW is explicit that a brand must not
+    # be marked down merely because information is unavailable. Absence shows
+    # up as coverage_pct, never as a 1.
+    """
+    CREATE TABLE IF NOT EXISTS watch_scores (
+        score_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        subject_id TEXT NOT NULL,
+        dimension_id TEXT NOT NULL,
+        score REAL CHECK (score IS NULL OR (score >= 1 AND score <= 5)),
+        subcriteria_scores_json TEXT NOT NULL DEFAULT '{}',
+        rationale TEXT NOT NULL DEFAULT '',
+        evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+        coverage_pct REAL NOT NULL DEFAULT 0,
+        confidence TEXT NOT NULL DEFAULT 'low'
+            CHECK (confidence IN ('high','medium','low')),
+        scored_at TEXT NOT NULL,
+        scored_by TEXT NOT NULL DEFAULT 'agent',
+        UNIQUE (company_id, subject_id, dimension_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS watch_snapshots (
+        snapshot_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        taken_at TEXT NOT NULL,
+        label TEXT NOT NULL DEFAULT '',
+        payload_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
     # Dream journal — every dream-phase ideation persists here so the next
     # cycle's dream can see what was already proposed (and not picked).
     # Kills the amnesia that caused dream to keep re-proposing the same

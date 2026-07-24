@@ -61,6 +61,21 @@ DEFAULT_PROFILES: dict[str, set[str]] = {
         # autonomous mind's planning surface.
         "missions",
         "prospecting",
+        # Competitive intelligence (ABE organ 2). Same PROFILE-tier
+        # visibility requirement as the ABE groups above — without this
+        # the watch_* tools can't be reached during planning tasks.
+        "watch",
+    },
+    # Research-shaped work (competitor analysis, market scans) needs the
+    # market model alongside browsing + extraction.
+    "research": {
+        "system",
+        "knowledge",
+        "data",
+        "skills",
+        "browser",
+        "documents",
+        "watch",
     },
 }
 

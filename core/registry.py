@@ -285,6 +285,14 @@ class ToolRegistry:
 
         self.register(CompanySetEntityStateTool())
 
+        # Competitive intelligence (ABE organ 2 — market model). Tracks a
+        # market as scored, evidence-backed state that can be refreshed and
+        # diffed, rather than one-off research prose.
+        from tools.watch.tools import create_watch_tools
+
+        for _watch_tool in create_watch_tools():
+            self.register(_watch_tool)
+
         # Role management tools (ABE Phase 8) — chat-callable
         # equivalents of `elophanto role …` CLI commands.
         from tools.roles import (

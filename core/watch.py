@@ -1,0 +1,778 @@
+"""Competitive intelligence — a scored, evidence-backed model of a market.
+
+ABE organ 2 (market model). Where ``prospects`` tracks people to sell to, this
+tracks *brands to measure*: what they do, how good it is, on what evidence, and
+what changed since last month.
+
+Five tables (see ``core/database.py``): subjects, dimensions, evidence, scores,
+snapshots. Two rules are enforced here in code rather than left to a prompt,
+because both are load-bearing for the analysis being honest:
+
+1. **A missing datapoint is never a bad score.** ``score`` is nullable. Absence
+   surfaces as ``coverage_pct`` beside the score, never as a 1. A brand that is
+   simply opaque must not be reported as a weak competitor.
+2. **Evidence is append-only.** Re-observation writes a new row and supersedes
+   the old one, so a month-over-month diff reflects what actually changed
+   instead of what got overwritten.
+
+The scoring math is pure functions (no DB, no I/O) so it can be tested directly
+and reused by the scorecard/board-report renderers.
+
+Design: tmp/competitive-intel-organ-spec.md
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from core.database import Database
+
+logger = logging.getLogger(__name__)
+
+
+VALID_CONFIDENCE: tuple[str, ...] = ("high", "medium", "low")
+VALID_CADENCE: tuple[str, ...] = ("weekly", "monthly", "quarterly")
+VALID_COLLECTOR: tuple[str, ...] = ("agent", "human")
+
+# The customer states the SOW tests across. Everything from ``verified`` on
+# requires an account and is human-collected by default (operator decision:
+# no automated account creation on operators) — see ``AGENT_SAFE_STATES``.
+VALID_CUSTOMER_STATES: tuple[str, ...] = (
+    "logged_out",
+    "registered",
+    "verified",
+    "purchaser",
+    "redeemer",
+    "vip",
+)
+AGENT_SAFE_STATES: frozenset[str] = frozenset({"logged_out"})
+
+VALID_SOURCE_TYPES: tuple[str, ...] = (
+    "site",
+    "terms",
+    "ad_library",
+    "trust_site",
+    "filing",
+    "shop",
+    "press",
+    "other",
+)
+
+_CONFIDENCE_POINTS: dict[str, float] = {"high": 3.0, "medium": 2.0, "low": 1.0}
+
+# Refresh cadence in days — drives the staleness queue (P3) and is reported
+# beside every score so a reader can see how old the evidence is.
+CADENCE_DAYS: dict[str, int] = {"weekly": 7, "monthly": 30, "quarterly": 91}
+
+
+# ── Records ─────────────────────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class WatchSubject:
+    subject_id: str
+    name: str
+    company_id: str = "elophanto-self"
+    group_name: str = ""
+    url: str = ""
+    product_offering: str = ""
+    market_share_est: str = ""
+    is_self: bool = False
+    tags: list[str] = field(default_factory=list)
+    status: str = "active"
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass(slots=True)
+class WatchDimension:
+    dimension_id: str
+    name: str
+    company_id: str = "elophanto-self"
+    description: str = ""
+    weight_pct: float = 0.0
+    # [{"name": "Welcome-offer value", "weight_pct": 25}, …]
+    subcriteria: list[dict[str, Any]] = field(default_factory=list)
+    refresh_cadence: str = "monthly"
+    # {"customer_proposition": 12, "transition_priority": 4} — alternative
+    # weightings over the SAME scores. Empty falls back to weight_pct.
+    view_weights: dict[str, float] = field(default_factory=dict)
+    sort_order: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass(slots=True)
+class WatchEvidence:
+    evidence_id: str
+    subject_id: str
+    dimension_id: str
+    claim: str
+    company_id: str = "elophanto-self"
+    subcriterion: str = ""
+    value_text: str = ""
+    value_num: float | None = None
+    source_url: str = ""
+    source_type: str = "site"
+    geo_state: str = "n/a"
+    customer_state: str = "logged_out"
+    journey_stage: str = ""
+    observed_at: str = ""
+    confidence: str = "medium"
+    excerpt: str = ""
+    screenshot_path: str = ""
+    collector: str = "agent"
+    superseded_by: str | None = None
+    created_at: str = ""
+
+
+@dataclass(slots=True)
+class WatchScore:
+    score_id: str
+    subject_id: str
+    dimension_id: str
+    company_id: str = "elophanto-self"
+    score: float | None = None
+    subcriteria_scores: dict[str, float] = field(default_factory=dict)
+    rationale: str = ""
+    evidence_ids: list[str] = field(default_factory=list)
+    coverage_pct: float = 0.0
+    confidence: str = "low"
+    scored_at: str = ""
+    scored_by: str = "agent"
+
+
+# ── Pure scoring math ───────────────────────────────────────────────────
+
+
+def weighted_points(score: float | None, weight_pct: float) -> float:
+    """Weighted contribution of one dimension: ``(score / 5) x weight``.
+
+    A 4/5 on a dimension weighted 10% yields 8 points. ``None`` (no evidence)
+    contributes nothing — it is *not* treated as zero-out-of-five, which would
+    silently punish opacity. Callers must read ``scored_weight_pct`` alongside
+    the total to know what the total is out of.
+    """
+    if score is None:
+        return 0.0
+    return (float(score) / 5.0) * float(weight_pct)
+
+
+def coverage_pct(subcriteria: list[dict[str, Any]], covered: set[str]) -> float:
+    """Percentage of a dimension's required datapoints that have evidence.
+
+    With no declared subcriteria the dimension is a single datapoint: any
+    evidence at all is 100% coverage, none is 0%.
+    """
+    names = [str(s.get("name", "")).strip() for s in subcriteria if s.get("name")]
+    if not names:
+        return 100.0 if covered else 0.0
+    hit = sum(1 for n in names if n in covered)
+    return round(hit / len(names) * 100.0, 1)
+
+
+def confidence_rollup(confidences: list[str]) -> str:
+    """Roll a set of per-evidence confidences into one label.
+
+    Mean of high=3 / medium=2 / low=1, bucketed conservatively: a body of
+    evidence only reads 'high' when it is decisively so (>= 2.5).
+    """
+    vals = [_CONFIDENCE_POINTS[c] for c in confidences if c in _CONFIDENCE_POINTS]
+    if not vals:
+        return "low"
+    avg = sum(vals) / len(vals)
+    if avg >= 2.5:
+        return "high"
+    if avg >= 1.75:
+        return "medium"
+    return "low"
+
+
+def _view_weight(dim: WatchDimension, view: str | None) -> float:
+    """Weight for a dimension under an alternative view (falls back to base)."""
+    if not view:
+        return float(dim.weight_pct)
+    raw = dim.view_weights.get(view)
+    return float(dim.weight_pct) if raw is None else float(raw)
+
+
+def score_subject(
+    dimensions: list[WatchDimension],
+    scores: dict[str, WatchScore],
+    *,
+    view: str | None = None,
+) -> dict[str, Any]:
+    """Weighted result for one subject across all dimensions.
+
+    Returns ``raw_points`` (out of ``scored_weight_pct``, not out of 100) and
+    ``normalized_pct`` — raw rescaled to the weight that was actually scored,
+    which is the only figure comparable between brands with different coverage.
+    Both are reported so a reader can never mistake thin evidence for strength.
+    """
+    raw = 0.0
+    scored_weight = 0.0
+    total_weight = 0.0
+    coverages: list[float] = []
+    confs: list[str] = []
+    unscored: list[str] = []
+
+    for dim in dimensions:
+        w = _view_weight(dim, view)
+        total_weight += w
+        s = scores.get(dim.dimension_id)
+        if s is None or s.score is None:
+            unscored.append(dim.name)
+            coverages.append(s.coverage_pct if s else 0.0)
+            continue
+        raw += weighted_points(s.score, w)
+        scored_weight += w
+        coverages.append(s.coverage_pct)
+        confs.append(s.confidence)
+
+    normalized = round(raw / scored_weight * 100.0, 2) if scored_weight > 0 else None
+    return {
+        "raw_points": round(raw, 2),
+        "scored_weight_pct": round(scored_weight, 2),
+        "total_weight_pct": round(total_weight, 2),
+        "normalized_pct": normalized,
+        "coverage_pct": round(sum(coverages) / len(coverages), 1) if coverages else 0.0,
+        "confidence": confidence_rollup(confs),
+        "unscored_dimensions": unscored,
+    }
+
+
+def build_scorecard(
+    subjects: list[WatchSubject],
+    dimensions: list[WatchDimension],
+    scores_by_subject: dict[str, dict[str, WatchScore]],
+    *,
+    views: tuple[str, ...] = ("customer_proposition", "transition_priority"),
+) -> dict[str, Any]:
+    """Full scorecard: every subject scored on the base weighting + each view.
+
+    Ranked by ``normalized_pct`` so brands with partial evidence still place
+    honestly. Subjects with nothing scored sort last rather than at zero.
+    """
+    rows: list[dict[str, Any]] = []
+    for subj in subjects:
+        s_scores = scores_by_subject.get(subj.subject_id, {})
+        row: dict[str, Any] = {
+            "subject_id": subj.subject_id,
+            "name": subj.name,
+            "group": subj.group_name,
+            "is_self": subj.is_self,
+            "overall": score_subject(dimensions, s_scores),
+            "views": {v: score_subject(dimensions, s_scores, view=v) for v in views},
+            "dimensions": {
+                d.name: {
+                    "score": (
+                        s_scores[d.dimension_id].score
+                        if d.dimension_id in s_scores
+                        else None
+                    ),
+                    "coverage_pct": (
+                        s_scores[d.dimension_id].coverage_pct
+                        if d.dimension_id in s_scores
+                        else 0.0
+                    ),
+                    "confidence": (
+                        s_scores[d.dimension_id].confidence
+                        if d.dimension_id in s_scores
+                        else "low"
+                    ),
+                }
+                for d in dimensions
+            },
+        }
+        rows.append(row)
+
+    rows.sort(
+        key=lambda r: (
+            r["overall"]["normalized_pct"] is None,
+            -(r["overall"]["normalized_pct"] or 0.0),
+        )
+    )
+    for i, r in enumerate(rows, 1):
+        r["rank"] = i if r["overall"]["normalized_pct"] is not None else None
+
+    total_w = round(sum(float(d.weight_pct) for d in dimensions), 2)
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "dimensions": [
+            {"name": d.name, "weight_pct": d.weight_pct, "cadence": d.refresh_cadence}
+            for d in dimensions
+        ],
+        "weight_total_pct": total_w,
+        "weights_valid": abs(total_w - 100.0) < 0.01,
+        "rows": rows,
+    }
+
+
+def _row_get(r: Any, key: str, default: Any = None) -> Any:
+    """sqlite3.Row has no .get()."""
+    try:
+        return r[key]
+    except (IndexError, KeyError):
+        return default
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _sid(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:10]}"
+
+
+# ── Manager ─────────────────────────────────────────────────────────────
+
+
+class WatchManager:
+    """CRUD + scoring over the competitive-intelligence tables."""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    # ── Subjects ────────────────────────────────────────────────────
+
+    async def add_subject(
+        self,
+        *,
+        name: str,
+        company_id: str,
+        group_name: str = "",
+        url: str = "",
+        product_offering: str = "",
+        market_share_est: str = "",
+        is_self: bool = False,
+        tags: list[str] | None = None,
+    ) -> WatchSubject:
+        existing = await self.get_subject_by_name(name, company_id)
+        if existing:
+            return existing
+        now = _now()
+        sub = WatchSubject(
+            subject_id=_sid("subj"),
+            name=name,
+            company_id=company_id,
+            group_name=group_name,
+            url=url,
+            product_offering=product_offering,
+            market_share_est=market_share_est,
+            is_self=is_self,
+            tags=tags or [],
+            created_at=now,
+            updated_at=now,
+        )
+        await self._db.execute_insert(
+            "INSERT INTO watch_subjects (subject_id, company_id, name, group_name, "
+            "url, product_offering, market_share_est, is_self, tags, status, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                sub.subject_id,
+                sub.company_id,
+                sub.name,
+                sub.group_name,
+                sub.url,
+                sub.product_offering,
+                sub.market_share_est,
+                1 if is_self else 0,
+                json.dumps(sub.tags),
+                sub.status,
+                now,
+                now,
+            ),
+        )
+        return sub
+
+    async def list_subjects(
+        self, company_id: str, *, include_archived: bool = False
+    ) -> list[WatchSubject]:
+        sql = "SELECT * FROM watch_subjects WHERE company_id = ?"
+        if not include_archived:
+            sql += " AND status = 'active'"
+        sql += " ORDER BY is_self DESC, name"
+        return [self._to_subject(r) for r in await self._db.execute(sql, (company_id,))]
+
+    async def archive_subject(self, subject_id: str) -> None:
+        """Stop tracking a brand. Evidence and scores are retained so past
+        scorecards and diffs stay reproducible."""
+        await self._db.execute(
+            "UPDATE watch_subjects SET status = 'archived', updated_at = ? "
+            "WHERE subject_id = ?",
+            (_now(), subject_id),
+        )
+
+    async def get_subject_by_name(
+        self, name: str, company_id: str
+    ) -> WatchSubject | None:
+        rows = await self._db.execute(
+            "SELECT * FROM watch_subjects WHERE company_id = ? AND name = ?",
+            (company_id, name),
+        )
+        return self._to_subject(rows[0]) if rows else None
+
+    @staticmethod
+    def _to_subject(r: Any) -> WatchSubject:
+        return WatchSubject(
+            subject_id=r["subject_id"],
+            name=r["name"],
+            company_id=r["company_id"],
+            group_name=_row_get(r, "group_name", "") or "",
+            url=_row_get(r, "url", "") or "",
+            product_offering=_row_get(r, "product_offering", "") or "",
+            market_share_est=_row_get(r, "market_share_est", "") or "",
+            is_self=bool(_row_get(r, "is_self", 0)),
+            tags=json.loads(_row_get(r, "tags", "[]") or "[]"),
+            status=_row_get(r, "status", "active") or "active",
+            created_at=_row_get(r, "created_at", "") or "",
+            updated_at=_row_get(r, "updated_at", "") or "",
+        )
+
+    # ── Dimensions ──────────────────────────────────────────────────
+
+    async def upsert_dimension(
+        self,
+        *,
+        name: str,
+        company_id: str,
+        description: str = "",
+        weight_pct: float = 0.0,
+        subcriteria: list[dict[str, Any]] | None = None,
+        refresh_cadence: str = "monthly",
+        view_weights: dict[str, float] | None = None,
+        sort_order: int = 0,
+    ) -> WatchDimension:
+        if refresh_cadence not in VALID_CADENCE:
+            raise ValueError(f"invalid cadence: {refresh_cadence!r}")
+        now = _now()
+        existing = await self.get_dimension_by_name(name, company_id)
+        dim_id = existing.dimension_id if existing else _sid("dim")
+        created = existing.created_at if existing else now
+        await self._db.execute_insert(
+            "INSERT OR REPLACE INTO watch_dimensions (dimension_id, company_id, name, "
+            "description, weight_pct, subcriteria_json, refresh_cadence, "
+            "view_weights_json, sort_order, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                dim_id,
+                company_id,
+                name,
+                description,
+                float(weight_pct),
+                json.dumps(subcriteria or []),
+                refresh_cadence,
+                json.dumps(view_weights or {}),
+                int(sort_order),
+                created,
+                now,
+            ),
+        )
+        dim = await self.get_dimension_by_name(name, company_id)
+        assert dim is not None
+        return dim
+
+    async def list_dimensions(self, company_id: str) -> list[WatchDimension]:
+        rows = await self._db.execute(
+            "SELECT * FROM watch_dimensions WHERE company_id = ? "
+            "ORDER BY sort_order, name",
+            (company_id,),
+        )
+        return [self._to_dimension(r) for r in rows]
+
+    async def get_dimension_by_name(
+        self, name: str, company_id: str
+    ) -> WatchDimension | None:
+        rows = await self._db.execute(
+            "SELECT * FROM watch_dimensions WHERE company_id = ? AND name = ?",
+            (company_id, name),
+        )
+        return self._to_dimension(rows[0]) if rows else None
+
+    @staticmethod
+    def _to_dimension(r: Any) -> WatchDimension:
+        return WatchDimension(
+            dimension_id=r["dimension_id"],
+            name=r["name"],
+            company_id=r["company_id"],
+            description=_row_get(r, "description", "") or "",
+            weight_pct=float(_row_get(r, "weight_pct", 0) or 0),
+            subcriteria=json.loads(_row_get(r, "subcriteria_json", "[]") or "[]"),
+            refresh_cadence=_row_get(r, "refresh_cadence", "monthly") or "monthly",
+            view_weights=json.loads(_row_get(r, "view_weights_json", "{}") or "{}"),
+            sort_order=int(_row_get(r, "sort_order", 0) or 0),
+            created_at=_row_get(r, "created_at", "") or "",
+            updated_at=_row_get(r, "updated_at", "") or "",
+        )
+
+    # ── Evidence (append-only) ──────────────────────────────────────
+
+    async def add_evidence(
+        self,
+        *,
+        company_id: str,
+        subject_id: str,
+        dimension_id: str,
+        claim: str,
+        subcriterion: str = "",
+        value_text: str = "",
+        value_num: float | None = None,
+        source_url: str = "",
+        source_type: str = "site",
+        geo_state: str = "n/a",
+        customer_state: str = "logged_out",
+        journey_stage: str = "",
+        observed_at: str = "",
+        confidence: str = "medium",
+        excerpt: str = "",
+        screenshot_path: str = "",
+        collector: str = "agent",
+        supersedes: str | None = None,
+    ) -> WatchEvidence:
+        """Record one observed fact. Never mutates prior evidence.
+
+        ``supersedes`` marks an earlier row as replaced (a correction or a
+        re-observation) rather than editing it, preserving the history a
+        month-over-month diff depends on.
+        """
+        if confidence not in VALID_CONFIDENCE:
+            raise ValueError(f"invalid confidence: {confidence!r}")
+        if customer_state not in VALID_CUSTOMER_STATES:
+            raise ValueError(f"invalid customer_state: {customer_state!r}")
+        if collector not in VALID_COLLECTOR:
+            raise ValueError(f"invalid collector: {collector!r}")
+        now = _now()
+        ev = WatchEvidence(
+            evidence_id=_sid("ev"),
+            subject_id=subject_id,
+            dimension_id=dimension_id,
+            claim=claim,
+            company_id=company_id,
+            subcriterion=subcriterion,
+            value_text=value_text,
+            value_num=value_num,
+            source_url=source_url,
+            source_type=source_type,
+            geo_state=geo_state,
+            customer_state=customer_state,
+            journey_stage=journey_stage,
+            observed_at=observed_at or now,
+            confidence=confidence,
+            excerpt=excerpt,
+            screenshot_path=screenshot_path,
+            collector=collector,
+            created_at=now,
+        )
+        await self._db.execute_insert(
+            "INSERT INTO watch_evidence (evidence_id, company_id, subject_id, "
+            "dimension_id, subcriterion, claim, value_text, value_num, source_url, "
+            "source_type, geo_state, customer_state, journey_stage, observed_at, "
+            "confidence, excerpt, screenshot_path, collector, superseded_by, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "?, ?, NULL, ?)",
+            (
+                ev.evidence_id,
+                company_id,
+                subject_id,
+                dimension_id,
+                subcriterion,
+                claim,
+                value_text,
+                value_num,
+                source_url,
+                source_type,
+                geo_state,
+                customer_state,
+                journey_stage,
+                ev.observed_at,
+                confidence,
+                excerpt,
+                screenshot_path,
+                collector,
+                now,
+            ),
+        )
+        if supersedes:
+            await self._db.execute(
+                "UPDATE watch_evidence SET superseded_by = ? WHERE evidence_id = ?",
+                (ev.evidence_id, supersedes),
+            )
+        return ev
+
+    async def list_evidence(
+        self,
+        company_id: str,
+        *,
+        subject_id: str | None = None,
+        dimension_id: str | None = None,
+        include_superseded: bool = False,
+        limit: int = 200,
+    ) -> list[WatchEvidence]:
+        sql = "SELECT * FROM watch_evidence WHERE company_id = ?"
+        args: list[Any] = [company_id]
+        if subject_id:
+            sql += " AND subject_id = ?"
+            args.append(subject_id)
+        if dimension_id:
+            sql += " AND dimension_id = ?"
+            args.append(dimension_id)
+        if not include_superseded:
+            sql += " AND superseded_by IS NULL"
+        sql += " ORDER BY observed_at DESC LIMIT ?"
+        args.append(int(limit))
+        return [self._to_evidence(r) for r in await self._db.execute(sql, tuple(args))]
+
+    @staticmethod
+    def _to_evidence(r: Any) -> WatchEvidence:
+        return WatchEvidence(
+            evidence_id=r["evidence_id"],
+            subject_id=r["subject_id"],
+            dimension_id=r["dimension_id"],
+            claim=r["claim"],
+            company_id=r["company_id"],
+            subcriterion=_row_get(r, "subcriterion", "") or "",
+            value_text=_row_get(r, "value_text", "") or "",
+            value_num=_row_get(r, "value_num"),
+            source_url=_row_get(r, "source_url", "") or "",
+            source_type=_row_get(r, "source_type", "site") or "site",
+            geo_state=_row_get(r, "geo_state", "n/a") or "n/a",
+            customer_state=_row_get(r, "customer_state", "logged_out") or "logged_out",
+            journey_stage=_row_get(r, "journey_stage", "") or "",
+            observed_at=_row_get(r, "observed_at", "") or "",
+            confidence=_row_get(r, "confidence", "medium") or "medium",
+            excerpt=_row_get(r, "excerpt", "") or "",
+            screenshot_path=_row_get(r, "screenshot_path", "") or "",
+            collector=_row_get(r, "collector", "agent") or "agent",
+            superseded_by=_row_get(r, "superseded_by"),
+            created_at=_row_get(r, "created_at", "") or "",
+        )
+
+    # ── Scores ──────────────────────────────────────────────────────
+
+    async def set_score(
+        self,
+        *,
+        company_id: str,
+        subject_id: str,
+        dimension_id: str,
+        score: float | None,
+        rationale: str = "",
+        subcriteria_scores: dict[str, float] | None = None,
+        scored_by: str = "agent",
+    ) -> WatchScore:
+        """Score one subject x dimension **from its evidence**.
+
+        Coverage and confidence are derived from the evidence rows, never
+        supplied by the caller — that is what keeps them honest. Scoring with
+        zero evidence is refused; the correct representation of "we don't know"
+        is a NULL score with its coverage gap, which ``clear_score`` records.
+        """
+        if score is not None and not (1 <= float(score) <= 5):
+            raise ValueError("score must be between 1 and 5, or None")
+
+        evidence = await self.list_evidence(
+            company_id, subject_id=subject_id, dimension_id=dimension_id
+        )
+        if score is not None and not evidence:
+            raise ValueError(
+                "cannot score a dimension with no evidence — collect evidence "
+                "first, or leave the score NULL to record the gap"
+            )
+
+        dim_rows = await self._db.execute(
+            "SELECT * FROM watch_dimensions WHERE dimension_id = ?", (dimension_id,)
+        )
+        subcriteria = self._to_dimension(dim_rows[0]).subcriteria if dim_rows else []
+        covered = {e.subcriterion for e in evidence if e.subcriterion}
+        cov = coverage_pct(subcriteria, covered)
+        conf = confidence_rollup([e.confidence for e in evidence])
+
+        now = _now()
+        existing = await self._db.execute(
+            "SELECT score_id, scored_at FROM watch_scores WHERE company_id = ? "
+            "AND subject_id = ? AND dimension_id = ?",
+            (company_id, subject_id, dimension_id),
+        )
+        score_id = existing[0]["score_id"] if existing else _sid("scr")
+        await self._db.execute_insert(
+            "INSERT OR REPLACE INTO watch_scores (score_id, company_id, subject_id, "
+            "dimension_id, score, subcriteria_scores_json, rationale, "
+            "evidence_ids_json, coverage_pct, confidence, scored_at, scored_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                score_id,
+                company_id,
+                subject_id,
+                dimension_id,
+                None if score is None else float(score),
+                json.dumps(subcriteria_scores or {}),
+                rationale,
+                json.dumps([e.evidence_id for e in evidence]),
+                cov,
+                conf,
+                now,
+                scored_by,
+            ),
+        )
+        return WatchScore(
+            score_id=score_id,
+            subject_id=subject_id,
+            dimension_id=dimension_id,
+            company_id=company_id,
+            score=None if score is None else float(score),
+            subcriteria_scores=subcriteria_scores or {},
+            rationale=rationale,
+            evidence_ids=[e.evidence_id for e in evidence],
+            coverage_pct=cov,
+            confidence=conf,
+            scored_at=now,
+            scored_by=scored_by,
+        )
+
+    async def list_scores(
+        self, company_id: str, *, subject_id: str | None = None
+    ) -> list[WatchScore]:
+        sql = "SELECT * FROM watch_scores WHERE company_id = ?"
+        args: list[Any] = [company_id]
+        if subject_id:
+            sql += " AND subject_id = ?"
+            args.append(subject_id)
+        return [self._to_score(r) for r in await self._db.execute(sql, tuple(args))]
+
+    @staticmethod
+    def _to_score(r: Any) -> WatchScore:
+        raw = _row_get(r, "score")
+        return WatchScore(
+            score_id=r["score_id"],
+            subject_id=r["subject_id"],
+            dimension_id=r["dimension_id"],
+            company_id=r["company_id"],
+            score=None if raw is None else float(raw),
+            subcriteria_scores=json.loads(
+                _row_get(r, "subcriteria_scores_json", "{}") or "{}"
+            ),
+            rationale=_row_get(r, "rationale", "") or "",
+            evidence_ids=json.loads(_row_get(r, "evidence_ids_json", "[]") or "[]"),
+            coverage_pct=float(_row_get(r, "coverage_pct", 0) or 0),
+            confidence=_row_get(r, "confidence", "low") or "low",
+            scored_at=_row_get(r, "scored_at", "") or "",
+            scored_by=_row_get(r, "scored_by", "agent") or "agent",
+        )
+
+    # ── Scorecard ───────────────────────────────────────────────────
+
+    async def scorecard(self, company_id: str) -> dict[str, Any]:
+        """Assemble the full weighted scorecard for a company's market."""
+        subjects = await self.list_subjects(company_id)
+        dimensions = await self.list_dimensions(company_id)
+        all_scores = await self.list_scores(company_id)
+        by_subject: dict[str, dict[str, WatchScore]] = {}
+        for s in all_scores:
+            by_subject.setdefault(s.subject_id, {})[s.dimension_id] = s
+        return build_scorecard(subjects, dimensions, by_subject)
