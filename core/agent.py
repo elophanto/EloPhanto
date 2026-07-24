@@ -2288,10 +2288,19 @@ class Agent:
             "watch_evidence",
             "watch_score",
             "watch_scorecard",
+            "watch_snapshot",
+            "watch_diff",
+            "watch_board_report",
         ):
             tool = self._registry.get(tool_name)
-            if tool is not None and hasattr(tool, "_watch_manager"):
+            if tool is None:
+                continue
+            if hasattr(tool, "_watch_manager"):
                 tool._watch_manager = self._watch_manager
+            # watch_board_report turns the factual diff into implications via
+            # the router. Optional — without it the report still ships facts.
+            if hasattr(tool, "_router"):
+                tool._router = self._router
 
     async def _seed_fiat_reconcile_schedules(self) -> None:
         """Auto-create a periodic reconcile schedule per fiat-rail company so

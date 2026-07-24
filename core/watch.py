@@ -314,6 +314,121 @@ def build_scorecard(
     }
 
 
+def diff_scorecards(
+    old: dict[str, Any],
+    new: dict[str, Any],
+    *,
+    min_score_delta: float = 1.0,
+    min_coverage_delta: float = 25.0,
+) -> dict[str, Any]:
+    """Material changes between two scorecards — the spine of a board report.
+
+    "Material" is deliberately conservative: a monthly report that surfaces
+    every 0.1 wobble trains its readers to ignore it. A change qualifies when a
+    dimension score moves by ``min_score_delta`` (default a full point on the
+    1-5 scale), a brand's rank moves, evidence coverage shifts by
+    ``min_coverage_delta``, or a brand enters or leaves the analysis.
+
+    A dimension going from unscored to scored (or back) is always material —
+    that is new knowledge, not noise.
+    """
+    old_rows = {r["name"]: r for r in old.get("rows", [])}
+    new_rows = {r["name"]: r for r in new.get("rows", [])}
+
+    added = sorted(set(new_rows) - set(old_rows))
+    removed = sorted(set(old_rows) - set(new_rows))
+    changes: list[dict[str, Any]] = []
+
+    for name in sorted(set(old_rows) & set(new_rows)):
+        o, n = old_rows[name], new_rows[name]
+        entry: dict[str, Any] = {
+            "subject": name,
+            "group": n.get("group", ""),
+            "items": [],
+        }
+
+        o_rank, n_rank = o.get("rank"), n.get("rank")
+        if o_rank != n_rank and (o_rank is not None or n_rank is not None):
+            entry["items"].append(
+                {
+                    "kind": "rank",
+                    "from": o_rank,
+                    "to": n_rank,
+                    "detail": f"rank {o_rank or '—'} → {n_rank or '—'}",
+                }
+            )
+
+        o_dims = o.get("dimensions", {})
+        n_dims = n.get("dimensions", {})
+        for dim_name, n_d in n_dims.items():
+            o_d = o_dims.get(dim_name, {})
+            o_score, n_score = o_d.get("score"), n_d.get("score")
+            if o_score is None and n_score is not None:
+                entry["items"].append(
+                    {
+                        "kind": "newly_scored",
+                        "dimension": dim_name,
+                        "from": None,
+                        "to": n_score,
+                        "detail": f"{dim_name}: now scored {n_score}/5 (was no evidence)",
+                    }
+                )
+            elif o_score is not None and n_score is None:
+                entry["items"].append(
+                    {
+                        "kind": "score_withdrawn",
+                        "dimension": dim_name,
+                        "from": o_score,
+                        "to": None,
+                        "detail": f"{dim_name}: score withdrawn (was {o_score}/5)",
+                    }
+                )
+            elif (
+                o_score is not None
+                and n_score is not None
+                and abs(n_score - o_score) >= min_score_delta
+            ):
+                entry["items"].append(
+                    {
+                        "kind": "score",
+                        "dimension": dim_name,
+                        "from": o_score,
+                        "to": n_score,
+                        "detail": f"{dim_name}: {o_score}/5 → {n_score}/5",
+                    }
+                )
+            o_cov, n_cov = o_d.get("coverage_pct", 0.0), n_d.get("coverage_pct", 0.0)
+            if abs(n_cov - o_cov) >= min_coverage_delta:
+                entry["items"].append(
+                    {
+                        "kind": "coverage",
+                        "dimension": dim_name,
+                        "from": o_cov,
+                        "to": n_cov,
+                        "detail": f"{dim_name}: evidence coverage {o_cov:.0f}% → {n_cov:.0f}%",
+                    }
+                )
+        if entry["items"]:
+            entry["overall_from"] = o.get("overall", {}).get("normalized_pct")
+            entry["overall_to"] = n.get("overall", {}).get("normalized_pct")
+            changes.append(entry)
+
+    return {
+        "from_generated_at": old.get("generated_at"),
+        "to_generated_at": new.get("generated_at"),
+        "added_subjects": added,
+        "removed_subjects": removed,
+        "changed": changes,
+        "material_count": (
+            sum(len(c["items"]) for c in changes) + len(added) + len(removed)
+        ),
+        "thresholds": {
+            "min_score_delta": min_score_delta,
+            "min_coverage_delta": min_coverage_delta,
+        },
+    }
+
+
 def _row_get(r: Any, key: str, default: Any = None) -> Any:
     """sqlite3.Row has no .get()."""
     try:
@@ -776,3 +891,172 @@ class WatchManager:
         for s in all_scores:
             by_subject.setdefault(s.subject_id, {})[s.dimension_id] = s
         return build_scorecard(subjects, dimensions, by_subject)
+
+    async def evidence_with_names(
+        self, company_id: str, *, limit: int = 2000
+    ) -> list[dict[str, Any]]:
+        """Live evidence with subject/dimension names resolved — for export."""
+        subjects = {
+            s.subject_id: s.name
+            for s in await self.list_subjects(company_id, include_archived=True)
+        }
+        dims = {d.dimension_id: d.name for d in await self.list_dimensions(company_id)}
+        rows = await self.list_evidence(company_id, limit=limit)
+        return [
+            {
+                "subject": subjects.get(e.subject_id, e.subject_id),
+                "dimension": dims.get(e.dimension_id, e.dimension_id),
+                "subcriterion": e.subcriterion,
+                "claim": e.claim,
+                "value_text": e.value_text,
+                "source_url": e.source_url,
+                "source_type": e.source_type,
+                "geo_state": e.geo_state,
+                "customer_state": e.customer_state,
+                "observed_at": e.observed_at,
+                "confidence": e.confidence,
+                "collector": e.collector,
+                "excerpt": e.excerpt,
+            }
+            for e in rows
+        ]
+
+    # ── Snapshots + change detection ────────────────────────────────
+
+    async def take_snapshot(self, company_id: str, *, label: str = "") -> str:
+        """Freeze the current scorecard so future months have something to
+        diff against. Returns the snapshot id."""
+        card = await self.scorecard(company_id)
+        snap_id = _sid("snap")
+        await self._db.execute_insert(
+            "INSERT INTO watch_snapshots (snapshot_id, company_id, taken_at, "
+            "label, payload_json) VALUES (?, ?, ?, ?, ?)",
+            (snap_id, company_id, _now(), label, json.dumps(card)),
+        )
+        return snap_id
+
+    async def list_snapshots(
+        self, company_id: str, *, limit: int = 24
+    ) -> list[dict[str, Any]]:
+        rows = await self._db.execute(
+            "SELECT snapshot_id, taken_at, label FROM watch_snapshots "
+            "WHERE company_id = ? ORDER BY taken_at DESC LIMIT ?",
+            (company_id, int(limit)),
+        )
+        return [
+            {
+                "snapshot_id": r["snapshot_id"],
+                "taken_at": r["taken_at"],
+                "label": _row_get(r, "label", "") or "",
+            }
+            for r in rows
+        ]
+
+    async def get_snapshot(self, snapshot_id: str) -> dict[str, Any] | None:
+        rows = await self._db.execute(
+            "SELECT payload_json FROM watch_snapshots WHERE snapshot_id = ?",
+            (snapshot_id,),
+        )
+        if not rows:
+            return None
+        return json.loads(rows[0]["payload_json"] or "{}")
+
+    async def latest_snapshot(
+        self, company_id: str
+    ) -> tuple[str, dict[str, Any]] | None:
+        rows = await self._db.execute(
+            "SELECT snapshot_id, payload_json FROM watch_snapshots "
+            "WHERE company_id = ? ORDER BY taken_at DESC LIMIT 1",
+            (company_id,),
+        )
+        if not rows:
+            return None
+        return rows[0]["snapshot_id"], json.loads(rows[0]["payload_json"] or "{}")
+
+    async def diff_since_snapshot(
+        self,
+        company_id: str,
+        *,
+        snapshot_id: str | None = None,
+        min_score_delta: float = 1.0,
+    ) -> dict[str, Any] | None:
+        """Diff the live scorecard against a snapshot (default: the latest)."""
+        if snapshot_id:
+            old = await self.get_snapshot(snapshot_id)
+            sid = snapshot_id
+        else:
+            latest = await self.latest_snapshot(company_id)
+            if latest is None:
+                return None
+            sid, old = latest
+        if old is None:
+            return None
+        new = await self.scorecard(company_id)
+        out = diff_scorecards(old, new, min_score_delta=min_score_delta)
+        out["against_snapshot"] = sid
+        return out
+
+    async def evidence_since(
+        self, company_id: str, since_iso: str, *, limit: int = 500
+    ) -> list[WatchEvidence]:
+        """Evidence observed since a timestamp — what actually drove the change."""
+        rows = await self._db.execute(
+            "SELECT * FROM watch_evidence WHERE company_id = ? AND observed_at > ? "
+            "ORDER BY observed_at DESC LIMIT ?",
+            (company_id, since_iso, int(limit)),
+        )
+        return [self._to_evidence(r) for r in rows]
+
+    async def staleness(self, company_id: str) -> list[dict[str, Any]]:
+        """Which subject x dimension pairs are overdue for a refresh.
+
+        Each dimension declares a cadence (weekly / monthly / quarterly); a pair
+        is stale when its newest live evidence is older than that, and 'never
+        observed' when there is none. This is what stops a scorecard quietly
+        ageing into fiction.
+        """
+        subjects = await self.list_subjects(company_id)
+        dimensions = await self.list_dimensions(company_id)
+        rows = await self._db.execute(
+            "SELECT subject_id, dimension_id, MAX(observed_at) AS last_seen "
+            "FROM watch_evidence WHERE company_id = ? AND superseded_by IS NULL "
+            "GROUP BY subject_id, dimension_id",
+            (company_id,),
+        )
+        last: dict[tuple[str, str], str] = {
+            (r["subject_id"], r["dimension_id"]): r["last_seen"] for r in rows
+        }
+        now = datetime.now(UTC)
+        out: list[dict[str, Any]] = []
+        for subj in subjects:
+            for dim in dimensions:
+                seen = last.get((subj.subject_id, dim.dimension_id))
+                max_age = CADENCE_DAYS.get(dim.refresh_cadence, 30)
+                if not seen:
+                    out.append(
+                        {
+                            "subject": subj.name,
+                            "dimension": dim.name,
+                            "cadence": dim.refresh_cadence,
+                            "last_observed": None,
+                            "age_days": None,
+                            "status": "never_observed",
+                        }
+                    )
+                    continue
+                try:
+                    age = (now - datetime.fromisoformat(seen)).days
+                except ValueError:
+                    continue
+                if age > max_age:
+                    out.append(
+                        {
+                            "subject": subj.name,
+                            "dimension": dim.name,
+                            "cadence": dim.refresh_cadence,
+                            "last_observed": seen,
+                            "age_days": age,
+                            "status": "stale",
+                        }
+                    )
+        return out

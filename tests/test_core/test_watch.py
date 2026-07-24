@@ -367,3 +367,280 @@ class TestCompanyScoping:
         await wm.archive_subject(subj.subject_id)
         assert await wm.list_subjects("c1") == []
         assert len(await wm.list_subjects("c1", include_archived=True)) == 1
+
+
+# ── P2: change detection, staleness, exports ────────────────────────────
+
+
+def _card(rows: list[dict], generated_at: str = "2026-01-01T00:00:00+00:00") -> dict:
+    """Minimal scorecard payload shaped like build_scorecard's output."""
+    return {
+        "generated_at": generated_at,
+        "dimensions": [{"name": "Promos", "weight_pct": 100, "cadence": "monthly"}],
+        "weight_total_pct": 100,
+        "weights_valid": True,
+        "rows": rows,
+    }
+
+
+def _row(name: str, score, rank=1, cov=100.0, group="G") -> dict:
+    return {
+        "subject_id": name.lower(),
+        "name": name,
+        "group": group,
+        "is_self": False,
+        "rank": rank,
+        "overall": {"normalized_pct": None if score is None else score * 20},
+        "views": {},
+        "dimensions": {
+            "Promos": {"score": score, "coverage_pct": cov, "confidence": "high"}
+        },
+    }
+
+
+class TestDiffScorecards:
+    def test_material_score_move_detected(self) -> None:
+        from core.watch import diff_scorecards
+
+        d = diff_scorecards(_card([_row("A", 3)]), _card([_row("A", 5)]))
+        kinds = [i["kind"] for c in d["changed"] for i in c["items"]]
+        assert "score" in kinds
+        assert d["material_count"] >= 1
+
+    def test_sub_threshold_move_is_not_material(self) -> None:
+        from core.watch import diff_scorecards
+
+        # A monthly report that surfaces every wobble gets ignored.
+        d = diff_scorecards(
+            _card([_row("A", 3)]), _card([_row("A", 3.5)]), min_score_delta=1.0
+        )
+        assert d["changed"] == []
+        assert d["material_count"] == 0
+
+    def test_newly_scored_is_always_material(self) -> None:
+        from core.watch import diff_scorecards
+
+        d = diff_scorecards(_card([_row("A", None)]), _card([_row("A", 2)]))
+        kinds = [i["kind"] for c in d["changed"] for i in c["items"]]
+        assert "newly_scored" in kinds  # new knowledge, never noise
+
+    def test_score_withdrawn_is_material(self) -> None:
+        from core.watch import diff_scorecards
+
+        d = diff_scorecards(_card([_row("A", 4)]), _card([_row("A", None)]))
+        kinds = [i["kind"] for c in d["changed"] for i in c["items"]]
+        assert "score_withdrawn" in kinds
+
+    def test_rank_change_detected(self) -> None:
+        from core.watch import diff_scorecards
+
+        d = diff_scorecards(
+            _card([_row("A", 3, rank=1), _row("B", 2, rank=2)]),
+            _card([_row("A", 3, rank=2), _row("B", 5, rank=1)]),
+        )
+        kinds = [i["kind"] for c in d["changed"] for i in c["items"]]
+        assert "rank" in kinds
+
+    def test_coverage_shift_detected(self) -> None:
+        from core.watch import diff_scorecards
+
+        d = diff_scorecards(
+            _card([_row("A", 3, cov=20.0)]), _card([_row("A", 3, cov=90.0)])
+        )
+        kinds = [i["kind"] for c in d["changed"] for i in c["items"]]
+        assert "coverage" in kinds
+
+    def test_entrants_and_exits(self) -> None:
+        from core.watch import diff_scorecards
+
+        d = diff_scorecards(_card([_row("A", 3)]), _card([_row("A", 3), _row("B", 4)]))
+        assert d["added_subjects"] == ["B"]
+        d2 = diff_scorecards(_card([_row("A", 3), _row("B", 4)]), _card([_row("A", 3)]))
+        assert d2["removed_subjects"] == ["B"]
+
+    def test_identical_scorecards_are_quiet(self) -> None:
+        from core.watch import diff_scorecards
+
+        rows = [_row("A", 3), _row("B", 4, rank=2)]
+        d = diff_scorecards(_card(rows), _card(rows))
+        assert d["material_count"] == 0
+
+
+class TestSnapshotsAndStaleness:
+    @pytest.mark.asyncio
+    async def test_snapshot_roundtrip_and_diff(self, wm) -> None:
+        subj, dim = await _seeded(wm)
+        await wm.add_evidence(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, subcriterion="welcome", claim="x",
+        )
+        await wm.set_score(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, score=2,
+        )
+        snap = await wm.take_snapshot("c1", label="baseline")
+        assert snap
+        assert (await wm.list_snapshots("c1"))[0]["label"] == "baseline"
+
+        await wm.set_score(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, score=5,
+        )
+        diff = await wm.diff_since_snapshot("c1")
+        assert diff is not None
+        assert diff["against_snapshot"] == snap
+        assert diff["material_count"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_diff_without_snapshot_returns_none(self, wm) -> None:
+        await _seeded(wm)
+        assert await wm.diff_since_snapshot("c1") is None
+
+    @pytest.mark.asyncio
+    async def test_never_observed_pairs_are_reported(self, wm) -> None:
+        await _seeded(wm)
+        gaps = await wm.staleness("c1")
+        assert len(gaps) == 1
+        assert gaps[0]["status"] == "never_observed"
+        assert gaps[0]["last_observed"] is None
+
+    @pytest.mark.asyncio
+    async def test_fresh_evidence_is_not_stale(self, wm) -> None:
+        subj, dim = await _seeded(wm)
+        await wm.add_evidence(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, claim="just observed",
+        )
+        assert await wm.staleness("c1") == []
+
+    @pytest.mark.asyncio
+    async def test_evidence_older_than_cadence_is_stale(self, wm) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        subj, dim = await _seeded(wm)  # dimension defaults to monthly (30d)
+        old = (datetime.now(UTC) - timedelta(days=90)).isoformat()
+        await wm.add_evidence(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, claim="ancient", observed_at=old,
+        )
+        gaps = await wm.staleness("c1")
+        assert len(gaps) == 1
+        assert gaps[0]["status"] == "stale"
+        assert gaps[0]["age_days"] >= 89
+
+    @pytest.mark.asyncio
+    async def test_evidence_export_resolves_names(self, wm) -> None:
+        subj, dim = await _seeded(wm)
+        await wm.add_evidence(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, claim="c", source_url="https://e.example",
+        )
+        rows = await wm.evidence_with_names("c1")
+        assert rows[0]["subject"] == "Rival" and rows[0]["dimension"] == "Promos"
+
+
+class TestXlsxExport:
+    @pytest.mark.asyncio
+    async def test_workbook_has_four_sheets_and_blanks_not_zeros(
+        self, wm, tmp_path
+    ) -> None:
+        from openpyxl import load_workbook
+
+        from core.watch_xlsx import render_scorecard_xlsx
+
+        scored = await wm.add_subject(name="Scored", company_id="c1")
+        await wm.add_subject(name="Unscored", company_id="c1")
+        dim = await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
+        await wm.add_evidence(
+            company_id="c1", subject_id=scored.subject_id,
+            dimension_id=dim.dimension_id, claim="x",
+        )
+        await wm.set_score(
+            company_id="c1", subject_id=scored.subject_id,
+            dimension_id=dim.dimension_id, score=4,
+        )
+
+        out = tmp_path / "card.xlsx"
+        path = render_scorecard_xlsx(
+            await wm.scorecard("c1"),
+            dimensions=await wm.list_dimensions("c1"),
+            evidence=await wm.evidence_with_names("c1"),
+            staleness=await wm.staleness("c1"),
+            path=out,
+        )
+        wb = load_workbook(path)
+        assert wb.sheetnames == ["Scorecard", "Weights", "Evidence", "Gaps"]
+
+        ws = wb["Scorecard"]
+        header = [c.value for c in ws[4]]
+        col = header.index("Promos") + 1
+        cells = {
+            r[1].value: r[col - 1].value
+            for r in ws.iter_rows(min_row=5, max_row=ws.max_row)
+            if r[1].value in ("Scored", "Unscored")
+        }
+        assert cells["Scored"] == 4
+        # The whole point: absent evidence renders blank, never 0.
+        assert cells["Unscored"] is None
+
+
+class TestBoardReportTool:
+    """The report must be useful on day one and honest when no model is
+    available — it ships facts either way."""
+
+    async def _tool(self, wm):
+        from tools.watch.tools import WatchBoardReportTool
+
+        t = WatchBoardReportTool()
+        t._watch_manager = wm
+        return t
+
+    @pytest.mark.asyncio
+    async def test_first_cycle_states_the_baseline(self, wm) -> None:
+        await _seeded(wm)
+        t = await self._tool(wm)
+        res = await t.execute({"company_id": "c1", "take_snapshot": False})
+        assert res.success
+        assert "First reporting cycle" in res.data["markdown"]
+        assert res.data["material_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_without_router_it_ships_facts_and_says_so(self, wm) -> None:
+        subj, dim = await _seeded(wm)
+        await wm.add_evidence(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, claim="x",
+        )
+        await wm.set_score(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, score=2,
+        )
+        await wm.take_snapshot("c1", label="base")
+        await wm.set_score(
+            company_id="c1", subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id, score=5,
+        )
+        t = await self._tool(wm)  # no router injected
+        res = await t.execute({"company_id": "c1", "take_snapshot": False})
+        md = res.data["markdown"]
+        assert "Material changes" in md and "2.0/5 → 5.0/5" in md
+        assert res.data["judged_items"] == 0
+        assert "Implications not generated" in md
+
+    @pytest.mark.asyncio
+    async def test_gaps_are_framed_as_absence_not_weakness(self, wm) -> None:
+        await _seeded(wm)
+        t = await self._tool(wm)
+        md = (await t.execute({"company_id": "c1", "take_snapshot": False})).data[
+            "markdown"
+        ]
+        assert "never observed" in md
+        assert "not weaknesses" in md
+
+    @pytest.mark.asyncio
+    async def test_snapshot_taken_by_default(self, wm) -> None:
+        await _seeded(wm)
+        t = await self._tool(wm)
+        res = await t.execute({"company_id": "c1"})
+        assert res.data["snapshot_id"]
+        assert len(await wm.list_snapshots("c1")) == 1

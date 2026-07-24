@@ -629,7 +629,8 @@ class WatchScorecardTool(_WatchToolBase):
             "the weighted dimensions, ranked, with the alternative views "
             "(customer proposition / transition priority) and each brand's "
             "evidence coverage and confidence shown separately from its "
-            "competitive score."
+            "competitive score. format='xlsx' writes the client-facing workbook "
+            "(scorecard + weights + full evidence register + gaps)."
         )
 
     @property
@@ -639,9 +640,14 @@ class WatchScorecardTool(_WatchToolBase):
             "properties": {
                 "format": {
                     "type": "string",
-                    "enum": ["markdown", "json"],
+                    "enum": ["markdown", "json", "xlsx"],
                     "description": "Output format. Default 'markdown'.",
                 },
+                "path": {
+                    "type": "string",
+                    "description": "Output file for format='xlsx'.",
+                },
+                "title": {"type": "string", "description": "Workbook title."},
                 "company_id": {"type": "string"},
             },
         }
@@ -654,9 +660,39 @@ class WatchScorecardTool(_WatchToolBase):
         if (err := self._guard()) is not None:
             return err
         cid = _company(params)
-        card = await self._watch_manager.scorecard(cid)
-        if str(params.get("format") or "markdown").lower() == "json":
+        wm = self._watch_manager
+        card = await wm.scorecard(cid)
+        fmt = str(params.get("format") or "markdown").lower()
+
+        if fmt == "json":
             return ToolResult(success=True, data=card)
+
+        if fmt == "xlsx":
+            path = str(params.get("path") or "").strip()
+            if not path:
+                return ToolResult(
+                    success=False, error="path is required for format='xlsx'"
+                )
+            try:
+                from core.watch_xlsx import render_scorecard_xlsx
+            except ImportError as e:  # openpyxl missing
+                return ToolResult(success=False, error=f"xlsx export unavailable: {e}")
+            written = render_scorecard_xlsx(
+                card,
+                dimensions=await wm.list_dimensions(cid),
+                evidence=await wm.evidence_with_names(cid),
+                staleness=await wm.staleness(cid),
+                path=path,
+                title=str(params.get("title") or "Competitive Scorecard"),
+            )
+            return ToolResult(
+                success=True,
+                data={
+                    "path": written,
+                    "sheets": ["Scorecard", "Weights", "Evidence", "Gaps"],
+                    "rows": len(card["rows"]),
+                },
+            )
 
         lines = [
             "| # | Brand | Group | Score | Cust. prop | Transition | Coverage | Conf |",
@@ -687,6 +723,370 @@ class WatchScorecardTool(_WatchToolBase):
         )
 
 
+class WatchSnapshotTool(_WatchToolBase):
+    """Freeze the scorecard so later months have something to compare against."""
+
+    @property
+    def name(self) -> str:
+        return "watch_snapshot"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Freeze the current scorecard as a snapshot. Snapshots are what "
+            "watch_diff and the monthly board report compare against, so take "
+            "one at the end of every reporting cycle. action='list' shows "
+            "existing snapshots."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["take", "list"]},
+                "label": {
+                    "type": "string",
+                    "description": "Human label, e.g. 'March board report'.",
+                },
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        wm = self._watch_manager
+        action = str(params.get("action") or "take").lower()
+
+        if action == "list":
+            snaps = await wm.list_snapshots(cid)
+            return ToolResult(
+                success=True, data={"count": len(snaps), "snapshots": snaps}
+            )
+
+        snap_id = await wm.take_snapshot(cid, label=str(params.get("label") or ""))
+        return ToolResult(success=True, data={"snapshot_id": snap_id})
+
+
+class WatchDiffTool(_WatchToolBase):
+    """What materially changed since a snapshot."""
+
+    @property
+    def name(self) -> str:
+        return "watch_diff"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Compare the live scorecard against a snapshot and return only "
+            "MATERIAL changes: score moves of at least a full point, rank "
+            "changes, dimensions newly scored or withdrawn, big coverage "
+            "shifts, and brands entering or leaving. Use this to answer 'what "
+            "actually changed this month?' without re-reading everything."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "snapshot_id": {
+                    "type": "string",
+                    "description": "Snapshot to compare against. Default: the most recent.",
+                },
+                "min_score_delta": {
+                    "type": "number",
+                    "description": "Minimum score move to count as material. Default 1.0.",
+                },
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        diff = await self._watch_manager.diff_since_snapshot(
+            cid,
+            snapshot_id=params.get("snapshot_id"),
+            min_score_delta=float(params.get("min_score_delta") or 1.0),
+        )
+        if diff is None:
+            return ToolResult(
+                success=False,
+                error=(
+                    "no snapshot to compare against — take one with "
+                    "watch_snapshot first (a diff needs a prior state)"
+                ),
+            )
+        return ToolResult(success=True, data=diff)
+
+
+_BOARD_SYSTEM = """You are preparing a monthly competitor board report.
+
+You are given FACTS: material changes detected between two scorecards, plus the
+evidence recorded this period. Convert them into board-ready judgement.
+
+For each material change output:
+- implication: what this means for US specifically, in one sentence
+- recommendation: the concrete action to take
+- classification: exactly one of
+    no_regret            — worth doing regardless of how strategy or rankings
+                           change next month; low cost, reversible, independent
+                           of major platform work
+    transition_requirement — must be built as part of the platform transition
+    post_transition      — optimisation to do after the transition completes
+    monitor              — no action yet; watch it
+- decision_required: what the board must decide, or "none"
+
+Rules:
+- Use ONLY the facts given. Never invent a competitor move, number or source.
+- If a change is ambiguous, say so and classify it 'monitor'.
+- Be concise and concrete. No filler, no restating the change.
+- The no-regret test: "would we still be pleased we did this if the transition
+  plan, competitor rankings or strategic priorities changed next month?"
+
+Return STRICT JSON: {"items":[{"subject":str,"change":str,"implication":str,
+"recommendation":str,"classification":str,"decision_required":str}]}"""
+
+
+class WatchBoardReportTool(_WatchToolBase):
+    """Turn the month's material changes into implications and decisions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_board_report"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Produce the monthly competitor board report: material changes "
+            "since the last snapshot, each turned into an implication, a "
+            "recommendation classified as no-regret / transition-requirement / "
+            "post-transition / monitor, and the decision the board must make — "
+            "plus current standings and outstanding evidence gaps."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "snapshot_id": {
+                    "type": "string",
+                    "description": "Compare against this snapshot. Default: most recent.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional file to write the markdown report to.",
+                },
+                "take_snapshot": {
+                    "type": "boolean",
+                    "description": "Snapshot the current state after reporting. Default true.",
+                },
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def _judge(self, diff: dict[str, Any]) -> list[dict[str, Any]]:
+        """Ask the router to turn facts into implications. Optional by design:
+        with no router the report still ships the facts, clearly marked."""
+        if self._router is None:
+            return []
+        import json as _json
+
+        facts = [
+            {"subject": c["subject"], "changes": [i["detail"] for i in c["items"]]}
+            for c in diff.get("changed", [])
+        ]
+        if diff.get("added_subjects"):
+            facts.append(
+                {"subject": "(new entrants)", "changes": diff["added_subjects"]}
+            )
+        if not facts:
+            return []
+        try:
+            resp = await self._router.complete(
+                messages=[
+                    {"role": "system", "content": _BOARD_SYSTEM},
+                    {"role": "user", "content": _json.dumps(facts, indent=1)},
+                ],
+                task_type="analysis",
+                temperature=0.2,
+                max_tokens=1800,
+            )
+            text = (resp.content or "").strip()
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                text = text[4:] if text.startswith("json") else text
+            data = _json.loads(text)
+            items = data.get("items", []) if isinstance(data, dict) else []
+            return [i for i in items if isinstance(i, dict)]
+        except Exception as e:  # judgement is best-effort; facts are not
+            import logging
+
+            logging.getLogger(__name__).warning("board report judgement failed: %s", e)
+            return []
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        wm = self._watch_manager
+
+        diff = await wm.diff_since_snapshot(cid, snapshot_id=params.get("snapshot_id"))
+        card = await wm.scorecard(cid)
+        gaps = await wm.staleness(cid)
+
+        lines: list[str] = ["# Competitor board report", ""]
+        if diff is None:
+            lines += [
+                "**First reporting cycle** — no prior snapshot, so there is "
+                "nothing to compare against yet. This report establishes the "
+                "baseline; next cycle will show material change.",
+                "",
+            ]
+        else:
+            lines += [
+                f"Period: {diff.get('from_generated_at', '?')} → "
+                f"{diff.get('to_generated_at', '?')}",
+                f"Material changes: **{diff.get('material_count', 0)}**",
+                "",
+            ]
+
+        # ── Standings ──
+        lines += ["## Standings", ""]
+        lines += [
+            "| # | Brand | Overall | Cust. prop | Transition | Coverage |",
+            "|---|-------|---------|-----------|------------|----------|",
+        ]
+        for r in card["rows"][:15]:
+            o = r["overall"]
+            cp = r["views"].get("customer_proposition", {}).get("normalized_pct")
+            tp = r["views"].get("transition_priority", {}).get("normalized_pct")
+            fmt = lambda v: "—" if v is None else f"{v:.1f}"  # noqa: E731
+            lines.append(
+                f"| {r['rank'] or '—'} | {r['name']}{' *(us)*' if r['is_self'] else ''} "
+                f"| {fmt(o['normalized_pct'])} | {fmt(cp)} | {fmt(tp)} "
+                f"| {o['coverage_pct']:.0f}% |"
+            )
+        lines.append("")
+
+        # ── Material changes + judgement ──
+        judged: list[dict[str, Any]] = []
+        if diff and diff.get("material_count"):
+            lines += ["## Material changes", ""]
+            for c in diff.get("changed", []):
+                lines.append(f"**{c['subject']}**")
+                for item in c["items"]:
+                    lines.append(f"- {item['detail']}")
+                lines.append("")
+            if diff.get("added_subjects"):
+                lines.append(
+                    f"**New in the analysis:** {', '.join(diff['added_subjects'])}"
+                )
+                lines.append("")
+            if diff.get("removed_subjects"):
+                lines.append(f"**Removed:** {', '.join(diff['removed_subjects'])}")
+                lines.append("")
+
+            judged = await self._judge(diff)
+            if judged:
+                lines += ["## Implications and recommendations", ""]
+                lines += [
+                    "| Subject | Change | Implication | Recommendation | Class | Decision required |",
+                    "|---------|--------|-------------|----------------|-------|-------------------|",
+                ]
+                for j in judged:
+                    lines.append(
+                        f"| {j.get('subject', '')} | {j.get('change', '')} "
+                        f"| {j.get('implication', '')} | {j.get('recommendation', '')} "
+                        f"| `{j.get('classification', 'monitor')}` "
+                        f"| {j.get('decision_required', 'none')} |"
+                    )
+                lines.append("")
+            else:
+                lines += [
+                    "> Implications not generated (no model available). The "
+                    "material changes above are the factual record; judgement "
+                    "still needs to be applied.",
+                    "",
+                ]
+        elif diff is not None:
+            lines += [
+                "## Material changes",
+                "",
+                "None this period above the materiality threshold "
+                f"(score move ≥ {diff['thresholds']['min_score_delta']}, "
+                f"coverage shift ≥ {diff['thresholds']['min_coverage_delta']}%).",
+                "",
+            ]
+
+        # ── Evidence gaps ──
+        never = [g for g in gaps if g["status"] == "never_observed"]
+        stale = [g for g in gaps if g["status"] == "stale"]
+        lines += ["## Evidence gaps", ""]
+        lines.append(
+            f"- **{len(never)}** brand × dimension pairs never observed"
+            + (
+                f" (e.g. {never[0]['subject']} / {never[0]['dimension']})"
+                if never
+                else ""
+            )
+        )
+        lines.append(f"- **{len(stale)}** overdue a refresh against their cadence")
+        lines.append("")
+        lines.append(
+            "> Gaps are absences of evidence, not weaknesses. No brand is "
+            "scored down for being opaque."
+        )
+
+        report = "\n".join(lines)
+        written = None
+        if params.get("path"):
+            from pathlib import Path
+
+            p = Path(str(params["path"])).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(report, encoding="utf-8")
+            written = str(p)
+
+        snap_id = None
+        if params.get("take_snapshot", True):
+            snap_id = await wm.take_snapshot(cid, label="board report")
+
+        return ToolResult(
+            success=True,
+            data={
+                "markdown": report,
+                "material_count": (diff or {}).get("material_count", 0),
+                "judged_items": len(judged),
+                "gaps_never_observed": len(never),
+                "gaps_stale": len(stale),
+                "path": written,
+                "snapshot_id": snap_id,
+            },
+        )
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -695,4 +1095,7 @@ def create_watch_tools() -> list[BaseTool]:
         WatchEvidenceTool(),
         WatchScoreTool(),
         WatchScorecardTool(),
+        WatchSnapshotTool(),
+        WatchDiffTool(),
+        WatchBoardReportTool(),
     ]
