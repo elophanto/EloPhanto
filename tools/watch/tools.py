@@ -1094,6 +1094,7 @@ class WatchObserveTool(_WatchToolBase):
         super().__init__()
         self._router: Any = None
         self._config: Any = None
+        self._browser_manager: Any = None
 
     @property
     def name(self) -> str:
@@ -1106,8 +1107,10 @@ class WatchObserveTool(_WatchToolBase):
             "brand's public pages, extracts facts for the given dimension, and "
             "files them in the evidence register. Every claim must quote the "
             "source verbatim and the quote is CHECKED against the fetched page "
-            "— unverifiable claims are discarded, not saved. Public/logged-out "
-            "pages only; anything behind an account is operator-collected."
+            "— unverifiable claims are discarded, not saved. Falls back to the real "
+            "browser when a site is a JS app or blocks plain requests. "
+            "Public/logged-out pages only; anything behind an account is "
+            "operator-collected."
         )
 
     @property
@@ -1152,7 +1155,7 @@ class WatchObserveTool(_WatchToolBase):
             )
         from core.watch_observe import (
             extract_claims,
-            fetch_page,
+            fetch_page_best_effort,
             filter_verified_claims,
         )
 
@@ -1191,7 +1194,9 @@ class WatchObserveTool(_WatchToolBase):
         page_reports: list[dict[str, Any]] = []
 
         for url in urls[:5]:
-            text, err = await fetch_page(url, proxy_url=proxy_url)
+            text, err, method = await fetch_page_best_effort(
+                url, browser_manager=self._browser_manager, proxy_url=proxy_url
+            )
             if err or not text:
                 page_reports.append({"url": url, "error": err or "no readable text"})
                 continue
@@ -1228,6 +1233,7 @@ class WatchObserveTool(_WatchToolBase):
             page_reports.append(
                 {
                     "url": url,
+                    "method": method,
                     "chars": len(text),
                     "proposed": len(claims),
                     "verified": len(verified),
@@ -1250,6 +1256,341 @@ class WatchObserveTool(_WatchToolBase):
                     "Claims are only saved when their verbatim excerpt is found "
                     "in the fetched page. Score with watch_score once coverage "
                     "is adequate."
+                ),
+            },
+        )
+
+
+class WatchAnalyzeTool(_WatchToolBase):
+    """One command: read a brand, score every dimension, save the deliverables."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+        self._config: Any = None
+        self._browser_manager: Any = None
+
+    @property
+    def group(self) -> str:
+        return "watch"
+
+    @property
+    def name(self) -> str:
+        return "watch_analyze"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Run a FULL competitor analysis on one brand end to end: reads its "
+            "site (landing page plus terms / promotions / payments pages, using "
+            "the real browser when a site is a JS app or blocks requests), files "
+            "every verifiable fact into the evidence register, scores each "
+            "dimension it has evidence for, and saves the scorecard workbook and "
+            "board report. Use this when asked to 'do a competitor analysis on "
+            "X' or 'analyse X and save the results'. Dimensions with no evidence "
+            "are left unscored rather than guessed."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "Brand to analyse (must be tracked, or pass url).",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Homepage — needed only if the brand isn't tracked yet.",
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Explicit pages to read instead of auto-discovering.",
+                },
+                "dimensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Limit to these dimensions. Default: all.",
+                },
+                "out_dir": {
+                    "type": "string",
+                    "description": "Where to save the workbook + report. Default ~/Desktop.",
+                },
+                "geo_state": {
+                    "type": "string",
+                    "description": "Observe as this US state.",
+                },
+                "max_pages": {
+                    "type": "integer",
+                    "description": "Pages to read. Default 4.",
+                },
+                "save": {
+                    "type": "boolean",
+                    "description": "Write the deliverables to disk. Default true.",
+                },
+                "company_id": {"type": "string"},
+            },
+            "required": ["subject"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        if self._router is None:
+            return ToolResult(
+                success=False, error="watch_analyze needs a model (router not injected)"
+            )
+        from core.watch_observe import (
+            collect_pages,
+            extract_claims_multi,
+            filter_verified_claims,
+            score_dimension,
+        )
+
+        cid = _company(params)
+        wm = self._watch_manager
+        name = str(params.get("subject") or "").strip()
+
+        subj = await wm.get_subject_by_name(name, cid)
+        if subj is None:
+            url = str(params.get("url") or "").strip()
+            if not url:
+                known = [s.name for s in await wm.list_subjects(cid)]
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"{name!r} is not tracked. Pass url= to add it, or pick "
+                        f"one of: {known[:14]}"
+                    ),
+                )
+            subj = await wm.add_subject(name=name, company_id=cid, url=url)
+
+        dimensions = await wm.list_dimensions(cid)
+        if not dimensions:
+            return ToolResult(
+                success=False,
+                error=(
+                    "no scoring dimensions defined — seed a frame first, e.g. "
+                    "watch_dimension action='seed' pack='social_casino_t1'"
+                ),
+            )
+        wanted = {d.lower() for d in (params.get("dimensions") or [])}
+        if wanted:
+            dimensions = [d for d in dimensions if d.name.lower() in wanted]
+            if not dimensions:
+                return ToolResult(success=False, error="no matching dimensions")
+
+        geo_state = str(params.get("geo_state") or "n/a")
+        proxy_url = None
+        if self._config is not None and getattr(self._config, "proxy", None):
+            proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
+
+        # ── 1. Read the site ──
+        explicit = [str(u) for u in (params.get("urls") or []) if str(u).strip()]
+        max_pages = int(params.get("max_pages") or 4)
+        if explicit:
+            pages = []
+            from core.watch_observe import fetch_page_best_effort
+
+            for u in explicit[:max_pages]:
+                t, e, m = await fetch_page_best_effort(
+                    u, browser_manager=self._browser_manager, proxy_url=proxy_url
+                )
+                pages.append({"url": u, "text": t, "error": e, "method": m})
+        else:
+            if not subj.url:
+                return ToolResult(
+                    success=False, error=f"{subj.name} has no URL — pass url or urls"
+                )
+            pages = await collect_pages(
+                subj.url,
+                browser_manager=self._browser_manager,
+                proxy_url=proxy_url,
+                max_pages=max_pages,
+            )
+
+        readable = [p for p in pages if p.get("text")]
+        if not readable:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"could not read any page for {subj.name}: "
+                    f"{[p.get('error') for p in pages]}. The site may need the "
+                    "browser (is Chrome available?) or an explicit urls list."
+                ),
+            )
+
+        # ── 2. Extract + verify, one model call per page across all dimensions ──
+        dim_specs = [
+            {
+                "name": d.name,
+                "subcriteria": [
+                    str(s.get("name", "")) for s in d.subcriteria if s.get("name")
+                ],
+            }
+            for d in dimensions
+        ]
+        by_name = {d.name: d for d in dimensions}
+        written = 0
+        rejected_total = 0
+        page_reports: list[dict[str, Any]] = []
+
+        for page in readable:
+            claims = await extract_claims_multi(
+                self._router, page_text=page["text"], dimensions=dim_specs
+            )
+            verified, rejected = filter_verified_claims(claims, page["text"])
+            rejected_total += len(rejected)
+            for c in verified:
+                dim = by_name.get(str(c.get("dimension")))
+                if dim is None:
+                    continue
+                await wm.add_evidence(
+                    company_id=cid,
+                    subject_id=subj.subject_id,
+                    dimension_id=dim.dimension_id,
+                    subcriterion=str(c.get("subcriterion") or ""),
+                    claim=str(c.get("claim") or "")[:1000],
+                    value_text=str(c.get("value_text") or "")[:300],
+                    source_url=page["url"],
+                    source_type="site",
+                    geo_state=geo_state,
+                    customer_state="logged_out",
+                    confidence="medium",
+                    excerpt=str(c.get("excerpt") or "")[:1000],
+                    collector="agent",
+                )
+                written += 1
+            page_reports.append(
+                {
+                    "url": page["url"],
+                    "method": page.get("method"),
+                    "chars": len(page["text"]),
+                    "verified": len(verified),
+                    "rejected": len(rejected),
+                }
+            )
+
+        # ── 3. Score what the evidence supports ──
+        scored: list[dict[str, Any]] = []
+        unscored: list[str] = []
+        for dim in dimensions:
+            own = await wm.list_evidence(
+                cid, subject_id=subj.subject_id, dimension_id=dim.dimension_id
+            )
+            if not own:
+                unscored.append(dim.name)
+                continue
+            # Peer evidence makes the 1-5 judgement comparative instead of a
+            # guess in isolation; absent peers, the model is told to say so.
+            peers: dict[str, list[str]] = {}
+            for other in await wm.list_subjects(cid):
+                if other.subject_id == subj.subject_id:
+                    continue
+                rows = await wm.list_evidence(
+                    cid, subject_id=other.subject_id, dimension_id=dim.dimension_id
+                )
+                if rows:
+                    peers[other.name] = [r.claim for r in rows[:10]]
+            judged = await score_dimension(
+                self._router,
+                dimension_name=dim.name,
+                subcriteria=[
+                    str(s.get("name", "")) for s in dim.subcriteria if s.get("name")
+                ],
+                own_claims=[r.claim for r in own],
+                peer_claims=peers,
+            )
+            if judged is None or judged.get("score") is None:
+                await wm.set_score(
+                    company_id=cid,
+                    subject_id=subj.subject_id,
+                    dimension_id=dim.dimension_id,
+                    score=None,
+                    rationale=(judged or {}).get("rationale", "evidence too thin"),
+                    scored_by="agent",
+                )
+                unscored.append(dim.name)
+                continue
+            res = await wm.set_score(
+                company_id=cid,
+                subject_id=subj.subject_id,
+                dimension_id=dim.dimension_id,
+                score=judged["score"],
+                rationale=judged.get("rationale", ""),
+                scored_by="agent",
+            )
+            scored.append(
+                {
+                    "dimension": dim.name,
+                    "score": res.score,
+                    "coverage_pct": res.coverage_pct,
+                    "provisional": judged.get("provisional", False),
+                    "rationale": judged.get("rationale", ""),
+                }
+            )
+
+        # ── 4. Save the deliverables ──
+        saved: dict[str, str] = {}
+        if params.get("save", True):
+            from pathlib import Path
+
+            out_dir = Path(str(params.get("out_dir") or "~/Desktop")).expanduser()
+            out_dir.mkdir(parents=True, exist_ok=True)
+            slug = "".join(
+                ch if ch.isalnum() else "-" for ch in subj.name.lower()
+            ).strip("-")
+            try:
+                from core.watch_xlsx import render_scorecard_xlsx
+
+                saved["scorecard"] = render_scorecard_xlsx(
+                    await wm.scorecard(cid),
+                    dimensions=await wm.list_dimensions(cid),
+                    evidence=await wm.evidence_with_names(cid),
+                    staleness=await wm.staleness(cid),
+                    path=out_dir / f"competitor-scorecard-{slug}.xlsx",
+                    title=f"Competitive Scorecard — {subj.name}",
+                )
+            except Exception as e:
+                saved["scorecard_error"] = str(e)
+
+            report_tool = WatchBoardReportTool()
+            report_tool._watch_manager = wm
+            report_tool._router = self._router
+            rep = await report_tool.execute(
+                {
+                    "company_id": cid,
+                    "path": str(out_dir / f"competitor-report-{slug}.md"),
+                    "take_snapshot": True,
+                }
+            )
+            if rep.success:
+                saved["report"] = rep.data.get("path") or ""
+
+        return ToolResult(
+            success=True,
+            data={
+                "subject": subj.name,
+                "pages_read": len(readable),
+                "pages": page_reports,
+                "evidence_written": written,
+                "claims_rejected": rejected_total,
+                "dimensions_scored": len(scored),
+                "dimensions_unscored": len(unscored),
+                "scores": scored,
+                "unscored": unscored,
+                "saved": saved,
+                "note": (
+                    "Every saved fact quotes its source and was checked against "
+                    "the live page. Unscored dimensions had no supporting "
+                    "evidence on the pages read — that is a coverage gap, not a "
+                    "weakness of the brand."
                 ),
             },
         )
@@ -1372,4 +1713,5 @@ def create_watch_tools() -> list[BaseTool]:
         WatchBoardReportTool(),
         WatchObserveTool(),
         WatchQueueTool(),
+        WatchAnalyzeTool(),
     ]

@@ -85,6 +85,25 @@ disagree.
 | `watch_board_report` | MODERATE | the monthly report: changes → implications → recommendations → decisions |
 | `watch_observe` | MODERATE | collect evidence from public pages, every quote verified against the source |
 | `watch_queue` | MODERATE | what is due for refresh; `action=schedule` installs the recurring jobs |
+| `watch_analyze` | MODERATE | **one command** — read a brand, score every dimension, save the deliverables |
+
+## One command
+
+The whole pipeline behind a single sentence:
+
+> *"Do a full competitor analysis on High 5 Casino and save the results."*
+
+`watch_analyze` reads the brand's landing page plus the sub-pages that actually
+carry facts (terms, promotions, payments — discovered from the homepage), files
+every verifiable claim, scores each dimension the evidence supports, and writes
+the workbook and board report to `~/Desktop` by default.
+
+Two efficiencies matter at this scale. Pages are read **once** and extracted
+against **all twelve dimensions in a single model call** — one call per page
+instead of one per page-dimension pair, since the page text is identical either
+way. And scoring passes the peer brands' evidence for the same dimension as
+context, so a 1–5 judgement is comparative rather than a guess in isolation;
+where there are no peers yet the score comes back flagged `provisional`.
 
 ## The three deliverables
 
@@ -130,6 +149,24 @@ what it quotes) but nothing else, and an excerpt under 20 characters is rejected
 outright since a short string matches by luck. Claims that fail are **discarded
 and counted**, and the rejection count comes back in the result — a high
 rejection rate is a signal worth seeing, not hiding.
+
+### Reading sites that don't want to be read
+
+Most consumer sites are JS applications that serve a plain HTTP client an empty
+shell, and some block non-browser requests outright. Measured across five of
+the seeded brands, only one returned usable content over plain HTTP: one was a
+403, three were shells of 0–44 characters.
+
+So collection **escalates**: plain HTTP first (fast, no contention), and when
+the result is empty, blocked, or under ~600 characters, the same URL is opened
+in the agent's real Chrome, which executes the app and carries a real
+fingerprint. The escalation is per page — a site may serve a static terms page
+and a JS lobby. A page that reads fine over HTTP never wakes the browser, since
+it is a slow shared resource. If no browser is available, sparse-but-real text
+is still read rather than discarded; only a genuinely empty result is an error.
+
+The verification guarantee is unchanged either way: claims are checked against
+whatever text actually came back.
 
 Everything collected this way is stamped `collector='agent'`,
 `customer_state='logged_out'`, `confidence='medium'`: quoted from a live page
@@ -196,11 +233,13 @@ The register models both, and always records *who* observed a fact.
 watch_dimension action=seed pack=social_casino_t1   # once, at engagement start
 watch_queue     action=schedule                     # once: weekly/monthly/quarterly jobs
 
+watch_analyze   subject="High 5 Casino"             # the whole pipeline, one call
+
+# …or drive the stages by hand:
 watch_queue                                         # what is due now
 watch_observe   subject=McLuck dimension=… geo_state=TX   # agent, public pages
 watch_evidence  action=add collector=human …        # operator, logged-in states
 watch_score     subject=… dimension=… score=4       # refused without evidence
-
 watch_scorecard    format=xlsx path=~/scorecard.xlsx
 watch_board_report path=~/board-march.md            # snapshots on the way out
 ```

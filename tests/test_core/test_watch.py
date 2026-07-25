@@ -11,6 +11,8 @@ rollup — is arithmetic the scorecard and board report depend on being exact.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from core.watch import (
@@ -927,3 +929,283 @@ class TestWatchQueueTool:
             {"company_id": "c1", "action": "schedule"}
         )
         assert not res.success and "scheduler" in res.error
+
+
+# ── Browser escalation + one-command analysis ───────────────────────────
+
+
+class _FakeBrowser:
+    """Stands in for the real Chrome bridge."""
+
+    def __init__(self, text: str = "", html: str = "", fail: bool = False) -> None:
+        self.text, self.html, self.fail = text, html, fail
+        self.calls: list[str] = []
+
+    async def call_tool(self, name: str, params: dict):
+        self.calls.append(name)
+        if self.fail:
+            raise RuntimeError("chrome unavailable")
+        if name == "browser_navigate":
+            return {"url": params.get("url"), "title": "t"}
+        if name == "browser_extract":
+            return {"text": self.text}
+        if name == "browser_get_html":
+            return {"html": self.html}
+        return {}
+
+
+class TestBrowserEscalation:
+    """A JS shell must not defeat an agent that has a real browser."""
+
+    @pytest.mark.asyncio
+    async def test_js_shell_escalates_to_browser(self, monkeypatch) -> None:
+        import core.watch_observe as wo
+
+        rendered = "Rendered by Chrome. " + ("Real offer content. " * 60)
+
+        async def shell_fetch(url, **kw):
+            return ("App Loading", None)  # what a plain client sees
+
+        monkeypatch.setattr(wo, "fetch_page", shell_fetch)
+        browser = _FakeBrowser(text=rendered)
+        text, err, method = await wo.fetch_page_best_effort(
+            "https://spa.example", browser_manager=browser
+        )
+        assert err is None
+        assert method == "browser"
+        assert "Rendered by Chrome" in text
+        assert browser.calls[:2] == ["browser_navigate", "browser_extract"]
+
+    @pytest.mark.asyncio
+    async def test_blocked_request_escalates_to_browser(self, monkeypatch) -> None:
+        import core.watch_observe as wo
+
+        async def blocked(url, **kw):
+            return ("", "HTTP 403")
+
+        monkeypatch.setattr(wo, "fetch_page", blocked)
+        text, err, method = await wo.fetch_page_best_effort(
+            "https://blocked.example",
+            browser_manager=_FakeBrowser(text="Content behind the block. " * 30),
+        )
+        assert err is None and method == "browser"
+        assert "behind the block" in text
+
+    @pytest.mark.asyncio
+    async def test_rich_page_never_wakes_the_browser(self, monkeypatch) -> None:
+        import core.watch_observe as wo
+
+        async def rich(url, **kw):
+            return ("Plenty of real content here. " * 40, None)
+
+        monkeypatch.setattr(wo, "fetch_page", rich)
+        browser = _FakeBrowser(text="should not be used")
+        text, err, method = await wo.fetch_page_best_effort(
+            "https://static.example", browser_manager=browser
+        )
+        # The browser is slow and shared — don't spend it when HTTP sufficed.
+        assert method == "http" and browser.calls == []
+
+    @pytest.mark.asyncio
+    async def test_browser_falls_back_to_raw_html(self, monkeypatch) -> None:
+        import core.watch_observe as wo
+
+        async def shell(url, **kw):
+            return ("", "HTTP 403")
+
+        monkeypatch.setattr(wo, "fetch_page", shell)
+        browser = _FakeBrowser(
+            text="", html="<body><p>" + ("Recovered via HTML. " * 30) + "</p></body>"
+        )
+        text, err, method = await wo.fetch_page_best_effort(
+            "https://x.example", browser_manager=browser
+        )
+        assert err is None and "Recovered via HTML" in text
+        assert "browser_get_html" in browser.calls
+
+    @pytest.mark.asyncio
+    async def test_thin_page_still_read_when_no_browser(self, monkeypatch) -> None:
+        import core.watch_observe as wo
+
+        async def sparse(url, **kw):
+            return ("Short but genuine page text.", None)
+
+        monkeypatch.setattr(wo, "fetch_page", sparse)
+        text, err, method = await wo.fetch_page_best_effort("https://s.example")
+        # Sparse is not the same as unreadable — don't throw away real evidence.
+        assert err is None and method == "http_thin" and text
+
+
+class TestLinkDiscovery:
+    def test_finds_commercially_relevant_subpages(self) -> None:
+        from core.watch_observe import discover_links
+
+        html = """
+        <a href="/terms-and-conditions">Terms</a>
+        <a href="/promotions">Promotions</a>
+        <a href="https://other.example/promo">Offsite promo</a>
+        <a href="/about-us">About</a>
+        <a href="#top">Top</a>
+        <a href="/help/payment-methods">Payments</a>
+        """
+        links = discover_links(html, "https://brand.example")
+        assert "https://brand.example/terms-and-conditions" in links
+        assert "https://brand.example/promotions" in links
+        assert "https://brand.example/help/payment-methods" in links
+        # Same-site only, and uninteresting pages are skipped.
+        assert not any("other.example" in link for link in links)
+        assert not any("about-us" in link for link in links)
+
+    def test_handles_junk_input(self) -> None:
+        from core.watch_observe import discover_links
+
+        assert discover_links("", "https://b.example") == []
+        assert discover_links("<a href='mailto:x@y.z'>terms</a>", "https://b.example") == []
+
+
+class _AnalyzeRouter:
+    """Extracts one good + one fabricated claim, then scores."""
+
+    async def complete(self, messages, **kwargs):
+        import json as _json
+        from types import SimpleNamespace
+
+        system = messages[0]["content"]
+        if "You score one brand" in system:
+            return SimpleNamespace(
+                content=_json.dumps(
+                    {"score": 4, "rationale": "strong welcome offer", "provisional": True}
+                )
+            )
+        return SimpleNamespace(
+            content=_json.dumps(
+                {
+                    "claims": [
+                        {
+                            "dimension": "Promos",
+                            "subcriterion": "welcome",
+                            "claim": "57,500 GC on first purchase",
+                            "value_text": "57,500 GC",
+                            "excerpt": "Get 57,500 Gold Coins on your first purchase today.",
+                        },
+                        {
+                            "dimension": "Promos",
+                            "subcriterion": "ongoing",
+                            "claim": "Daily bonus of 1m GC",
+                            "value_text": "1m GC",
+                            "excerpt": "We hand out one million Gold Coins every single day.",
+                        },
+                    ]
+                }
+            )
+        )
+
+
+class TestWatchAnalyzeTool:
+    """The one-command path: read → verify → score → save."""
+
+    async def _tool(self, wm):
+        from tools.watch.tools import WatchAnalyzeTool
+
+        t = WatchAnalyzeTool()
+        t._watch_manager = wm
+        t._router = _AnalyzeRouter()
+        t._config = None
+        t._browser_manager = None
+        return t
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_writes_evidence_scores_and_files(
+        self, wm, tmp_path, monkeypatch
+    ) -> None:
+        import core.watch_observe as wo
+
+        page = (
+            "Get 57,500 Gold Coins on your first purchase today. "
+            + ("Play hundreds of games. " * 40)
+        )
+
+        async def fake_collect(start_url, **kw):
+            return [{"url": start_url, "text": page, "error": None, "method": "http"}]
+
+        monkeypatch.setattr(wo, "collect_pages", fake_collect)
+
+        await wm.add_subject(
+            name="Rival", company_id="c1", url="https://rival.example"
+        )
+        await wm.upsert_dimension(
+            name="Promos", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "welcome", "weight_pct": 50},
+                         {"name": "ongoing", "weight_pct": 50}],
+        )
+
+        res = await (await self._tool(wm)).execute(
+            {"subject": "Rival", "company_id": "c1", "out_dir": str(tmp_path)}
+        )
+        assert res.success, res.error
+        # Only the claim whose quote is on the page survives.
+        assert res.data["evidence_written"] == 1
+        assert res.data["claims_rejected"] == 1
+        assert res.data["dimensions_scored"] == 1
+        assert res.data["scores"][0]["score"] == 4
+        assert res.data["scores"][0]["provisional"] is True
+
+        saved = res.data["saved"]
+        assert Path(saved["scorecard"]).exists()
+        assert Path(saved["report"]).exists()
+
+    @pytest.mark.asyncio
+    async def test_unknown_brand_lists_the_tracked_ones(self, wm) -> None:
+        await wm.add_subject(name="Known", company_id="c1")
+        await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
+        res = await (await self._tool(wm)).execute(
+            {"subject": "Nope", "company_id": "c1", "save": False}
+        )
+        assert not res.success
+        assert "not tracked" in res.error and "Known" in res.error
+
+    @pytest.mark.asyncio
+    async def test_untracked_brand_with_url_is_added(self, wm, monkeypatch) -> None:
+        import core.watch_observe as wo
+
+        async def fake_collect(start_url, **kw):
+            return [{"url": start_url, "text": "x" * 900, "error": None, "method": "http"}]
+
+        monkeypatch.setattr(wo, "collect_pages", fake_collect)
+        await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
+        res = await (await self._tool(wm)).execute(
+            {
+                "subject": "Fresh",
+                "url": "https://fresh.example",
+                "company_id": "c1",
+                "save": False,
+            }
+        )
+        assert res.success
+        assert await wm.get_subject_by_name("Fresh", "c1") is not None
+
+    @pytest.mark.asyncio
+    async def test_requires_a_scoring_frame(self, wm) -> None:
+        await wm.add_subject(name="Rival", company_id="c1", url="https://r.example")
+        res = await (await self._tool(wm)).execute(
+            {"subject": "Rival", "company_id": "c1", "save": False}
+        )
+        assert not res.success and "seed" in res.error
+
+    @pytest.mark.asyncio
+    async def test_unreadable_site_fails_loudly_without_inventing(
+        self, wm, monkeypatch
+    ) -> None:
+        import core.watch_observe as wo
+
+        async def dead(start_url, **kw):
+            return [{"url": start_url, "text": "", "error": "HTTP 403", "method": "http"}]
+
+        monkeypatch.setattr(wo, "collect_pages", dead)
+        await wm.add_subject(name="Rival", company_id="c1", url="https://r.example")
+        await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
+        res = await (await self._tool(wm)).execute(
+            {"subject": "Rival", "company_id": "c1", "save": False}
+        )
+        assert not res.success and "could not read" in res.error
+        assert await wm.list_evidence("c1") == []

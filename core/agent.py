@@ -2293,6 +2293,7 @@ class Agent:
             "watch_board_report",
             "watch_observe",
             "watch_queue",
+            "watch_analyze",
         ):
             tool = self._registry.get(tool_name)
             if tool is None:
@@ -2310,6 +2311,10 @@ class Agent:
             # watch_queue installs the recurring refresh jobs.
             if hasattr(tool, "_scheduler"):
                 tool._scheduler = getattr(self, "_scheduler", None)
+            # Collection escalates to the real browser when a site is a JS app
+            # or blocks plain HTTP — which is most modern consumer sites.
+            if hasattr(tool, "_browser_manager"):
+                tool._browser_manager = self._browser_manager
 
     async def _seed_fiat_reconcile_schedules(self) -> None:
         """Auto-create a periodic reconcile schedule per fiat-rail company so
