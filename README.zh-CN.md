@@ -51,7 +51,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.
 
 ## 许可证
 
-**源码可得，仅限非商业使用。** EloPhanto 采用 [PolyForm Noncommercial License 1.0.0](LICENSE)（非商业许可证）授权——可免费用于任何**非商业**目的（个人、研究、教育、非营利组织），允许使用、修改和分享。**任何商业使用都需要单独的许可证并事先获得批准**——商业使用前请通过 [GitHub](https://github.com/elophanto/EloPhanto) 或 [X @EloPhanto](https://x.com/EloPhanto) 联系 Petr Royce。第三方组件保留各自的许可证——详见 [NOTICE](NOTICE)。
+**源码可得，仅限非商业使用。** EloPhanto 采用 [PolyForm Noncommercial License 1.0.0](LICENSE)（非商业许可证）授权——可免费用于任何**非商业**目的（个人、研究、教育、非营利组织），允许使用、修改和分享。**任何商业使用都需要单独的许可证并事先获得批准**——商业使用前请发送邮件至 [info@elophanto.com](mailto:info@elophanto.com)（或通过 [GitHub](https://github.com/elophanto/EloPhanto)、[X @EloPhanto](https://x.com/EloPhanto) 联系 Petr Royce）。第三方组件保留各自的许可证——详见 [NOTICE](NOTICE)。
 
 ---
 

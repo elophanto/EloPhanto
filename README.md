@@ -16,13 +16,13 @@ Use it when a workflow is too messy for a deterministic script and too operation
 
 - **Run it locally:** `git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh`
 - **Inspect proof before trusting claims:** [Proof, not promises](#proof-not-promises) explains the receipt format: goal, starting state, tool trail, failures/retries, approvals, and final verification.
-- **Submit a workflow / hire implementation help:** use [JOB-SUBMISSION.md](JOB-SUBMISSION.md) or [elophanto.com/hire](https://elophanto.com/hire) for a narrow proof sprint.
+- **Submit a workflow / hire implementation help:** email [info@elophanto.com](mailto:info@elophanto.com) or see [elophanto.com/hire](https://elophanto.com/hire) for a narrow proof sprint.
 
 **What is credible today:** EloPhanto runs locally on the operator's machine; can use a real Chrome profile, filesystem, shell, scheduler, email, vault, and payment-preview tools; has **2600+ tests**, **200+ tools**, **85+ docs pages**, permission gates, and persistent goal/checkpoint execution. It is source-available and inspectable rather than a hosted black box.
 
 **What you should not take on faith:** this README does not claim unrestricted production autonomy, regulated-domain judgment, or paid adoption that has not been proven. Trust should come from running it, reviewing the code/docs/tests, and inspecting receipt-backed work.
 
-> **License note:** source-available under the [PolyForm Noncommercial License](LICENSE) — free for personal, research, education, and non-profit use. **Commercial use requires a separate license / prior approval**. For paid implementation, workflow audits, or commercial licensing, start with [JOB-SUBMISSION.md](JOB-SUBMISSION.md).
+> **License note:** source-available under the [PolyForm Noncommercial License](LICENSE) — free for personal, research, education, and non-profit use. **Commercial use requires a separate license / prior approval**. For paid implementation, workflow audits, or commercial licensing, email [info@elophanto.com](mailto:info@elophanto.com).
 
 ---
 
@@ -137,7 +137,7 @@ Good submissions include:
 
 A good paid proof package should include: workflow map, implemented or prototyped safe slice, logs/screenshots or command outputs, failure notes, approval boundaries, handoff docs, and a recommended next step. If the workflow is too broad, scope it down to: **audit → first safe slice → verified receipt → expand or stop**.
 
-Start with [JOB-SUBMISSION.md](JOB-SUBMISSION.md) or [elophanto.com/hire](https://elophanto.com/hire).
+Email [info@elophanto.com](mailto:info@elophanto.com) with the eight points above, or see [elophanto.com/hire](https://elophanto.com/hire).
 
 ---
 
@@ -483,6 +483,6 @@ Built by Petr Royce — [petrroyce.com](https://petrroyce.com) · [@petrroyce](h
 
 ## License
 
-**Source-available, non-commercial.** EloPhanto is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free to use, modify, and share for any **non-commercial** purpose (personal, research, education, non-profit organizations). **Commercial use requires a separate license and prior approval** — contact Petr Royce via [GitHub](https://github.com/elophanto/EloPhanto) or [X @EloPhanto](https://x.com/EloPhanto) before any commercial use. Third-party components retain their own licenses — see [NOTICE](NOTICE).
+**Source-available, non-commercial.** EloPhanto is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free to use, modify, and share for any **non-commercial** purpose (personal, research, education, non-profit organizations). **Commercial use requires a separate license and prior approval** — email [info@elophanto.com](mailto:info@elophanto.com) (or contact Petr Royce via [GitHub](https://github.com/elophanto/EloPhanto) / [X @EloPhanto](https://x.com/EloPhanto)) before any commercial use. Third-party components retain their own licenses — see [NOTICE](NOTICE).
 
 [中文 README](README.zh-CN.md)
