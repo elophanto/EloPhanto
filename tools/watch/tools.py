@@ -1194,11 +1194,13 @@ class WatchObserveTool(_WatchToolBase):
         page_reports: list[dict[str, Any]] = []
 
         for url in urls[:5]:
-            text, err, method = await fetch_page_best_effort(
+            text, fetch_err, method = await fetch_page_best_effort(
                 url, browser_manager=self._browser_manager, proxy_url=proxy_url
             )
-            if err or not text:
-                page_reports.append({"url": url, "error": err or "no readable text"})
+            if fetch_err or not text:
+                page_reports.append(
+                    {"url": url, "error": fetch_err or "no readable text"}
+                )
                 continue
             claims = await extract_claims(
                 self._router,
@@ -1442,10 +1444,13 @@ class WatchAnalyzeTool(_WatchToolBase):
         page_reports: list[dict[str, Any]] = []
 
         for page in readable:
+            page_text = page.get("text")
+            if not isinstance(page_text, str) or not page_text:
+                continue
             claims = await extract_claims_multi(
-                self._router, page_text=page["text"], dimensions=dim_specs
+                self._router, page_text=page_text, dimensions=dim_specs
             )
-            verified, rejected = filter_verified_claims(claims, page["text"])
+            verified, rejected = filter_verified_claims(claims, page_text)
             rejected_total += len(rejected)
             for c in verified:
                 dim = by_name.get(str(c.get("dimension")))
@@ -1471,7 +1476,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                 {
                     "url": page["url"],
                     "method": page.get("method"),
-                    "chars": len(page["text"]),
+                    "chars": len(page_text),
                     "verified": len(verified),
                     "rejected": len(rejected),
                 }

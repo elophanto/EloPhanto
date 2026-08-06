@@ -98,11 +98,11 @@ def load_posture(
     if not isinstance(data, dict):
         return Posture()
 
-    posture_block = data.get("posture") if isinstance(data.get("posture"), dict) else {}
-    strategy_inputs = (
-        data.get("strategy_inputs")
-        if isinstance(data.get("strategy_inputs"), dict)
-        else {}
+    raw_posture = data.get("posture")
+    posture_block: dict[str, Any] = raw_posture if isinstance(raw_posture, dict) else {}
+    raw_strategy = data.get("strategy_inputs")
+    strategy_inputs: dict[str, Any] = (
+        raw_strategy if isinstance(raw_strategy, dict) else {}
     )
 
     maturity_raw = posture_block.get("maturity") or strategy_inputs.get("maturity")
