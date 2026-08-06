@@ -493,92 +493,77 @@ class TwitterPostTool(BaseTool):
                         ),
                     )
 
-            # Step 5: Click Post button
-            await self._browser_manager.call_tool(
-                "browser_click_text", {"text": "Post"}
-            )
+            # Step 5: Click the composer submit button — NEVER
+            # browser_click_text("Post"). X has multiple "Post" labels;
+            # the sidebar one opens a NEW compose (wipes the draft) —
+            # the operator-visible "refresh before it posts" failure.
+            # Target data-testid=tweetButton / tweetButtonInline only.
+            submit_clicked = await self._click_composer_submit()
+            if not submit_clicked:
+                await self._log_publish(
+                    content=content, platform_url="", status="failed"
+                )
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "Could not find an enabled composer Post button "
+                        "(data-testid=tweetButton / tweetButtonInline). "
+                        "Refusing to click_text('Post') — that hits the "
+                        "sidebar and opens a new empty compose. Is the "
+                        "draft still in the box? Is the Post button "
+                        "greyed out (empty / over-limit)?"
+                    ),
+                )
 
-            # Step 6: Wait and extract tweet URL.
-            # X usually redirects to /status/<tweet_id> after a successful
-            # post. The redirect can be slow (composer clears first, URL
-            # follows) so we poll the URL for up to ~10s before deciding.
-            tweet_url = ""
-            for _attempt in range(5):
-                await self._browser_manager.call_tool(
-                    "browser_wait", {"milliseconds": 2000}
-                )
-                url_result = await self._browser_manager.call_tool(
-                    "browser_eval",
-                    {"expression": "window.location.href"},
-                )
-                current_url_value = eval_value(url_result)
-                current_url = (
-                    current_url_value if isinstance(current_url_value, str) else ""
-                )
-                if "/status/" in current_url:
-                    tweet_url = current_url
-                    break
+            # Step 6: Wait for publish evidence.
+            # Prefer toast / composer-cleared / /status/ redirect. Do NOT
+            # navigate away — a premature reload is what used to force
+            # a full re-draft.
+            tweet_url, evidence = await self._wait_for_publish_evidence(content=content)
 
             # If the composer is still showing our text after Post was
             # clicked, the post didn't go through — X often blocks (rate
             # limit, auth, draft-saved state) without a visible error.
-            composer_check = await self._browser_manager.call_tool(
-                "browser_eval",
-                {
-                    "expression": (
-                        "(() => {"
-                        " const el = document.querySelector("
-                        "'div[data-testid=\"tweetTextarea_0\"]');"
-                        " return el ? (el.textContent || '').trim() : '';"
-                        " })()"
-                    )
-                },
-            )
-            still_drafting = (eval_value(composer_check) or "").strip()
-            if still_drafting and still_drafting[:40] in content:
+            if evidence == "still_drafting":
                 await self._log_publish(
                     content=content, platform_url="", status="failed"
                 )
                 return ToolResult(
                     success=False,
                     error=(
-                        "Clicked Post but composer still contains the "
-                        "draft text — post did not publish. Check X for "
-                        "rate limit, auth challenge, or duplicate-content "
-                        "rejection."
+                        "Clicked composer Post but the draft is still in "
+                        "the textbox — publish did not go through. Check "
+                        "X for rate limit, auth challenge, or duplicate-"
+                        "content rejection. Do NOT re-type and click the "
+                        "sidebar Post (that opens a new empty compose)."
                     ),
                 )
 
-            # Final success guard: if X never redirected to a /status/
-            # URL we have no proof the post actually shipped. Previously
-            # the tool returned success=True with tweet_url="(posted —
-            # check X for URL)" — a literal placeholder string that
-            # masked silent X drops (rate limit, anti-automation,
-            # account flags) as success. Refuse to claim success
-            # without the redirect, and tell the caller exactly what
-            # to investigate.
-            if not tweet_url:
+            # Final success guard: need /status/ URL OR clear toast /
+            # composer-cleared evidence. Previously we required redirect
+            # only; X sometimes clears the modal + shows toast without
+            # changing location.href immediately.
+            if not tweet_url and evidence not in ("toast", "composer_cleared"):
                 await self._log_publish(
                     content=content, platform_url="", status="failed"
                 )
                 return ToolResult(
                     success=False,
                     error=(
-                        "Clicked Post but X did not redirect to a "
-                        "/status/ URL within 10s. The composer cleared, "
-                        "which usually means the click was accepted, "
-                        "but no tweet URL is available so the post may "
-                        "have been silently dropped (rate limit, "
-                        "anti-automation block, account flag) or simply "
-                        "indexed late. Verify manually on "
-                        "https://x.com/EloPhanto before re-posting — "
-                        "re-posting on a real drop risks a duplicate, "
-                        "re-posting on indexing lag risks a true duplicate."
+                        "Clicked composer Post but got no publish "
+                        "evidence within ~20s (no /status/ redirect, no "
+                        "'sent' toast, composer not clearly cleared). "
+                        "Verify manually on your X profile before "
+                        "re-posting — re-posting on a real drop risks a "
+                        "duplicate; re-posting on indexing lag risks a "
+                        "true duplicate."
                     ),
                 )
 
             publish_id = await self._log_publish(
-                content=content, platform_url=tweet_url, status="published"
+                content=content,
+                platform_url=tweet_url or "",
+                status="published",
             )
 
             return ToolResult(
@@ -587,8 +572,10 @@ class TwitterPostTool(BaseTool):
                     "publish_id": publish_id,
                     "platform": "twitter",
                     "content": content,
-                    "tweet_url": tweet_url,
+                    "tweet_url": tweet_url
+                    or "(published — check profile; toast/composer cleared)",
                     "has_media": bool(media_path),
+                    "evidence": evidence or ("status_url" if tweet_url else ""),
                 },
             )
 
@@ -596,3 +583,126 @@ class TwitterPostTool(BaseTool):
             logger.error(f"Twitter post failed: {e}")
             await self._log_publish(content=content, platform_url="", status="failed")
             return ToolResult(success=False, error=f"Twitter post failed: {e}")
+
+    async def _click_composer_submit(self) -> bool:
+        """Click the in-composer Post button; never the sidebar Post.
+
+        Polls briefly so Lexical can enable the button after paste.
+        Returns True if a real tweetButton* click landed.
+        """
+        # Wait for aria-disabled to clear after paste (often 0.5–2s).
+        for _attempt in range(8):
+            result = await self._browser_manager.call_tool(
+                "browser_eval",
+                {
+                    "expression": (
+                        "(() => {"
+                        " const sels = ["
+                        "  '[data-testid=\"tweetButton\"]',"
+                        "  '[data-testid=\"tweetButtonInline\"]'"
+                        " ];"
+                        " for (const s of sels) {"
+                        "   for (const el of document.querySelectorAll(s)) {"
+                        "     const aria = el.getAttribute('aria-disabled');"
+                        "     const dis = el.disabled === true || aria === 'true';"
+                        "     if (dis) continue;"
+                        "     el.click();"
+                        "     return 'clicked:' + (el.getAttribute('data-testid') || s);"
+                        "   }"
+                        " }"
+                        " const any = sels.some(s => document.querySelector(s));"
+                        " return any ? 'disabled' : 'missing';"
+                        " })()"
+                    )
+                },
+            )
+            status = eval_value(result)
+            if isinstance(status, str) and status.startswith("clicked:"):
+                logger.info("twitter_post submit via %s", status)
+                return True
+            if status == "missing":
+                # Composer may still be mounting after paste.
+                pass
+            await self._browser_manager.call_tool("browser_wait", {"milliseconds": 500})
+        return False
+
+    async def _wait_for_publish_evidence(self, *, content: str) -> tuple[str, str]:
+        """Poll for /status/ URL, sent toast, or cleared composer.
+
+        Returns ``(tweet_url, evidence)`` where evidence is one of
+        ``status_url``, ``toast``, ``composer_cleared``,
+        ``still_drafting``, or ``""``.
+        """
+        tweet_url = ""
+        last_evidence = ""
+        snippet = (content or "").strip()[:40]
+
+        for _attempt in range(10):  # ~20s
+            await self._browser_manager.call_tool(
+                "browser_wait", {"milliseconds": 2000}
+            )
+            probe = await self._browser_manager.call_tool(
+                "browser_eval",
+                {
+                    "expression": (
+                        "(() => {"
+                        " const href = String(window.location.href || '');"
+                        " const box = document.querySelector("
+                        "  'div[data-testid=\"tweetTextarea_0\"]');"
+                        " const draft = box"
+                        "  ? String(box.innerText || box.textContent || '').trim()"
+                        "  : '';"
+                        " const toastNodes = Array.from("
+                        "  document.querySelectorAll("
+                        '   \'[data-testid="toast"], [role="alert"], '
+                        '    [data-testid="confirmationSheetDialog"]\''
+                        "  )"
+                        " ).map(n => String(n.textContent || '').toLowerCase());"
+                        " const toastText = toastNodes.join(' | ');"
+                        " const sent = /your post was sent|post sent|sent\\.?$/.test(toastText)"
+                        "  || toastText.includes('your post was sent');"
+                        " return JSON.stringify({"
+                        "  href, draft, sent, toast: toastText.slice(0, 120)"
+                        " });"
+                        " })()"
+                    )
+                },
+            )
+            raw = eval_value(probe)
+            try:
+                info = json.loads(raw) if isinstance(raw, str) else {}
+            except (TypeError, json.JSONDecodeError):
+                info = {}
+            if not isinstance(info, dict):
+                info = {}
+
+            href = str(info.get("href") or "")
+            draft = str(info.get("draft") or "").strip()
+            sent = bool(info.get("sent"))
+
+            if "/status/" in href:
+                tweet_url = href
+                return tweet_url, "status_url"
+
+            if sent:
+                return tweet_url, "toast"
+
+            # Composer gone or emptied after a real submit.
+            if not draft:
+                last_evidence = "composer_cleared"
+                # Keep polling a bit for /status/ if toast already cleared.
+                continue
+
+            if snippet and snippet in draft:
+                last_evidence = "still_drafting"
+                # Keep polling — publish can lag a few seconds.
+                continue
+
+            # Draft text changed but not empty — treat as in-flight.
+            last_evidence = "composer_cleared"
+
+        if tweet_url:
+            return tweet_url, "status_url"
+        if last_evidence == "still_drafting":
+            return "", "still_drafting"
+        return tweet_url, last_evidence
