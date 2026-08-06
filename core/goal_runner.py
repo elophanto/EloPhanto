@@ -126,7 +126,12 @@ class GoalRunner:
         if self.is_running:
             return False
 
-        ok = await self._gm.resume_goal(goal_id)
+        ok = await self._gm.resume_goal(
+            goal_id,
+            cost_budget_usd=self._config.cost_budget_per_goal_usd,
+            max_time_seconds=float(self._config.max_total_time_per_goal_seconds),
+            max_llm_calls=self._config.max_llm_calls_per_goal,
+        )
         if not ok:
             return False
 
@@ -221,19 +226,20 @@ class GoalRunner:
                 # Budget check (LLM calls)
                 within_budget, reason = self._gm.check_budget(goal)
                 if not within_budget:
-                    await self._pause_goal(goal_id, f"Budget limit: {reason}")
+                    await self._budget_pause(goal, reason)
                     return
 
                 # Time limit
                 elapsed = time.monotonic() - start_time
                 if elapsed > self._config.max_total_time_per_goal_seconds:
-                    await self._pause_goal(goal_id, "Total time limit reached")
+                    await self._budget_pause(goal, "Total time limit reached")
                     return
 
                 # Cost limit
                 if goal.cost_usd >= self._config.cost_budget_per_goal_usd:
-                    await self._pause_goal(
-                        goal_id, f"Cost limit reached (${goal.cost_usd:.2f})"
+                    await self._budget_pause(
+                        goal,
+                        f"Cost limit reached (${goal.cost_usd:.2f})",
                     )
                     return
 
@@ -249,28 +255,41 @@ class GoalRunner:
                         )
                     return
 
-                # --- Founder-doctrine validate-first gate (hard enforcement) ---
-                # Refuse to execute a build/launch/acquire/scale checkpoint while
-                # the goal still has an unfinished `validate` checkpoint. Building
-                # on failed/absent validation is the audit's #1 silent-failure
-                # mode (§1.2.4). Pause + surface to the operator rather than burn
-                # spend — the operator decides pivot / kill / override.
+                # --- Founder-doctrine validate-first gate ---
                 gate_reason = await self._gm.validate_gate_reason(goal_id, checkpoint)
                 if gate_reason:
-                    logger.warning(
-                        "Goal %s blocked by validate gate: %s", goal_id, gate_reason
+                    handled = await self._handle_validate_gate(
+                        goal, checkpoint, gate_reason
                     )
-                    await self._pause_goal(goal_id, gate_reason)
-                    return
+                    if handled == "stop":
+                        return
+                    if handled == "retry":
+                        continue
+                    # fall through only if gate cleared (reorder)
 
                 # --- Execute checkpoint ---
                 success = await self._execute_checkpoint(goal, checkpoint)
 
+                # Kill criterion after every attempt (success or fail)
+                goal = await self._gm.get_goal(goal_id) or goal
+                killed, kill_reason = await self._gm.evaluate_kill_criterion(
+                    goal, evidence_text=goal.context_summary or ""
+                )
+                if killed:
+                    await self._gm.cancel_goal(goal_id, kill_reason=kill_reason)
+                    await self._broadcast_event(
+                        EventType.GOAL_FAILED,
+                        {
+                            "goal_id": goal_id,
+                            "error": kill_reason,
+                            "kill_criterion": True,
+                        },
+                    )
+                    logger.warning("Goal %s killed: %s", goal_id, kill_reason)
+                    return
+
                 if success:
                     checkpoints_since_eval += 1
-                    # Reset revision-without-progress counter on any
-                    # forward step. As long as SOMETHING is landing,
-                    # we don't worry about how many revisions it took.
                     revisions_without_progress = 0
                     await self._broadcast_event(
                         EventType.GOAL_CHECKPOINT_COMPLETE,
@@ -281,14 +300,20 @@ class GoalRunner:
                         },
                     )
                 else:
-                    # mark_checkpoint_failed handles retry/pause logic
                     goal = await self._gm.get_goal(goal_id)
-                    if goal and goal.status == "paused":
+                    if goal and goal.status in (
+                        "paused",
+                        "awaiting_approval",
+                        "budget_paused",
+                        "cancelled",
+                    ):
                         await self._broadcast_event(
                             EventType.GOAL_PAUSED,
                             {
                                 "goal_id": goal_id,
-                                "reason": f"Checkpoint {checkpoint.order} failed after max retries",
+                                "reason": f"Checkpoint {checkpoint.order} stopped "
+                                f"(status={goal.status})",
+                                "status": goal.status,
                             },
                         )
                         return
@@ -383,6 +408,30 @@ class GoalRunner:
             # the canonical source→priority table and lands at GOAL=5
             # (lowest), as the enum doc always intended.
             from core.execution_context import TaskSource
+            from core.mind_tool_summary import summarize_call
+
+            tool_trace: list[dict[str, Any]] = []
+            prev_on_tool = getattr(self._agent._executor, "_on_tool_executed", None)
+
+            def _on_tool(name: str, params: dict[str, Any], error: str | None) -> None:
+                tool_trace.append(
+                    {
+                        "tool": name,
+                        "status": "error" if error else "ok",
+                        "error": error,
+                        "summary": summarize_call(name, params or {}),
+                        "data": {
+                            k: str(v)[:200] for k, v in list((params or {}).items())[:8]
+                        },
+                    }
+                )
+                if prev_on_tool:
+                    try:
+                        prev_on_tool(name, params, error)
+                    except Exception:
+                        pass
+
+            self._agent._executor._on_tool_executed = _on_tool
 
             try:
                 response = await asyncio.wait_for(
@@ -393,17 +442,52 @@ class GoalRunner:
                 # Restore conversation history and approval callback
                 self._agent._conversation_history = saved_history
                 self._agent._executor._approval_callback = prev_approval
+                self._agent._executor._on_tool_executed = prev_on_tool
 
-            # Mark complete with summary
             summary = (response.content or "")[:500]
+            from core.checkpoint_receipt import verify_checkpoint_receipt
+
+            verdict = verify_checkpoint_receipt(
+                checkpoint.success_criteria or "",
+                tool_trace=tool_trace,
+                sor_text=goal.context_summary or "",
+                assistant_summary=summary,
+            )
+            if not verdict.ok:
+                logger.warning(
+                    "Checkpoint %d receipt failed for goal %s: %s",
+                    checkpoint.order,
+                    goal.goal_id,
+                    verdict.reason,
+                )
+                await self._gm.mark_checkpoint_failed(
+                    goal.goal_id,
+                    checkpoint.order,
+                    f"receipt_gate: {verdict.reason}",
+                )
+                return False
+
             await self._gm.mark_checkpoint_complete(
-                goal.goal_id, checkpoint.order, summary
+                goal.goal_id,
+                checkpoint.order,
+                f"{summary}\n[receipt] {verdict.reason}",
             )
 
-            # Affect: a checkpoint hit is a real win. Fire pride —
-            # high-pleasure / high-arousal / high-dominance — best-effort.
-            # See docs/69-AFFECT.md. The agent's tone on the next response
-            # should reflect that something just landed.
+            # Optional instinct extraction from verified completions (P2).
+            try:
+                from core.instinct_extract import maybe_extract_instinct
+
+                await maybe_extract_instinct(
+                    project_root=self._agent._config.project_root,
+                    goal=goal,
+                    checkpoint=checkpoint,
+                    summary=summary,
+                    tool_trace=tool_trace,
+                )
+            except Exception as ie:  # pragma: no cover
+                logger.debug("instinct extract skipped: %s", ie)
+
+            # Affect: a checkpoint hit is a real win.
             affect_mgr = getattr(self._agent, "_affect_manager", None)
             if affect_mgr is not None:
                 try:
@@ -424,16 +508,43 @@ class GoalRunner:
 
             return True
 
-        except TimeoutError:
-            logger.warning(
-                "Checkpoint %d of goal %s timed out", checkpoint.order, goal.goal_id
-            )
-            await self._gm.mark_checkpoint_failed(
-                goal.goal_id, checkpoint.order, "Checkpoint timed out"
-            )
-            return False
-
         except Exception as e:
+            from core.approval_wait import ApprovalTimeoutPause
+
+            if isinstance(e, ApprovalTimeoutPause) or isinstance(
+                getattr(e, "__cause__", None), ApprovalTimeoutPause
+            ):
+                # Unwrap from wait_for / submit_task wrappers.
+                pause_exc = (
+                    e
+                    if isinstance(e, ApprovalTimeoutPause)
+                    else e.__cause__  # type: ignore[assignment]
+                )
+                tool = getattr(pause_exc, "tool_name", "?")
+                logger.warning(
+                    "Checkpoint %d of goal %s awaiting approval (%s)",
+                    checkpoint.order,
+                    goal.goal_id,
+                    tool,
+                )
+                # Reset checkpoint to pending so resume retries it.
+                await self._reset_checkpoint_pending(goal.goal_id, checkpoint.order)
+                await self._pause_goal(
+                    goal.goal_id,
+                    f"awaiting_approval: operator did not answer for {tool}",
+                    status="awaiting_approval",
+                )
+                return False
+            if isinstance(e, TimeoutError):
+                logger.warning(
+                    "Checkpoint %d of goal %s timed out",
+                    checkpoint.order,
+                    goal.goal_id,
+                )
+                await self._gm.mark_checkpoint_failed(
+                    goal.goal_id, checkpoint.order, "Checkpoint timed out"
+                )
+                return False
             logger.error(
                 "Checkpoint %d of goal %s failed: %s",
                 checkpoint.order,
@@ -449,39 +560,88 @@ class GoalRunner:
     # Helpers
     # ------------------------------------------------------------------
 
+    async def _budget_pause(self, goal: Goal, reason: str) -> None:
+        """Hold goal as budget_paused; resume only when limits are raised."""
+        tag = (
+            f"limit_cost={self._config.cost_budget_per_goal_usd} "
+            f"limit_time={self._config.max_total_time_per_goal_seconds} "
+            f"limit_llm={self._config.max_llm_calls_per_goal} | {reason}"
+        )
+        await self._pause_goal(goal.goal_id, tag, status="budget_paused")
+
+    async def _handle_validate_gate(
+        self, goal: Goal, checkpoint: Any, gate_reason: str
+    ) -> str:
+        """Handle validate-first block: kill / revise / reorder / stop.
+
+        Returns ``stop`` (exit loop), ``retry`` (continue loop), or ``ok``.
+        """
+        logger.warning(
+            "Goal %s blocked by validate gate: %s", goal.goal_id, gate_reason
+        )
+
+        # Kill if criterion already met.
+        killed, kill_reason = await self._gm.evaluate_kill_criterion(
+            goal, evidence_text=goal.context_summary or ""
+        )
+        if killed:
+            await self._gm.cancel_goal(goal.goal_id, kill_reason=kill_reason)
+            await self._broadcast_event(
+                EventType.GOAL_FAILED,
+                {
+                    "goal_id": goal.goal_id,
+                    "error": kill_reason,
+                    "kill_criterion": True,
+                },
+            )
+            return "stop"
+
+        # Failed validate checkpoints → one revise_plan with context.
+        failed_validate = await self._gm.get_checkpoints(goal.goal_id, status="failed")
+        failed_validate = [c for c in failed_validate if (c.stage or "") == "validate"]
+        if failed_validate:
+            reason = (
+                f"validate-first pivot: validate checkpoint(s) failed "
+                f"({', '.join(c.title for c in failed_validate)}). "
+                f"Revise plan; do not build. Gate: {gate_reason}"
+            )
+            try:
+                await self._gm.revise_plan(goal, reason)
+                return "retry"
+            except Exception as e:
+                logger.error("revise_plan after validate fail: %s", e)
+                await self._pause_goal(goal.goal_id, reason)
+                return "stop"
+
+        # Pending validate merely out of order → reorder.
+        reordered = await self._gm.reorder_validate_before_build(goal.goal_id)
+        if reordered:
+            logger.info("Goal %s: reordered validate ahead of build", goal.goal_id)
+            return "retry"
+
+        await self._pause_goal(goal.goal_id, gate_reason)
+        return "stop"
+
     def _make_broadcast_approval(self) -> Any:
-        """Create an approval callback that broadcasts to all gateway clients."""
+        """Create an approval callback that broadcasts to all gateway clients.
+
+        On timeout: re-ping once, then raise ApprovalTimeoutPause so the
+        checkpoint pauses as awaiting_approval — never silent deny.
+        """
         gateway = self._gateway
 
         async def _approval(
             tool_name: str, description: str, params: dict[str, Any]
         ) -> bool:
-            if not gateway:
-                # No gateway — auto-approve in autonomous mode
-                return True
+            from core.approval_wait import wait_for_operator_approval
 
-            from core.protocol import approval_request_message
-
-            msg = approval_request_message(
-                session_id="",
+            return await wait_for_operator_approval(
+                gateway,
                 tool_name=tool_name,
                 description=description,
                 params=params,
+                label="Goal",
             )
-
-            # Register a future in the gateway's pending approvals dict
-            future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
-            gateway._pending_approvals[msg.id] = future
-
-            await gateway.broadcast(msg, session_id=None)
-
-            try:
-                return await asyncio.wait_for(future, timeout=300)
-            except TimeoutError:
-                logger.warning("Approval timeout for %s — auto-denying", tool_name)
-                return False
-            finally:
-                gateway._pending_approvals.pop(msg.id, None)
 
         return _approval
 
@@ -496,14 +656,28 @@ class GoalRunner:
         except Exception as e:
             logger.warning("Failed to clear scratchpad: %s", e)
 
-    async def _pause_goal(self, goal_id: str, reason: str) -> None:
-        """Pause a goal and broadcast the event."""
-        await self._gm.pause_goal(goal_id)
+    async def _pause_goal(
+        self, goal_id: str, reason: str, *, status: str = "paused"
+    ) -> None:
+        """Pause a goal and broadcast the event.
+
+        ``status`` may be ``paused``, ``awaiting_approval``, or
+        ``budget_paused`` — all are non-active holding states.
+        """
+        await self._gm.pause_goal(goal_id, status=status, reason=reason)
         await self._broadcast_event(
             EventType.GOAL_PAUSED,
-            {"goal_id": goal_id, "reason": reason},
+            {"goal_id": goal_id, "reason": reason, "status": status},
         )
-        logger.info("Goal %s paused: %s", goal_id, reason)
+        logger.info("Goal %s → %s: %s", goal_id, status, reason)
+
+    async def _reset_checkpoint_pending(self, goal_id: str, order: int) -> None:
+        """Return an in-flight checkpoint to pending so resume retries it."""
+        await self._gm._db.execute(
+            "UPDATE goal_checkpoints SET status = 'pending' "
+            "WHERE goal_id = ? AND checkpoint_order = ?",
+            (goal_id, order),
+        )
 
     async def _broadcast_event(
         self, event_type: EventType, data: dict[str, Any]

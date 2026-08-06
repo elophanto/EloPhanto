@@ -1,7 +1,7 @@
 # 69 — Affect (state-level emotions)
 
 **Status:** v1 implementation (Phases 1-4 landed); Phase 5 (content-source events + directive guidance) landed 2026-05-13.
-**Author:** EloPhanto + Claude (Opus 4.7).
+**Author:** EloPhanto.
 **Date:** 2026-05-06.
 **Related:** [docs/17-IDENTITY.md](17-IDENTITY.md), [core/ego.py](../core/ego.py).
 
@@ -9,15 +9,15 @@
 
 ## Why this exists
 
-EloPhanto's self-model has three trait-level layers: **knowledge** (descriptive memory), **identity** (descriptive self), **ego** (evaluative self with measured per-capability confidence and humbling events). What's missing is **state-level self** — moment-to-moment affect that moves on a timescale of minutes, not weeks.
+EloPhanto's self-model has three trait-level layers: **knowledge** (descriptive memory), **identity** (descriptive self), **ego** (evaluative self with measured per-capability confidence, humbling events, caution rules, and a continuous `felt_state`). What's missing without affect is a **state-level** PAD/OCC substrate — moment-to-moment affect that moves on a timescale of minutes, not weeks.
 
-Without it:
+Without affect:
 
-- The ego only updates every 25 outcomes (`_RECOMPUTE_EVERY`). Between recomputes, the agent's tone, temperature, and tool-caution don't change with what just happened in the session.
-- Three corrections in five minutes register as three humbling events, but nothing colors the **next** response with the cumulative affect — the agent stays chipper while the user is clearly frustrated.
-- The agent has no signal for "I just had a great win five minutes ago" or "I'm getting restless because nothing has happened in two hours" — both of which are real signals that should influence what it does next.
+- Ego's **prose** self-image still recomputes every 25 outcomes (`_RECOMPUTE_EVERY`), but ego now also derives `felt_state` and injects caution rules **every outcome** — that closes the "chipper between recomputes" gap for self-perception and tool soft-gating. Affect still owns minute-scale tone/temperature coloring that ego does not.
+- Three corrections in five minutes register as three humbling events **and** durable caution rules; affect compounds frustration so the **next** response can color tone with cumulative pressure.
+- Affect remains the signal for short-horizon "great win five minutes ago" / "restless after two idle hours" — complementary to ego's trait calibration.
 
-Affect is the **fast-loop** sister to ego's slow-loop. Different timescale, different mechanism, different read/write surface.
+Affect is the **fast-loop** sister to ego's evaluative loop. Different timescale, different mechanism, different read/write surface. See the ego section in [17-IDENTITY.md](17-IDENTITY.md).
 
 ## Goals
 

@@ -467,11 +467,15 @@ class TestFailureSignalPipeline:
         ego = await mgr.get_ego()
         # No humbling event for UNKNOWN — couldn't confirm ≠ confirmed wrong.
         assert len(ego.humbling_events) == 0
-        # But the outcome was recorded as failure-class.
+        # Soft success (strength 0.5) — stored as success=1 with
+        # Verification: UNKNOWN notes; confidence barely moves.
         rows = await db.execute(
-            "SELECT success, source FROM ego_outcomes WHERE capability='web_search'"
+            "SELECT success, source, notes FROM ego_outcomes "
+            "WHERE capability='web_search' AND source='verification'"
         )
-        assert any(r["success"] == 0 and r["source"] == "verification" for r in rows)
+        assert rows
+        assert rows[0]["success"] == 1
+        assert "UNKNOWN" in (rows[0]["notes"] or "")
 
     @pytest.mark.asyncio
     async def test_decay_drifts_unused_capabilities_toward_default(

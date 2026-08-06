@@ -10,6 +10,7 @@ instead — they write the proposed message to
 """
 
 from tools.drafts.draft_tools import (
+    CompanyTrustProposeTool,
     CompanyTrustSetTool,
     DraftApproveTool,
     DraftRejectTool,
@@ -25,4 +26,5 @@ __all__ = [
     "DraftApproveTool",
     "DraftRejectTool",
     "CompanyTrustSetTool",
+    "CompanyTrustProposeTool",
 ]

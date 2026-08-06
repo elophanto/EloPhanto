@@ -74,10 +74,21 @@ def mock_agent() -> MagicMock:
     # 2026-05-20 alpha_log review: the prior agent.run() call defaulted
     # to USER priority and starved MIND + cadence schedules.
     agent.run = AsyncMock(return_value=FakeAgentResponse())
-    agent.submit_task = AsyncMock(return_value=FakeAgentResponse())
+
+    async def _submit_with_tool_trail(*_a, **_kw):
+        # Receipt gate requires a tool trail (or SoR). Fire the hook the
+        # runner installs around submit_task so mocked completions still
+        # look like real tool-backed work.
+        cb = getattr(agent._executor, "_on_tool_executed", None)
+        if callable(cb):
+            cb("knowledge_search", {"query": "test info"}, None)
+        return FakeAgentResponse()
+
+    agent.submit_task = AsyncMock(side_effect=_submit_with_tool_trail)
     agent._conversation_history = []
     agent._executor = MagicMock()
     agent._executor._approval_callback = None
+    agent._executor._on_tool_executed = None
     agent._executor.set_approval_callback = MagicMock()
     return agent
 
@@ -265,7 +276,7 @@ class TestSafetyLimits:
 
         updated = await gm.get_goal(goal.goal_id)
         assert updated is not None
-        assert updated.status == "paused"
+        assert updated.status == "budget_paused"
 
     async def test_llm_budget_pauses_goal(
         self, runner: GoalRunner, gm: GoalManager, router: AsyncMock
@@ -282,7 +293,7 @@ class TestSafetyLimits:
 
         updated = await gm.get_goal(goal.goal_id)
         assert updated is not None
-        assert updated.status == "paused"
+        assert updated.status == "budget_paused"
 
     async def test_revision_storm_without_progress_pauses_goal(
         self, runner: GoalRunner, gm: GoalManager, router: AsyncMock

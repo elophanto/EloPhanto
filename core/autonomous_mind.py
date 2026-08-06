@@ -960,25 +960,15 @@ class AutonomousMind:
         async def _auto_approve(
             tool_name: str, description: str, params: dict[str, Any]
         ) -> bool:
-            if self._gateway:
-                from core.protocol import approval_request_message
+            from core.approval_wait import wait_for_operator_approval
 
-                msg_obj = approval_request_message(
-                    session_id="",
-                    tool_name=tool_name,
-                    description=f"[AutoLoop] {description}",
-                    params=params,
-                )
-                future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
-                self._gateway._pending_approvals[msg_obj.id] = future
-                await self._gateway.broadcast(msg_obj, session_id=None)
-                try:
-                    return await asyncio.wait_for(future, timeout=120)
-                except TimeoutError:
-                    return False
-                finally:
-                    self._gateway._pending_approvals.pop(msg_obj.id, None)
-            return True
+            return await wait_for_operator_approval(
+                self._gateway,
+                tool_name=tool_name,
+                description=description,
+                params=params,
+                label="AutoLoop",
+            )
 
         self._agent._executor.set_approval_callback(_auto_approve)
 
@@ -1037,6 +1027,26 @@ class AutonomousMind:
                     "another task. Will retry next wakeup."
                 )
                 return
+            except Exception as e:
+                from core.approval_wait import ApprovalTimeoutPause
+
+                if isinstance(e, ApprovalTimeoutPause) or isinstance(
+                    getattr(e, "__cause__", None), ApprovalTimeoutPause
+                ):
+                    logger.warning(
+                        "AutoLoop awaiting approval (%s) — pausing cycle, not denying",
+                        getattr(e, "tool_name", getattr(e.__cause__, "tool_name", "?")),
+                    )
+                    await self._broadcast_event(
+                        EventType.MIND_ACTION,
+                        {
+                            "summary": "awaiting_approval — operator did not answer",
+                            "mode": "autoloop",
+                            "status": "awaiting_approval",
+                        },
+                    )
+                    return
+                raise
 
             # Preemption (G): higher-priority caller arrived and we
             # yielded at a safe checkpoint. Not a failure — don't
@@ -1287,26 +1297,15 @@ class AutonomousMind:
         async def _auto_approve(
             tool_name: str, description: str, params: dict[str, Any]
         ) -> bool:
-            # Use gateway broadcast for approval if available, otherwise auto-approve
-            if self._gateway:
-                from core.protocol import approval_request_message
+            from core.approval_wait import wait_for_operator_approval
 
-                msg = approval_request_message(
-                    session_id="",
-                    tool_name=tool_name,
-                    description=f"[Mind] {description}",
-                    params=params,
-                )
-                future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
-                self._gateway._pending_approvals[msg.id] = future
-                await self._gateway.broadcast(msg, session_id=None)
-                try:
-                    return await asyncio.wait_for(future, timeout=120)
-                except TimeoutError:
-                    return False
-                finally:
-                    self._gateway._pending_approvals.pop(msg.id, None)
-            return True
+            return await wait_for_operator_approval(
+                self._gateway,
+                tool_name=tool_name,
+                description=description,
+                params=params,
+                label="Mind",
+            )
 
         self._agent._executor.set_approval_callback(_auto_approve)
 
@@ -1357,6 +1356,25 @@ class AutonomousMind:
                     "another task. Will retry next wakeup."
                 )
                 return
+            except Exception as e:
+                from core.approval_wait import ApprovalTimeoutPause
+
+                if isinstance(e, ApprovalTimeoutPause) or isinstance(
+                    getattr(e, "__cause__", None), ApprovalTimeoutPause
+                ):
+                    logger.warning(
+                        "Mind awaiting approval (%s) — pausing cycle, not denying",
+                        getattr(e, "tool_name", getattr(e.__cause__, "tool_name", "?")),
+                    )
+                    await self._broadcast_event(
+                        EventType.MIND_ACTION,
+                        {
+                            "summary": "awaiting_approval — operator did not answer",
+                            "status": "awaiting_approval",
+                        },
+                    )
+                    return
+                raise
 
             # Preemption (G): yielded for a higher-priority caller.
             # See AutoLoop sibling above for rationale.

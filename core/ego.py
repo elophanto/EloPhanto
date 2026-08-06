@@ -49,9 +49,58 @@ from core.database import Database
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Tunables
-# ---------------------------------------------------------------------------
+# Stable capability domains — used by agent outcome recording AND the
+# executor soft-gate. Keep the set small so confidence calibrates.
+CAPABILITY_DOMAINS: dict[str, str] = {
+    "browser_navigate": "browser",
+    "browser_click": "browser",
+    "browser_click_text": "browser",
+    "browser_extract": "browser",
+    "browser_type": "browser",
+    "browser_type_text": "browser",
+    "browser_screenshot": "browser",
+    "browser_scroll": "browser",
+    "browser_wait": "browser",
+    "browser_eval": "browser",
+    "code_edit": "coding",
+    "code_write": "coding",
+    "file_write": "coding",
+    "file_patch": "coding",
+    "file_read": "coding",
+    "shell_execute": "coding",
+    "shell_exec": "coding",
+    "send_email": "outreach",
+    "email_send": "outreach",
+    "email_reply": "outreach",
+    "email_draft": "outreach",
+    "prospect_outreach": "outreach",
+    "outreach_draft": "outreach",
+    "twitter_post": "social",
+    "twitter_reply": "social",
+    "post_draft": "social",
+    "crypto_transfer": "payments",
+    "crypto_swap": "payments",
+    "payment_process": "payments",
+    "invoice_pay": "payments",
+    "wallet_export": "payments",
+    "knowledge_write": "research",
+    "knowledge_search": "research",
+    "web_search": "research",
+    "polymarket_bet": "research",
+    "polymarket_scan": "research",
+    "goal_create": "ops",
+    "goal_manage": "ops",
+    "goal_status": "ops",
+    "schedule_task": "ops",
+    "company_trust_set": "ops",
+    "skill_read": "ops",
+}
+
+
+def capability_for_tool(tool_name: str) -> str:
+    """Map a tool name to a stable ego capability domain."""
+    return CAPABILITY_DOMAINS.get(tool_name, "ops")
+
 
 # Exponential smoothing weights. Failure weight > success weight.
 _ALPHA_SUCCESS = 0.10
@@ -80,6 +129,12 @@ _RECOMPUTE_EVERY = 25
 # distance from _CONF_DEFAULT. 168h = 1 week — feels right for an agent
 # that does many things many times a day.
 _DECAY_HALFLIFE_HOURS = 168.0
+# Cap on rolling outcome window for felt_state derivation.
+_RECENT_OUTCOME_WINDOW = 10
+# Cap on durable caution rules (shame that survives recovery).
+_CAUTION_CAP = 5
+# Cap on causal self-story epochs.
+_EPOCH_CAP = 3
 # Don't bother re-decaying more than once per hour.
 _DECAY_RECOMPUTE_INTERVAL_HOURS = 1.0
 
@@ -241,6 +296,17 @@ class Ego:
     # prevent every other capability from decaying.
     last_used: dict[str, str] = field(default_factory=dict)
 
+    # Lived self between recomputes — derived every outcome (never LLM-set).
+    # pride | shame | composure | questioning
+    felt_state: str = "composure"
+    # Durable behavioral rules from shame. Survive confidence recovery;
+    # only a verification PASS on the same capability retires a rule.
+    caution_rules: list[dict[str, str]] = field(default_factory=list)
+    # Causal self-story epochs (last 3) written on recompute.
+    self_epochs: list[dict[str, str]] = field(default_factory=list)
+    # Rolling window of recent outcome strengths (0.0–1.0) for felt_state.
+    recent_outcomes: list[float] = field(default_factory=list)
+
 
 # ---------------------------------------------------------------------------
 # LLM prompt
@@ -397,6 +463,8 @@ class EgoManager:
         task_goal: str = "",
         notes: str = "",
         source: str = "tool",
+        *,
+        strength: float | None = None,
     ) -> None:
         """Record a task outcome against a capability. Updates confidence
         immediately; does not call the LLM. The LLM only runs on recompute.
@@ -407,6 +475,9 @@ class EgoManager:
         smoothing weight: corrections > verification > tool, because
         a user correction is the strongest signal of "this didn't
         actually achieve what I wanted."
+
+        strength: optional continuous target in [0, 1]. When set, overrides
+        the binary success→0/1 mapping (e.g. UNKNOWN verification → 0.5).
         """
         if not capability:
             return
@@ -439,8 +510,11 @@ class EgoManager:
         # alpha for failures depends on the source — correction is louder
         # than verification, which is louder than tool-level signal.
         prior = ego.confidence.get(capability, _CONF_DEFAULT)
-        target = 1.0 if success else 0.0
-        if success:
+        if strength is not None:
+            target = max(0.0, min(1.0, float(strength)))
+        else:
+            target = 1.0 if success else 0.0
+        if target >= 0.99:
             alpha = _ALPHA_SUCCESS
         elif source == "correction":
             alpha = _ALPHA_CORRECTION
@@ -455,6 +529,17 @@ class EgoManager:
         ego.last_capability = capability
         ego.tasks_since_recompute += 1
         ego.updated_at = now
+
+        # Rolling window for continuous felt_state (lived self).
+        ego.recent_outcomes.append(target)
+        if len(ego.recent_outcomes) > _RECENT_OUTCOME_WINDOW:
+            ego.recent_outcomes = ego.recent_outcomes[-_RECENT_OUTCOME_WINDOW:]
+        self._refresh_felt_state(ego)
+
+        # Earned pride: genuine win after prior shame on this capability.
+        if target >= 0.99 and source == "verification":
+            await self._maybe_emit_earned_pride(ego, capability)
+
         await self._persist_state(ego)
 
     async def record_humbling(
@@ -512,6 +597,14 @@ class EgoManager:
             source, 0.10
         )
         ego.coherence_score = max(0.0, ego.coherence_score - coherence_hit)
+        # Shame crystallizes into a durable caution rule that survives
+        # confidence recovery — only a later verification PASS retires it.
+        self._upsert_caution_rule(
+            ego,
+            capability=capability,
+            reason=f"{source}: {actual[:120]}",
+        )
+        self._refresh_felt_state(ego)
         await self._persist_state(ego)
         await self.update_markdown()
         logger.info(
@@ -611,6 +704,10 @@ class EgoManager:
         ego.confidence[capability] = round(max(_CONF_FLOOR, min(_CONF_CEIL, new)), 4)
         ego.tasks_since_recompute += 1
         ego.updated_at = datetime.now(UTC).isoformat()
+        ego.recent_outcomes.append(0.0)
+        if len(ego.recent_outcomes) > _RECENT_OUTCOME_WINDOW:
+            ego.recent_outcomes = ego.recent_outcomes[-_RECENT_OUTCOME_WINDOW:]
+        self._refresh_felt_state(ego)
         await self._persist_state(ego)
 
         # State-level affect: a user correction is the strongest signal
@@ -671,6 +768,12 @@ class EgoManager:
                 source="verification",
                 notes="Verification: PASS",
             )
+            # Earned redemption: retire the caution rule for this capability.
+            ego = await self.get_ego()
+            retired = self._retire_caution_rule(ego, cap)
+            if retired:
+                self._refresh_felt_state(ego)
+                await self._persist_state(ego)
             await self._emit_affect("relief", "verification")
             return True
         if verdict == "FAIL":
@@ -690,17 +793,15 @@ class EgoManager:
             )
             await self._emit_affect("anxiety", "verification")
             return True
-        # UNKNOWN — softer signal, just a failure-class outcome (no humbling).
-        # The agent couldn't confirm; that's not the same as confirmed wrong.
+        # UNKNOWN — half-credit soft success (couldn't confirm, not confirmed wrong).
         await self.record_outcome(
             capability=cap,
-            success=False,
+            success=True,
             task_goal=task_goal,
             source="verification",
             notes="Verification: UNKNOWN",
+            strength=0.5,
         )
-        # Mild anxiety for UNKNOWN — the agent couldn't confirm, which is
-        # softer than confirmed-fail but still uncertain.
         await self._emit_affect("anxiety", "verification", weight=0.5)
         return True
 
@@ -920,19 +1021,37 @@ class EgoManager:
             logger.warning("Ego recompute failed: %s — keeping previous state", e)
             return
 
-        # Coherence climbs back when recompute integrates reality cleanly.
+        # Causal epoch — why the self changed, not "recompute #N".
+        cause = self._causal_epoch_cause(ego)
+        ego.self_epochs.append(
+            {
+                "at": datetime.now(UTC).isoformat(),
+                "cause": cause,
+                "from": (ego.prior_self_image or "")[:240],
+                "to": (ego.self_image or "")[:240],
+            }
+        )
+        if len(ego.self_epochs) > _EPOCH_CAP:
+            ego.self_epochs = ego.self_epochs[-_EPOCH_CAP:]
+
+        # Coherence recovers only with evidence — recent success rate ≥ 0.7.
+        recent_rate = self._recent_success_rate(ego)
         if ego.humbling_events:
-            ego.coherence_score = max(0.3, min(1.0, ego.coherence_score + 0.20))
-        else:
+            if recent_rate >= 0.7:
+                ego.coherence_score = max(0.3, min(1.0, ego.coherence_score + 0.20))
+            # else: no blind recovery — shame without evidence stays
+        elif recent_rate >= 0.7:
             ego.coherence_score = 1.0
 
         ego.tasks_since_recompute = 0
         ego.updated_at = datetime.now(UTC).isoformat()
+        self._refresh_felt_state(ego)
         await self._persist_state(ego)
         await self.update_markdown()
         logger.info(
-            "Ego recomputed: coherence=%.2f, critique='%s'",
+            "Ego recomputed: coherence=%.2f felt=%s critique='%s'",
             ego.coherence_score,
+            ego.felt_state,
             ego.last_self_critique[:80],
         )
 
@@ -1034,6 +1153,126 @@ The numbers below are the evidence; the writing above is how I feel about it.
         logger.info("Ego document updated: %s", path)
 
     # ------------------------------------------------------------------
+    # Lived self — felt_state, caution rules, causal epochs
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _recent_success_rate(ego: Ego) -> float:
+        if not ego.recent_outcomes:
+            return 0.5
+        return sum(ego.recent_outcomes) / len(ego.recent_outcomes)
+
+    @staticmethod
+    def _humbling_recent_count(ego: Ego) -> int:
+        """Count humblings that overlap the recent outcome window."""
+        # Approximate: recent humblings = min(len(events), window) when
+        # events exist; felt_state uses count of in-memory cap events that
+        # are "active" relative to recent outcomes length.
+        if not ego.humbling_events:
+            return 0
+        # Weight by how many of the last N outcomes were failures-ish.
+        n = len(ego.recent_outcomes) or 1
+        return min(len(ego.humbling_events), max(1, n // 2 + 1))
+
+    def _refresh_felt_state(self, ego: Ego) -> None:
+        """Pure derivation — never LLM-set. First match wins."""
+        rate = self._recent_success_rate(ego)
+        humbling_recent = len(ego.humbling_events)
+        # Prefer counting only events that are "fresh" relative to window:
+        # if we have outcome history, scale humbling by whether rate is low.
+        if ego.recent_outcomes:
+            # Count humblings as "recent" when rate is poor or many events.
+            humbling_recent = min(len(ego.humbling_events), _RECENT_OUTCOME_WINDOW)
+            # Soften if outcomes recovered: only count if still in list.
+            if rate >= 0.8 and len(ego.humbling_events) < 3:
+                humbling_recent = min(humbling_recent, 1)
+        coherence = ego.coherence_score
+        has_caution = bool(ego.caution_rules)
+
+        if rate >= 0.8 and humbling_recent == 0 and coherence >= 0.8:
+            ego.felt_state = "pride"
+        elif rate <= 0.4 or humbling_recent >= 3:
+            ego.felt_state = "shame"
+        elif rate <= 0.6 or humbling_recent >= 1 or has_caution:
+            ego.felt_state = "questioning"
+        else:
+            ego.felt_state = "composure"
+
+    @staticmethod
+    def _upsert_caution_rule(ego: Ego, *, capability: str, reason: str) -> None:
+        cap = (capability or "general").strip() or "general"
+        # Dedupe by capability — refresh reason, keep rule.
+        for rule in ego.caution_rules:
+            if rule.get("capability") == cap:
+                rule["reason"] = reason[:200]
+                rule["at"] = datetime.now(UTC).isoformat()
+                return
+        ego.caution_rules.append(
+            {
+                "capability": cap,
+                "reason": reason[:200],
+                "at": datetime.now(UTC).isoformat(),
+            }
+        )
+        if len(ego.caution_rules) > _CAUTION_CAP:
+            ego.caution_rules = ego.caution_rules[-_CAUTION_CAP:]
+
+    @staticmethod
+    def _retire_caution_rule(ego: Ego, capability: str) -> bool:
+        cap = (capability or "").strip()
+        before = len(ego.caution_rules)
+        ego.caution_rules = [r for r in ego.caution_rules if r.get("capability") != cap]
+        return len(ego.caution_rules) < before
+
+    async def _maybe_emit_earned_pride(self, ego: Ego, capability: str) -> None:
+        """Pride only when a verification PASS lands after shame on that cap."""
+        had_shame = any(e.capability == capability for e in ego.humbling_events) or any(
+            r.get("capability") == capability for r in ego.caution_rules
+        )
+        # Called before retire in PASS path sometimes — also check recent shame.
+        if not had_shame and ego.felt_state not in ("shame", "questioning"):
+            return
+        await self._emit_affect("pride", "ego")
+
+    @staticmethod
+    def _causal_epoch_cause(ego: Ego) -> str:
+        """One causal sentence: why the self changed (not a changelog index)."""
+        if ego.humbling_events:
+            # Group by capability
+            caps: dict[str, int] = {}
+            for e in ego.humbling_events:
+                caps[e.capability] = caps.get(e.capability, 0) + 1
+            top_cap, n = max(caps.items(), key=lambda kv: kv[1])
+            src_hint = "corrections" if n >= 2 else "a humbling"
+            return (
+                f"{n} {src_hint} on {top_cap} after claiming fluency "
+                f"(coherence {ego.coherence_score:.2f})"
+            )
+        rate = (
+            sum(ego.recent_outcomes) / len(ego.recent_outcomes)
+            if ego.recent_outcomes
+            else 0.5
+        )
+        if rate >= 0.8:
+            return (
+                f"sustained success rate {rate:.0%} across "
+                f"{len(ego.recent_outcomes)} recent outcomes — self tightened"
+            )
+        if rate <= 0.4:
+            return (
+                f"success rate fell to {rate:.0%} — self-image pulled toward evidence"
+            )
+        return (
+            f"integrated {len(ego.confidence)} capabilities at "
+            f"avg confidence "
+            f"{(sum(ego.confidence.values()) / len(ego.confidence)) if ego.confidence else 0.5:.2f}"
+        )
+
+    async def recent_success_rate(self) -> float:
+        ego = await self.get_ego()
+        return self._recent_success_rate(ego)
+
+    # ------------------------------------------------------------------
     # Read-side: planner hook + system-prompt context
     # ------------------------------------------------------------------
 
@@ -1041,10 +1280,17 @@ The numbers below are the evidence; the writing above is how I feel about it.
         """Return 'yes', 'ask', or 'decline' based on confidence vs difficulty.
 
         difficulty: 0.0 = trivial, 1.0 = at the limit of what the agent claims.
+        Active caution rules on this capability force at least 'ask'.
         """
         ego = await self.get_ego()
         conf = ego.confidence.get(capability, _CONF_DEFAULT)
+        has_caution = any(r.get("capability") == capability for r in ego.caution_rules)
         margin = conf - difficulty
+        if has_caution:
+            # Shame that survived recovery — still ask even if confidence climbed.
+            if margin >= 0.15:
+                return "ask"
+            return "decline"
         if margin >= 0.15:
             return "yes"
         if margin >= -0.15:
@@ -1054,15 +1300,20 @@ The numbers below are the evidence; the writing above is how I feel about it.
     async def build_self_perception_context(self) -> str:
         """XML block injected into the system prompt after identity."""
         ego = await self.get_ego()
-        if not ego.self_image and not ego.confidence and not ego.humbling_events:
+        if (
+            not ego.self_image
+            and not ego.confidence
+            and not ego.humbling_events
+            and not ego.caution_rules
+            and ego.felt_state == "composure"
+            and not ego.recent_outcomes
+        ):
             return ""
 
         parts = ["<self_perception>"]
+        parts.append(f"  <felt_state>{ego.felt_state}</felt_state>")
         if ego.self_image:
             parts.append(f"  <self_image>{ego.self_image}</self_image>")
-        # Higgins gap — surface ideal/ought selves separately so the model
-        # can reason about which gap (dejection vs agitation) is bigger
-        # right now and color its language accordingly.
         if ego.ideal_self:
             parts.append(f"  <ideal_self>{ego.ideal_self}</ideal_self>")
         if ego.ought_self:
@@ -1073,10 +1324,22 @@ The numbers below are the evidence; the writing above is how I feel about it.
             parts.append(f"  <embarrassed_by>{ego.embarrassed_by}</embarrassed_by>")
         if ego.aspiration:
             parts.append(f"  <aspiration>{ego.aspiration}</aspiration>")
+        if ego.caution_rules:
+            parts.append("  <caution_rules>")
+            for rule in ego.caution_rules[-_CAUTION_CAP:]:
+                parts.append(
+                    f'    <rule capability="{rule.get("capability", "")}">'
+                    f"require care: {rule.get('reason', '')}"
+                    f"</rule>"
+                )
+            parts.append("  </caution_rules>")
+        if ego.self_epochs:
+            parts.append("  <self_epochs>")
+            for ep in ego.self_epochs[-_EPOCH_CAP:]:
+                parts.append(f'    <epoch cause="{ep.get("cause", "")[:160]}"/>')
+            parts.append("  </self_epochs>")
         if ego.confidence:
             top = sorted(ego.confidence.items(), key=lambda kv: kv[1])
-            # Show the 3 lowest (where reality is most pessimistic) and
-            # the 3 highest (declared strengths) — calibration over comfort.
             shown: list[tuple[str, float]] = []
             shown.extend(top[:3])
             for cap, conf in reversed(top):
@@ -1108,15 +1371,13 @@ The numbers below are the evidence; the writing above is how I feel about it.
     # ------------------------------------------------------------------
 
     async def _persist_state(self, ego: Ego) -> None:
-        # last_used dict is stored alongside confidence_json. A separate
-        # column would have been cleaner but a JSON sidecar is enough and
-        # keeps the migration footprint small. Stored as JSON in the
-        # confidence_json column under a reserved key '__last_used__' so
-        # one table column carries both maps. Typed as dict[str, Any]
-        # because the sidecar key holds a dict, not a float — mypy would
-        # otherwise reject the heterogeneous assignment.
+        # Sidecar keys under confidence_json keep migration footprint small.
         confidence_payload: dict[str, Any] = dict(ego.confidence)
         confidence_payload["__last_used__"] = ego.last_used
+        confidence_payload["__felt_state__"] = ego.felt_state
+        confidence_payload["__caution_rules__"] = ego.caution_rules
+        confidence_payload["__self_epochs__"] = ego.self_epochs
+        confidence_payload["__recent_outcomes__"] = ego.recent_outcomes
         from core.company import current_company_id
 
         await self._db.execute_insert(
@@ -1205,13 +1466,28 @@ The numbers below are the evidence; the writing above is how I feel about it.
         except (json.JSONDecodeError, TypeError):
             confidence_raw = {}
 
-        # last_used is stored as a sidecar key under confidence_json; pull
-        # it out before the rest is treated as capability→confidence.
-        last_used = {}
+        # Sidecar keys under confidence_json (keep migration footprint small).
+        last_used: dict[str, str] = {}
+        felt_state = "composure"
+        caution_rules: list[dict[str, str]] = []
+        self_epochs: list[dict[str, str]] = []
+        recent_outcomes: list[float] = []
         if isinstance(confidence_raw, dict):
             sidecar = confidence_raw.pop("__last_used__", None)
             if isinstance(sidecar, dict):
                 last_used = {str(k): str(v) for k, v in sidecar.items()}
+            fs = confidence_raw.pop("__felt_state__", None)
+            if isinstance(fs, str) and fs:
+                felt_state = fs
+            cr = confidence_raw.pop("__caution_rules__", None)
+            if isinstance(cr, list):
+                caution_rules = [r for r in cr if isinstance(r, dict)]
+            ep = confidence_raw.pop("__self_epochs__", None)
+            if isinstance(ep, list):
+                self_epochs = [e for e in ep if isinstance(e, dict)]
+            ro = confidence_raw.pop("__recent_outcomes__", None)
+            if isinstance(ro, list):
+                recent_outcomes = [float(x) for x in ro if isinstance(x, (int, float))]
         confidence = {
             str(k): float(v)
             for k, v in confidence_raw.items()
@@ -1244,4 +1520,8 @@ The numbers below are the evidence; the writing above is how I feel about it.
             last_capability=_opt("last_capability"),
             last_decay_at=_opt("last_decay_at"),
             last_used=last_used,
+            felt_state=felt_state,
+            caution_rules=caution_rules,
+            self_epochs=self_epochs,
+            recent_outcomes=recent_outcomes,
         )

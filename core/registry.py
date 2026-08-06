@@ -321,6 +321,7 @@ class ToolRegistry:
         # approves/rejects via the resolution tools; company_trust_set
         # promotes the company up the ladder once voice is approved.
         from tools.drafts import (
+            CompanyTrustProposeTool,
             CompanyTrustSetTool,
             DraftApproveTool,
             DraftRejectTool,
@@ -335,6 +336,7 @@ class ToolRegistry:
         self.register(DraftApproveTool())
         self.register(DraftRejectTool())
         self.register(CompanyTrustSetTool())
+        self.register(CompanyTrustProposeTool())
 
         # ABE Phase 10 (docs/76-ABE-FRAMEWORK.md): voice-learning
         # quality layer on top of Phase 9 drafts. voice_lint gates

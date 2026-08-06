@@ -33,11 +33,11 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
 | 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 157+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry, product launch/press/validation/TDD playbooks |
-| 13b | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, progress tracking, self-evaluation, goal dreaming, deletion |
+| 13b | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, kill criteria, validate-first gate, receipt-gated complete, approval pause-not-deny, budget_paused |
 | 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail |
 | 16 | [Document & Media Analysis](16-DOCUMENT-ANALYSIS.md) | File intake, OCR, vision analysis, RAG for large documents, research mode |
-| 17 | [Identity System](17-IDENTITY.md) | Agent identity, beliefs, personality evolution, social profiles |
+| 17 | [Identity System](17-IDENTITY.md) | Agent identity + **evaluative ego** (felt_state, caution rules, soft-gate), beliefs, personality evolution |
 | 18 | [Agent Email](18-EMAIL.md) | Dual provider (AgentMail + SMTP/IMAP), send/receive/search, background monitoring, audit logging |
 | 19 | [Skill Security](19-SKILL-SECURITY.md) | 7-layer defense-in-depth for EloPhantoHub marketplace |
 | 20 | [Hosted Platform](20-HOSTED-PLATFORM.md) | Desktop app (Tauri) + cloud instances (Fly.io), hybrid distribution |

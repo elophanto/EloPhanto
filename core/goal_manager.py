@@ -75,7 +75,9 @@ class Goal:
     goal_id: str
     session_id: str | None
     goal: str
-    status: str = "planning"  # planning|active|paused|completed|failed|cancelled
+    status: str = (
+        "planning"  # planning|active|paused|awaiting_approval|budget_paused|completed|failed|cancelled
+    )
     plan: list[dict[str, Any]] = field(default_factory=list)
     context_summary: str = ""
     current_checkpoint: int = 0
@@ -441,9 +443,42 @@ class GoalManager:
         )
         return [self._row_to_goal(r) for r in rows]
 
-    async def cancel_goal(self, goal_id: str) -> bool:
-        """Cancel a goal."""
-        return await self._update_status(goal_id, "cancelled")
+    async def cancel_goal(self, goal_id: str, *, kill_reason: str = "") -> bool:
+        """Cancel a goal. Optional kill_reason tags a short undo grace."""
+        ok = await self._update_status(goal_id, "cancelled")
+        if ok and kill_reason:
+            goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
+            if goal is not None:
+                tag = (
+                    f"[kill_grace] cancelled_at={datetime.now(UTC).isoformat()} "
+                    f"| {kill_reason}\n"
+                )
+                goal.context_summary = tag + (goal.context_summary or "")
+                await self._persist_goal(goal)
+        return ok
+
+    async def undo_kill(self, goal_id: str, *, grace_minutes: float = 15.0) -> bool:
+        """Undo a recent kill_criterion cancel within the grace window."""
+        import re
+        from datetime import datetime as _dt
+
+        goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
+        if goal is None or goal.status != "cancelled":
+            return False
+        ctx = goal.context_summary or ""
+        m = re.search(r"\[kill_grace\]\s+cancelled_at=([^\s|]+)", ctx)
+        if not m:
+            return False
+        try:
+            cancelled_at = _dt.fromisoformat(m.group(1).replace("Z", "+00:00"))
+        except Exception:
+            return False
+        age_m = (datetime.now(UTC) - cancelled_at).total_seconds() / 60.0
+        if age_m > grace_minutes:
+            return False
+        return await self._update_status(
+            goal_id, "active", from_statuses=("cancelled",)
+        )
 
     async def delete_goal(self, goal_id: str) -> bool:
         """Permanently delete a goal and its checkpoints."""
@@ -469,13 +504,104 @@ class GoalManager:
         except Exception:
             return 0
 
-    async def pause_goal(self, goal_id: str) -> bool:
-        """Pause an active goal."""
-        return await self._update_status(goal_id, "paused", from_statuses=("active",))
+    async def pause_goal(
+        self,
+        goal_id: str,
+        *,
+        status: str = "paused",
+        reason: str = "",
+    ) -> bool:
+        """Pause an active goal (or hold as awaiting_approval / budget_paused)."""
+        if status not in ("paused", "awaiting_approval", "budget_paused"):
+            status = "paused"
+        ok = await self._update_status(
+            goal_id,
+            status,
+            from_statuses=(
+                "active",
+                "paused",
+                "awaiting_approval",
+                "budget_paused",
+            ),
+        )
+        if ok and reason:
+            goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
+            if goal is not None:
+                # Stash reason in context_summary prefix so resume/UI see why.
+                tag = f"[{status}] {reason}\n"
+                if not (goal.context_summary or "").startswith(tag):
+                    goal.context_summary = tag + (goal.context_summary or "")
+                    await self._persist_goal(goal)
+        return ok
 
-    async def resume_goal(self, goal_id: str) -> bool:
-        """Resume a paused goal."""
-        return await self._update_status(goal_id, "active", from_statuses=("paused",))
+    async def resume_goal(
+        self,
+        goal_id: str,
+        *,
+        cost_budget_usd: float | None = None,
+        max_time_seconds: float | None = None,
+        max_llm_calls: int | None = None,
+    ) -> bool:
+        """Resume a paused / awaiting_approval / budget_paused goal.
+
+        ``budget_paused`` resumes only when at least one limit is
+        explicitly higher than the values snapshotted at pause time.
+        """
+        goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
+        if goal is not None and goal.status == "budget_paused":
+            if not self._budget_limits_raised(
+                goal.context_summary or "",
+                cost_budget_usd=cost_budget_usd,
+                max_time_seconds=max_time_seconds,
+                max_llm_calls=max_llm_calls,
+            ):
+                logger.warning(
+                    "Refuse resume of budget_paused goal %s — limits not raised",
+                    goal_id,
+                )
+                return False
+        return await self._update_status(
+            goal_id,
+            "active",
+            from_statuses=("paused", "awaiting_approval", "budget_paused"),
+        )
+
+    @staticmethod
+    def _budget_limits_raised(
+        context: str,
+        *,
+        cost_budget_usd: float | None,
+        max_time_seconds: float | None,
+        max_llm_calls: int | None,
+    ) -> bool:
+        """True when current limits exceed the snapshot in ``[budget_paused]``."""
+        import re
+
+        m = re.search(
+            r"\[budget_paused\]\s+limit_cost=([0-9.]+)\s+"
+            r"limit_time=([0-9.]+)\s+limit_llm=(\d+)",
+            context,
+        )
+        if not m:
+            # No snapshot — require an explicit higher limit arg to be safe.
+            return any(
+                v is not None
+                for v in (cost_budget_usd, max_time_seconds, max_llm_calls)
+            ) and (
+                (cost_budget_usd or 0) > 0
+                or (max_time_seconds or 0) > 0
+                or (max_llm_calls or 0) > 0
+            )
+        snap_cost = float(m.group(1))
+        snap_time = float(m.group(2))
+        snap_llm = int(m.group(3))
+        if cost_budget_usd is not None and cost_budget_usd > snap_cost + 1e-9:
+            return True
+        if max_time_seconds is not None and max_time_seconds > snap_time + 1e-9:
+            return True
+        if max_llm_calls is not None and max_llm_calls > snap_llm:
+            return True
+        return False
 
     # --- Decomposition ---
 
@@ -718,6 +844,142 @@ class GoalManager:
             f"{incomplete} validate checkpoint(s) are unfinished — no paying-party "
             f"signal yet. Validate before build; pivot or kill if validation failed."
         )
+
+    async def evaluate_kill_criterion(
+        self,
+        goal: Goal,
+        *,
+        evidence_text: str = "",
+        now: datetime | None = None,
+    ) -> tuple[bool, str]:
+        """Return (triggered, reason) for the goal's kill criterion.
+
+        Prefers numeric / time evidence over free-form LLM judgment.
+        Supported patterns (case-insensitive):
+          - ``if <N … in D days`` / ``fewer than N … within D days``
+          - ``after D days`` with zero progress (no completed checkpoints)
+        ``evidence_text`` should include tool/SoR counts (e.g. ``pre-orders: 3``).
+        """
+        import re
+        from datetime import datetime as _dt
+
+        kc = (goal.kill_criterion or "").strip()
+        if not kc:
+            return False, ""
+
+        clock = now or datetime.now(UTC)
+        created = goal.created_at or ""
+        try:
+            created_dt = _dt.fromisoformat(created.replace("Z", "+00:00"))
+        except Exception:
+            created_dt = clock
+        age_days = max(0.0, (clock - created_dt).total_seconds() / 86400.0)
+
+        text = f"{kc}\n{evidence_text}\n{goal.context_summary or ''}".lower()
+
+        # Pattern: < N X in/within D days  OR  fewer than N ... D days
+        m = re.search(
+            r"(?:<|>|<=|>=|fewer than|less than|under|at least|fewer than)\s*"
+            r"(\d+)\s*.{0,40}?(?:in|within|after|over)\s*(\d+)\s*days?",
+            kc.lower(),
+        )
+        if not m:
+            m = re.search(
+                r"if\s*(?:<|>)?\s*(\d+)\s+.{0,40}?(?:in|within)\s*(\d+)\s*days?",
+                kc.lower(),
+            )
+        if m:
+            threshold = int(m.group(1))
+            window = int(m.group(2))
+            if age_days + 1e-9 >= window:
+                # Pull observed count from evidence (pre-orders: N, count=N, etc.)
+                counts = [
+                    int(x)
+                    for x in re.findall(
+                        r"(?:pre-?orders?|signups?|sales?|leads?|count|n)\s*[:=]?\s*(\d+)",
+                        text,
+                    )
+                ]
+                observed = min(counts) if counts else 0
+                # "<5 in 14 days" triggers when observed < 5 after 14 days
+                if re.search(r"(<|>|fewer|less than|under)", kc.lower()):
+                    if observed < threshold:
+                        return (
+                            True,
+                            f"kill_criterion met: observed={observed} < {threshold} "
+                            f"after {age_days:.1f}d (window {window}d) — {kc}",
+                        )
+                else:
+                    if observed >= threshold:
+                        return (
+                            True,
+                            f"kill_criterion met: observed={observed} >= {threshold} "
+                            f"after {age_days:.1f}d — {kc}",
+                        )
+
+        # Pattern: abandon after D days with no completed checkpoints
+        m2 = re.search(r"(?:after|within)\s*(\d+)\s*days?", kc.lower())
+        if m2 and (
+            "no progress" in kc.lower()
+            or "zero" in kc.lower()
+            or "nothing" in kc.lower()
+            or "abandon" in kc.lower()
+        ):
+            window = int(m2.group(1))
+            if age_days >= window and (goal.current_checkpoint or 0) <= 1:
+                completed = await self._db.execute(
+                    "SELECT COUNT(*) AS c FROM goal_checkpoints "
+                    "WHERE goal_id = ? AND status = 'completed'",
+                    (goal.goal_id,),
+                )
+                n = int(completed[0]["c"]) if completed else 0
+                if n == 0:
+                    return (
+                        True,
+                        f"kill_criterion met: no checkpoints completed after "
+                        f"{age_days:.1f}d (window {window}d) — {kc}",
+                    )
+
+        return False, ""
+
+    async def reorder_validate_before_build(self, goal_id: str) -> bool:
+        """Move pending validate checkpoints ahead of pending build/launch.
+
+        Returns True if any order swap happened.
+        """
+        cps = await self.get_checkpoints(goal_id)
+        pending = [c for c in cps if c.status == "pending"]
+        if not pending:
+            return False
+        validates = [c for c in pending if (c.stage or "") == "validate"]
+        posts = [c for c in pending if (c.stage or "") in POST_VALIDATION_STAGES]
+        if not validates or not posts:
+            return False
+        # Assign new orders: all validates first (stable), then others.
+        others = [c for c in pending if c not in validates]
+        new_seq = validates + others
+        # Only rewrite if a post currently has lower order than a validate.
+        if min(p.order for p in posts) > max(v.order for v in validates):
+            return False
+        for i, cp in enumerate(new_seq, start=1):
+            await self._db.execute(
+                "UPDATE goal_checkpoints SET checkpoint_order = ? "
+                "WHERE goal_id = ? AND checkpoint_order = ? AND title = ?",
+                (1000 + i, goal_id, cp.order, cp.title),
+            )
+        # Compact into 1..N
+        rows = await self._db.execute(
+            "SELECT checkpoint_order, title FROM goal_checkpoints "
+            "WHERE goal_id = ? ORDER BY checkpoint_order",
+            (goal_id,),
+        )
+        for i, row in enumerate(rows, start=1):
+            await self._db.execute(
+                "UPDATE goal_checkpoints SET checkpoint_order = ? "
+                "WHERE goal_id = ? AND title = ? AND checkpoint_order = ?",
+                (i, goal_id, row["title"], row["checkpoint_order"]),
+            )
+        return True
 
     async def mark_checkpoint_active(self, goal_id: str, order: int) -> None:
         """Mark a checkpoint as actively being worked on."""

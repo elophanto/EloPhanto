@@ -52,37 +52,17 @@ _CTRL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 def _ego_qualifier(ego_data: dict) -> str:
     """Derive a one-word ego qualifier from structured ego state.
 
-    The footer / digest needs a single short word that gives the
-    operator an honest sense of where the agent stands. Earlier
-    versions tried to use ``last_self_critique`` directly and got
-    truncated nonsense like ``ego 1.00 · I am better at`` because
-    the critique is by design unsparing prose, not a mood label.
-
-    This function maps the *structured* ego fields onto a small
-    vocabulary that maps to actual states:
-
-      - ``stale`` — ego data hasn't been recomputed in 25+ tasks
-        (the recompute trigger threshold). Coherence may be stale
-        even if numerically high; flag honestly.
-      - ``humbled`` — many recent humbling events (≥3). The agent
-        has hit walls and recorded them.
-      - ``shaken`` — coherence < 0.50. Self-image has drifted from
-        evidence by the ego layer's own measure.
-      - ``questioning`` — coherence 0.50-0.75 OR mean confidence
-        < 0.65. Some self-doubt, no crisis.
-      - ``steady`` — coherence 0.75-0.92, no recent humbling,
-        confidence broadly positive.
-      - ``settled`` — coherence ≥ 0.92, mean confidence ≥ 0.80.
-        Genuine alignment. The default 1.00 with no recompute
-        history shows as ``stale`` not ``settled``.
-      - ``green`` — empty/missing data (first boot, ego layer not
-        yet initialized).
-
-    Returns a single lowercase word, never longer than ~12 chars,
-    safe for the 22-col footer budget.
+    Prefer gateway-provided ``felt_state`` (pride / shame / composure /
+    questioning) — continuous lived self derived every outcome. Fall
+    back to legacy heuristics when felt_state is absent (old payloads).
     """
     if not ego_data:
         return "green"
+    felt = str(ego_data.get("felt_state") or "").strip().lower()
+    if felt in ("pride", "shame", "composure", "questioning"):
+        # Map composure → steady for footer vocabulary continuity.
+        return {"composure": "steady", "pride": "settled"}.get(felt, felt)
+
     try:
         coherence = float(ego_data.get("coherence", 0.0))
     except (TypeError, ValueError):
@@ -100,29 +80,20 @@ def _ego_qualifier(ego_data: dict) -> str:
     except (TypeError, ValueError):
         tasks_since = 0
 
-    # First-boot / no-data path. confidence_avg of 0 means no
-    # capabilities have been recorded yet — the ego layer either
-    # hasn't run or just started.
     if confidence_avg <= 0.0 and humbling == 0:
         return "green"
-
-    # Stale check fires before the optimistic "settled" so we don't
-    # paint over default-1.0 ego with confident words.
     if tasks_since >= 25:
         return "stale"
-
-    if humbling >= 3:
+    # Never show "humbled" at pristine coherence without caution weight.
+    caution = int(ego_data.get("caution_count", 0) or 0)
+    if humbling >= 3 and (coherence < 0.95 or caution > 0):
         return "humbled"
-
     if coherence < 0.50:
         return "shaken"
-
-    if coherence < 0.75 or confidence_avg < 0.65:
+    if coherence < 0.75 or confidence_avg < 0.65 or caution > 0:
         return "questioning"
-
-    if coherence >= 0.92 and confidence_avg >= 0.80:
+    if coherence >= 0.92 and confidence_avg >= 0.80 and humbling == 0:
         return "settled"
-
     return "steady"
 
 
@@ -1000,7 +971,9 @@ class _GoalsPanel(_SidePanel):
     def body(self) -> str:
         s = self._st
         if not s.goals:
-            return _hud_idle("no mission") if _is_hud() else f"  [{_DIM}]· · ·[/]"
+            # Empty body — HUD hide handled in repaint(). Classic keeps
+            # a quiet placeholder so the panel still occupies its slot.
+            return "" if _is_hud() else f"  [{_DIM}]· · ·[/]"
 
         if _is_hud():
             icons = {
@@ -1083,6 +1056,15 @@ class _GoalsPanel(_SidePanel):
             lines.append(f"  [{_DIM}]+{extra} more[/]")
         return "\n".join(lines)
 
+    def repaint(self) -> None:
+        # HUD: hide empty MISSION — a header with no goals was dead
+        # weight on the left rail (operator report 2026-08-06).
+        if _is_hud() and not self._st.goals:
+            self.display = False
+            return
+        self.display = True
+        super().repaint()
+
 
 class _CompaniesPanel(_SidePanel):
     """ABE board view (Phase 5).
@@ -1161,11 +1143,7 @@ class _CompaniesPanel(_SidePanel):
             t_letter = trust_initial.get(trust, "?")
             v_render = voice_render.get(voice, voice_render["none"])
             s_render = strategy_render.get(strategy, strategy_render["none"])
-            b_render = (
-                f" [{_WARN}]BLK {blockers}[/]"
-                if blockers > 0 and _is_hud()
-                else (f" [{_WARN}]b{blockers}[/]" if blockers > 0 else "")
-            )
+            b_render = f" [{_WARN}]b{blockers}[/]" if blockers > 0 else ""
 
             # Net 7-day: green if positive, dim if zero, red if negative.
             # Operators read net as "is this making money or burning".
@@ -1178,13 +1156,15 @@ class _CompaniesPanel(_SidePanel):
 
             lines.append(f"  {icon} [{_BRIGHT}]{slug}[/]")
             if _is_hud():
-                # Readable field keys — glanceable without a legend.
+                # Compact tags — full TRUST/VOICE/STRAT labels wrapped
+                # on a 28-col rail and made COS the densest panel.
+                # One glance line: T·O  V·—  S·A  NET -$0
                 lines.append(
-                    f"    [{_DIM}]TRUST[/] [{t_color}]{t_letter}[/] "
-                    f"[{_DIM}]VOICE[/] {v_render} "
-                    f"[{_DIM}]STRAT[/] {s_render}{b_render}"
+                    f"    [{_DIM}]T[/][{t_color}]{t_letter}[/] "
+                    f"[{_DIM}]V[/]{v_render} "
+                    f"[{_DIM}]S[/]{s_render}{b_render} "
+                    f"{net_str}"
                 )
-                lines.append(f"    [{_DIM}]NET7[/] {net_str}")
             else:
                 lines.append(
                     f"    T:[{t_color}]{t_letter}[/] "

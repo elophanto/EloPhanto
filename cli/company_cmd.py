@@ -126,16 +126,21 @@ async def _dispatch(
     elif action == "report":
         await _report(db, mgr, slug, project_root=config.project_root)
     elif action == "trust":
-        # `trust <slug> [state]` — show current trust_state if no
-        # state given, or promote/demote if state given. Phase 9.
-        # Operator forms:
-        #   elophanto company trust acme-inc         → show
-        #   elophanto company trust acme-inc trial   → set to trial
+        # `trust <slug> [state|propose|confirm]` — show / set / propose /
+        # confirm trust promotion. Direct set still works for operators;
+        # propose→confirm is the preferred one-click path.
         if slug is None:
-            console.print("[red]Usage:[/red] elophanto company trust <slug> [state]")
+            console.print(
+                "[red]Usage:[/red] elophanto company trust <slug> "
+                "[state|propose|confirm]"
+            )
             return
         if name is None:
             await _trust_show(mgr, slug)
+        elif name == "propose":
+            await _trust_propose(mgr, slug, project_root=config.project_root)
+        elif name == "confirm":
+            await _trust_confirm(mgr, slug, project_root=config.project_root)
         else:
             await _trust_set(mgr, slug, name)
     elif action == "posture":
@@ -337,6 +342,47 @@ async def _trust_set(mgr: CompanyManager, slug: str, state: str) -> None:
         "operating": "green",
     }.get(state, "white")
     console.print(f"[green]Set[/green] {slug} trust → [{style}]{state}[/{style}]")
+
+
+async def _trust_propose(mgr: CompanyManager, slug: str, *, project_root: Path) -> None:
+    """Write a one-click trust promotion proposal from draft evidence."""
+    from core.trust_gate import propose_trust_promotion
+
+    company = await mgr.get(slug)
+    if company is None:
+        console.print(f"[red]No such company:[/red] {slug}")
+        return
+    ok, evidence, path = propose_trust_promotion(
+        project_root, slug, current_state=company.trust_state
+    )
+    if not ok:
+        console.print(f"[yellow]Not ready:[/yellow] {evidence.reason}")
+        return
+    console.print(
+        f"[green]Proposed[/green] {slug}: {evidence.current_state} → "
+        f"{evidence.proposed_state}"
+    )
+    console.print(f"[dim]{path}[/dim]")
+    console.print(f"Confirm with: [cyan]elophanto company trust {slug} confirm[/cyan]")
+
+
+async def _trust_confirm(mgr: CompanyManager, slug: str, *, project_root: Path) -> None:
+    """Apply a pending trust_proposal.json (one-click confirm)."""
+    from core.trust_gate import confirm_trust_promotion
+
+    ok, new_state, msg = confirm_trust_promotion(project_root, slug)
+    if not ok:
+        console.print(f"[red]{msg}[/red]")
+        return
+    try:
+        applied = await mgr.set_trust_state(slug, new_state)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        return
+    if not applied:
+        console.print(f"[red]No such company:[/red] {slug}")
+        return
+    console.print(f"[green]Confirmed[/green] {slug} trust → {new_state}")
 
 
 async def _posture_cmd(

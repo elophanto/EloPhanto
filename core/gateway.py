@@ -1236,13 +1236,25 @@ class Gateway:
         await self.broadcast(req, session_id=session.session_id)
 
         try:
-            approved = await asyncio.wait_for(
-                self._pending_approvals[req.id], timeout=300
-            )
-            return approved
-        except TimeoutError:
-            logger.warning("Approval timed out for %s", tool_name)
-            return False
+            try:
+                return await asyncio.wait_for(
+                    asyncio.shield(self._pending_approvals[req.id]), timeout=150
+                )
+            except TimeoutError:
+                logger.warning("Approval timeout (1st) for %s — re-pinging", tool_name)
+                await self.broadcast(req, session_id=session.session_id)
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(self._pending_approvals[req.id]), timeout=150
+                    )
+                except TimeoutError:
+                    logger.warning(
+                        "Approval timed out for %s — pausing (not denying)",
+                        tool_name,
+                    )
+                    from core.approval_wait import ApprovalTimeoutPause
+
+                    raise ApprovalTimeoutPause(tool_name, description) from None
         finally:
             self._pending_approvals.pop(req.id, None)
 
@@ -1818,6 +1830,8 @@ class Gateway:
                         "tasks_since_recompute": int(
                             getattr(ego, "tasks_since_recompute", 0)
                         ),
+                        "felt_state": str(getattr(ego, "felt_state", "") or ""),
+                        "caution_count": len(getattr(ego, "caution_rules", None) or []),
                     }
                 except Exception:
                     dashboard["ego"] = None
@@ -3311,9 +3325,16 @@ class Gateway:
                 ego = {
                     "coherence": round(float(e.coherence_score), 3),
                     "self_image": e.self_image or "",
-                    "self_critique": getattr(e, "self_critique", "") or "",
+                    "self_critique": e.last_self_critique or "",
+                    "last_self_critique": e.last_self_critique or "",
                     "ideal_self": e.ideal_self or "",
                     "ought_self": e.ought_self or "",
+                    "proud_of": e.proud_of or "",
+                    "embarrassed_by": e.embarrassed_by or "",
+                    "aspiration": e.aspiration or "",
+                    "felt_state": getattr(e, "felt_state", "") or "",
+                    "caution_rules": list(getattr(e, "caution_rules", None) or []),
+                    "self_epochs": list(getattr(e, "self_epochs", None) or []),
                     "capabilities": capabilities,
                     "confidence_avg": round(sum(vals) / len(vals), 3) if vals else 0.0,
                     "confidence_min": round(min(vals), 3) if vals else 0.0,

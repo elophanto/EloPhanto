@@ -348,41 +348,19 @@ def _extract_path(tc: dict[str, Any]) -> str | None:
         return None
 
 
-# Tool-name → capability label, used by the ego layer to assign per-task
-# outcomes to a coarse capability bucket. Unknown tools fall through to the
-# tool's own name; tasks that used no recognizable tool record nothing.
-_TOOL_CAPABILITY_MAP: dict[str, str] = {
-    "browser_navigate": "web_browsing",
-    "browser_click": "web_browsing",
-    "browser_extract": "web_browsing",
-    "browser_type": "web_browsing",
-    "polymarket_bet": "polymarket_trading",
-    "polymarket_scan": "polymarket_trading",
-    "pump_livestream": "pumpfun_livestream",
-    "pump_say": "pumpfun_livestream",
-    "pump_chat": "pumpfun_livestream",
-    "knowledge_write": "knowledge_management",
-    "knowledge_search": "knowledge_management",
-    "code_edit": "code_editing",
-    "code_write": "code_editing",
-    "shell_exec": "shell_execution",
-    "send_email": "email_communication",
-    "twitter_post": "x_engagement",
-    "twitter_reply": "x_engagement",
-}
+# Tool-name → capability domain — canonical map lives in core.ego.
+from core.ego import CAPABILITY_DOMAINS, capability_for_tool
+
+_TOOL_CAPABILITY_MAP = CAPABILITY_DOMAINS
 
 
 def _capability_from_tools(tools_used: list[str]) -> str:
-    """Pick the most representative capability for a task based on tools used.
-
-    Returns the most-frequent mapped capability, or the most-frequent raw
-    tool name if none mapped, or empty string if no tools were used.
-    """
+    """Pick the most representative capability domain for a task."""
     if not tools_used:
         return ""
     counts: dict[str, int] = {}
     for t in tools_used:
-        cap = _TOOL_CAPABILITY_MAP.get(t, t)
+        cap = capability_for_tool(t)
         counts[cap] = counts.get(cap, 0) + 1
     return max(counts.items(), key=lambda kv: kv[1])[0]
 
@@ -1288,6 +1266,7 @@ class Agent:
                 # Executor fires mild anxiety on tool failures.
                 if self._executor is not None:
                     self._executor._affect_manager = self._affect_manager
+                    self._executor._ego_manager = self._ego_manager
                 # Router applies affect-based temperature bias.
                 if self._router is not None:
                     self._router._affect_manager = self._affect_manager
@@ -2189,6 +2168,7 @@ class Agent:
             "draft_approve",
             "draft_reject",
             "company_trust_set",
+            "company_trust_propose",
             # ABE Phase 10 — voice tools share the same shape:
             # voice_extract needs router + voice_manager; voice_show
             # + voice_lint need voice_manager only. hasattr() guards
@@ -4524,6 +4504,14 @@ class Agent:
         # Stagnation/max-steps is a real self-failure — fire frustration
         # so an autonomous loop that keeps hitting the wall feels it.
         asyncio.create_task(self._emit_task_outcome_affect(success=False))
+        if self._ego_manager:
+            asyncio.create_task(
+                self._record_ego_outcome(
+                    goal=goal,
+                    tools_used=list(set(tool_calls_made)),
+                    success=False,
+                )
+            )
 
         return AgentResponse(
             content=max_steps_msg,

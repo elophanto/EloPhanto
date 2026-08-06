@@ -115,6 +115,9 @@ class Executor:
         # Typed `Any` to keep executor.py free of affect imports —
         # layering is one-way (executor writes to affect, never reads).
         self._affect_manager: Any = None
+        # Ego soft-gate — when set, should_attempt(decline) forces an
+        # approval ask even under full_auto (behavior-shaping shame).
+        self._ego_manager: Any = None
         # ABE Phase 2: role gate handle — set by Agent after construction.
         # When None, role gating is inert (every tool passes through to
         # the standard permission check). When set, the executor consults
@@ -224,8 +227,10 @@ class Executor:
                         ),
                     )
 
-        # Permission check (per-call callback overrides instance-level)
-        approved = self._check_permission(
+        # Permission check (per-call callback overrides instance-level).
+        # ApprovalTimeoutPause propagates so goal/mind runners can pause
+        # as awaiting_approval instead of treating timeout as deny.
+        approved = await self._check_permission(
             tool, params, approval_callback=approval_callback
         )
         if not approved:
@@ -465,7 +470,7 @@ class Executor:
         except Exception as e:  # pragma: no cover — defensive
             logger.debug("Content-affect inference failed for %s: %s", tool_name, e)
 
-    def _check_permission(
+    async def _check_permission(
         self,
         tool: BaseTool,
         params: dict[str, Any],
@@ -476,21 +481,78 @@ class Executor:
         Args:
             approval_callback: Per-call override for the instance-level callback.
                 Used by gateway to route approvals to the correct channel session.
+
+        CRITICAL tools always require approval even in ``full_auto`` —
+        wallet/self-mod/swap must never auto-fire unattended.
         """
+        import inspect
+
         callback = approval_callback or self._approval_callback
         override = self._tool_overrides.get(tool.name)
 
+        async def _ask() -> bool:
+            if not callback:
+                return False
+            description = self._format_approval_request(tool, params)
+            result = callback(tool.name, description, params)
+            if inspect.isawaitable(result):
+                return bool(await result)
+            return bool(result)
+
         if override == "auto":
+            # Explicit per-tool auto still wins — except CRITICAL, which
+            # is never auto regardless of override / mode.
+            if tool.permission_level == PermissionLevel.CRITICAL:
+                return await _ask()
             return True
         if override == "ask":
-            if callback:
-                description = self._format_approval_request(tool, params)
-                return callback(tool.name, description, params)
-            return False
+            return await _ask()
 
-        # Default behavior: follow global permission mode
+        # SAFE tools always run.
         if tool.permission_level == PermissionLevel.SAFE:
             return True
+
+        # CRITICAL always asks — even under full_auto (docs + plan).
+        if tool.permission_level == PermissionLevel.CRITICAL:
+            return await _ask()
+
+        # Ego soft-gate: when confidence says decline (or caution rule
+        # forces ask), require approval even in full_auto. This is the
+        # behavioral proof that shame changes what the agent attempts.
+        if self._ego_manager is not None and tool.permission_level in (
+            PermissionLevel.MODERATE,
+            PermissionLevel.CRITICAL,
+        ):
+            try:
+                from core.ego import capability_for_tool
+
+                capability = capability_for_tool(tool.name)
+                # Harder default for money / outreach domains.
+                difficulty = {
+                    "payments": 0.75,
+                    "outreach": 0.65,
+                    "social": 0.65,
+                    "browser": 0.55,
+                }.get(capability, 0.5)
+                verdict = await self._ego_manager.should_attempt(
+                    capability, difficulty=difficulty
+                )
+                if verdict == "decline":
+                    logger.info(
+                        "Ego soft-gate: decline on %s (%s) — forcing approval ask",
+                        tool.name,
+                        capability,
+                    )
+                    return await _ask()
+                if verdict == "ask" and self._config.permission_mode == "full_auto":
+                    logger.info(
+                        "Ego soft-gate: ask on %s (%s) — overriding full_auto",
+                        tool.name,
+                        capability,
+                    )
+                    return await _ask()
+            except Exception as e:
+                logger.debug("Ego soft-gate skipped: %s", e)
 
         if self._config.permission_mode == "full_auto":
             return True
@@ -500,11 +562,7 @@ class Executor:
                 if tool.is_safe_command(params.get("command", "")):
                     return True
 
-        if callback:
-            description = self._format_approval_request(tool, params)
-            return callback(tool.name, description, params)
-
-        return False
+        return await _ask()
 
     def _format_approval_request(self, tool: BaseTool, params: dict[str, Any]) -> str:
         """Format a human-readable description of what the tool wants to do."""

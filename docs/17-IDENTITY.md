@@ -394,3 +394,40 @@ First Run ──► First Awakening ──► Identity Created (v1)
 | `core/database.py` | identity + identity_evolution DDL |
 | `core/config.py` | IdentityConfig dataclass |
 | `core/protocol.py` | Identity event types (optional) |
+
+## Ego — evaluative self (companion to identity)
+
+Identity is **descriptive** ("who I claim to be"). Ego is **evaluative**
+("how reality grades that claim"). Implementation: [`core/ego.py`](../core/ego.py).
+Mirror file: `knowledge/self/ego.md`. Affect (fast loop): [69-AFFECT.md](69-AFFECT.md).
+
+### What moves the numbers
+
+| Signal | Effect |
+| --- | --- |
+| Task outcome | Per-domain confidence EMA (`browser`, `coding`, `outreach`, `social`, `payments`, `research`, `ops`). Failures weight harder than successes. Max-steps / incomplete tasks record `success=False`. |
+| User correction | Pattern-match → humbling + confidence hit (strongest signal). |
+| `Verification: PASS/FAIL/UNKNOWN` | PASS reinforces + can retire a caution rule; FAIL humbles; UNKNOWN is soft success (`strength=0.5`). |
+| Decay | Idle capabilities drift toward 0.50 (week half-life). |
+
+The LLM writes **prose only** on recompute (every 25 outcomes): `self_image`,
+Higgins `ideal_self` / `ought_self`, `proud_of`, `embarrassed_by`, `aspiration`,
+`last_self_critique`. It never writes confidence or coherence.
+
+### Lived self between recomputes
+
+| Field | Role |
+| --- | --- |
+| `felt_state` | Derived every outcome: `pride` / `shame` / `composure` / `questioning`. Injected as `<felt_state>`; dashboard footer prefers it. |
+| `caution_rules` | Shame with memory. Created on humbling; **survives** confidence recovery; retired only by `Verification: PASS` on that capability. |
+| `self_epochs` | Last 3 causal self-story notes on recompute (not "recompute #N"). |
+| Coherence recovery | Only when recent success rate ≥ 0.7 — no blind +0.20. |
+
+### Behavior-shaping
+
+`should_attempt(capability)` returns `yes` / `ask` / `decline`. The executor
+**soft-gates** MODERATE tools: under `full_auto`, `ask`/`decline` still forces
+an approval callback. Active caution rules force at least `ask`. CRITICAL tools
+always ask regardless.
+
+Tests: `tests/test_core/test_ego.py`, `tests/test_core/test_ego_lived.py`.

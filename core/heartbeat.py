@@ -203,25 +203,15 @@ class HeartbeatEngine:
         async def _auto_approve(
             tool_name: str, description: str, params: dict[str, Any]
         ) -> bool:
-            if self._gateway:
-                from core.protocol import approval_request_message
+            from core.approval_wait import wait_for_operator_approval
 
-                msg = approval_request_message(
-                    session_id="",
-                    tool_name=tool_name,
-                    description=f"[Heartbeat] {description}",
-                    params=params,
-                )
-                future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
-                self._gateway._pending_approvals[msg.id] = future
-                await self._gateway.broadcast(msg, session_id=None)
-                try:
-                    return await asyncio.wait_for(future, timeout=120)
-                except TimeoutError:
-                    return False
-                finally:
-                    self._gateway._pending_approvals.pop(msg.id, None)
-            return True
+            return await wait_for_operator_approval(
+                self._gateway,
+                tool_name=tool_name,
+                description=description,
+                params=params,
+                label="Heartbeat",
+            )
 
         self._agent._executor.set_approval_callback(_auto_approve)
 

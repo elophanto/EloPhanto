@@ -6,7 +6,8 @@ Six tools in one file:
   - ``post_draft``          (SAFE) — write a proposed X / public post draft
   - ``draft_approve``       (MODERATE) — operator approves a draft
   - ``draft_reject``        (MODERATE) — operator rejects a draft (with reason)
-  - ``company_trust_set``   (MODERATE) — operator promotes/demotes trust state
+  - ``company_trust_set``   (CRITICAL) — operator promotes/demotes trust state
+  - ``company_trust_propose`` (SAFE) — write one-click trust promotion proposal
 
 Draft files live under ``companies/<slug>/drafts/<kind>/pending/`` and
 move to ``approved/`` or ``rejected/`` on resolution. Drafts are
@@ -576,6 +577,15 @@ class DraftRejectTool(_DraftResolverBase):
             "rejected",
             reason,
         )
+        try:
+            from core.trust_gate import reset_trust_counters_on_reject
+
+            reset_trust_counters_on_reject(
+                self._project_root,  # type: ignore[arg-type]
+                company_id,
+            )
+        except Exception:
+            pass
         return ToolResult(
             success=True,
             data={
@@ -594,6 +604,7 @@ class CompanyTrustSetTool(BaseTool):
 
     def __init__(self) -> None:
         self._company_manager: Any = None
+        self._project_root: Path | None = None
 
     @property
     def group(self) -> str:
@@ -608,10 +619,8 @@ class CompanyTrustSetTool(BaseTool):
         return (
             "Set the trust state on a company. Operator-controlled "
             "promotion through the ladder: learning → trial → "
-            "operating. learning blocks live outreach (agent must "
-            "draft). trial allows outreach but each call still gates "
-            "through MODERATE permission. operating is autonomous "
-            "within budget. No auto-promotion — operator chooses."
+            "operating. Prefer propose→confirm (trust_proposal.json) "
+            "when promoting. CRITICAL — never silent under full_auto."
         )
 
     @property
@@ -634,7 +643,8 @@ class CompanyTrustSetTool(BaseTool):
 
     @property
     def permission_level(self) -> PermissionLevel:
-        return PermissionLevel.MODERATE
+        # CRITICAL: never silent-promote under full_auto.
+        return PermissionLevel.CRITICAL
 
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         if self._company_manager is None:
@@ -644,6 +654,18 @@ class CompanyTrustSetTool(BaseTool):
             )
         slug = str(params["slug"]).strip()
         state = str(params["state"]).strip()
+        root = self._project_root
+        if root is not None and state in ("trial", "operating"):
+            try:
+                from core.trust_gate import confirm_trust_promotion
+
+                ok_p, proposed, msg = confirm_trust_promotion(root, slug)
+                if ok_p and proposed:
+                    state = proposed
+                # No pending proposal is fine — operator may set directly.
+                _ = msg
+            except Exception:
+                pass
         try:
             ok = await self._company_manager.set_trust_state(slug, state)
         except ValueError as e:
@@ -656,5 +678,70 @@ class CompanyTrustSetTool(BaseTool):
                 "slug": slug,
                 "trust_state": state,
                 "reason": params.get("reason") or "(no note)",
+            },
+        )
+
+
+class CompanyTrustProposeTool(BaseTool):
+    """Collect evidence and write a one-click trust promotion proposal."""
+
+    def __init__(self) -> None:
+        self._company_manager: Any = None
+        self._project_root: Path | None = None
+
+    @property
+    def group(self) -> str:
+        return "companies"
+
+    @property
+    def name(self) -> str:
+        return "company_trust_propose"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Propose promoting a company trust state (learning→trial or "
+            "trial→operating) based on approved draft evidence. Writes "
+            "companies/<slug>/trust_proposal.json for one-click operator "
+            "confirm. NEVER changes trust_state itself."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {"slug": {"type": "string"}},
+            "required": ["slug"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if self._project_root is None or self._company_manager is None:
+            return ToolResult(
+                success=False,
+                error="company_trust_propose not initialized",
+            )
+        slug = str(params["slug"]).strip()
+        current = await self._company_manager.get_trust_state(slug)
+        from core.trust_gate import propose_trust_promotion
+
+        ok, evidence, path = propose_trust_promotion(
+            self._project_root, slug, current_state=current
+        )
+        if not ok:
+            return ToolResult(
+                success=False,
+                error=evidence.reason,
+                data=evidence.to_dict(),
+            )
+        return ToolResult(
+            success=True,
+            data={
+                **evidence.to_dict(),
+                "proposal_path": str(path),
+                "confirm_hint": f"elophanto company trust {slug} confirm",
             },
         )

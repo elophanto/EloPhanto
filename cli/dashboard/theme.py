@@ -489,8 +489,11 @@ def render_css(theme: Theme) -> str:
         input_bg = c.background
         panel_extra = f"""\
 _SidePanel {{
-    padding: 0 1 0 1;
+    padding: 0 1 0 0;
     color: {c.muted};
+}}
+#panel-mascot {{
+    padding: 0 0 0 0;
 }}
 #feed-header {{
     border-top: solid {c.accent};
@@ -620,7 +623,7 @@ _SidePanel {{
     /* The mascot is the sidebar's identity — center it horizontally
      * within the panel so the face sits in the middle of the
      * sidebar, with the label + agent name lines balanced below.
-     * Padding gives breathing room above/below the box. */
+     * HUD chrome overrides padding via panel_extra (tighter rail). */
     content-align-horizontal: center;
     text-align: center;
     padding: 1 0 1 0;

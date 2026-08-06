@@ -1514,10 +1514,17 @@ promotes to operating (autonomous within budget).
    `web_search`, `knowledge_search`, all read paths — fine. Only
    outbound communication tools are gated. Research without
    outreach is the whole point of the `learning` phase.
-4. **No auto-promotion.** `trial → operating` is operator-decided
-   via CLI/tool. Auto-promotion based on "N successful approvals"
-   adds complexity for a feature we don't know we need yet —
-   defer until operator says they want it.
+4. **No silent auto-promotion under `full_auto`.** `learning → trial → operating`
+   is operator-decided. Evidence-backed **propose → confirm** is the preferred
+   path (N clean approved drafts, zero rejects):
+   - Agent/CLI: `company_trust_propose` / `elophanto company trust <slug> propose`
+     writes `companies/<slug>/trust_proposal.json` (never changes trust_state).
+   - Operator: `elophanto company trust <slug> confirm` (or CRITICAL
+     `company_trust_set` after approval) applies the ladder step.
+   - Draft reject / spam signal clears a pending proposal.
+   Direct `elophanto company trust <slug> trial` still works for operators who
+   want a manual override. Auto-promotion based solely on "N successful
+   approvals" without an operator confirm remains deferred.
 
 #### Trust states (frozen)
 

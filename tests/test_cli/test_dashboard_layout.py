@@ -633,6 +633,7 @@ class TestEgoQualifier:
             "questioning",
             "steady",
             "settled",
+            "shame",
         }
         # Sweep across the parameter space and assert every output is
         # one of the valid words.

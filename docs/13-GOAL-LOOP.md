@@ -10,9 +10,24 @@ The Goal Loop allows EloPhanto to pursue multi-phase goals that span sessions, r
 
 **The validate-first gate** is the load-bearing rule: if a goal involves building, selling, launching, or growing something and there is no evidence yet that a paying party wants it, the decomposer makes the **first checkpoint a `validate`-stage checkpoint** whose success criterion is a real revenue-intent signal (paid pre-order, signed LOI, advertiser/sponsor/affiliate commitment) — never generic research, never a `build` step first. Research that doesn't end in a paying-party signal is treated as procrastination. Pure-research / internal-tooling goals legitimately have no `validate` stage.
 
-Enforced two ways: (1) the `_DECOMPOSE_SYSTEM` prompt orders checkpoints accordingly, and (2) **`GoalManager.validate_gate_reason` + the goal runner hard-block** execution of a `build`/`launch`/`acquire`/`scale` checkpoint while the goal still has an unfinished `validate` checkpoint — the goal is paused and surfaced to the operator (pivot / kill / override) rather than building on failed or absent validation. The autonomous mind's prompts (`_MIND_PROMPT` rule 3, `_ARBITER_PROMPT`) are stage-anchored: validate beats everything pre-revenue; build means "a stranger can pay end-to-end"; acquire means one proven channel; operate means retention.
+Enforced two ways: (1) the `_DECOMPOSE_SYSTEM` prompt orders checkpoints accordingly, and (2) **`GoalManager.validate_gate_reason` + the goal runner** block execution of a `build`/`launch`/`acquire`/`scale` checkpoint while the goal still has an unfinished `validate` checkpoint. On gate fire the runner will: evaluate `kill_criterion` (cancel if met), `revise_plan` once if validate **failed**, or **reorder** pending validate ahead of build when the issue is only ordering — then pause only if those recoveries cannot proceed. The autonomous mind's prompts (`_MIND_PROMPT` rule 3, `_ARBITER_PROMPT`) are stage-anchored: validate beats everything pre-revenue; build means "a stranger can pay end-to-end"; acquire means one proven channel; operate means retention.
 
 This pairs with the metabolism signal (the `[COMPANY]` state line shows net including the agent's own cognition cost) and the ABE finance rail ([80-ABE-FINANCE-RAIL.md](80-ABE-FINANCE-RAIL.md)).
+
+## Autonomy hardening (closed loop)
+
+(Added 2026-08.) Once a goal exists, the happy path is validate → build → launch **without babysitting**, pausing only for irreversible/CRITICAL acts or explicit trust promotion.
+
+| Mechanism | Behavior |
+| --- | --- |
+| **Approval pause-not-deny** | Timeout → re-ping once → goal/checkpoint `awaiting_approval`. Never silent deny, never soft-auto-approve. Operator yes resumes the same checkpoint. See `core/approval_wait.py`. |
+| **Kill criterion evaluation** | After checkpoint success/fail and on validate failure, numeric evidence (tool/SoR counts + age) can cancel the goal. Short `[kill_grace]` window allows undo. |
+| **Tool-grounded receipts** | `verify_checkpoint_receipt` must pass before `mark_checkpoint_complete`. Quantitative claims with empty tool trail fail closed. |
+| **CRITICAL always-ask** | Even `full_auto` / per-tool `auto` cannot skip `PermissionLevel.CRITICAL`. |
+| **`budget_paused`** | Cost/time/LLM budget hits snapshot limits into context; resume only when a limit is **explicitly raised**. |
+| **Instinct extract** | After a receipt-gated complete, optional few-shot instinct candidates (never force-applied). |
+
+Tests: `tests/test_core/test_autonomy_hardening.py`.
 
 ## How Goal Creation is Triggered
 
