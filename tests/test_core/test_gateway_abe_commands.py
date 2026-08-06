@@ -335,14 +335,28 @@ class _FakeHumbling:
 
 
 class _FakeEgo:
+    """Mirrors the real ``core.ego.Ego`` surface the gateway reads.
+
+    ``_send_ego`` reads several of these by direct attribute access inside a
+    broad try/except, so a field missing here doesn't raise — it silently
+    yields ``ego: None``. ``test_fake_ego_matches_real_ego_fields`` guards
+    against that drift.
+    """
+
     def __init__(self) -> None:
         self.coherence_score = 0.72
         self.self_image = "I am careful and improving."
-        self.self_critique = "I overclaim on browser tasks."
+        self.last_self_critique = "I overclaim on browser tasks."
+        self.proud_of = "Shipping the finance rail."
+        self.embarrassed_by = "Overclaiming on browser tasks."
+        self.aspiration = "Earn revenue without supervision."
         self.ideal_self = "A flawless operator."
         self.ought_self = "I must verify before sending."
         self.confidence = {"browser": 0.4, "coding": 0.85, "email": 0.6}
         self.humbling_events = [_FakeHumbling("browser"), _FakeHumbling("email")]
+        self.felt_state = "steady"
+        self.caution_rules = ["verify before sending"]
+        self.self_epochs = []
 
 
 class _FakeEgoMgr:
@@ -364,6 +378,45 @@ async def test_ego_payload_shape() -> None:
     assert e["confidence_max"] == 0.85 and e["confidence_min"] == 0.4
     assert e["humbling_count"] == 2
     assert e["humbling_events"][0]["capability"] in {"browser", "email"}
+    # Fields added with the behaviour-shaping ego work must survive the payload.
+    assert e["last_self_critique"].startswith("I overclaim")
+    assert e["self_critique"] == e["last_self_critique"]
+    assert e["proud_of"] and e["embarrassed_by"] and e["aspiration"]
+
+
+def test_fake_ego_matches_real_ego_fields() -> None:
+    """The fake must expose every attribute _send_ego reads off a real Ego.
+
+    Regression guard: _send_ego reads some fields by direct attribute access
+    under a broad try/except, so a stale fake fails as a confusing
+    'NoneType is not subscriptable' rather than a missing-attribute error.
+    """
+    from dataclasses import fields
+
+    from core.ego import Ego
+
+    fake = set(vars(_FakeEgo()))
+    real = {f.name for f in fields(Ego)}
+    # Only assert over what the gateway actually reads — the fake needn't
+    # mirror bookkeeping columns like created_at.
+    read_by_gateway = {
+        "coherence_score",
+        "self_image",
+        "last_self_critique",
+        "proud_of",
+        "embarrassed_by",
+        "aspiration",
+        "ideal_self",
+        "ought_self",
+        "confidence",
+        "felt_state",
+        "caution_rules",
+        "self_epochs",
+    }
+    missing_on_real = read_by_gateway - real
+    assert not missing_on_real, f"_send_ego reads fields Ego lacks: {missing_on_real}"
+    missing_on_fake = read_by_gateway - fake
+    assert not missing_on_fake, f"_FakeEgo is stale, add: {missing_on_fake}"
 
 
 @pytest.mark.asyncio

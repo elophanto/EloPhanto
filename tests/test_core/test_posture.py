@@ -191,3 +191,39 @@ async def test_company_set_posture_tool(tmp_path: Path) -> None:
     assert r.success is True
     assert r.data["posture"]["maturity"] == "pre_revenue"
     assert r.data["posture"]["objective"] == "validate"
+
+
+def test_merge_carries_unnamed_weights_through() -> None:
+    """Overrides must not reset weights they don't mention.
+
+    Regression guard: an earlier version rebuilt ArbiterWeights from an
+    enumerated field list, so any weight added later would silently snap back
+    to its default — a wrong-but-plausible tuning value nobody would notice.
+    """
+    from dataclasses import fields
+
+    from core.mind_arbiter import ArbiterWeights
+    from core.posture import arbiter_weight_overrides, merge_arbiter_weights
+
+    # A base deliberately far from defaults on every field.
+    base = ArbiterWeights(**{f.name: 0.123 for f in fields(ArbiterWeights)})
+    for objective in ("validate", "growth", "profit"):
+        merged = merge_arbiter_weights(base, objective)
+        overrides = arbiter_weight_overrides(objective)
+        assert overrides, objective
+        assert isinstance(merged, ArbiterWeights)
+        for f in fields(ArbiterWeights):
+            expected = overrides.get(f.name, 0.123)
+            assert getattr(merged, f.name) == pytest.approx(expected), (
+                f"{objective}/{f.name} was not carried through"
+            )
+
+
+def test_merge_is_identity_for_balance() -> None:
+    from core.mind_arbiter import ArbiterWeights
+    from core.posture import merge_arbiter_weights
+
+    base = ArbiterWeights()
+    assert merge_arbiter_weights(base, "balance") is base
+    # Unknown objectives normalise to balance rather than exploding.
+    assert merge_arbiter_weights(base, "nonsense") is base

@@ -3344,7 +3344,11 @@ class Gateway:
                     "humbling_count": len(humbling),
                 }
         except Exception as e:
-            logger.debug("ego command failed: %s", e)
+            # WARNING, not DEBUG: the failure mode here is a silently blank ego
+            # panel with no visible cause. An AttributeError from a field the
+            # Ego model no longer carries looks identical to "no ego yet"
+            # downstream, so say it loudly enough to be findable.
+            logger.warning("ego payload build failed (%s): %s", type(e).__name__, e)
         await self._send_json(client, session_id, {"ego": ego})
 
     async def _handle_capability_request(

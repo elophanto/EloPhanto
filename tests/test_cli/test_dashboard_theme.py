@@ -426,7 +426,13 @@ def test_blade_theme_sets_amber_glyphs_and_mascot() -> None:
             }
         ]
         board = _CompaniesPanel(app._state).body()
-        assert "TRUST" in board and "NET7" in board
+        # Compact one-glance grammar: full TRUST/VOICE/STRAT labels wrapped in
+        # the narrow HUD sidebar, so each is a single keyed letter plus net.
+        assert "elophanto" in board
+        assert "]T[" in board and "]O[" in board  # trust: operating
+        assert "]V[" in board and "]S[" in board  # voice / strategy keys
+        assert "$0" in board  # 7-day net
+        assert "▶" in board  # active-company marker
         css = type(app).CSS
         assert "border-left: tall #f0a020" in css
         # Attention chips on the mission rail.

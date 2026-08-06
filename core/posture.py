@@ -195,21 +195,27 @@ def merge_arbiter_weights(
     base: Any,
     objective: str,
 ) -> Any:
-    """Return ``base`` with posture overrides applied (same type as base)."""
+    """Return ``base`` with posture overrides applied (same type as base).
+
+    Uses ``dataclasses.replace`` so every field not named in the overrides is
+    carried through untouched. Rebuilding from an enumerated field list would
+    silently reset any weight added to ArbiterWeights later — a wrong-but-
+    plausible default is exactly the kind of tuning bug nobody notices.
+    """
     overrides = arbiter_weight_overrides(objective)
     if not overrides:
         return base
-    fields = {
-        "value": float(getattr(base, "value", 1.0)),
-        "lens_bonus": float(getattr(base, "lens_bonus", 0.6)),
-        "staleness_bonus": float(getattr(base, "staleness_bonus", 0.4)),
-        "affect_bias": float(getattr(base, "affect_bias", 1.0)),
-        "cost": float(getattr(base, "cost", 0.3)),
-        "mission_weight": float(getattr(base, "mission_weight", 0.5)),
-        "kpi_gap_weight": float(getattr(base, "kpi_gap_weight", 0.4)),
-    }
-    fields.update(overrides)
-    return type(base)(**fields)
+    try:
+        import dataclasses
+
+        if dataclasses.is_dataclass(base) and not isinstance(base, type):
+            known = {f.name for f in dataclasses.fields(base)}
+            applied = {k: v for k, v in overrides.items() if k in known}
+            return dataclasses.replace(base, **applied)
+    except Exception as e:  # non-dataclass or frozen-field surprise
+        logger.warning("posture: arbiter weight merge failed (%s) — using base", e)
+        return base
+    return base
 
 
 def source_multipliers(objective: str) -> dict[str, float]:
