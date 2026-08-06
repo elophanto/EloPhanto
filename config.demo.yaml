@@ -635,4 +635,6 @@ dashboard:
   #   elophanto themes init <name>
   # Override at startup with `elophanto chat --theme <name>`.
   # See docs/79-DASHBOARD-THEMES.md.
-  theme: default
+  # Product default is blade (Blade Runner 2049 — amber on rain-city black).
+  # Other built-ins: default (cream), nocturne (teal), mocha (mauve).
+  theme: blade

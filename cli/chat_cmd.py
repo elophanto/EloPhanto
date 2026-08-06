@@ -39,18 +39,20 @@ from core.vault import Vault, VaultError
 console = Console()
 logger = logging.getLogger(__name__)
 
+# Palette — Blade Runner 2049 cinematic amber (shared with cli_adapter)
 # ──────────────────────────────────────────────────────────────────
-# Palette — monochrome, aligned with elophanto.com brand
-# (warm cream on deep charcoal, "ex machina" aesthetic)
-# ──────────────────────────────────────────────────────────────────
-_C_PRIMARY = "bright_white"
-_C_ACCENT = "grey74"
-_C_SUCCESS = "bright_green"
-_C_WARN = "bright_yellow"
-_C_DIM = "dim"
-_C_USER = "bold bright_white"
-_C_AGENT = "bold bright_green"
-_C_BORDER = "grey50"
+from cli.palette import (  # noqa: E402
+    BANNER_LINES as _BANNER_LINES,
+    C_ACCENT as _C_ACCENT,
+    C_AGENT as _C_AGENT,
+    C_BORDER as _C_BORDER,
+    C_DIM as _C_DIM,
+    C_PRIMARY as _C_PRIMARY,
+    C_SUCCESS as _C_SUCCESS,
+    C_USER as _C_USER,
+    C_WARN as _C_WARN,
+    LOGO_SMALL as _LOGO_SMALL,
+)
 
 
 def _build_provider_parts(agent: Agent) -> list[str]:
@@ -75,47 +77,13 @@ def _build_provider_parts(agent: Agent) -> list[str]:
     return parts or ["[red]● none[/]"]
 
 
-# ──────────────────────────────────────────────────────────────────
-# ASCII Art — Monochrome gradient (dark grey → bright white)
-# ──────────────────────────────────────────────────────────────────
-_BANNER_LINES: list[tuple[str, str]] = [
-    (
-        "grey35",
-        "  ███████╗██╗      ██████╗ ██████╗ ██╗  ██╗ █████╗ ███╗   ██╗████████╗ ██████╗",
-    ),
-    (
-        "grey46",
-        "  ██╔════╝██║     ██╔═══██╗██╔══██╗██║  ██║██╔══██╗████╗  ██║╚══██╔══╝██╔═══██╗",
-    ),
-    (
-        "grey58",
-        "  █████╗  ██║     ██║   ██║██████╔╝███████║███████║██╔██╗ ██║   ██║   ██║   ██║",
-    ),
-    (
-        "grey70",
-        "  ██╔══╝  ██║     ██║   ██║██╔═══╝ ██╔══██║██╔══██║██║╚██╗██║   ██║   ██║   ██║",
-    ),
-    (
-        "grey82",
-        "  ███████╗███████╗╚██████╔╝██║     ██║  ██║██║  ██║██║ ╚████║   ██║   ╚██████╔╝",
-    ),
-    (
-        "bright_white",
-        "  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝",
-    ),
-]
-
-
 def _build_banner() -> Text:
-    """Build the gradient ASCII banner."""
+    """Build the amber-gradient ASCII banner."""
     banner = Text()
     banner.append("\n")
     for color, line in _BANNER_LINES:
         banner.append(line + "\n", style=color)
     return banner
-
-
-_LOGO_SMALL = f"[{_C_PRIMARY}]◆[/] [{_C_ACCENT}]EloPhanto[/]"
 
 
 # ──────────────────────────────────────────────────────────────────

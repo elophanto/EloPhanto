@@ -91,6 +91,16 @@ _CLOSED_FRAME = (
     "╰───────────╯"
 )
 
+# Angular closed frame for HUD chrome — same geometry, square corners.
+_CLOSED_FRAME_HUD = (
+    "┌───────────┐\n"
+    "│           │\n"
+    "│  -     -  │\n"
+    "│     ·     │\n"
+    "│           │\n"
+    "└───────────┘"
+)
+
 
 _BLANK_ROW = "           "  # 11 spaces — empty inner row
 
@@ -100,34 +110,49 @@ def _f(
 ) -> str:
     """Compose a 6-line face frame from inner-row templates.
 
-    Inputs are the INNER 11-char content of each row (between the
-    side borders). Function wraps each with ``│ … │`` borders and
-    adds the top/bottom box borders.
-
-    Top + bottom rows default to blank but accept content so floating
-    elements (Z drift in sleep, thought dots in thinking) can live
-    in the space above/below the face proper.
-
-    The ``{e}`` placeholder is preserved in the eye row so
-    ``render_face`` can interpolate the state color at draw time.
+    Soft rounded ╭─╮ borders by default. HUD chrome uses angular ┌─┐
+    via ``_f_hud`` / ``set_chrome_hud``.
     """
+    return _compose_face(eyes, mouth, top=top, bottom=bottom, hud=False)
+
+
+def _f_hud(
+    eyes: str, mouth: str, *, top: str = _BLANK_ROW, bottom: str = _BLANK_ROW
+) -> str:
+    return _compose_face(eyes, mouth, top=top, bottom=bottom, hud=True)
+
+
+def _compose_face(
+    eyes: str,
+    mouth: str,
+    *,
+    top: str,
+    bottom: str,
+    hud: bool,
+) -> str:
     for label, content in (
         ("top", top),
         ("eyes", eyes),
         ("mouth", mouth),
         ("bottom", bottom),
     ):
-        assert _visible_len(content) == 11, (
-            f"{label} inner content must be 11 visible chars, "
-            f"got {_visible_len(content)}: {content!r}"
-        )
+        vis = _visible_len(content)
+        if vis != 11:
+            raise ValueError(
+                f"face {label} row must be exactly 11 visible chars, "
+                f"got {vis}: {content!r}"
+            )
+    if hud:
+        top_b, bot_b, side = "┌───────────┐", "└───────────┘", "│"
+    else:
+        top_b, bot_b, side = "╭───────────╮", "╰───────────╯", "│"
     return (
-        "╭───────────╮\n"
-        f"│{top}│\n"
-        f"│{eyes}│\n"
-        f"│{mouth}│\n"
-        f"│{bottom}│\n"
-        "╰───────────╯"
+        f"{top_b}\n"
+        f"{side}{top}{side}\n"
+        f"{side}{eyes}{side}\n"
+        f"{side}{mouth}{side}\n"
+        f"{side}{bottom}{side}\n"
+        f"{bot_b}"
     )
 
 
@@ -276,8 +301,98 @@ _FACES: dict[MascotFace, list[str]] = {
 }
 
 
+# HUD face set — colder sensors, no wink/laugh/plush smile. Square
+# pupils (■), flat mouths (— ▬ ≡), scan ticks instead of soft arcs.
+# Same 6×13 geometry so panel height never jumps under chrome:hud.
+_FACES_HUD: dict[MascotFace, list[str]] = {
+    # sleep — dormant sensors, slow pulse tick (not cute Z-drift)
+    "sleep": [
+        _f_hud("  —     —  ", "     ·     ", top="     ·     "),
+        _f_hud("  —     —  ", "     ·     ", top="    · ·    "),
+        _f_hud("  —     —  ", "     ·     ", top="   ·   ·   "),
+        _f_hud("  —     —  ", "     ·     ", top="    · ·    "),
+        _f_hud("  —     —  ", "     ·     ", top="     ·     "),
+        _f_hud("  —     —  ", "     ·     ", top=_BLANK_ROW),
+        _f_hud("  —     —  ", "     ·     ", top=_BLANK_ROW),
+        _f_hud("  —     —  ", "     ·     ", top="     ·     "),
+    ],
+    # idle — square sensors, rare blink, no smile curve
+    "idle": [
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     —     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     —     "),
+        _f_hud("  -     -  ", "     —     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     —     "),
+        _f_hud("  [{e}]◧[/]     [{e}]◧[/]  ", "     —     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     —     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ·     "),
+        _f_hud("  [{e}]◨[/]     [{e}]◨[/]  ", "     —     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     —     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     —     "),
+    ],
+    # thinking — rotating diamond sensors + scan bar
+    "thinking": [
+        _f_hud("  [{e}]◆[/]     [{e}]◆[/]  ", "     ·     ", bottom=" ░········ "),
+        _f_hud("  [{e}]◇[/]     [{e}]◇[/]  ", "     ·     ", bottom=" ·░······· "),
+        _f_hud("  [{e}]◆[/]     [{e}]◆[/]  ", "     ·     ", bottom=" ··░······ "),
+        _f_hud("  [{e}]◇[/]     [{e}]◇[/]  ", "     ·     ", bottom=" ···░····· "),
+        _f_hud("  [{e}]◆[/]     [{e}]◆[/]  ", "     ·     ", bottom=" ····░···· "),
+        _f_hud("  [{e}]◇[/]     [{e}]◇[/]  ", "     ·     ", bottom=" ·····░··· "),
+        _f_hud("  [{e}]◆[/]     [{e}]◆[/]  ", "     ·     ", bottom=" ······░·· "),
+        _f_hud("  [{e}]◇[/]     [{e}]◇[/]  ", "     ·     ", bottom=" ·······░· "),
+        _f_hud("  [{e}]◆[/]     [{e}]◆[/]  ", "     ·     ", bottom=" ········░ "),
+        _f_hud("  [{e}]◇[/]     [{e}]◇[/]  ", "     ·     ", bottom=" ······░·· "),
+        _f_hud("  [{e}]◆[/]     [{e}]◆[/]  ", "     ·     ", bottom=" ····░···· "),
+        _f_hud("  [{e}]◇[/]     [{e}]◇[/]  ", "     ·     ", bottom=" ··░······ "),
+    ],
+    # working — locked stare, flat aperture mouth
+    "working": [
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▭     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▭     "),
+        _f_hud("  [{e}]▼[/]     [{e}]▼[/]  ", "     ▬     "),
+        _f_hud("  [{e}]▼[/]     [{e}]▼[/]  ", "     ▭     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ·     "),
+    ],
+    # happy / OK — acknowledgment only; no wink, laugh, or soft smile
+    "happy": [
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     =     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+        _f_hud("  -     -  ", "     ▬     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
+    ],
+    # concerned / FAULT — harsh triple-bar mouth, darting sensors
+    "concerned": [
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ≡     "),
+        _f_hud("  [{e}]◧[/]     [{e}]◧[/]  ", "     ≡     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     =     "),
+        _f_hud("  [{e}]◨[/]     [{e}]◨[/]  ", "     ≡     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ≡     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ≡     "),
+        _f_hud("  -     -  ", "     ≡     "),
+        _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ≡     "),
+    ],
+    # humbled / LOW — dim pupils, almost still
+    "humbled": [
+        _f_hud("  [{e}]·[/]     [{e}]·[/]  ", "     —     "),
+        _f_hud("  [{e}]·[/]     [{e}]·[/]  ", "     —     "),
+        _f_hud("  [{e}]·[/]     [{e}]·[/]  ", "     —     "),
+        _f_hud("  [{e}]·[/]     [{e}]·[/]  ", "     —     "),
+        _f_hud("  [{e}]·[/]     [{e}]·[/]  ", "     —     "),
+        _f_hud("  [{e}]·[/]     [{e}]·[/]  ", "     —     "),
+        _f_hud("  [{e}]·[/]     [{e}]·[/]  ", "     —     "),
+        _f_hud("  -     -  ", "     —     "),
+    ],
+}
+
+
 # Labels rendered below the face. Short, single-word state names so the
-# sidebar stays narrow.
+# sidebar stays narrow. HUD chrome swaps to ops verbs via `_HUD_LABELS`.
 _LABELS: dict[MascotFace, str] = {
     "sleep": "sleeping",
     "idle": "idle",
@@ -288,10 +403,31 @@ _LABELS: dict[MascotFace, str] = {
     "humbled": "humbled",
 }
 
+_HUD_LABELS: dict[MascotFace, str] = {
+    "sleep": "SLEEP",
+    "idle": "IDLE",
+    "thinking": "CYCLE",
+    "working": "TOOL",
+    "happy": "OK",
+    "concerned": "FAULT",
+    "humbled": "LOW",
+}
+
+_CHROME_HUD: bool = False
+
+
+def set_chrome_hud(enabled: bool) -> None:
+    """Enable HUD face set + ops-verb labels (blade chrome)."""
+    global _CHROME_HUD
+    _CHROME_HUD = bool(enabled)
+
 
 # Theme colors. Label color + eye color are the same per state so the
 # tinted eyes and tinted label read as one design. Sleep keeps colorless
 # eyes (default foreground) since the eyes are closed dashes anyway.
+# Values below are the light `default` theme literals; `_apply_palette`
+# calls ``apply_theme_colors`` to remint them for dark themes (blade /
+# nocturne / mocha) so thinking is never stuck on brand violet.
 _STATE_COLORS: dict[MascotFace, str] = {
     "sleep": "#9a948a",
     "idle": "#78746e",
@@ -301,6 +437,36 @@ _STATE_COLORS: dict[MascotFace, str] = {
     "concerned": "#ef4444",
     "humbled": "#a16207",
 }
+
+# Original default-theme literals — used to restore when switching
+# back to the cream theme after a dark remint.
+_DEFAULT_STATE_COLORS: dict[MascotFace, str] = dict(_STATE_COLORS)
+
+
+def apply_theme_colors(
+    *,
+    accent: str,
+    accent_alt: str,
+    success: str,
+    warning: str,
+    error: str,
+    info: str,
+    muted: str,
+) -> None:
+    """Remint mascot state colors from the active dashboard theme."""
+    _STATE_COLORS["sleep"] = muted
+    _STATE_COLORS["idle"] = muted
+    _STATE_COLORS["thinking"] = accent
+    _STATE_COLORS["working"] = info
+    _STATE_COLORS["happy"] = success
+    _STATE_COLORS["concerned"] = error
+    _STATE_COLORS["humbled"] = warning
+
+
+def restore_default_state_colors() -> None:
+    """Restore cream-theme mascot colors (used by light ``default``)."""
+    _STATE_COLORS.clear()
+    _STATE_COLORS.update(_DEFAULT_STATE_COLORS)
 
 
 # Default animation tick — every N milliseconds the panel advances
@@ -315,7 +481,8 @@ FRAME_TICK_MS = 250
 def frame_count(face: MascotFace) -> int:
     """Number of distinct frames for ``face``. Useful for tests +
     debug rendering."""
-    return len(_FACES[face])
+    faces = _FACES_HUD if _CHROME_HUD else _FACES
+    return len(faces[face])
 
 
 # Breath cycle was removed after the 2026-05-21 review. In a fixed-
@@ -352,9 +519,10 @@ def render_face(
                        for anticipation between state changes (Disney's
                        brief eyes-close-before-new-expression).
     """
-    frames = _FACES[face]
+    faces = _FACES_HUD if _CHROME_HUD else _FACES
+    frames = faces[face]
     if show_closed:
-        art_raw = _CLOSED_FRAME
+        art_raw = _CLOSED_FRAME_HUD if _CHROME_HUD else _CLOSED_FRAME
     else:
         art_raw = frames[frame % len(frames)]
 
@@ -363,7 +531,7 @@ def render_face(
     art = art_raw.replace("{e}", color)
 
     bits: list[str] = [art]
-    label = _LABELS[face]
+    label = _HUD_LABELS[face] if _CHROME_HUD else _LABELS[face]
     bits.append(f"  [{color}]{label}[/{color}]")
     if agent_name:
         bits.append(f"  [dim]{agent_name}[/dim]")

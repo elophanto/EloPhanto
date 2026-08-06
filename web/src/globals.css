@@ -162,6 +162,41 @@
   --sidebar-ring: #5eead4;
 }
 
+/* Blade — rain-city near-black + amber lead / teal HUD (Blade Runner 2049) */
+[data-theme="blade"] {
+  --background: #050608;
+  --foreground: #cfd5e0;
+  --card: #0a0c11;
+  --card-foreground: #cfd5e0;
+  --popover: #0a0c11;
+  --popover-foreground: #cfd5e0;
+  --primary: #f0a020;
+  --primary-foreground: #1a1208;
+  --secondary: #10141c;
+  --secondary-foreground: #cfd5e0;
+  --muted: #10141c;
+  --muted-foreground: #6b7385;
+  --accent: #151922;
+  --accent-foreground: #f3efe6;
+  --destructive: #e07070;
+  --border: #1e2533;
+  --input: #1e2533;
+  --ring: #f0a020;
+  --chart-1: #f0a020;
+  --chart-2: #3aa8a0;
+  --chart-3: #f0b429;
+  --chart-4: #6b7385;
+  --chart-5: #3aa8a0;
+  --sidebar: #080a0e;
+  --sidebar-foreground: #cfd5e0;
+  --sidebar-primary: #f0a020;
+  --sidebar-primary-foreground: #1a1208;
+  --sidebar-accent: #151922;
+  --sidebar-accent-foreground: #f3efe6;
+  --sidebar-border: #1e2533;
+  --sidebar-ring: #f0a020;
+}
+
 /* Mocha — soothing dark pastel + Mauve */
 [data-theme="mocha"] {
   --background: #1e1e2e;

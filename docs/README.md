@@ -69,7 +69,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 47 | [AutoLoop](47-AUTOLOOP.md) | Focus lock, AGENT_PROGRAM.md, fixed iteration budgets for autonomous experiments |
 | 48 | [Learning Engine](48-LEARNING-ENGINE.md) | Lesson extraction, semantic memory search, KB compression |
 | 49 | [Terminal](49-TERMINAL.md) | Input protection, mind cycle timestamps, prompt_toolkit integration |
-| 50 | [Terminal Dashboard](50-TERMINAL-DASHBOARD.md) | Full-screen Textual TUI with split panels, event feed, provider health |
+| 50 | [Terminal Dashboard](50-TERMINAL-DASHBOARD.md) | Full-screen Textual TUI — mission rail (blade HUD), sidebar panels, chat + telemetry; themes in [79](79-DASHBOARD-THEMES.md) |
 | 51 | [Payment Requests](51-PAYMENT-REQUESTS.md) | Receive payments via on-chain payment requests with auto-matching |
 | 52 | [Prospecting](52-PROSPECTING.md) | Lead search, evaluation, outreach tracking for revenue generation |
 | 53 | [Web Search](53-WEB-SEARCH.md) | Structured web search and content extraction via Search.sh API |
@@ -86,7 +86,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 64 | [Polymarket](64-POLYMARKET.md) | Official Polymarket skill — prediction market trading on Polygon (CLOB API, orderbook, GTC/GTD/FOK/FAK orders, WebSocket, CTF, gasless) |
 | 65 | [Pump.fun Livestream](65-PUMPFUN-LIVESTREAM.md) | End-to-end pump.fun streaming from chat — WHIP/RTMP via LiveKit, voice mode (TTS via FIFO), on-stream captions, livechat Socket.IO, ffmpeg supervisor with IPv6 failover |
 | 66 | [Kid Agents](66-KID-AGENTS.md) | Sandboxed child EloPhanto in hardened Docker containers — `--cap-drop=ALL`, read-only rootfs, non-root uid 10001, no host bind-mounts (named volume only), default-empty vault scope, sync request/response via gateway hook |
-| 79 | [Dashboard Themes](79-DASHBOARD-THEMES.md) | YAML-declared, user-extensible terminal themes — colors + layout slots + dark/light, `extends` inheritance, `elophanto themes` CLI, built-in default / nocturne / mocha |
+| 79 | [Dashboard Themes](79-DASHBOARD-THEMES.md) | YAML-declared terminal themes — colors + layout + `chrome: hud` mission console; built-ins `blade` (default) / `default` / `nocturne` / `mocha`; `extends` inheritance; `elophanto themes` CLI |
 | 80 | [ABE Finance Rail](80-ABE-FINANCE-RAIL.md) | Per-business fiat rail (Stripe) — payment links, refund-aware auto-reconcile, runway, spend-controlled virtual cards; test-mode by default, live is KYC-gated |
 | 81 | [Competitive Intelligence](81-COMPETITIVE-INTEL.md) | Market model (ABE organ 2) — tracked brands × weighted dimensions, evidence register with provenance, evidence-gated 1–5 scoring, XLSX scorecard, material-change diffing, board report with no-regret classification, one-command watch_analyze, autonomous collection with verbatim-quote verification + browser escalation, per-state proxy exits |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |

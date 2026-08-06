@@ -8,16 +8,17 @@ in too. No Python execution in theme files — themes are safe to share.
 > **Terminal only.** This YAML system themes the Textual terminal
 > dashboard. The **web** dashboard (`./start.sh --web`) has its own,
 > separate theme system — CSS-variable presets selected in the sidebar
-> or Settings → Appearance (Light / Dark / Nocturne / Mocha), persisted
-> in the browser. The two don't share files; they just ship matching
-> palettes so the surfaces feel like one product.
+> or Settings → Appearance (including Blade / Light / Dark / Nocturne /
+> Mocha), persisted in the browser. The two don't share files; they
+> ship matching palettes so the surfaces feel like one product.
 
 ## Built-in themes
 
-Three ship with the agent (`elophanto themes list`):
+Four ship with the agent (`elophanto themes list`):
 
 | Name | Look |
 |------|------|
+| `blade` | Rain-city near-black with amber lead + teal HUD — product default (dark, `chrome: hud`) |
 | `default` | Warm paper-cream, near-monochrome, brand-violet ◆ accent (light) |
 | `nocturne` | Cinematic near-black glass with a luminous teal accent (dark) |
 | `mocha` | Soothing dark pastel — Mauve accent, low-glare background (dark) |
@@ -46,7 +47,7 @@ dashboard:
 ```
 
 `--theme` on the CLI overrides the config value; the config value
-overrides the built-in `default`.
+overrides the built-in `blade` product default.
 
 ## Where theme files live
 
@@ -64,26 +65,27 @@ which masks a built-in `nocturne.yaml`.
 A theme is a YAML mapping with these top-level keys:
 
 ```yaml
-name: default                          # required
+name: blade                            # required
 description: "Short human description"  # optional
 extends: null                          # optional — name of parent theme
-dark: false                            # optional — true for dark themes (default false)
+dark: true                             # optional — true for dark themes (default false)
+chrome: hud                            # optional — "" | classic | hud (see Chrome)
 
 colors:                                # required (or inherit from extends)
-  background:  "#f9f8f4"
-  surface:     "#f2f0ea"
-  raised:      "#e8e4dc"
-  border:      "#d4cfc5"
-  foreground:  "#1c1a16"
-  bright:      "#1c1a16"
-  muted:       "#78746e"
-  placeholder: "#b8b2a8"
-  accent:      "#7c3aed"
-  accent_alt:  "#6d28d9"
-  success:     "#16a34a"
-  warning:     "#d97706"
-  error:       "#ef4444"
-  info:        "#0ea5e9"
+  background:  "#050608"
+  surface:     "#0a0c11"
+  raised:      "#10141c"
+  border:      "#1e2533"
+  foreground:  "#cfd5e0"
+  bright:      "#f3efe6"
+  muted:       "#6b7385"
+  placeholder: "#3d4454"
+  accent:      "#f0a020"
+  accent_alt:  "#3aa8a0"
+  success:     "#3aa8a0"
+  warning:     "#f0b429"
+  error:       "#e07070"
+  info:        "#3aa8a0"
 
 layout:                                # required (or inherit from extends)
   sidebar_width: 28                    # int 10..80 (built-ins use 28)
@@ -92,10 +94,9 @@ layout:                                # required (or inherit from extends)
     - agent
     - mind
     - goals
-    - companies
-    - swarm
-    - scheduler
     - approvals
+    - companies
+    - scheduler
     - gateway
     - footer
   main:                                # ordered list of main-area widgets
@@ -105,9 +106,11 @@ layout:                                # required (or inherit from extends)
     - input
   panels:                              # per-widget options (optional)
     reasoning:
-      default_size: medium             # small | medium | large | hidden
+      default_size: small              # small | medium | large | hidden
     mascot:
       hidden: false                    # omit the panel regardless of `sidebar` order
+    swarm:
+      hidden: true                     # blade hides empty swarm by default
 
 typography:                            # reserved for future use
   chat_padding: [0, 1]
@@ -154,7 +157,29 @@ falling back to Textual's default blue.
    top to bottom.
 
 Light themes omit `dark` (or set it `false`). The built-in `default`
-is light; `nocturne` and `mocha` are dark.
+is light; `blade`, `nocturne`, and `mocha` are dark. Unset
+`dashboard.theme` resolves to `blade`.
+
+### Chrome
+
+Optional top-level `chrome:` selects the **ops dialect**, not just
+colors:
+
+| Value | Effect |
+|-------|--------|
+| *(omit)* / `classic` | Classic IDE-adjacent chrome — soft labels, rounded mascot, provider dots in the header |
+| `hud` | Blade Runner mission console — mission rail header, angular sensor mascot, HUD panel grammar, amber command aperture |
+
+`blade` ships with `chrome: hud`. Under HUD:
+
+- **Mission rail** — `◆ callsign │ RUNNING/REST/PAUSE/TOOL │ burn meter │ primary mission │ AUTH n / BLK n (when needed) │ LINK`
+- **Panel titles** — MISSION / COS / AUTH / CLOCK / LINK (approvals panel hidden when empty)
+- **Readouts** — pipe meters `|████░░░░|`, field keys (`TRUST`/`VOICE`/`STRAT`/`NET7`), bracketed idle `[standby]`
+- **Mascot** — separate `_FACES_HUD` set (square sensors, scan bars, ops labels `CYCLE`/`TOOL`/`FAULT`)
+- **CSS** — amber left rail on the sidebar, amber header/input borders, denser panel padding
+
+Fork `blade` and set `chrome: classic` (or omit it) if you want the
+rain-city palette without the mission-console dialect.
 
 ### Layout
 
@@ -206,9 +231,10 @@ Possible errors:
 - **`sidebar_width` out of range** — must be `10..80`.
 - **`default_size` not one of** `small | medium | large | hidden`.
 - **`extends:` cycle** — A → B → A.
+- **`chrome` not one of** `hud | classic | ""`.
 
 If `dashboard.theme` in `config.yaml` points at a broken theme, the
-dashboard falls back to `default` and logs the error rather than
+dashboard falls back to `blade` and logs the error rather than
 crashing the chat session.
 
 ## Adding a new panel

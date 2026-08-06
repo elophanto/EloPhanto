@@ -1,0 +1,68 @@
+# Blade — Blade Runner 2049 cinematic dashboard theme.
+#
+# Rain-city near-black with amber as the lead signal (streetlight / JOI
+# warmth) and a quiet teal secondary HUD (rain reflections). Sparse
+# chrome. Not neon cyberpunk — one amber glow, everything else quiet.
+#
+# `chrome: hud` flips mission-rail header, cold labels, angular mascot,
+# and amber command aperture (see cli/dashboard/app.py + theme.render_css).
+#
+# Apply:  elophanto chat --theme blade
+#    or:  dashboard.theme: blade   (in config.yaml)
+# Default for new installs / unset dashboard.theme.
+
+name: blade
+description: "Rain-city near-black with amber lead + teal HUD (Blade Runner 2049)"
+dark: true
+chrome: hud
+
+colors:
+  # Surfaces — colder, denser blacks than nocturne
+  background:  "#050608"   # Screen — void
+  surface:     "#0a0c11"   # Sidebar
+  raised:      "#10141c"   # Header rail
+  border:      "#1e2533"   # Sparse dividers
+
+  # Text — soft off-white, never pure #ffffff
+  foreground:  "#cfd5e0"
+  bright:      "#f3efe6"   # Warm off-white for values (JOI lamp paper)
+  muted:       "#6b7385"
+  placeholder: "#3d4454"
+
+  # Brand + intent — hotter amber lead, quieter teal support
+  accent:      "#f0a020"   # Amber ◆ / cursor / burn / active work
+  accent_alt:  "#3aa8a0"   # Teal secondary (links / gateway)
+  success:     "#3aa8a0"   # Teal-as-ok under HUD (amber reserved for urgency)
+  warning:     "#f0b429"
+  error:       "#e07070"
+  info:        "#3aa8a0"
+
+layout:
+  sidebar_width: 28
+  # Mission-critical first; ambient last. Swarm hidden — empty swarm
+  # panels read as warehouse shelves, not HUD.
+  sidebar:
+    - mascot
+    - agent
+    - mind
+    - goals
+    - approvals
+    - companies
+    - scheduler
+    - gateway
+    - footer
+  main:
+    - chat
+    - reasoning
+    - events
+    - input
+  panels:
+    reasoning:
+      default_size: small
+    mascot:
+      hidden: false
+    swarm:
+      hidden: true
+
+typography:
+  chat_padding: [0, 1]

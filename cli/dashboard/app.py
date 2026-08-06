@@ -210,6 +210,40 @@ _BORDER = "#d4cfc5"  # dividers           — warm separator    (oklch 0.88 0.00
 # The constants are looked up at call-time inside each panel's body(),
 # so reassigning the module globals is enough — no per-panel plumbing.
 
+# When True, chrome uses Blade Runner HUD dialect (mission rail, cold
+# labels, amber urgency). Set by `_apply_palette` from theme.chrome.
+_CHROME_HUD: bool = False
+
+
+def _is_hud() -> bool:
+    return _CHROME_HUD
+
+
+def _default_input_placeholder() -> str:
+    if _is_hud():
+        return "›  /help"
+    return "❯ type a message, /help, or exit  ·  Shift+drag to select text"
+
+
+def _hud_idle(label: str = "idle") -> str:
+    """Bracketed empty-state — denser than soft · · · ellipsis."""
+    return f"  [{_DIM}][{label}][/]"
+
+
+def _hud_meter(pct: int, *, width: int = 8, color: str | None = None) -> str:
+    """Pipe-framed burn/progress meter for HUD readouts."""
+    pct = max(0, min(100, int(pct)))
+    filled = int(round(pct / 100 * width))
+    filled = max(0, min(width, filled))
+    c = color or _MIND
+    return f"[{_DIM}]|[/][{c}]{'█' * filled}[/]" f"[{_DIM}]{'░' * (width - filled)}|[/]"
+
+
+def _hud_field(key: str, value: str, *, key_color: str | None = None) -> str:
+    """Compact KEY value field (TRST O, SESS 2, …)."""
+    kc = key_color or _DIM
+    return f"[{kc}]{key}[/] [{_BRIGHT}]{value}[/]"
+
 
 # Maps each GLYPH_COLOR literal a panel class declares → the theme
 # color-token name it semantically represents. Used by _apply_palette
@@ -235,6 +269,7 @@ def _apply_palette(theme: Theme) -> None:
     GLYPH_COLOR class attribute via _GLYPH_LITERAL_TO_TOKEN.
     """
     global _OK, _WARN, _DIM, _ACCENT, _BRIGHT, _MIND, _BG, _SURFACE, _RAISED, _BORDER
+    global _CHROME_HUD
     c = theme.colors
     _OK = c.success
     _WARN = c.warning
@@ -246,6 +281,7 @@ def _apply_palette(theme: Theme) -> None:
     _SURFACE = c.surface
     _RAISED = c.raised
     _BORDER = c.border
+    _CHROME_HUD = theme.chrome == "hud"
 
     token_value = {
         "accent": c.accent,
@@ -264,6 +300,24 @@ def _apply_palette(theme: Theme) -> None:
         token = ctor._GLYPH_TOKEN
         if token is not None and token in token_value:
             ctor.GLYPH_COLOR = token_value[token]
+
+    # Retint mascot face labels/eyes from the same semantic tokens so
+    # thinking isn't stuck on brand violet under dark themes.
+    try:
+        from cli.dashboard import mascot as _mascot
+
+        _mascot.apply_theme_colors(
+            accent=c.accent,
+            accent_alt=c.accent_alt,
+            success=c.success,
+            warning=c.warning,
+            error=c.error,
+            info=c.info,
+            muted=c.muted,
+        )
+        _mascot.set_chrome_hud(_CHROME_HUD)
+    except Exception:
+        pass
 
 
 def _read_dashboard_flag(flag_key: str, default: bool) -> bool:
@@ -361,6 +415,7 @@ class _State:
     mind_ts: str = "--:--"
     mode: str = "full_auto"
     gateway_port: int = 18789
+    gateway_connected: bool = False
 
     # Provider health: name → ("ok" | "warn" | "off", latency_ms)
     providers: dict[str, tuple[str, int]] = field(default_factory=dict)
@@ -453,6 +508,10 @@ class _State:
 
     def budget_bar(self, width: int = 10) -> str:
         pct = min(100, int(self.budget_used / max(self.budget_limit, 0.01) * 100))
+        if _is_hud():
+            # Amber burn meter — urgency hierarchy for BR2049 HUD.
+            color = _MIND if pct < 70 else (_WARN if pct < 90 else "red")
+            return _hud_meter(pct, width=width, color=color)
         filled = int(pct / 100 * width)
         bar = "█" * filled + "░" * (width - filled)
         color = _OK if pct < 80 else (_WARN if pct < 95 else "red")
@@ -509,7 +568,22 @@ class _SidePanel(Static):
         self._st = state
 
     def _hdr(self) -> str:
-        return f"[{self.GLYPH_COLOR}]{self.GLYPH}[/] " f"[{_BRIGHT}]{self._title}[/]"
+        title = self._title
+        glyph = self.GLYPH
+        if _is_hud():
+            title = {
+                "AGENT": "AGENT",
+                "MIND": "MIND",
+                "GOALS": "MISSION",
+                "COMPANIES": "COS",
+                "SWARM": "SWARM",
+                "SCHEDULED": "CLOCK",
+                "APPROVALS": "AUTH",
+                "GATEWAY": "LINK",
+            }.get(title, title)
+            if glyph in ("⚡", "⏱", "⌁"):
+                glyph = "◆"
+        return f"[{self.GLYPH_COLOR}]{glyph}[/] [{_BRIGHT}]{title}[/]"
 
     def body(self) -> str:  # noqa: D102
         return ""
@@ -636,12 +710,18 @@ class _AgentPanel(_SidePanel):
         # signature line — what the agent is actually doing right now.
         if s.current_tool:
             elapsed = int(_time.monotonic() - s.current_tool_start)
-            line1 = (
-                f"  [{_OK}]●[/] [{_BRIGHT}]{s.current_tool[:14]}[/]"
-                f" [{_DIM}]{elapsed:>3d}s[/]"
-            )
+            if _is_hud():
+                line1 = (
+                    f"  [{_MIND}][TOOL][/] [{_BRIGHT}]{s.current_tool[:12]}[/]"
+                    f" [{_DIM}]{elapsed:>3d}s[/]"
+                )
+            else:
+                line1 = (
+                    f"  [{_OK}]●[/] [{_BRIGHT}]{s.current_tool[:14]}[/]"
+                    f" [{_DIM}]{elapsed:>3d}s[/]"
+                )
         else:
-            line1 = f"  [{_DIM}]◇ idle[/]"
+            line1 = _hud_idle("standby") if _is_hud() else f"  [{_DIM}]◇ idle[/]"
 
         # Row 2: model — quiet, contextual; only shown when we have
         # one. Provider+slash dropped from the visible label; the
@@ -649,7 +729,10 @@ class _AgentPanel(_SidePanel):
         # the row inside the 30-col sidebar without wrapping.
         if s.last_model:
             model_short = s.last_model.split("/")[-1][:22]
-            line2 = f"  [{_DIM}]via[/] [{_BRIGHT}]{model_short}[/]"
+            if _is_hud():
+                line2 = f"  {_hud_field('VIA', model_short[:18])}"
+            else:
+                line2 = f"  [{_DIM}]via[/] [{_BRIGHT}]{model_short}[/]"
         else:
             line2 = ""
 
@@ -657,15 +740,22 @@ class _AgentPanel(_SidePanel):
         # the numbers hover at the same x-positions on every repaint.
         # turns·tokens·cost — the operator's "is this expensive" check.
         tkn = _short_tokens(s.session_tokens)
-        # Glyph-only labels keep this row inside ~24 visible cols so it
-        # doesn't wrap on a 30-col sidebar. ⊘ turns, ◇ tokens, $ cost —
-        # the visual context is enough; the verbose ``turns/tok/cost``
-        # labels were eating ~10 cols of width for no real signal gain.
-        line3 = (
-            f"  [{_BRIGHT}]{s.session_turns}[/][{_DIM}]t[/]"
-            f"  [{_BRIGHT}]{tkn}[/]"
-            f"  [{_BRIGHT}]${s.session_cost:.2f}[/]"
-        )
+        if _is_hud():
+            line3 = (
+                f"  {_hud_field('T', str(s.session_turns))}  "
+                f"{_hud_field('TOK', tkn)}  "
+                f"{_hud_field('$', f'{s.session_cost:.2f}')}"
+            )
+        else:
+            # Glyph-only labels keep this row inside ~24 visible cols so it
+            # doesn't wrap on a 30-col sidebar. ⊘ turns, ◇ tokens, $ cost —
+            # the visual context is enough; the verbose ``turns/tok/cost``
+            # labels were eating ~10 cols of width for no real signal gain.
+            line3 = (
+                f"  [{_BRIGHT}]{s.session_turns}[/][{_DIM}]t[/]"
+                f"  [{_BRIGHT}]{tkn}[/]"
+                f"  [{_BRIGHT}]${s.session_cost:.2f}[/]"
+            )
 
         return "\n".join(line for line in (line1, line2, line3) if line)
 
@@ -684,19 +774,38 @@ class _MindPanel(_SidePanel):
         # "pondering", "resting") and a colour that hints at energy
         # level. "sleeping" reads as restful + ETA-aware, not blocked.
         if s.mind_state == "running":
-            line1 = f"  [{_OK}]●[/] [{_OK}]running[/]"
+            line1 = (
+                f"  [{_MIND}]●[/] [{_MIND}]RUNNING[/]"
+                if _is_hud()
+                else f"  [{_OK}]●[/] [{_OK}]running[/]"
+            )
         elif s.mind_state == "sleeping":
             eta = s.mind_eta() or "?"
-            # "resting · 4m" — dropped "wakes in" because the colon-
-            # space-eta reads obvious enough. Saves 9 cols on a tight
-            # sidebar.
-            line1 = f"  [{_ACCENT}]●[/] [{_DIM}]resting ·[/] [{_BRIGHT}]{eta}[/]"
+            line1 = (
+                f"  [{_DIM}]●[/] [{_DIM}]REST ·[/] [{_BRIGHT}]{eta}[/]"
+                if _is_hud()
+                else f"  [{_ACCENT}]●[/] [{_DIM}]resting ·[/] [{_BRIGHT}]{eta}[/]"
+            )
         elif s.mind_state == "paused":
-            line1 = f"  [{_DIM}]◇[/] [{_DIM}]paused[/]"
+            line1 = (
+                f"  [{_DIM}]◇[/] [{_DIM}]PAUSE[/]"
+                if _is_hud()
+                else f"  [{_DIM}]◇[/] [{_DIM}]paused[/]"
+            )
         elif s.mind_state == "disabled":
-            line1 = f"  [{_DIM}]○[/] [{_DIM}]off[/]"
+            line1 = (
+                f"  [{_DIM}]○[/] [{_DIM}]OFF[/]"
+                if _is_hud()
+                else f"  [{_DIM}]○[/] [{_DIM}]off[/]"
+            )
         else:
             line1 = f"  [{_DIM}]?[/] [{_DIM}]{s.mind_state}[/]"
+
+        if s.current_tool and _is_hud():
+            line1 = (
+                f"  [{_MIND}]●[/] [{_MIND}]TOOL[/] "
+                f"[{_BRIGHT}]{s.current_tool[:12]}[/]"
+            )
 
         # Last action — what the autonomous mind last did. Truncated
         # to 18 chars without a "last·" prefix; readers infer "this is
@@ -710,11 +819,18 @@ class _MindPanel(_SidePanel):
         # Glyph-only labels (matching AGENT row 3): c for cycles, $ for
         # cost, % for daily budget. Fits inside ~22 visible cols so the
         # 30-col sidebar doesn't wrap.
-        line3 = (
-            f"  [{_BRIGHT}]{s.mind_cycles_today}[/][{_DIM}]c[/]"
-            f"  [{_BRIGHT}]${s.mind_cost_today:.2f}[/]"
-            f"  [{_DIM}]{s.mind_budget_pct}%[/]"
-        )
+        if _is_hud():
+            line3 = (
+                f"  {_hud_field('CYC', str(s.mind_cycles_today))}  "
+                f"{_hud_field('$', f'{s.mind_cost_today:.2f}')}  "
+                f"{_hud_field('DAY', f'{s.mind_budget_pct}%')}"
+            )
+        else:
+            line3 = (
+                f"  [{_BRIGHT}]{s.mind_cycles_today}[/][{_DIM}]c[/]"
+                f"  [{_BRIGHT}]${s.mind_cost_today:.2f}[/]"
+                f"  [{_DIM}]{s.mind_budget_pct}%[/]"
+            )
 
         return "\n".join(line for line in (line1, line2, line3) if line)
 
@@ -729,16 +845,24 @@ class _SwarmPanel(_SidePanel):
     def body(self) -> str:
         s = self._st
         if not s.swarm_tasks:
-            return f"  [{_DIM}]· · ·[/]"
+            return _hud_idle("quiet") if _is_hud() else f"  [{_DIM}]· · ·[/]"
 
         # State -> dot. Dot is the leading glyph; running/queued/done/
         # failed are the four states the orchestrator emits.
-        icons = {
-            "running": f"[{_OK}]●[/]",
-            "queued": f"[{_DIM}]○[/]",
-            "done": f"[{_OK}]✓[/]",
-            "failed": "[red]✗[/]",
-        }
+        if _is_hud():
+            icons = {
+                "running": f"[{_MIND}]▶[/]",
+                "queued": f"[{_DIM}]·[/]",
+                "done": f"[{_ACCENT}]■[/]",
+                "failed": "[red]×[/]",
+            }
+        else:
+            icons = {
+                "running": f"[{_OK}]●[/]",
+                "queued": f"[{_DIM}]○[/]",
+                "done": f"[{_OK}]✓[/]",
+                "failed": "[red]✗[/]",
+            }
         lines = []
         # Show the last 4 — limited to keep the sidebar from running
         # off the bottom of the screen on a busy session.
@@ -747,11 +871,17 @@ class _SwarmPanel(_SidePanel):
             # 8-char name cap matches GOALS panel; visual rhyme.
             name = task.get("name", "?")[:8]
             pct = int(task.get("pct", 0))
-            filled = min(4, max(0, int(pct / 25)))
-            bar = f"[{_OK}]{'▓' * filled}[/][{_DIM}]{'░' * (4 - filled)}[/]"
-            lines.append(
-                f"  {icon} [{_BRIGHT}]{name:<8}[/] {bar} [{_DIM}]{pct:>3d}%[/]"
-            )
+            if _is_hud():
+                bar = _hud_meter(pct, width=4)
+                lines.append(
+                    f"  {icon} [{_BRIGHT}]{name:<8}[/] {bar} [{_DIM}]{pct:>3d}%[/]"
+                )
+            else:
+                filled = min(4, max(0, int(pct / 25)))
+                bar = f"[{_OK}]{'▓' * filled}[/][{_DIM}]{'░' * (4 - filled)}[/]"
+                lines.append(
+                    f"  {icon} [{_BRIGHT}]{name:<8}[/] {bar} [{_DIM}]{pct:>3d}%[/]"
+                )
         return "\n".join(lines)
 
 
@@ -765,17 +895,25 @@ class _SchedulerPanel(_SidePanel):
     def body(self) -> str:
         s = self._st
         if not s.scheduled_tasks:
-            return f"  [{_DIM}]· · ·[/]"
+            return _hud_idle("clear") if _is_hud() else f"  [{_DIM}]· · ·[/]"
 
-        icons = {
-            "pending": f"[{_DIM}]○[/]",
-            "done": f"[{_OK}]✓[/]",
-            "running": f"[{_OK}]●[/]",
-            "failed": "[red]✗[/]",
-        }
+        if _is_hud():
+            icons = {
+                "pending": f"[{_DIM}]·[/]",
+                "done": f"[{_ACCENT}]■[/]",
+                "running": f"[{_MIND}]▶[/]",
+                "failed": "[red]×[/]",
+            }
+        else:
+            icons = {
+                "pending": f"[{_DIM}]○[/]",
+                "done": f"[{_OK}]✓[/]",
+                "running": f"[{_OK}]●[/]",
+                "failed": "[red]✗[/]",
+            }
         lines = []
         for task in s.scheduled_tasks[-4:]:
-            icon = icons.get(task.get("status", "pending"), f"[{_DIM}]○[/]")
+            icon = icons.get(task.get("status", "pending"), f"[{_DIM}]·[/]")
             # 12-char name + 6-char right column fits 22:
             # 2 indent + 2 icon + 12 name + 1 + 5 right = 22.
             # The 16-char cap from the prior version wrapped because
@@ -786,7 +924,13 @@ class _SchedulerPanel(_SidePanel):
             ts = task.get("ts_str", "")
             # Compact "5m" / "1h" preferred over "in 5m" — saves 3 cols.
             right = eta if eta else ts
-            lines.append(f"  {icon} [{_BRIGHT}]{name:<12}[/] [{_DIM}]{right}[/]")
+            if _is_hud():
+                lines.append(
+                    f"  {icon} [{_BRIGHT}]{name:<12}[/] "
+                    f"[{_DIM}]@[/][{_BRIGHT}]{right}[/]"
+                )
+            else:
+                lines.append(f"  {icon} [{_BRIGHT}]{name:<12}[/] [{_DIM}]{right}[/]")
         return "\n".join(lines)
 
 
@@ -802,7 +946,7 @@ class _GatewayPanel(_SidePanel):
         # Channels row: dot per channel + name. Dedupe by channel name
         # so two sessions on the same channel collapse to one pill.
         if not s.sessions:
-            line1 = f"  [{_DIM}]· · ·[/]"
+            line1 = _hud_idle("dark") if _is_hud() else f"  [{_DIM}]· · ·[/]"
         else:
             seen: dict[str, bool] = {}
             for sess in s.sessions:
@@ -810,16 +954,26 @@ class _GatewayPanel(_SidePanel):
                 seen[ch] = seen.get(ch, False) or sess.get("active", False)
             parts = []
             for ch, active in seen.items():
-                dot = f"[{_OK}]●[/]" if active else f"[{_DIM}]○[/]"
-                parts.append(f"{dot} [{_BRIGHT}]{ch}[/]")
+                if _is_hud():
+                    mark = f"[{_ACCENT}]■[/]" if active else f"[{_DIM}]·[/]"
+                    parts.append(f"{mark}[{_BRIGHT}]{ch}[/]")
+                else:
+                    dot = f"[{_OK}]●[/]" if active else f"[{_DIM}]○[/]"
+                    parts.append(f"{dot} [{_BRIGHT}]{ch}[/]")
             line1 = "  " + "  ".join(parts)
 
         # Footer row: count + port, tabular-aligned with other panels.
         count = len(s.sessions)
-        line2 = (
-            f"  [{_DIM}]sess[/] [{_BRIGHT}]{count:<3d}[/]"
-            f"  [{_DIM}]port[/] [{_BRIGHT}]{s.gateway_port}[/]"
-        )
+        if _is_hud():
+            line2 = (
+                f"  {_hud_field('SESS', str(count))}  "
+                f"{_hud_field('PORT', str(s.gateway_port))}"
+            )
+        else:
+            line2 = (
+                f"  [{_DIM}]sess[/] [{_BRIGHT}]{count:<3d}[/]"
+                f"  [{_DIM}]port[/] [{_BRIGHT}]{s.gateway_port}[/]"
+            )
         return f"{line1}\n{line2}"
 
 
@@ -846,23 +1000,35 @@ class _GoalsPanel(_SidePanel):
     def body(self) -> str:
         s = self._st
         if not s.goals:
-            return f"  [{_DIM}]· · ·[/]"
+            return _hud_idle("no mission") if _is_hud() else f"  [{_DIM}]· · ·[/]"
 
-        icons = {
-            "active": f"[{_OK}]●[/]",
-            "paused": f"[{_DIM}]◇[/]",
-            "blocked": f"[{_WARN}]●[/]",
-            # The goal manager writes status='completed'; an earlier
-            # version of this dict used "done" as the key, so finished
-            # goals fell through to the '?' fallback. The gateway
-            # filters completed goals out of the panel payload now,
-            # but keeping both keys is cheap insurance.
-            "completed": f"[{_OK}]✓[/]",
-            "done": f"[{_OK}]✓[/]",
-            "cancelled": f"[{_DIM}]✕[/]",
-            "failed": f"[{_WARN}]✗[/]",
-            "planning": f"[{_DIM}]◯[/]",
-        }
+        if _is_hud():
+            icons = {
+                "active": f"[{_MIND}]▶[/]",
+                "paused": f"[{_DIM}]■[/]",
+                "blocked": f"[{_WARN}]×[/]",
+                "completed": f"[{_ACCENT}]■[/]",
+                "done": f"[{_ACCENT}]■[/]",
+                "cancelled": f"[{_DIM}]×[/]",
+                "failed": f"[{_WARN}]×[/]",
+                "planning": f"[{_DIM}]·[/]",
+            }
+        else:
+            icons = {
+                "active": f"[{_OK}]●[/]",
+                "paused": f"[{_DIM}]◇[/]",
+                "blocked": f"[{_WARN}]●[/]",
+                # The goal manager writes status='completed'; an earlier
+                # version of this dict used "done" as the key, so finished
+                # goals fell through to the '?' fallback. The gateway
+                # filters completed goals out of the panel payload now,
+                # but keeping both keys is cheap insurance.
+                "completed": f"[{_OK}]✓[/]",
+                "done": f"[{_OK}]✓[/]",
+                "cancelled": f"[{_DIM}]✕[/]",
+                "failed": f"[{_WARN}]✗[/]",
+                "planning": f"[{_DIM}]◯[/]",
+            }
         lines = []
         # Two-line layout per goal. The old single-line layout had to
         # cap the title at 8 chars to fit a bar + tail on the same
@@ -887,13 +1053,29 @@ class _GoalsPanel(_SidePanel):
             title = raw_title if len(raw_title) <= 22 else raw_title[:21] + "…"
             pct = int(goal.get("pct", 0))
             checkpoint = goal.get("checkpoint", "")
-            filled = min(4, max(0, int(pct / 25)))
-            bar = f"[{_OK}]{'▓' * filled}[/][{_DIM}]{'░' * (4 - filled)}[/]"
-            tail = (
-                f"[{_DIM}]{checkpoint}[/]" if checkpoint else f"[{_DIM}]{pct:>3d}%[/]"
-            )
-            lines.append(f"  {icon} [{_BRIGHT}]{title}[/]")
-            lines.append(f"    {bar} {tail}")
+            if _is_hud():
+                bar = _hud_meter(pct, width=8)
+                tail = (
+                    f"[{_DIM}]{checkpoint}[/]"
+                    if checkpoint
+                    else f"[{_DIM}]{pct:>3d}%[/]"
+                )
+                lines.append(f"  {icon} [{_BRIGHT}]{title}[/]")
+                lines.append(f"    {bar} {tail}")
+            else:
+                filled = min(4, max(0, int(pct / 25)))
+                # HUD: amber progress (active work); classic: green success.
+                bar_color = _OK
+                bar = (
+                    f"[{bar_color}]{'▓' * filled}[/]" f"[{_DIM}]{'░' * (4 - filled)}[/]"
+                )
+                tail = (
+                    f"[{_DIM}]{checkpoint}[/]"
+                    if checkpoint
+                    else f"[{_DIM}]{pct:>3d}%[/]"
+                )
+                lines.append(f"  {icon} [{_BRIGHT}]{title}[/]")
+                lines.append(f"    {bar} {tail}")
         # Footer when more goals exist than we can show — keeps the
         # operator aware that the panel is a window, not the whole list.
         if len(s.goals) > 2:
@@ -934,7 +1116,7 @@ class _CompaniesPanel(_SidePanel):
     def body(self) -> str:
         s = self._st
         if not s.companies:
-            return f"  [{_DIM}]· · ·[/]"
+            return _hud_idle("none") if _is_hud() else f"  [{_DIM}]· · ·[/]"
 
         # Trust state → color + initial. The initials are designed
         # to be unambiguous at a glance: L(earning) / T(rial) /
@@ -971,12 +1153,19 @@ class _CompaniesPanel(_SidePanel):
 
             # Active indicator: solid dot for active session, open dot
             # otherwise. Mirrors the _GoalsPanel pattern.
-            icon = f"[{_OK}]●[/]" if active else f"[{_DIM}]○[/]"
+            if _is_hud():
+                icon = f"[{_MIND}]▶[/]" if active else f"[{_DIM}]·[/]"
+            else:
+                icon = f"[{_OK}]●[/]" if active else f"[{_DIM}]○[/]"
             t_color = trust_color.get(trust, _DIM)
             t_letter = trust_initial.get(trust, "?")
             v_render = voice_render.get(voice, voice_render["none"])
             s_render = strategy_render.get(strategy, strategy_render["none"])
-            b_render = f" [{_WARN}]b{blockers}[/]" if blockers > 0 else ""
+            b_render = (
+                f" [{_WARN}]BLK {blockers}[/]"
+                if blockers > 0 and _is_hud()
+                else (f" [{_WARN}]b{blockers}[/]" if blockers > 0 else "")
+            )
 
             # Net 7-day: green if positive, dim if zero, red if negative.
             # Operators read net as "is this making money or burning".
@@ -988,11 +1177,20 @@ class _CompaniesPanel(_SidePanel):
                 net_str = f"[{_DIM}]$0[/]"
 
             lines.append(f"  {icon} [{_BRIGHT}]{slug}[/]")
-            lines.append(
-                f"    T:[{t_color}]{t_letter}[/] "
-                f"V:{v_render} S:{s_render}{b_render}"
-            )
-            lines.append(f"    [{_DIM}]net 7d:[/] {net_str}")
+            if _is_hud():
+                # Readable field keys — glanceable without a legend.
+                lines.append(
+                    f"    [{_DIM}]TRUST[/] [{t_color}]{t_letter}[/] "
+                    f"[{_DIM}]VOICE[/] {v_render} "
+                    f"[{_DIM}]STRAT[/] {s_render}{b_render}"
+                )
+                lines.append(f"    [{_DIM}]NET7[/] {net_str}")
+            else:
+                lines.append(
+                    f"    T:[{t_color}]{t_letter}[/] "
+                    f"V:{v_render} S:{s_render}{b_render}"
+                )
+                lines.append(f"    [{_DIM}]net 7d:[/] {net_str}")
 
         if len(s.companies) > 4:
             extra = len(s.companies) - 4
@@ -1039,11 +1237,22 @@ class _ApprovalsPanel(_SidePanel):
             else:
                 age = f"{age_secs // 3600}h"
             lines.append(
-                f"  [{_WARN}]●[/] [{_BRIGHT}]{tool:<12}[/] [{_DIM}]{age:>4}[/]"
+                f"  [{_WARN}]▶[/] [{_BRIGHT}]{tool:<12}[/] [{_DIM}]{age:>4}[/]"
+                if _is_hud()
+                else f"  [{_WARN}]●[/] [{_BRIGHT}]{tool:<12}[/] [{_DIM}]{age:>4}[/]"
             )
             if summary:
                 lines.append(f"    [{_DIM}]{summary}[/]")
         return "\n".join(lines)
+
+    def repaint(self) -> None:
+        # HUD: hide the panel entirely when the queue is empty so an
+        # idle AUTH header doesn't compete with real signals.
+        if _is_hud() and not self._st.approvals:
+            self.display = False
+            return
+        self.display = True
+        super().repaint()
 
 
 class _FooterPanel(_SidePanel):
@@ -1286,16 +1495,8 @@ def _build_digest_from_state(state: _State, seed: dict) -> _Digest:
 class _Header(Static):
     """1-row header — brand · session · budget · mode · providers.
 
-    Was 2 rows (general + providers). Compressed to 1 by:
-      - dropping the verbose ``budget:`` label and showing just the
-        bar + ``$used/$limit``
-      - condensing providers to a row of dots + names (no per-provider
-        latency by default — the doctor command is the right place
-        for that detail)
-      - moving cycle info into the MIND sidebar panel where it belongs
-
-    Reclaims a row of vertical real estate that the chat transcript
-    can use instead.
+    Under ``chrome: hud`` becomes a mission rail: callsign · mind verb ·
+    burn · primary goal · gateway — providers demoted to doctor.
     """
 
     DEFAULT_CSS = """
@@ -1313,6 +1514,10 @@ class _Header(Static):
 
     def repaint(self) -> None:
         s = self._st
+        if _is_hud():
+            self.update(self._mission_rail(s))
+            return
+
         elapsed = s.session_elapsed()
         budget_bar = s.budget_bar(8)
         budget_str = f"${s.budget_used:.2f}/${s.budget_limit:.0f}"
@@ -1342,6 +1547,71 @@ class _Header(Static):
             f"{providers}"
         )
         self.update(row)
+
+    def _mission_rail(self, s: _State) -> str:
+        """Blade Runner mission console — one glance: mind, burn, goal, link."""
+        # Mind verb
+        if s.mind_state == "running":
+            mind = f"[{_MIND}]RUNNING[/]"
+        elif s.mind_state == "sleeping":
+            eta = s.mind_eta() or "—"
+            mind = f"[{_DIM}]REST[/] [{_BRIGHT}]{eta}[/]"
+        elif s.mind_state == "paused":
+            mind = f"[{_DIM}]PAUSE[/]"
+        elif s.mind_state == "disabled":
+            mind = f"[{_DIM}]OFF[/]"
+        else:
+            mind = f"[{_DIM}]{s.mind_state.upper()[:8]}[/]"
+
+        # Active tool overrides mind verb — that's the real activity.
+        if s.current_tool:
+            mind = f"[{_MIND}]TOOL[/] [{_BRIGHT}]{s.current_tool[:12]}[/]"
+
+        burn = (
+            f"{s.budget_bar(6)} "
+            f"[{_BRIGHT}]${s.budget_used:.2f}[/][{_DIM}]/${s.budget_limit:.0f}[/]"
+        )
+
+        # Primary goal one-liner — shorten when AUTH/BLK steal columns.
+        auth_n = len(s.approvals or [])
+        blk_n = sum(int(c.get("blockers", 0) or 0) for c in (s.companies or []))
+        title_cap = 22 if (auth_n or blk_n) else 28
+
+        if s.goals:
+            g0 = s.goals[0]
+            title = str(g0.get("title", "?"))
+            if len(title) > title_cap:
+                title = title[: title_cap - 1] + "…"
+            ck = g0.get("checkpoint") or ""
+            goal = f"[{_BRIGHT}]{title}[/]"
+            if ck:
+                goal += f" [{_DIM}]{ck}[/]"
+            if len(s.goals) > 1:
+                goal += f" [{_DIM}]+{len(s.goals) - 1}[/]"
+        else:
+            goal = f"[{_DIM}]no mission[/]"
+
+        # Attention chips — only when something needs eyes (not ambient).
+        eyes = ""
+        if auth_n:
+            eyes += f"  [{_DIM}]│[/] [{_WARN}]AUTH {auth_n}[/]"
+        if blk_n:
+            eyes += f"  [{_DIM}]│[/] [{_WARN}]BLK {blk_n}[/]"
+
+        # Gateway
+        if s.gateway_connected:
+            link = f"[{_ACCENT}]LINK[/]"
+        else:
+            link = f"[{_WARN}]NO LINK[/]"
+
+        return (
+            f"[{_MIND}]◆[/] [{_BRIGHT}]{s.agent_name}[/]  "
+            f"[{_DIM}]│[/] {mind}  "
+            f"[{_DIM}]│[/] {burn}  "
+            f"[{_DIM}]│[/] {goal}"
+            f"{eyes}  "
+            f"[{_DIM}]│[/] {link}"
+        )
 
 
 # ── Main app ───────────────────────────────────────────────────────────────
@@ -1405,12 +1675,12 @@ class EloPhantoDashboard(App):
         theme: Theme | None = None,
     ) -> None:
         # Theme loading. If no theme is passed in, fall back to the
-        # built-in default — operators normally never see this path
+        # built-in blade theme — operators normally never see this path
         # because run_dashboard reads dashboard.theme from config and
-        # passes the loaded Theme in. We default to "default" so a
-        # bare EloPhantoDashboard() still works for tests / experiments.
+        # passes the loaded Theme in. We default to "blade" so a
+        # bare EloPhantoDashboard() matches the product look.
         if theme is None:
-            theme = load_theme("default")
+            theme = load_theme("blade")
         self._theme: Theme = theme
         # Point the Rich-markup palette (the _BRIGHT / _DIM / _OK / …
         # globals the panels emit via f-strings) at this theme, and
@@ -1496,9 +1766,7 @@ class EloPhantoDashboard(App):
                     yield from self._build_main_widget(name)
         with Vertical(id="input-bar"):
             yield Input(
-                placeholder=(
-                    "❯ type a message, /help, or exit  " "·  Shift+drag to select text"
-                ),
+                placeholder=_default_input_placeholder(),
                 id="input",
             )
 
@@ -1518,8 +1786,13 @@ class EloPhantoDashboard(App):
             yield chat_log
             return
         if name == "reasoning":
+            r_label = (
+                f"[{_DIM}]INNER[/]  [{_DIM}]Ctrl+R[/]"
+                if _is_hud()
+                else "💭  reasoning  (Ctrl+R to resize / hide)"
+            )
             yield Static(
-                "💭  reasoning  (Ctrl+R to resize / hide)",
+                r_label,
                 id="reasoning-header",
                 markup=True,
             )
@@ -1578,7 +1851,9 @@ class EloPhantoDashboard(App):
         self._connect_gateway(self._gw_url)
         self._start_tick()
         self.query_one("#feed-header", Static).update(
-            f"[{_DIM}]─── LIVE FEED {'─' * 60}[/]"
+            f"[{_DIM}]TELEMETRY {'─' * 48}[/]"
+            if _is_hud()
+            else f"[{_DIM}]─── LIVE FEED {'─' * 60}[/]"
         )
         # Paint the digest as the FIRST scrollable item in chat. It
         # scrolls up and out of view as soon as the operator sends
@@ -1654,16 +1929,26 @@ class EloPhantoDashboard(App):
 
     def on__gw_connected(self, message: _GwConnected) -> None:
         self._connected = True
-        self._add_event(
-            f"[{_OK}]Connected to gateway[/] · {message.client_id[:8]}", tag="GW"
+        self._state.gateway_connected = True
+        tag = "LINK" if _is_hud() else "GW"
+        msg = (
+            f"[{_ACCENT}]uplink[/] · {message.client_id[:8]}"
+            if _is_hud()
+            else f"[{_OK}]Connected to gateway[/] · {message.client_id[:8]}"
         )
+        self._add_event(msg, tag=tag)
         self._repaint_all()
         # Ask for initial status to populate provider health + scheduler
         self.run_worker(self._request_status(), exclusive=False)
 
     def on__gw_disconnected(self, message: _GwDisconnected) -> None:
         self._connected = False
-        self._add_event("[red]Gateway disconnected[/]", tag="GW")
+        self._state.gateway_connected = False
+        tag = "LINK" if _is_hud() else "GW"
+        self._add_event(
+            f"[{_WARN}]uplink lost[/]" if _is_hud() else "[red]Gateway disconnected[/]",
+            tag=tag,
+        )
 
     def on__gw_msg(self, message: _GwMsg) -> None:
         self._dispatch(message.gw_msg)
@@ -1769,9 +2054,7 @@ class EloPhantoDashboard(App):
 
         # Clear thinking indicator
         self._awaiting_response = False
-        self.query_one("#input", Input).placeholder = (
-            "❯ type a message, /help, or exit  ·  Ctrl+Y to copy last response"
-        )
+        self.query_one("#input", Input).placeholder = _default_input_placeholder()
 
         # Update session stats from response metadata
         usage = msg.data.get("usage", {})
@@ -1796,7 +2079,9 @@ class EloPhantoDashboard(App):
             f"  [{_DIM}]Type [/][{_BRIGHT}]y[/][{_DIM}] to approve or [/][{_BRIGHT}]n[/][{_DIM}] to deny[/]"
         )
         chat.write("")
-        self.query_one("#input", Input).placeholder = "❯ y / n"
+        self.query_one("#input", Input).placeholder = (
+            "› y / n" if _is_hud() else "❯ y / n"
+        )
 
     def _on_event(self, msg: GatewayMessage) -> None:
         event = msg.data.get("event", "")
@@ -2304,7 +2589,9 @@ class EloPhantoDashboard(App):
         self._pending[msg.id] = future
 
         self._awaiting_response = True
-        self.query_one("#input", Input).placeholder = "❯ thinking..."
+        self.query_one("#input", Input).placeholder = (
+            "› …" if _is_hud() else "❯ thinking..."
+        )
 
         await self._send_ws(msg)
 
@@ -2803,20 +3090,19 @@ async def run_dashboard(gateway_url: str, *, theme_name: str | None = None) -> N
     name = (
         theme_name
         or (env_theme if env_theme else None)
-        or _read_dashboard_str("theme", default="default")
+        or _read_dashboard_str("theme", default="blade")
     )
     try:
         theme = load_theme(name)
     except Exception as e:
         # Don't crash the chat session on a theme typo — fall back to
-        # default and log loudly. Operator sees the error in stderr
-        # AND in the daemon log.
+        # blade (product default) and log loudly.
         log.error(
-            "dashboard.theme=%r failed to load: %s — falling back to 'default'",
+            "dashboard.theme=%r failed to load: %s — falling back to 'blade'",
             name,
             e,
         )
-        theme = load_theme("default")
+        theme = load_theme("blade")
 
     app = EloPhantoDashboard(
         gateway_url=gateway_url,

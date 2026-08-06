@@ -153,6 +153,11 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
 ./start.sh --daemon  # install + run as background daemon (launchd / systemd)
 ```
 
+The terminal dashboard defaults to the **blade** theme — a Blade Runner
+2049–style mission console (amber on rain-city black, HUD chrome). Switch
+with `elophanto chat --theme nocturne` or `dashboard.theme:` in
+`config.yaml`. See [docs/79-DASHBOARD-THEMES.md](docs/79-DASHBOARD-THEMES.md).
+
 `setup.sh` runs `elophanto init` for you: it asks for the agent's name, auto-installs Node.js + ffmpeg on macOS if missing, auto-detects your Chrome profile, asks for **one** API key (OpenRouter is easiest, or it auto-uses your ChatGPT subscription via Codex if `~/.codex/auth.json` is present), generates the Ed25519 identity, and prompts for vault init. **Don't copy `config.demo.yaml` by hand** — forgetting to replace the placeholder key is the #1 reason new installs fail silently.
 
 `./start.sh` runs `elophanto doctor` first — a green/yellow/red preflight that catches placeholder keys, missing Chrome paths, uninitialised vaults, and more. Override with `SKIP_DOCTOR=1 ./start.sh` only if you know what you're doing.

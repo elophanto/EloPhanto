@@ -10,9 +10,10 @@ Discovery, in resolution order (first hit wins for a given name):
 2. User themes     — `~/.elophanto/themes/<name>.yaml`
 3. Built-in themes — `cli/dashboard/themes/<name>.yaml`
 
-The built-in `default` theme is the source of truth for the current
-look. Custom themes can `extends: default` and override only the
-fields they want to change.
+The built-in `default` theme preserves the original warm cream look.
+The product default at runtime is `blade` (Blade Runner 2049 cinematic
+amber). Custom themes can `extends: default` (or any built-in) and
+override only the fields they want to change.
 
 Validation:
 - All required color keys present (no silent fallbacks — bad theme
@@ -136,6 +137,10 @@ class Theme:
     # be invisible on a dark background). Light themes set this False.
     dark: bool = False
     typography: dict[str, Any] = field(default_factory=dict)
+    # Optional chrome dialect. ``hud`` = Blade Runner mission-console
+    # voice (cold labels, mission rail, angular mascot). Empty/other
+    # keeps the classic IDE-adjacent chrome for cream/mocha/nocturne.
+    chrome: str = ""
 
 
 # ── Loading ─────────────────────────────────────────────────────────
@@ -366,6 +371,15 @@ def _build_theme(raw: dict[str, Any], source_path: Path, fallback_name: str) -> 
     if not isinstance(dark, bool):
         raise ThemeError("theme `dark` must be true or false")
 
+    chrome = raw.get("chrome", "") or ""
+    if not isinstance(chrome, str):
+        raise ThemeError("theme `chrome` must be a string")
+    chrome = chrome.strip().lower()
+    if chrome and chrome not in ("hud", "classic"):
+        raise ThemeError(
+            f"theme `chrome` must be 'hud', 'classic', or empty, got {chrome!r}"
+        )
+
     return Theme(
         name=name,
         description=description,
@@ -375,6 +389,7 @@ def _build_theme(raw: dict[str, Any], source_path: Path, fallback_name: str) -> 
         source_path=source_path,
         dark=dark,
         typography=typography,
+        chrome=chrome,
     )
 
 
@@ -461,6 +476,37 @@ def render_css(theme: Theme) -> str:
     scrollbar-color-active: {c.accent};
     scrollbar-corner-color: {c.surface};"""
 
+    # HUD chrome: colder borders, amber command aperture, denser panels,
+    # left accent rail on sidebar (ops console frame, not Slack slab).
+    if theme.chrome == "hud":
+        sidebar_border = (
+            f"border-left: tall {c.accent};\n" f"    border-right: tall {c.border};"
+        )
+        header_border = f"border-bottom: solid {c.accent};"
+        input_bar_extra = f"""\
+    border-top: solid {c.accent};
+    background: {c.background};"""
+        input_bg = c.background
+        panel_extra = f"""\
+_SidePanel {{
+    padding: 0 1 0 1;
+    color: {c.muted};
+}}
+#feed-header {{
+    border-top: solid {c.accent};
+}}
+#main-area {{
+    border-left: solid {c.border};
+}}"""
+    else:
+        sidebar_border = f"border-right: solid {c.border};"
+        header_border = ""
+        input_bar_extra = f"""\
+    border-top: solid {c.border};
+    background: {c.raised};"""
+        input_bg = c.raised
+        panel_extra = ""
+
     return f"""\
 Screen {{
     layout: vertical;
@@ -477,7 +523,7 @@ Screen {{
 #sidebar {{
     width: {sidebar_w};
     min-width: {sidebar_w};
-    border-right: solid {c.border};
+    {sidebar_border}
     background: {c.surface};
     color: {c.foreground};
     overflow-y: auto;
@@ -545,12 +591,11 @@ Screen {{
 }}
 #input-bar {{
     height: 3;
-    background: {c.raised};
-    border-top: solid {c.border};
+    {input_bar_extra}
     padding: 0 1;
 }}
 #input-bar Input {{
-    background: {c.raised};
+    background: {input_bg};
     border: none;
     color: {c.foreground};
     padding: 0 0;
@@ -570,6 +615,7 @@ _SidePanel {{
     padding: 0 1 1 1;
     color: {c.muted};
 }}
+{panel_extra}
 #panel-mascot {{
     /* The mascot is the sidebar's identity — center it horizontally
      * within the panel so the face sits in the middle of the
@@ -584,5 +630,13 @@ _Header {{
     padding: 0 1;
     background: {c.raised};
     color: {c.muted};
+    {header_border}
+}}
+#header {{
+    height: 1;
+    padding: 0 1;
+    background: {c.raised};
+    color: {c.muted};
+    {header_border}
 }}
 """

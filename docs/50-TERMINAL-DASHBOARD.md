@@ -263,9 +263,21 @@ def should_use_dashboard() -> bool:
 
 ## Color Palette
 
-> **Now theme-driven.** The palette below documents the original design intent. As of 2026-05-28 the dashboard's colors and layout are loaded from a YAML theme at startup — the hardcoded `CSS` block and module palette constants are rendered from the active theme instead. To change colors or rearrange panels, edit a theme (don't hardcode hexes). See [docs/79-DASHBOARD-THEMES.md](79-DASHBOARD-THEMES.md). Built-in themes: `default` (warm cream), `nocturne`, `mocha`.
+> **Now theme-driven.** The palette below documents an early design intent.
+> As of 2026-05-28 colors and layout load from YAML at startup — edit a
+> theme instead of hardcoding hexes. See [docs/79-DASHBOARD-THEMES.md](79-DASHBOARD-THEMES.md).
+> Built-in themes: `blade` (product default — amber rain-city + HUD chrome),
+> `default` (warm cream), `nocturne`, `mocha`.
+>
+> **Blade HUD (`chrome: hud`)** turns the header into a mission rail
+> (`callsign · mind verb · burn · mission · AUTH/BLK · LINK`), remaps
+> sidebar dialect (MISSION / COS / AUTH / CLOCK / LINK), uses pipe meters
+> and field keys, and swaps the mascot to a colder sensor face set.
+> Details in [79 — Chrome](79-DASHBOARD-THEMES.md#chrome).
 
-The dashboard uses exact hex approximations of the web app's `web/src/globals.css` dark-mode oklch tokens:
+The table below is the original dark-mode sketch (still useful as a
+token map for classic chrome). Prefer `cli/dashboard/themes/*.yaml` as
+source of truth:
 
 | Token | Hex | oklch source | Role |
 |-------|-----|-------------|------|
@@ -280,7 +292,7 @@ The dashboard uses exact hex approximations of the web app's `web/src/globals.cs
 | `_OK` | `#22c55e` | brand success | Green (connected, done, healthy) |
 | `_WARN` | `#f59e0b` | brand warning | Amber (degraded, approval needed) |
 
-The background is intentionally **not** pure black — the `260°` hue gives it the cinematic cool-blue depth of the web app's "ex machina" dark mode.
+The background is intentionally **not** pure black — the `260°` hue gives it the cinematic cool-blue depth of the web app's "ex machina" dark mode. Under `blade`, backgrounds go colder (`#050608`) and the lead accent is amber (`#f0a020`) with teal secondary (`#3aa8a0`).
 
 ## Thinking Indicator
 

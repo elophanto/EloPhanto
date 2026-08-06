@@ -50,6 +50,13 @@ export const THEMES: ThemeDef[] = [
     swatch: { bg: "#0b0e14", surface: "#11151f", accent: "#5eead4", fg: "#dbe2ee" },
   },
   {
+    id: "blade",
+    label: "Blade",
+    description: "Rain-city near-black with amber lead + teal HUD",
+    mode: "dark",
+    swatch: { bg: "#050608", surface: "#0a0c11", accent: "#f0a020", fg: "#cfd5e0" },
+  },
+  {
     id: "mocha",
     label: "Mocha",
     description: "Soothing dark pastel with a Mauve accent",

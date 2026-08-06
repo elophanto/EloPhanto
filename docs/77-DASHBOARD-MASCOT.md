@@ -22,6 +22,23 @@ log lines.
   AlphaScala
 ```
 
+Under ``chrome: hud`` (the ``blade`` theme), the same panel swaps to a
+colder **sensor** face set — square pupils, flat mouths, scan ticks,
+angular box corners, ops labels (``CYCLE`` / ``TOOL`` / ``FAULT`` /
+``OK`` / ``LOW`` / ``SLEEP`` / ``IDLE``). Geometry stays 13×6 so the
+sidebar never reflows when switching themes.
+
+```
+┌───────────┐
+│           │
+│  ■     ■  │      <-- CYCLE; diamond sensors + scan bar while thinking
+│     ·     │
+│ ···░····· │
+└───────────┘
+  CYCLE
+  EloPhanto
+```
+
 Lives entirely in the existing Textual dashboard, drawn into a
 ``_MascotPanel`` widget at the top of the sidebar. No new windows,
 no GUI dependencies, no extra process. The face IS the dashboard's
@@ -84,10 +101,10 @@ through to `thinking` so a hung tool doesn't freeze the face.
 
 ## Animation
 
-Each face is a list of frames in ``_FACES``. The panel runs a
-``set_interval`` at ``FRAME_TICK_MS`` (250ms) and advances a frame
-counter; ``render_face(face, frame=N)`` returns the ``N % len(frames)``
-slot.
+Each face is a list of frames in ``_FACES`` (classic) or ``_FACES_HUD``
+(when ``set_chrome_hud(True)``). The panel runs a ``set_interval`` at
+``FRAME_TICK_MS`` (250ms) and advances a frame counter;
+``render_face(face, frame=N)`` returns the ``N % len(frames)`` slot.
 
 Per-state cadence:
 
@@ -124,6 +141,7 @@ window is 2 frames (~500ms at 250ms tick).
 # config.yaml
 dashboard:
   mascot_enabled: true   # default; flip to false to hide the panel
+  theme: blade           # product default — enables HUD face set via chrome: hud
 ```
 
 Read once at dashboard launch by ``_read_dashboard_flag`` (no full

@@ -26,21 +26,20 @@ from rich.text import Text
 
 from channels.base import ChannelAdapter
 from cli.chat_cmd import _tool_risk_level, _visual_bar
+from cli.palette import (
+    C_ACCENT as _C_ACCENT,
+    C_BORDER as _C_BORDER,
+    C_DIM as _C_DIM,
+    C_SUCCESS as _C_SUCCESS,
+    C_USER as _C_USER,
+    C_WARN as _C_WARN,
+    LOGO_SMALL as _LOGO_SMALL,
+    PROMPT_STYLE,
+)
 from core.protocol import GatewayMessage
 
 logger = logging.getLogger(__name__)
 console = Console()
-
-# Palette (matches chat_cmd.py — monochrome, elophanto.com brand)
-_C_PRIMARY = "bright_white"
-_C_ACCENT = "grey74"
-_C_SUCCESS = "bright_green"
-_C_WARN = "bright_yellow"
-_C_DIM = "dim"
-_C_USER = "bold bright_white"
-_C_BORDER = "grey50"
-
-_LOGO_SMALL = f"[{_C_PRIMARY}]◆[/] [{_C_ACCENT}]EloPhanto[/]"
 
 
 def _role_badge_title(data: dict) -> str:
@@ -188,7 +187,7 @@ class CLIAdapter(ChannelAdapter):
         )
 
         session = PromptSession()
-        _prompt = FormattedText([("bold", "  ❯ ")])
+        _prompt = FormattedText([(PROMPT_STYLE, "  ❯ ")])
 
         # patch_stdout routes all sys.stdout writes (including Rich console.print)
         # above the current input line — eliminates mind-output clobbering user input.
