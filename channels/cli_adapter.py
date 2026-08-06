@@ -25,21 +25,21 @@ from rich.status import Status
 from rich.text import Text
 
 from channels.base import ChannelAdapter
+from cli import palette as _palette
 from cli.chat_cmd import _tool_risk_level, _visual_bar
-from cli.palette import (
-    C_ACCENT as _C_ACCENT,
-    C_BORDER as _C_BORDER,
-    C_DIM as _C_DIM,
-    C_SUCCESS as _C_SUCCESS,
-    C_USER as _C_USER,
-    C_WARN as _C_WARN,
-    LOGO_SMALL as _LOGO_SMALL,
-    PROMPT_STYLE,
-)
 from core.protocol import GatewayMessage
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+_C_ACCENT = _palette.C_ACCENT
+_C_BORDER = _palette.C_BORDER
+_C_DIM = _palette.C_DIM
+_C_SUCCESS = _palette.C_SUCCESS
+_C_USER = _palette.C_USER
+_C_WARN = _palette.C_WARN
+_LOGO_SMALL = _palette.LOGO_SMALL
+_PROMPT_STYLE = _palette.PROMPT_STYLE
 
 
 def _role_badge_title(data: dict) -> str:
@@ -187,7 +187,7 @@ class CLIAdapter(ChannelAdapter):
         )
 
         session = PromptSession()
-        _prompt = FormattedText([(PROMPT_STYLE, "  ❯ ")])
+        _prompt = FormattedText([(_PROMPT_STYLE, "  ❯ ")])
 
         # patch_stdout routes all sys.stdout writes (including Rich console.print)
         # above the current input line — eliminates mind-output clobbering user input.

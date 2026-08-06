@@ -24,6 +24,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
+from cli import palette as _palette
 from core import __version__
 from core.agent import Agent
 from core.config import load_config
@@ -39,20 +40,16 @@ from core.vault import Vault, VaultError
 console = Console()
 logger = logging.getLogger(__name__)
 
-# Palette — Blade Runner 2049 cinematic amber (shared with cli_adapter)
-# ──────────────────────────────────────────────────────────────────
-from cli.palette import (  # noqa: E402
-    BANNER_LINES as _BANNER_LINES,
-    C_ACCENT as _C_ACCENT,
-    C_AGENT as _C_AGENT,
-    C_BORDER as _C_BORDER,
-    C_DIM as _C_DIM,
-    C_PRIMARY as _C_PRIMARY,
-    C_SUCCESS as _C_SUCCESS,
-    C_USER as _C_USER,
-    C_WARN as _C_WARN,
-    LOGO_SMALL as _LOGO_SMALL,
-)
+# Shared blade palette (also used by channels/cli_adapter.py).
+_BANNER_LINES = _palette.BANNER_LINES
+_C_ACCENT = _palette.C_ACCENT
+_C_BORDER = _palette.C_BORDER
+_C_DIM = _palette.C_DIM
+_C_PRIMARY = _palette.C_PRIMARY
+_C_SUCCESS = _palette.C_SUCCESS
+_C_USER = _palette.C_USER
+_C_WARN = _palette.C_WARN
+_LOGO_SMALL = _palette.LOGO_SMALL
 
 
 def _build_provider_parts(agent: Agent) -> list[str]:
