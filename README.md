@@ -24,8 +24,6 @@ It is not a chatbot with plugins bolted on, and not a hosted black box. You run 
 
 **Good first jobs:** audit a messy browser workflow · research → cited artifact · rewrite a buyer-facing page and verify it · draft outreach that waits for your approve · monitor one inbox/feed for a week and report only actionable changes.
 
-**Usually the wrong tool:** fixed API plumbing (use n8n/Zapier) · pure in-repo coding (use Claude Code / Cursor) · unsupervised production money/legal/medical decisions · cheap identical browser repetition (use Playwright).
-
 ---
 
 ## Run it
