@@ -47,19 +47,27 @@ console = Console()
 @click.argument("action", default="list")
 @click.argument("slug", required=False)
 @click.argument("name", required=False)
+@click.argument("extra", required=False)
 def company_cmd(
     config_path: str | None,
     action: str,
     slug: str | None,
     name: str | None,
+    extra: str | None,
 ) -> None:
     """Manage companies (ABE framework). Default action: list."""
     cfg_path = Path(config_path) if config_path else None
     config = load_config(cfg_path)
-    asyncio.run(_dispatch(config, action, slug, name))
+    asyncio.run(_dispatch(config, action, slug, name, extra))
 
 
-async def _dispatch(config, action: str, slug: str | None, name: str | None) -> None:
+async def _dispatch(
+    config,
+    action: str,
+    slug: str | None,
+    name: str | None,
+    extra: str | None = None,
+) -> None:
     db_path = Path(config.database.db_path)
     if not db_path.is_absolute():
         db_path = config.project_root / db_path
@@ -130,11 +138,21 @@ async def _dispatch(config, action: str, slug: str | None, name: str | None) -> 
             await _trust_show(mgr, slug)
         else:
             await _trust_set(mgr, slug, name)
+    elif action == "posture":
+        # `posture <slug>` show; `posture <slug> <maturity> <objective>`
+        # or `posture <slug> intent=<preset>` via name/rest args.
+        if slug is None:
+            console.print(
+                "[red]Usage:[/red] elophanto company posture <slug> "
+                "[maturity objective | intent=<preset>]"
+            )
+            return
+        await _posture_cmd(config.project_root, slug, name, extra)
     else:
         console.print(f"[red]Unknown action:[/red] {action}")
         console.print(
             "Use: list | create | use | current | pause | resume | "
-            "backfill | report | trust"
+            "backfill | report | trust | posture"
         )
 
 
@@ -321,6 +339,74 @@ async def _trust_set(mgr: CompanyManager, slug: str, state: str) -> None:
     console.print(f"[green]Set[/green] {slug} trust → [{style}]{state}[/{style}]")
 
 
+async def _posture_cmd(
+    project_root: Path,
+    slug: str,
+    arg1: str | None,
+    arg2: str | None,
+) -> None:
+    """Show or set company posture (maturity × objective).
+
+    Forms:
+      elophanto company posture acme-inc
+      elophanto company posture acme-inc startup_founder
+      elophanto company posture acme-inc pre_revenue validate
+    """
+    from core.posture import (
+        INTENT_PRESETS,
+        VALID_MATURITY,
+        VALID_OBJECTIVE,
+        Posture,
+        load_posture,
+        save_posture,
+    )
+
+    current = load_posture(project_root, slug)
+    if arg1 is None:
+        console.print(
+            f"[cyan]{slug}[/cyan] posture: [bold]{current.label()}[/bold] "
+            f"(maturity={current.maturity}, objective={current.objective})"
+        )
+        console.print(
+            "[dim]Set via:[/dim] elophanto company posture <slug> "
+            "<intent|maturity> [objective]"
+        )
+        console.print(f"[dim]Intents:[/dim] {', '.join(INTENT_PRESETS)}")
+        return
+
+    key = arg1.strip().lower()
+    try:
+        if key in INTENT_PRESETS:
+            maturity, objective = INTENT_PRESETS[key]
+        elif key in VALID_MATURITY:
+            if arg2 is None or arg2.strip().lower() not in VALID_OBJECTIVE:
+                console.print(
+                    "[red]Usage:[/red] elophanto company posture "
+                    f"<slug> {key} <{'|'.join(VALID_OBJECTIVE)}>"
+                )
+                return
+            maturity, objective = key, arg2.strip().lower()
+        else:
+            console.print(
+                f"[red]Unknown posture arg:[/red] {arg1!r}. "
+                f"Use an intent ({', '.join(INTENT_PRESETS)}) or "
+                f"maturity ({', '.join(VALID_MATURITY)})."
+            )
+            return
+        path = save_posture(project_root, slug, Posture(maturity, objective))
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+        return
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        return
+
+    console.print(
+        f"[green]Set[/green] {slug} posture → "
+        f"[bold]{maturity}/{objective}[/bold] ({path})"
+    )
+
+
 async def _backfill(db: Database) -> None:
     from core.ledger_backfill import backfill_ledger
 
@@ -378,6 +464,16 @@ async def _report(
         f"{company.status}[/]) "
         f"trust=[{trust_style}]{company.trust_state}[/{trust_style}]"
     )
+    try:
+        from core.posture import load_posture
+
+        posture = load_posture(project_root, company.id)
+        console.print(
+            f"[dim]Posture:[/dim] {posture.label()} "
+            f"(maturity={posture.maturity}, objective={posture.objective})"
+        )
+    except Exception:
+        pass
 
     # ABE Phase 4: PRODUCT line. Surfaces the company's declared
     # product (`what_we_sell`, capped) so the operator can see at a

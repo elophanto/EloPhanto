@@ -80,13 +80,19 @@ class ToolRegistry:
         """Return compact catalog entries for all tier-2 (DEFERRED) tools.
 
         Used to populate the ``<deferred_tools>`` section in the system
-        prompt so the LLM knows what is available on-demand.
+        prompt so the LLM knows what is available on-demand. Descriptions
+        are truncated — the prompt only ships ``name [group]``; full
+        detail comes from ``tool_discover``.
         """
-        return [
-            {"name": t.name, "description": t.description, "group": t.group}
-            for t in self._tools.values()
-            if t.tier == ToolTier.DEFERRED
-        ]
+        catalog: list[dict[str, str]] = []
+        for t in self._tools.values():
+            if t.tier != ToolTier.DEFERRED:
+                continue
+            desc = (t.description or "").strip().replace("\n", " ")
+            if len(desc) > 60:
+                desc = desc[:57] + "..."
+            catalog.append({"name": t.name, "description": desc, "group": t.group})
+        return catalog
 
     def list_by_group(self, group: str) -> list[BaseTool]:
         """Return all registered tools whose ``group`` attribute matches
@@ -261,11 +267,13 @@ class ToolRegistry:
             CompanyPurgeTool,
             CompanyReportTool,
             CompanyResumeTool,
+            CompanySetPostureTool,
             CompanySetProductTool,
             CompanyUseTool,
         )
 
         self.register(CompanySetProductTool())
+        self.register(CompanySetPostureTool())
         self.register(CompanyOnboardTool())
         self.register(CompanyListTool())
         self.register(CompanyReportTool())

@@ -18,10 +18,12 @@ from tools.companies.management_tools import (
 )
 from tools.companies.onboard_tool import CompanyOnboardTool
 from tools.companies.plan_full_tool import CompanyPlanFullTool
+from tools.companies.set_posture_tool import CompanySetPostureTool
 from tools.companies.set_product_tool import CompanySetProductTool
 
 __all__ = [
     "CompanySetProductTool",
+    "CompanySetPostureTool",
     "CompanyOnboardTool",
     "CompanyListTool",
     "CompanyReportTool",

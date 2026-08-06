@@ -16,7 +16,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Defaults
-_DEFAULT_THRESHOLD_PCT = 50  # Trigger at N% of context window
+# Align with Tier 1 microcompact — previously 50% made needs_compression()
+# true in a dead zone where tiered_compress() still no-oped until 70%.
+_DEFAULT_THRESHOLD_PCT = 70  # Trigger at N% of context window
 _DEFAULT_KEEP_FIRST = 3  # Protected early turns
 _DEFAULT_KEEP_LAST = 4  # Protected recent turns
 _DEFAULT_CONTEXT_WINDOW = 200_000  # Fallback context window size in tokens

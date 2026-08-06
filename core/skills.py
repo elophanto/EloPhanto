@@ -22,6 +22,111 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Default payload diets — full SKILL.md files routinely run 10–45KB.
+# Auto-inject and default skill_read use excerpts; callers opt into full.
+_AUTO_SKILL_MAX_CHARS = 2500
+_CRITICAL_SKILL_AUTO_CHARS = 9000
+_SKILL_READ_SUMMARY_MAX_CHARS = 6000
+
+# Workflow / playbook skills where amputating PATH trees breaks autonomy.
+# Auto-inject uses a larger budget so weaker models still see the decision tree.
+_CRITICAL_AUTO_SKILLS = frozenset(
+    {
+        "drive-business",
+        "strategy-pipeline",
+        "trust-ladder-workflow",
+        "voice-extraction-workflow",
+        "strategy-foundations",
+        "b2c-marketing-voice",
+        "browser-automation",
+    }
+)
+
+_SKIP_EXCERPT_SECTIONS = frozenset(
+    {
+        "triggers",
+        "description",
+        "notes",
+        "verify",
+        "metadata",
+        "license",
+    }
+)
+
+
+def _skill_section_toc(content: str, limit: int = 24) -> str:
+    heads = re.findall(r"^##\s+(.+)$", content, flags=re.MULTILINE)
+    if not heads:
+        return ""
+    shown = [h.strip() for h in heads[:limit]]
+    return "\nSections available via depth='full': " + "; ".join(shown)
+
+
+def excerpt_skill_content(
+    content: str,
+    max_chars: int,
+    skill_name: str = "",
+) -> str:
+    """Truncate skill body for prompt injection while preserving a reload path.
+
+    Prefers ``## Instructions`` when present; otherwise starts at the first
+    operational ``##`` section (skipping Triggers / Description fluff) so
+    ABE playbooks without an Instructions heading keep their decision trees.
+    Always appends a section TOC when truncating.
+    """
+    if max_chars <= 0 or len(content) <= max_chars:
+        return content
+
+    toc = _skill_section_toc(content)
+    pointer = (
+        f"\n\n[truncated — call skill_read(skill_name='{skill_name}', "
+        f"depth='full') for complete skill]"
+        if skill_name
+        else "\n\n[truncated — call skill_read depth='full' for complete skill]"
+    )
+
+    body = content
+    instr = re.search(
+        r"(^##\s+Instructions\b.*?)(?=^##\s+|\Z)",
+        content,
+        flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
+    if instr:
+        body = instr.group(1).strip()
+        if len(body) <= max_chars:
+            return body + pointer + toc
+
+    if not instr:
+        # Start at first operational ## heading (Decision tree, PATH, Workflow…)
+        for m in re.finditer(r"^##\s+(.+)$", content, flags=re.MULTILINE):
+            title = m.group(1).strip().lower()
+            # Strip emoji / leading punctuation for skip matching
+            title_key = re.sub(r"^[^a-z0-9]+", "", title)
+            title_key = title_key.split()[0] if title_key else title
+            if title in _SKIP_EXCERPT_SECTIONS or title_key in _SKIP_EXCERPT_SECTIONS:
+                continue
+            body = content[m.start() :].strip()
+            break
+
+    cut = body[:max_chars]
+    # Break on a line boundary when possible to avoid mid-token cuts.
+    nl = cut.rfind("\n")
+    if nl >= max_chars // 2:
+        cut = cut[:nl]
+    return cut + pointer + toc
+
+
+def tail_truncate(text: str, max_chars: int) -> str:
+    """Keep the *end* of a growing log (scratchpad / recent state)."""
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    cut = text[-max_chars:]
+    nl = cut.find("\n")
+    if 0 <= nl < max_chars // 4:
+        cut = cut[nl + 1 :]
+    return "…[earlier truncated]\n" + cut
+
+
 # ---------------------------------------------------------------------------
 # Content Security Policy — blocked and warning patterns (Layer 5)
 # ---------------------------------------------------------------------------
@@ -276,15 +381,33 @@ class SkillManager:
         """Get a skill by name."""
         return self._skills.get(name)
 
-    def read_skill(self, name: str) -> str | None:
-        """Read the full SKILL.md content for a skill."""
+    def read_skill(
+        self,
+        name: str,
+        *,
+        depth: str = "full",
+        max_chars: int | None = None,
+    ) -> str | None:
+        """Read SKILL.md content for a skill.
+
+        ``depth='summary'`` returns an excerpt (default budget
+        ``_SKILL_READ_SUMMARY_MAX_CHARS``) so tool results don't balloon
+        the conversation. ``depth='full'`` returns the entire file.
+        """
         skill = self._skills.get(name)
         if skill is None:
             return None
         try:
-            return (skill.path / "SKILL.md").read_text(encoding="utf-8")
+            content = (skill.path / "SKILL.md").read_text(encoding="utf-8")
         except Exception:
-            return skill.content
+            content = skill.content
+        if content is None:
+            return None
+        depth_norm = (depth or "full").strip().lower()
+        if depth_norm in ("full", "complete", "all"):
+            return content
+        budget = max_chars if max_chars is not None else _SKILL_READ_SUMMARY_MAX_CHARS
+        return excerpt_skill_content(content, budget, skill_name=name)
 
     def match_skills(
         self,

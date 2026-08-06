@@ -77,11 +77,36 @@ DEFAULT_PROFILES: dict[str, set[str]] = {
         "documents",
         "watch",
     },
+    # Default for task_type=planning (agent loop + autonomous mind).
+    # Richer than coding, thinner than `full`: ABE + missions + browser
+    # stay hot; desktop/swarm/org/mcp/social/media/payments stay
+    # deferred (tool_discover / activate on demand). Keeps planning
+    # schemas ~half of `full` without hiding company/role surfaces.
+    "planning": {
+        "system",
+        "knowledge",
+        "data",
+        "skills",
+        "selfdev",
+        "goals",
+        "browser",
+        "documents",
+        "comms",
+        "identity",
+        "scheduling",
+        "mind",
+        "hub",
+        "companies",
+        "roles",
+        "missions",
+        "prospecting",
+        "watch",
+    },
 }
 
 # Task type -> default profile
 TASK_TYPE_PROFILES: dict[str, str] = {
-    "planning": "full",
+    "planning": "planning",
     "coding": "coding",
     "analysis": "minimal",
     "simple": "minimal",

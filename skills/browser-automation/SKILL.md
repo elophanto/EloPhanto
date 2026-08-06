@@ -303,3 +303,15 @@ profile when in profile mode. This means existing logins, cookies, extensions, a
 bookmarks are all available. The browser bridge communicates via JSON-RPC over
 stdin/stdout with a Node.js subprocess running Playwright with stealth plugins
 for anti-detection.
+
+### Always-on failure modes (also in system prompt)
+
+These survive even if this skill was only loaded as a summary excerpt:
+
+1. **Task restart** — After an interrupted prior task, treat browser state in
+   history as STALE. Navigate deliberately for the CURRENT user message.
+2. **X/Twitter "Post"** — Never `browser_click_text('Post')` to submit; it hits
+   the sidebar. Click the composer submit button by index. Replies use
+   `browser_click_text('Reply', exact=True)`.
+3. **Signup email** — Always `identity_status` email; never invent an inbox.
+4. **Evidence gating** — Observe after every state-changing action.

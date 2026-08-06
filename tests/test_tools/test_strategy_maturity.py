@@ -39,6 +39,11 @@ class TestMaturityBranch:
         assert _MULTI_SURFACE in p
         assert "STAGE DISCIPLINE" not in p
 
+    def test_established_has_stage_discipline(self) -> None:
+        p = build_system_prompt(maturity="established")
+        assert "STAGE DISCIPLINE - ESTABLISHED" in p
+        assert "SURFACE COVERAGE (ESTABLISHED)" in p
+
     def test_default_equals_scaling_backcompat(self) -> None:
         # Existing callers that don't pass maturity must be unchanged.
         assert build_system_prompt() == build_system_prompt(maturity="scaling")

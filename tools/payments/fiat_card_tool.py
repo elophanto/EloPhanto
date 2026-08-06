@@ -127,6 +127,40 @@ class FiatIssueCardTool(BaseTool):
                     ),
                 )
 
+        # Posture spend envelope (validate / profit-while-burning).
+        try:
+            from core.company import current_company_id
+            from core.posture import load_posture, spend_allowed
+
+            cid = current_company_id()
+            root = getattr(self._company_manager, "_project_root", None)
+            if root is not None:
+                posture = load_posture(root, cid)
+                net_usd: float | None = None
+                runway: float | None = None
+                db = getattr(self._company_manager, "_db", None)
+                if db is not None:
+                    from core.ledger import ResourceLedger, runway_weeks
+
+                    ledger = ResourceLedger(db)
+                    met = await ledger.metabolism(cid)
+                    net_usd = met.net_usd
+                    try:
+                        burn = await ledger.trailing_weekly_burn(cid)
+                        # Prefer Stripe cash when available; else use
+                        # cumulative net as a conservative proxy.
+                        cash = max(0.0, met.net_usd)
+                        runway = runway_weeks(cash, burn)
+                    except Exception:
+                        runway = None
+                ok, reason = spend_allowed(
+                    posture, net_usd=net_usd, runway_weeks=runway
+                )
+                if not ok:
+                    return ToolResult(success=False, error=reason)
+        except Exception:
+            pass
+
         spend_limit = params.get("spend_limit")
         if spend_limit is None or float(spend_limit) <= 0:
             return ToolResult(

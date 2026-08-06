@@ -69,6 +69,15 @@ def _strategy_inputs_from_company(
         # build_system_prompt. Default 'scaling' preserves the prior
         # multi-surface behavior for companies that haven't set it.
         "maturity": si.get("maturity") or "scaling",
+        # Posture objective (validate|growth|profit|balance) — from
+        # posture: block or strategy_inputs.objective if present.
+        "objective": (
+            (company_yaml.get("posture") or {}).get("objective")
+            if isinstance(company_yaml.get("posture"), dict)
+            else None
+        )
+        or si.get("objective")
+        or "balance",
     }
 
 
@@ -244,12 +253,20 @@ class CompanyPlanTool(BaseTool):
                 "override_focus": {"type": "string"},
                 "override_maturity": {
                     "type": "string",
-                    "enum": ["pre_revenue", "early", "scaling"],
+                    "enum": ["pre_revenue", "early", "scaling", "established"],
                     "description": (
                         "Override the company's business maturity for this "
                         "plan. pre_revenue → one channel, validation-first; "
-                        "early → one primary + one capped experiment; scaling "
-                        "→ full multi-surface coverage (default)."
+                        "early → one primary + one capped experiment; scaling/"
+                        "established → full multi-surface coverage (default)."
+                    ),
+                },
+                "override_objective": {
+                    "type": "string",
+                    "enum": ["validate", "growth", "profit", "balance"],
+                    "description": (
+                        "Override posture objective for this plan "
+                        "(validate|growth|profit|balance)."
                     ),
                 },
             },
@@ -320,6 +337,11 @@ class CompanyPlanTool(BaseTool):
             or prompt_inputs.get("maturity")
             or "scaling"
         )
+        objective = str(
+            params.get("override_objective")
+            or prompt_inputs.get("objective")
+            or "balance"
+        )
         budget = float(prompt_inputs.get("budget") or 0)
         risk = int(prompt_inputs.get("riskTolerance") or 50)
 
@@ -347,6 +369,7 @@ class CompanyPlanTool(BaseTool):
             context=str(prompt_inputs.get("context") or ""),
             available_tools=available_tools,
             maturity=maturity,
+            objective=objective,
         )
         user_prompt = build_user_prompt(inputs=prompt_inputs)
 

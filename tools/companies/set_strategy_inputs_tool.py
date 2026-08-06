@@ -45,7 +45,13 @@ _VALID_FOCUS: tuple[str, ...] = (
 # Founder-doctrine Stage 0 (2026-06-18) — business maturity gates channel
 # breadth in build_system_prompt. Default 'scaling' preserves the prior
 # multi-surface behavior; 'pre_revenue' forces one channel + validation-first.
-_VALID_MATURITY: tuple[str, ...] = ("pre_revenue", "early", "scaling")
+# 'established' = multi-surface + retention/ops weight (posture axis).
+_VALID_MATURITY: tuple[str, ...] = (
+    "pre_revenue",
+    "early",
+    "scaling",
+    "established",
+)
 
 
 class CompanySetStrategyInputsTool(BaseTool):
@@ -69,9 +75,10 @@ class CompanySetStrategyInputsTool(BaseTool):
         return (
             "Capture business context for company_plan: target_audience, "
             "competitors, budget, risk_tolerance, primary_goals, "
-            "strategy_mode, focus, maturity (pre_revenue|early|scaling — "
-            "gates channel breadth). Updates strategy_inputs section of "
-            "company.yaml. MODERATE. See strategy-pipeline skill."
+            "strategy_mode, focus, maturity (pre_revenue|early|scaling|"
+            "established — gates channel breadth). Updates strategy_inputs "
+            "section of company.yaml. Prefer company_set_posture for "
+            "maturity+objective together. MODERATE. See strategy-pipeline."
         )
 
     @property
@@ -113,7 +120,8 @@ class CompanySetStrategyInputsTool(BaseTool):
                         "be. 'pre_revenue' (no proven paying customers → ONE "
                         "channel, validation-first), 'early' (early signal → "
                         "one primary + one capped experiment), 'scaling' "
-                        "(proven → full multi-surface coverage; default)."
+                        "(proven → full multi-surface coverage; default), "
+                        "'established' (multi-surface + retention/ops)."
                     ),
                 },
                 "timeline_hint": {"type": "string"},

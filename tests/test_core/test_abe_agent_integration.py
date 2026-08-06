@@ -146,6 +146,7 @@ class TestAbeAgentInitialization:
             "company_pause",
             "company_resume",
             "company_set_product",
+            "company_set_posture",
             "role_list",
             "role_show",
             "role_use",
@@ -155,6 +156,22 @@ class TestAbeAgentInitialization:
                 f"{full_only} must be in the `full` profile — the "
                 f"`companies` and `roles` groups need to be in "
                 f"DEFAULT_PROFILES['full']."
+            )
+
+        # Leg 3: default planning task_type uses `planning` profile —
+        # ABE management tools must stay hot there too (not only on `full`).
+        planning = filter_tools_by_profile(all_tools, "planning", DEFAULT_PROFILES)
+        planning_names = {t.name for t in planning}
+        for needed in (
+            "company_create",
+            "company_use",
+            "company_set_posture",
+            "role_list",
+            "role_use",
+        ):
+            assert needed in planning_names, (
+                f"{needed} must be in the `planning` profile — "
+                f"TASK_TYPE_PROFILES['planning'] no longer maps to `full`."
             )
 
     @pytest.mark.asyncio

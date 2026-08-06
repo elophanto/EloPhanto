@@ -1763,12 +1763,21 @@ class AutonomousMind:
                     # and (live + verified only) real cash → runway. Test mode
                     # never shows cash/runway — the balance is fake (§6.8).
                     finance_marker = await self._finance_marker(c)
+                    posture_marker = ""
+                    try:
+                        from core.posture import load_posture
+
+                        if self._project_root is not None:
+                            p = load_posture(self._project_root, c.id)
+                            posture_marker = f", posture={p.label()}"
+                    except Exception:
+                        pass
                     rows.append(
                         f"[COMPANY] {c.id}{active_marker} "
                         f"({product_marker}, trust={trust}, "
                         f"{voice_marker}, {strategy_marker}"
-                        f"{blockers_marker}{finance_marker}) — "
-                        f"{ledger_summary}"
+                        f"{blockers_marker}{posture_marker}"
+                        f"{finance_marker}) — {ledger_summary}"
                     )
                 if rows:
                     companies_text = "\n".join(rows[:5])
@@ -1902,11 +1911,33 @@ class AutonomousMind:
         except Exception:
             pass
 
+        # Recent self-create failures — close the ego learning loop so the
+        # mind doesn't re-attempt the same broken plugin build blindly.
+        failure_text = ""
+        try:
+            failures_dir = self._project_root / "knowledge" / "learned" / "failures"
+            if failures_dir.is_dir():
+                files = sorted(
+                    failures_dir.glob("self_create_*.md"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )[:3]
+                if files:
+                    lines = ["[SELF-CREATE FAILURES] Recent rejected builds:"]
+                    for path in files:
+                        head = path.read_text(encoding="utf-8")[:400].replace("\n", " ")
+                        lines.append(f"  - {path.name}: {head}")
+                    failure_text = "\n".join(lines)
+        except Exception:
+            pass
+
         parts = [companies_text, goal_text, schedule_text, memory_text, knowledge_text]
         if drift_text:
             parts.append(f"\nKNOWLEDGE DRIFT DETECTED:\n{drift_text}")
         if commune_text:
             parts.append(commune_text)
+        if failure_text:
+            parts.append(failure_text)
         return "\n".join(parts), identity_anchor
 
     async def _build_prompt(self) -> str:
@@ -1922,8 +1953,14 @@ class AutonomousMind:
             events_text = "\n".join(f"- {e}" for e in self._pending_events[-10:])
             self._pending_events.clear()
 
-        # Build real state from all managers
+        # Build real state from all managers, then budget the body BEFORE
+        # prepending mechanical gates — tail-truncating after FORCE-DREAM /
+        # STUCK would amputate the ego directives under a fat snapshot.
+        from core.skills import tail_truncate
+
         state_snapshot, identity_anchor = await self._build_state_snapshot()
+        state_snapshot = tail_truncate(state_snapshot, 3000)
+        scratchpad = tail_truncate(scratchpad, 3000)
 
         # Mechanical dream gate. If there are zero active AND zero
         # planning goals, prepend a hard directive that forces dream
@@ -1971,7 +2008,7 @@ class AutonomousMind:
             max_rounds=self._config.max_rounds_per_wakeup,
             identity_anchor=identity_anchor,
             state_snapshot=state_snapshot,
-            scratchpad=scratchpad[:6000],
+            scratchpad=scratchpad,
             events=events_text,
             budget_remaining=remaining,
             budget_spent=self._spent_today_usd,
@@ -2048,11 +2085,33 @@ class AutonomousMind:
             return await self._build_prompt()
 
         weights = ArbiterWeights.from_config_dict(self._config.arbiter.weights)
+        posture_obj = "balance"
+        source_mult: dict[str, float] = {}
+        role_prio: dict[str, float] = {}
+        try:
+            from core.company import current_company_id
+            from core.posture import (
+                load_posture,
+                merge_arbiter_weights,
+                role_priority_weights,
+                source_multipliers,
+            )
+
+            posture = load_posture(self._project_root, current_company_id())
+            posture_obj = posture.objective
+            weights = merge_arbiter_weights(weights, posture.objective)
+            source_mult = source_multipliers(posture.objective)
+            role_prio = role_priority_weights(posture.objective)
+        except Exception as e:
+            logger.debug("arbiter: posture load skipped: %s", e)
+
         scored = arbitrate(
             all_candidates,
             weights,
             mission_weights=mission_weight_map,
             top_k=self._config.arbiter.top_k,
+            source_multipliers=source_mult or None,
+            role_priorities=role_prio or None,
         )
         menu = render_menu(scored)
 
@@ -2063,13 +2122,37 @@ class AutonomousMind:
         # dashboard can show without waiting for the LLM to commit.
         self._last_arbiter_top = scored[0].candidate if scored else None
 
+        # Mechanical role pin when role_neglect wins — previously the
+        # menu only *advised* role_use; the executor never saw the mask.
+        if self._last_arbiter_top is not None:
+            top = self._last_arbiter_top
+            if top.source == "role_neglect":
+                role_name = str(
+                    (top.metadata or {}).get("role_name")
+                    or (top.metadata or {}).get("role")
+                    or ""
+                )
+                if role_name:
+                    try:
+                        from core.role_context import set_current_role
+
+                        set_current_role(role_name)
+                        logger.info(
+                            "[arbiter] posture=%s pinned role=%s for cycle",
+                            posture_obj,
+                            role_name,
+                        )
+                    except Exception as e:
+                        logger.debug("arbiter: role pin failed: %s", e)
+
         # Side-channel observability: every arbiter wakeup logs the
         # menu so operators can `grep '[arbiter]'` the log and audit
         # what the mind saw + picked. Phase 4 will surface this in
         # the dashboard.
         logger.info(
-            "[arbiter] focus=%s candidates=%d top_k=%d top1=%.2f",
+            "[arbiter] focus=%s posture_obj=%s candidates=%d top_k=%d top1=%.2f",
             ctx.dream_focus,
+            posture_obj,
             len(all_candidates),
             len(scored),
             scored[0].score if scored else 0.0,
@@ -2096,14 +2179,16 @@ class AutonomousMind:
         daily_budget = self._daily_budget()
         remaining = max(0, daily_budget - self._spent_today_usd)
 
+        from core.skills import tail_truncate
+
         return _ARBITER_PROMPT.format(
             max_rounds=self._config.max_rounds_per_wakeup,
             top_k=len(scored),
             total_candidates=len(all_candidates),
             candidate_menu=menu,
             identity_anchor=identity_anchor,
-            state_snapshot=state_snapshot[:3000],
-            scratchpad=scratchpad[:3000],
+            state_snapshot=tail_truncate(state_snapshot, 3000),
+            scratchpad=tail_truncate(scratchpad, 3000),
             events=events_text,
             budget_remaining=remaining,
             budget_spent=self._spent_today_usd,

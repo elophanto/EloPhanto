@@ -75,12 +75,16 @@ See [[strategy-pipeline]] for the exact procedure. Briefly:
      - `primary_goals` ← from product type (hire page → Sales Growth + Lead Gen; content site → Thought Leadership)
      - `strategy_mode` ← from brand tone (corporate B2B → standard; punk brand → unconventional; small budget + viral potential → guerrilla)
      - `focus` ← from declared channels + recent ledger activity
+     - **posture** (via `company_set_posture`): propose `intent` preset or maturity×objective —
+       `startup_founder` (pre_revenue+validate), `established`, `profitability`, or `growth`.
+       Heuristic: no revenue → startup_founder; thin runway / "cut burn" → profitability;
+       "scale acquisition" → growth; multi-surface ops with revenue → established.
    - **Operator-decided fields** (suggest defaults but flag for confirmation):
      - `budget_type` / `budget_amount` / `budget_period` — default to `organic` / `0` / `monthly` if no signal
      - `risk_tolerance` (0-100) — suggest 50 (balanced) unless brand tone is aggressive
      - `timeline_hint` — suggest "first paid customer in 30 days, repeatable cadence in 90" or similar based on stage
    - **Present as a table** in chat. Example format: `field | recommended value | rationale (≤15 words)`. Add: *"Approve all, or tell me which to change."*
-2. **Bundle the rest in one call.** After operator confirms: `company_plan_full(slug, …strategy_inputs…)` — ONE MODERATE. Internally runs capabilities audit + writes strategy_inputs to `company.yaml` + generates the proposal + applies it (mission + goals + schedules + `voice_proposed.yaml` + `blockers.yaml`). Saves 2 of the previously chained MODERATE gates.
+2. **Set posture, then bundle plan.** After operator confirms: `company_set_posture(slug, intent=…)` (or maturity+objective), then `company_plan_full(slug, …strategy_inputs…)` — ONE MODERATE for the plan bundle. Internally runs capabilities audit + writes strategy_inputs to `company.yaml` + generates the proposal + applies it (mission + goals + schedules + `voice_proposed.yaml` + `blockers.yaml`). Saves 2 of the previously chained MODERATE gates.
 3. **Approve.** `company_plan_approve(<slug>)` — MODERATE finalize. Trust act for `voice_proposed.yaml` — kept separate by design so operator sees the voice draft before promoting.
 4. **Surface blockers** to operator. Stop — autonomous mind picks up tactics on next wakeup.
 
@@ -105,6 +109,7 @@ The work is already planned. Don't re-plan unless operator asks.
 ## Verify
 
 - [ ] `companies/<slug>/company.yaml` has non-empty `what_we_sell`
+- [ ] PATH B: `companies/<slug>/company.yaml` has `posture:` (maturity × objective)
 - [ ] PATH B: `data/companies/<slug>/strategy/active/strategy.yaml` exists
 - [ ] PATH B: blockers surfaced to operator with action hints
 - [ ] Sidecar `~/.elophanto/current_company` points at the right slug

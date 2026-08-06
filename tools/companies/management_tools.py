@@ -176,6 +176,15 @@ class CompanyReportTool(_CompanyToolBase):
             else None
         )
 
+        posture_data: dict[str, str] | None = None
+        if self._project_root is not None:
+            try:
+                from core.posture import load_posture
+
+                posture_data = load_posture(self._project_root, target).as_dict()
+            except Exception:
+                posture_data = None
+
         # Pipeline-by-stage table
         stage_rows = await self._db.execute(
             "SELECT status, COUNT(*) AS n FROM prospects "
@@ -190,6 +199,8 @@ class CompanyReportTool(_CompanyToolBase):
                 "slug": company.id,
                 "name": company.name,
                 "status": company.status,
+                "trust_state": getattr(company, "trust_state", None),
+                "posture": posture_data,
                 "product": product_summary,
                 "product_defined": product is not None,
                 "headline": {

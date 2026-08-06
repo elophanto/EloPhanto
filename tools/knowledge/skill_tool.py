@@ -32,7 +32,8 @@ class SkillReadTool(BaseTool):
             "Read a skill's SKILL.md file to learn best practices before starting "
             "a task. Skills contain step-by-step instructions, patterns, and examples "
             "for specific types of work. ALWAYS read the relevant skill before "
-            "starting a task if one matches."
+            "starting a task if one matches. Default depth=summary returns an "
+            "excerpt; pass depth=full when you need the complete playbook."
         )
 
     @property
@@ -43,6 +44,14 @@ class SkillReadTool(BaseTool):
                 "skill_name": {
                     "type": "string",
                     "description": "Name of the skill to read (e.g., 'browser-automation')",
+                },
+                "depth": {
+                    "type": "string",
+                    "enum": ["summary", "full"],
+                    "description": (
+                        "summary (default): excerpt of the operational core. "
+                        "full: entire SKILL.md — use for complex multi-step workflows."
+                    ),
                 },
             },
             "required": ["skill_name"],
@@ -57,7 +66,8 @@ class SkillReadTool(BaseTool):
             return ToolResult(success=False, error="Skill manager not available")
 
         skill_name = params["skill_name"]
-        content = self._skill_manager.read_skill(skill_name)
+        depth = str(params.get("depth") or "summary").strip().lower()
+        content = self._skill_manager.read_skill(skill_name, depth=depth)
 
         if content is None:
             available = [s.name for s in self._skill_manager.list_skills()]
@@ -80,19 +90,24 @@ class SkillReadTool(BaseTool):
             except Exception:
                 pass
 
-        return ToolResult(
-            success=True,
-            data={
-                "skill_name": skill_name,
-                "content": content,
-                "skill_dir": skill_dir,
-                "hint": (
-                    f"Rule files referenced in the skill (e.g. rules/xyz.md) "
-                    f"are located at {skill_dir}/rules/. "
-                    f"Use file_read to load them."
-                ),
-            },
-        )
+        data: dict[str, Any] = {
+            "skill_name": skill_name,
+            "content": content,
+            "depth": depth if depth in ("summary", "full") else "summary",
+            "skill_dir": skill_dir,
+            "hint": (
+                f"Rule files referenced in the skill (e.g. rules/xyz.md) "
+                f"are located at {skill_dir}/rules/. "
+                f"Use file_read to load them."
+            ),
+        }
+        if data["depth"] == "summary":
+            data["hint"] = (
+                f"{data['hint']} Re-call skill_read with depth='full' if this "
+                f"excerpt is insufficient for the task."
+            )
+
+        return ToolResult(success=True, data=data)
 
 
 class SkillListTool(BaseTool):

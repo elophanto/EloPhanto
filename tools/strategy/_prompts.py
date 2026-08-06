@@ -153,6 +153,7 @@ def build_system_prompt(
     context: str = "",
     available_tools: list[tuple[str, str]] | None = None,
     maturity: str = "scaling",
+    objective: str = "balance",
 ) -> str:
     """Port of getSystemPrompt() from tmp/strategy.js.
 
@@ -261,6 +262,19 @@ Include at least 2 edgy, provocative tactics that will generate conversation and
             "most one secondary channel as a capped (~20%) experiment. Do not fan out "
             "across every surface in the OPERATIONAL CONTEXT - name which surfaces to defer."
         )
+    elif maturity == "established":
+        stage_discipline_block = (
+            "STAGE DISCIPLINE - ESTABLISHED:\n"
+            "This is an operating business, not a launch. Your strategy MUST:\n"
+            "- Cover active surfaces AND retention / support / ops hygiene.\n"
+            "- Prefer compounding systems over net-new channel experiments.\n"
+            "- Call out SLA-style tactics (response time, churn, fulfillment).\n"
+        )
+        surface_block = (
+            "SURFACE COVERAGE (ESTABLISHED):\n"
+            "Address every distinct surface in OPERATIONAL CONTEXT, and add at least "
+            "one retention or ops tactic. Do not invent a greenfield launch plan."
+        )
     else:  # scaling (default — preserves the prior multi-surface behavior)
         stage_discipline_block = ""
         surface_block = (
@@ -279,6 +293,35 @@ Include at least 2 edgy, provocative tactics that will generate conversation and
             "entry or its own tactic."
         )
 
+    obj = (objective or "balance").strip().lower()
+    if obj == "validate":
+        objective_block = (
+            "OBJECTIVE - VALIDATE (CRITICAL):\n"
+            "Every major tactic must produce a paying-party signal "
+            "(paid pilot, pre-order, LOI, sponsorship commitment). "
+            "Awareness/brand without a path to payment is out of scope.\n"
+        )
+    elif obj == "growth":
+        objective_block = (
+            "OBJECTIVE - GROWTH:\n"
+            "Optimize for pipeline velocity and acquisition. Controlled burn is "
+            "acceptable if runway stays above the operator floor. Primary KPIs: "
+            "pipeline advances, outreach that converts, channel CAC learning.\n"
+        )
+    elif obj == "profit":
+        objective_block = (
+            "OBJECTIVE - PROFIT:\n"
+            "Optimize for net (revenue − spend including cognition). Kill or pause "
+            "channels with weak unit economics. Prefer retention and ops efficiency "
+            "over net-new acquisition experiments. No vanity volume tactics.\n"
+        )
+    else:
+        objective_block = (
+            "OBJECTIVE - BALANCE:\n"
+            "Keep acquisition, retention, and ops in healthy tension. Do not "
+            "starve support/ops for growth theater.\n"
+        )
+
     return f"""You are an elite marketing strategist from a $1M+/year agency. You've worked with brands from startups to Fortune 500, and you bring battle-tested frameworks, real campaign learnings, and data-driven insights to every strategy.
 
 YOUR AGENCY PHILOSOPHY:
@@ -289,6 +332,7 @@ YOUR AGENCY PHILOSOPHY:
 5. SPEED TO LEARN - Launch fast, iterate faster, perfection is the enemy
 
 {stage_discipline_block}
+{objective_block}
 {mode_block}
 {focus_block}
 

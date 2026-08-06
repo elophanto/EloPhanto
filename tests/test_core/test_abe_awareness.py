@@ -67,9 +67,8 @@ class TestAbeFrameworkAwarenessBlock:
         await im.load_or_create()
 
         ctx = await im.build_identity_context()
-        # Every canonical-source tool the LLM should reach for must be
-        # named in the awareness block. If a new tool gets added to the
-        # ABE surface, this test fails until the block is updated.
+        # Every canonical-source ENTRY POINT the LLM should reach for
+        # must be named. Sibling tools live in workflow skills / discover.
         for tool in (
             "company_list",
             "company_report",
@@ -78,6 +77,7 @@ class TestAbeFrameworkAwarenessBlock:
             "company_pause",
             "company_resume",
             "company_set_product",
+            "company_set_posture",
             "company_onboard",
             "role_list",
             "role_show",
@@ -85,6 +85,12 @@ class TestAbeFrameworkAwarenessBlock:
             "role_sync",
         ):
             assert tool in ctx, f"awareness block must name {tool}"
+        # Pointer-card contract: do not re-inflate a full tool inventory.
+        start = ctx.index("<abe_framework>")
+        end = ctx.index("</abe_framework>") + len("</abe_framework>")
+        assert (
+            end - start
+        ) < 2800, "abe_framework block bloated past pointer-card budget"
 
     @pytest.mark.asyncio
     async def test_block_points_at_workflow_skills(self, db: Database) -> None:

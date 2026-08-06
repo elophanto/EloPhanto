@@ -217,6 +217,7 @@ class SelfCreatePluginTool(BaseTool):
             impl_code = await self._implement(design, tool_name, class_name, budget)
 
             # Write the generated code
+            plugin_dir.mkdir(parents=True, exist_ok=True)
             (plugin_dir / "plugin.py").write_text(impl_code["plugin"], encoding="utf-8")
             (plugin_dir / "test_plugin.py").write_text(
                 impl_code["test"], encoding="utf-8"
@@ -256,20 +257,78 @@ class SelfCreatePluginTool(BaseTool):
                         break
 
                 if not test_result["passed"]:
+                    self._quarantine_plugin(
+                        plugin_dir,
+                        tool_name,
+                        reason="tests failed after retries",
+                    )
+                    self._record_build_failure(
+                        tool_name,
+                        stage="tests",
+                        goal=goal,
+                        detail={"output": test_result.get("output", "")[:4000]},
+                    )
                     return ToolResult(
                         success=False,
-                        data={"test_output": test_result["output"]},
+                        data={
+                            "test_output": test_result["output"],
+                            "quarantined": True,
+                        },
                         error=f"Tests failed after {budget.max_retries} retries",
                     )
 
-            # Stage 5: Review
+            # Stage 5: Review is MANDATORY before deploy — budget exhaustion
+            # must not fail-open into Stage 6 with unreviewed code.
             within, reason = budget.check()
-            if within:
-                review = await self._review(impl_code["plugin"], design, budget)
-                if not review.get("approved", True):
-                    logger.warning(
-                        f"Self-review flagged issues: {review.get('issues')}"
-                    )
+            if not within:
+                self._quarantine_plugin(
+                    plugin_dir, tool_name, reason=f"budget before review: {reason}"
+                )
+                self._record_build_failure(
+                    tool_name,
+                    stage="review_skipped",
+                    goal=goal,
+                    detail={"reason": reason},
+                )
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"Budget exhausted before self-review — deploy blocked "
+                        f"({reason}). Plugin quarantined."
+                    ),
+                    data={"plugin_dir": str(plugin_dir), "quarantined": True},
+                )
+
+            review = await self._review(impl_code["plugin"], design, budget)
+            if not review.get("approved", False):
+                issues = review.get("issues") or ["unspecified review failure"]
+                logger.warning(
+                    "Self-review rejected deploy for '%s': %s",
+                    tool_name,
+                    issues,
+                )
+                self._quarantine_plugin(
+                    plugin_dir, tool_name, reason=f"review rejected: {issues}"
+                )
+                self._record_build_failure(
+                    tool_name,
+                    stage="review",
+                    goal=goal,
+                    detail={"issues": issues},
+                )
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "Self-review rejected deploy — fix issues and "
+                        f"retry. Issues: {issues}"
+                    ),
+                    data={
+                        "approved": False,
+                        "issues": issues,
+                        "plugin_dir": str(plugin_dir),
+                        "quarantined": True,
+                    },
+                )
 
             # Stage 6: Deploy — reload plugin into registry
             if self._plugin_loader:
@@ -339,21 +398,72 @@ class SelfCreatePluginTool(BaseTool):
 
         except Exception as e:
             logger.error(f"Plugin creation failed: {e}")
+            try:
+                self._quarantine_plugin(plugin_dir, tool_name, reason=f"exception: {e}")
+            except Exception:
+                pass
+            try:
+                self._record_build_failure(
+                    tool_name,
+                    stage="exception",
+                    goal=goal,
+                    detail={"error": str(e)},
+                )
+            except Exception:
+                pass
             return ToolResult(success=False, error=f"Plugin creation failed: {e}")
+
+    def _record_build_failure(
+        self,
+        tool_name: str,
+        *,
+        stage: str,
+        goal: str,
+        detail: dict[str, Any],
+    ) -> None:
+        """Persist a failed self-create attempt for later learning/debug.
+
+        Best-effort — never raises into the create pipeline.
+        """
+        try:
+            from datetime import datetime
+
+            failures_dir = self._project_root / "knowledge" / "learned" / "failures"
+            failures_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            path = failures_dir / f"self_create_{tool_name}_{ts}.md"
+            body = (
+                f"# self_create_plugin failure\n\n"
+                f"- tool: `{tool_name}`\n"
+                f"- stage: `{stage}`\n"
+                f"- when: {ts}\n"
+                f"- goal: {goal}\n\n"
+                f"```json\n{json.dumps(detail, indent=2, default=str)}\n```\n"
+            )
+            path.write_text(body, encoding="utf-8")
+            logger.info("Recorded self-create failure memory at %s", path)
+        except Exception as e:
+            logger.debug("failure memory write skipped: %s", e)
 
     async def _research(self, goal: str, budget: DevelopmentBudget) -> str:
         """Research phase: gather context about similar tools."""
         budget.use_call()
+        prior_failures = self._recent_failure_memory()
         prompt = (
             f'<task stage="research">\n'
             f"<goal>{goal}</goal>\n\n"
+            f"<prior_self_create_failures>\n"
+            f"{prior_failures}\n"
+            f"</prior_self_create_failures>\n\n"
             f"<instructions>\n"
             f"Analyze this tool request and produce a research summary covering:\n"
             f"1. Key functional requirements the tool must satisfy\n"
             f"2. Python libraries that would be useful (prefer well-maintained,\n"
             f"   widely-used packages)\n"
             f"3. Potential edge cases or failure modes to consider\n"
-            f"4. Security considerations for the chosen permission level\n\n"
+            f"4. Security considerations for the chosen permission level\n"
+            f"5. Lessons from prior_self_create_failures above — do NOT repeat\n"
+            f"   the same mistakes if a prior attempt is relevant\n\n"
             f"Be concise — this feeds into the design phase.\n"
             f"</instructions>\n"
             f"</task>"
@@ -604,14 +714,79 @@ class SelfCreatePluginTool(BaseTool):
             temperature=0.2,
         )
         try:
-            content = response.content or '{"approved": true}'
+            content = response.content or ""
             start = content.find("{")
             end = content.rfind("}") + 1
             if start >= 0 and end > start:
-                return json.loads(content[start:end])
+                parsed = json.loads(content[start:end])
+                if isinstance(parsed, dict) and "approved" in parsed:
+                    raw = parsed.get("approved")
+                    if isinstance(raw, str):
+                        approved = raw.strip().lower() in ("true", "1", "yes")
+                    else:
+                        approved = bool(raw)
+                    return {
+                        "approved": approved,
+                        "issues": list(parsed.get("issues") or []),
+                    }
         except json.JSONDecodeError:
             pass
-        return {"approved": True, "issues": []}
+        # Fail-CLOSED: unparseable review must not green-light deploy.
+        return {
+            "approved": False,
+            "issues": ["review response unparseable — treat as reject"],
+        }
+
+    def _quarantine_plugin(
+        self, plugin_dir: Path, tool_name: str, *, reason: str
+    ) -> None:
+        """Move a rejected/unreviewed plugin out of live plugins/ discovery.
+
+        PluginLoader.discover() picks up any plugins/<name>/ with plugin.py +
+        schema.json on restart — leaving a rejected build in place would
+        silently re-arm it. Best-effort rename into plugins/.quarantine/.
+        """
+        try:
+            if not plugin_dir.exists():
+                return
+            qroot = self._project_root / "plugins" / ".quarantine"
+            qroot.mkdir(parents=True, exist_ok=True)
+            from datetime import datetime
+
+            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            dest = qroot / f"{tool_name}_{ts}"
+            plugin_dir.rename(dest)
+            marker = dest / "QUARANTINE.md"
+            marker.write_text(
+                f"# Quarantined\n\n- tool: `{tool_name}`\n"
+                f"- reason: {reason}\n- when: {ts}\n",
+                encoding="utf-8",
+            )
+            logger.info("Quarantined plugin %s → %s (%s)", tool_name, dest, reason)
+        except Exception as e:
+            logger.warning("Quarantine failed for %s: %s", tool_name, e)
+
+    def _recent_failure_memory(self, limit: int = 5) -> str:
+        """Load recent self-create failure notes for the research prompt."""
+        failures_dir = self._project_root / "knowledge" / "learned" / "failures"
+        if not failures_dir.is_dir():
+            return "(none)"
+        files = sorted(
+            failures_dir.glob("self_create_*.md"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:limit]
+        if not files:
+            return "(none)"
+        chunks: list[str] = []
+        for path in files:
+            try:
+                chunks.append(
+                    f"### {path.name}\n{path.read_text(encoding='utf-8')[:1200]}"
+                )
+            except Exception:
+                continue
+        return "\n\n".join(chunks) if chunks else "(none)"
 
     async def _git_commit_and_document(
         self,

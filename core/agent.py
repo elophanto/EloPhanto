@@ -2205,6 +2205,7 @@ class Agent:
             "company_plan_apply",
             "company_plan_approve",
             "company_set_strategy_inputs",
+            "company_set_posture",
             # Tier 1 #3 — wrapper looks up the four above from
             # registry, so it only needs _registry + _project_root.
             "company_plan_full",
@@ -3385,16 +3386,34 @@ class Agent:
             goal, available_tools=live_tools
         )
 
-        # Auto-inject top matched skill content so weaker models don't skip skill_read
+        # Auto-inject top matched skill excerpt so weaker models don't
+        # skip skill_read — full SKILL.md bodies (10–45KB) must not land
+        # in every system prompt. depth=full remains available on demand.
         matched_scored = self._skill_manager.match_skills_with_scores(
             goal, max_results=1, available_tools=live_tools
         )
         if matched_scored:
             top_score, top_skill = matched_scored[0]
-            skill_content = self._skill_manager.read_skill(top_skill.name)
+            from core.skills import (
+                _AUTO_SKILL_MAX_CHARS,
+                _CRITICAL_AUTO_SKILLS,
+                _CRITICAL_SKILL_AUTO_CHARS,
+            )
+
+            auto_budget = (
+                _CRITICAL_SKILL_AUTO_CHARS
+                if top_skill.name in _CRITICAL_AUTO_SKILLS
+                else _AUTO_SKILL_MAX_CHARS
+            )
+            skill_content = self._skill_manager.read_skill(
+                top_skill.name,
+                depth="summary",
+                max_chars=auto_budget,
+            )
             if skill_content:
                 available_skills += (
-                    f"\n<auto_loaded_skill name='{top_skill.name}'>\n"
+                    f"\n<auto_loaded_skill name='{top_skill.name}' "
+                    f"depth='summary' max_chars='{auto_budget}'>\n"
                     f"{skill_content}\n"
                     f"</auto_loaded_skill>"
                 )
@@ -3632,10 +3651,12 @@ class Agent:
 
         # Build deferred catalog for system prompt so agent knows what else exists
         _deferred_catalog = self._registry.get_deferred_catalog()
+        _deferred_section = ""
         if _deferred_catalog:
+            # Name + group only — full descriptions balloon the system
+            # prompt; tool_discover returns detail on demand.
             _catalog_lines = [
-                f"- {entry['name']}: {entry['description']} [{entry['group']}]"
-                for entry in _deferred_catalog
+                f"- {entry['name']} [{entry['group']}]" for entry in _deferred_catalog
             ]
             _deferred_section = (
                 "\n<deferred_tools>\n"
@@ -3645,6 +3666,9 @@ class Agent:
             )
             system_content += _deferred_section
 
+        import json as _json
+
+        _tool_schema_chars = sum(len(_json.dumps(t, default=str)) for t in _tools)
         logger.info(
             "[TIMING] prompt built: %.2fs | system_prompt=%d chars | tools=%d (tiered from %d, profiled %d) | messages=%d | roster=%s",
             _time.monotonic() - _prompt_start,
@@ -3654,6 +3678,16 @@ class Agent:
             len(profiled_tools),
             len(messages),
             "on" if _role_roster_ctx else "off",
+        )
+        logger.info(
+            "[PROMPT_BUDGET] system_chars=%d tool_schema_chars=%d tools_n=%d "
+            "deferred_chars=%d deferred_n=%d messages=%d",
+            len(system_content),
+            _tool_schema_chars,
+            len(_tools),
+            len(_deferred_section),
+            len(_deferred_catalog),
+            len(messages),
         )
 
         # Browser execution state — evidence gating + stagnation detection

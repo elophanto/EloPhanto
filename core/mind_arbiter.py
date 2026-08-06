@@ -201,6 +201,9 @@ def score_candidate(
     c: Candidate,
     weights: ArbiterWeights,
     mission_weights: dict[str, float] | None = None,
+    *,
+    source_multipliers: dict[str, float] | None = None,
+    role_priorities: dict[str, float] | None = None,
 ) -> float:
     """Combine candidate signals into a single comparable score.
 
@@ -214,6 +217,10 @@ def score_candidate(
     ``mission_weights`` is the live ``mission_id → priority_weight``
     map. Candidates with no parent mission get 0 from this term —
     they're not penalized, they just don't get the bonus.
+
+    ``source_multipliers`` / ``role_priorities`` come from company
+    posture (``core/posture.py``): objective reshapes which sources
+    and which roles win ties without rewriting generators.
     """
     quality = c.expected_value * c.feasibility
     score = weights.value * quality
@@ -227,6 +234,14 @@ def score_candidate(
     # into 0–10 raw points before the weight multiplier — so default
     # weights put a max-gap role at +4, on par with a stale mission.
     score += weights.kpi_gap_weight * c.kpi_gap * 10
+    if source_multipliers:
+        score *= float(source_multipliers.get(c.source, 1.0))
+    if role_priorities and c.source == "role_neglect":
+        role_name = str(
+            (c.metadata or {}).get("role_name") or (c.metadata or {}).get("role") or ""
+        )
+        if role_name:
+            score *= float(role_priorities.get(role_name, 1.0))
     return score
 
 
@@ -251,6 +266,8 @@ def arbitrate(
     *,
     mission_weights: dict[str, float] | None = None,
     top_k: int = 5,
+    source_multipliers: dict[str, float] | None = None,
+    role_priorities: dict[str, float] | None = None,
 ) -> list[ScoredCandidate]:
     """Score, dedup, sort, truncate.
 
@@ -269,7 +286,16 @@ def arbitrate(
         return []
 
     scored: list[ScoredCandidate] = [
-        ScoredCandidate(candidate=c, score=score_candidate(c, weights, mission_weights))
+        ScoredCandidate(
+            candidate=c,
+            score=score_candidate(
+                c,
+                weights,
+                mission_weights,
+                source_multipliers=source_multipliers,
+                role_priorities=role_priorities,
+            ),
+        )
         for c in candidates
     ]
 
