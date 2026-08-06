@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  BriefcaseBusiness,
   MessageSquare,
   Wrench,
   Sparkles,
@@ -46,6 +47,7 @@ const navItems: {
   enabled: boolean;
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
+  { id: "hire", label: "Hire", icon: BriefcaseBusiness, enabled: true },
   { id: "chat", label: "Chat", icon: MessageSquare, enabled: true },
   { id: "companies", label: "Companies", icon: Building2, enabled: true },
   { id: "goals", label: "Goals", icon: Target, enabled: true },

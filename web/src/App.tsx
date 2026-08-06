@@ -5,6 +5,7 @@ import { ChatPage } from "@/components/chat/ChatPage";
 import { ToolsPage } from "@/components/tools/ToolsPage";
 import { SkillsPage } from "@/components/skills/SkillsPage";
 import { DashboardPage } from "@/components/dashboard/DashboardPage";
+import { HirePage } from "@/components/hire/HirePage";
 import { KnowledgePage } from "@/components/knowledge/KnowledgePage";
 import { SchedulePage } from "@/components/schedule/SchedulePage";
 import { ChannelsPage } from "@/components/channels/ChannelsPage";
@@ -365,6 +366,8 @@ function PageRouter() {
   switch (activePage) {
     case "dashboard":
       return <DashboardPage />;
+    case "hire":
+      return <HirePage />;
     case "companies":
       return <CompaniesPage />;
     case "goals":
