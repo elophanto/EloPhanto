@@ -22,8 +22,6 @@ It is not a chatbot with plugins bolted on, and not a hosted black box. You run 
 | **Work that continues** | Goals and schedules persist across sessions. With `--daemon`, background work keeps going after you close the terminal. Budget hits pause as `budget_paused` until you raise the limit. |
 | **A real evaluative ego** | Confidence is measured from outcomes; shame becomes durable caution rules that can force an approval ask; pride is earned. Footer shows a lived `felt_state`, not truncated critique prose. |
 
-**Good first jobs:** audit a messy browser workflow · research → cited artifact · rewrite a buyer-facing page and verify it · draft outreach that waits for your approve · monitor one inbox/feed for a week and report only actionable changes.
-
 ---
 
 ## Run it
