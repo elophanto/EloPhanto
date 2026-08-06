@@ -1,7 +1,7 @@
 # 74 — Concurrency migration: finish what 60→70 started
 
 **Status:** Shipped (2026-05-12). All three phases implemented; 1332 core tests pass (+7 new).
-**Author:** EloPhanto + Claude (Opus 4.7).
+**Author:** EloPhanto.
 **Related:** [60-ACTION-QUEUE.md](60-ACTION-QUEUE.md), [70-SCHEDULER-CONCURRENCY.md](70-SCHEDULER-CONCURRENCY.md), [core/action_queue.py](../core/action_queue.py), [core/task_resources.py](../core/task_resources.py).
 
 ---

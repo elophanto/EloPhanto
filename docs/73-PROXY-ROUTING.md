@@ -1,7 +1,7 @@
 # 73 — Proxy routing (browser only, v1)
 
 **Status:** v1 implementation (2026-05-10).
-**Author:** EloPhanto + Claude (Opus 4.7).
+**Author:** EloPhanto.
 **Related:** [docs/08-BROWSER.md](08-BROWSER.md), [docs/proposals/HOSTED-DESKTOP.md](proposals/HOSTED-DESKTOP.md).
 
 ---

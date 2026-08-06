@@ -1,6 +1,6 @@
 # 78 — ABE Operator Guide
 
-**Status**: Active · **Owner**: Petr Royce + Claude · **First written**: 2026-05-25
+**Status**: Active · **Owner**: Petr Royce · **First written**: 2026-05-25
 
 The Autonomous Business Entity (ABE) concept was originated by
 **Petr Royce** in 2023. The implementation in this codebase

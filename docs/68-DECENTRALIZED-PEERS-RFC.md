@@ -1,6 +1,6 @@
 # RFC: Decentralized Peer Connections via libp2p
 
-**Author:** Petr Royce + Claude (collab)
+**Author:** Petr Royce
 **Date:** 2026-05-03
 **Status:** Spike step 1 implemented (sidecar + Python client); cross-NAT validation pending
 

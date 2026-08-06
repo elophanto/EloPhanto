@@ -1,6 +1,6 @@
 # 75 — Autonomous Mind v2: Drives, Arbiter, Self-Supervision
 
-**Status**: Proposal · **Owner**: 0xroyce + Claude · **Started**: 2026-05-20
+**Status**: Proposal · **Owner**: 0xroyce · **Started**: 2026-05-20
 
 ## Why this exists
 

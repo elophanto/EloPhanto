@@ -1,7 +1,7 @@
 # 72 — Polymarket calibration audit
 
 **Status:** v1 implementation (2026-05-10).
-**Author:** EloPhanto + Claude (Opus 4.7).
+**Author:** EloPhanto.
 **Related:** [docs/64-POLYMARKET.md](64-POLYMARKET.md), [docs/71-POLYMARKET-RISK.md](71-POLYMARKET-RISK.md), [skills/web3-polymarket/SKILL.md](../skills/web3-polymarket/SKILL.md), [core/polymarket_calibration.py](../core/polymarket_calibration.py).
 
 ---

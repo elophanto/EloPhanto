@@ -1,6 +1,6 @@
 # 76 — ABE Framework: EloPhanto as an Autonomous Business Entity
 
-**Status**: Plan · **Owner**: Petr Royce + Claude + GPT-5.5 · **Started**: 2026-05-24
+**Status**: Plan · **Owner**: Petr Royce · **Started**: 2026-05-24
 
 > **2026-06-18 — Finance rail + founder doctrine.** Two additions extend this
 > framework: (1) a **fiat (Stripe) payment rail** — per-business rail choice

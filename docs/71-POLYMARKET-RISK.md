@@ -1,7 +1,7 @@
 # 71 — Polymarket risk engine + safe-compounder strategy
 
 **Status:** v1 implementation (2026-05-07).
-**Author:** EloPhanto + Claude (Opus 4.7).
+**Author:** EloPhanto.
 **Related:** [docs/64-POLYMARKET.md](64-POLYMARKET.md), [docs/72-POLYMARKET-CALIBRATION.md](72-POLYMARKET-CALIBRATION.md), [skills/web3-polymarket/SKILL.md](../skills/web3-polymarket/SKILL.md), [core/polymarket_engine.py](../core/polymarket_engine.py).
 **Reference:** [zostaff/poly-trading-bot](https://github.com/zostaff/poly-trading-bot) — risk-management beats borrowed (with attribution).
 

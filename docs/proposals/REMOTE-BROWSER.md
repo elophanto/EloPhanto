@@ -1,7 +1,7 @@
 # Proposal: Remote browser support
 
 **Status:** Draft — proposed, not approved.
-**Author:** EloPhanto + Claude (Opus 4.7)
+**Author:** EloPhanto.
 **Date:** 2026-05-06
 **Related:** [docs/08-BROWSER.md](../08-BROWSER.md)
 

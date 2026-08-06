@@ -1,7 +1,7 @@
 # Proposal: Hosted EloPhanto desktop on Hetzner
 
 **Status:** Draft — proposed, not approved. Recipe rewritten 2026-05-10 with corrected Hetzner SKU specs (CX22 is 2 vCPU/4 GB, not 4/8 as 2024 rename made unclear) and click-by-click provisioning.
-**Author:** EloPhanto + Claude (Opus 4.7)
+**Author:** EloPhanto.
 **Date:** 2026-05-07 (initial), 2026-05-10 (recipe rewrite)
 **Related:** [docs/08-BROWSER.md](../08-BROWSER.md), [docs/proposals/REMOTE-BROWSER.md](REMOTE-BROWSER.md)
 
