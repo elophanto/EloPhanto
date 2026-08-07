@@ -17,6 +17,7 @@ class GoalCreateTool(BaseTool):
     def __init__(self) -> None:
         self._goal_manager: Any = None
         self._goal_runner: Any = None
+        self._dream_journal: Any = None
 
     @property
     def name(self) -> str:
@@ -49,6 +50,15 @@ class GoalCreateTool(BaseTool):
                         "(durable drive). Use mission_list to see the "
                         "available slugs. Goals parented under a mission "
                         "bump that mission's momentum on completion."
+                    ),
+                },
+                "dream_id": {
+                    "type": "integer",
+                    "description": (
+                        "The dream this goal came from, if goal_dream proposed "
+                        "it — goal_dream returns dream_id in its result. Links "
+                        "the goal back to its dream so we can measure which "
+                        "dreams became real work."
                     ),
                 },
                 "kill_criterion": {
@@ -85,6 +95,29 @@ class GoalCreateTool(BaseTool):
     def permission_level(self) -> PermissionLevel:
         return PermissionLevel.MODERATE
 
+    async def _link_dream(self, dream_id: Any, goal_id: str) -> None:
+        """Attribute this goal back to the dream that proposed it.
+
+        Closes the only feedback loop dreaming has. Without it every
+        ``dream_journal.chosen_goal_id`` stays NULL, so "which dreams became
+        real work?" — the question the column exists to answer — is
+        unanswerable, and there is no way to tell a dreaming problem from a
+        bookkeeping gap. Best-effort: attribution must never fail a goal that
+        was otherwise created successfully.
+        """
+        if dream_id in (None, "") or self._dream_journal is None:
+            return
+        try:
+            await self._dream_journal.set_chosen_goal(int(dream_id), goal_id)
+        except Exception as e:  # noqa: BLE001 - bookkeeping is not load-bearing
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "goal_create: dream attribution failed (dream_id=%r): %s",
+                dream_id,
+                e,
+            )
+
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         if not self._goal_manager:
             return ToolResult(success=False, error="Goal system not initialized")
@@ -105,6 +138,7 @@ class GoalCreateTool(BaseTool):
                 stage=stage,
                 kill_criterion=kill_criterion,
             )
+            await self._link_dream(params.get("dream_id"), goal.goal_id)
             checkpoints = await self._goal_manager.decompose(goal)
 
             if not checkpoints:

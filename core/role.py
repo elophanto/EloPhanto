@@ -52,6 +52,17 @@ _ROLE_GATE_EXEMPT: frozenset[str] = frozenset(
         "update_scratchpad",
         "set_next_wakeup",
         "affect_record_event",
+        # Goal bookkeeping is mind-internal in exactly the same sense as the
+        # scratchpad above: it is how the agent records and steers its own
+        # work, not a semantic action belonging to a business function. With
+        # these gated, a cycle running under a narrow role (marketing, ops…)
+        # could win "dream up a new goal" from the arbiter menu and then be
+        # denied the very tool the menu told it to call — and goal_dream is
+        # the only goal-origination path there is.
+        "goal_dream",
+        "goal_create",
+        "goal_status",
+        "goal_manage",
         # Role meta — the agent must always be able to see and switch roles
         "role_list",
         "role_show",

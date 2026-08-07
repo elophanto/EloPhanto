@@ -2464,6 +2464,18 @@ class Agent:
                 except Exception as e:
                     logger.debug("dream journal init failed: %s", e)
 
+        # goal_create shares the journal so it can attribute a created goal
+        # back to the dream that proposed it (closes dreaming's feedback loop).
+        create_tool = self._registry.get("goal_create")
+        if create_tool is not None and hasattr(create_tool, "_dream_journal"):
+            if create_tool._dream_journal is None and self._db is not None:
+                try:
+                    from core.dream_journal import DreamJournal
+
+                    create_tool._dream_journal = DreamJournal(self._db)
+                except Exception as e:
+                    logger.debug("goal_create dream journal init failed: %s", e)
+
         # plan_autoplan needs the router for the three sequential
         # review LLM calls. Registry + identity are optional — if
         # present they can flavour the prompts later, but autoplan

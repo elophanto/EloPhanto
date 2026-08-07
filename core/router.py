@@ -254,6 +254,7 @@ class LLMRouter:
         temperature: float,
         max_tokens: int | None,
         reasoning_effort: str = "",
+        task_type: str = "unknown",
     ) -> LLMResponse:
         """Call a provider with retries on transient failures."""
         for attempt in range(self.MAX_RETRIES):
@@ -261,15 +262,18 @@ class LLMRouter:
             try:
                 if provider == "zai":
                     result = await self._call_zai(
-                        messages, model, tools, temperature, max_tokens
+                        messages, model, tools, temperature, max_tokens,
+                        task_type=task_type,
                     )
                 elif provider == "kimi":
                     result = await self._call_kimi(
-                        messages, model, tools, temperature, max_tokens
+                        messages, model, tools, temperature, max_tokens,
+                        task_type=task_type,
                     )
                 elif provider == "codex":
                     result = await self._call_codex(
-                        messages, model, tools, reasoning_effort
+                        messages, model, tools, reasoning_effort,
+                        task_type=task_type,
                     )
                 else:
                     result = await self._call_litellm(
@@ -280,6 +284,7 @@ class LLMRouter:
                         temperature,
                         max_tokens,
                         reasoning_effort=reasoning_effort,
+                        task_type=task_type,
                     )
                 result.latency_ms = int((time.monotonic() - _attempt_start) * 1000)
                 logger.info(
@@ -560,6 +565,7 @@ class LLMRouter:
                     temperature,
                     max_tokens,
                     reasoning_effort=_reasoning_effort,
+                    task_type=task_type,
                 )
                 logger.info(
                     "[TIMING] %s/%s responded in %.2fs",
@@ -817,6 +823,7 @@ class LLMRouter:
         temperature: float,
         max_tokens: int | None,
         reasoning_effort: str = "",
+            task_type: str = "unknown",
     ) -> LLMResponse:
         """Call via litellm (OpenAI, OpenRouter, or Ollama)."""
         kwargs: dict[str, Any] = {
@@ -939,7 +946,9 @@ class LLMRouter:
             getattr(response, "_hidden_params", {}).get("response_cost", 0) or 0
         )
 
-        self._cost_tracker.record(provider, model, input_tokens, output_tokens, cost)
+        self._cost_tracker.record(
+            provider, model, input_tokens, output_tokens, cost, task_type
+        )
 
         truncated = detect_truncation(finish_reason, output_tokens, message.content)
 
@@ -970,6 +979,7 @@ class LLMRouter:
         tools: list[dict[str, Any]] | None,
         temperature: float,
         max_tokens: int | None,
+            task_type: str = "unknown",
     ) -> LLMResponse:
         """Call via Z.ai custom adapter."""
         adapter = self._get_zai_adapter()
@@ -1004,6 +1014,7 @@ class LLMRouter:
         model: str,
         tools: list[dict[str, Any]] | None,
         reasoning_effort: str,
+            task_type: str = "unknown",
     ) -> LLMResponse:
         """Call via ChatGPT Codex subscription adapter."""
         adapter = self._get_codex_adapter()
@@ -1044,6 +1055,7 @@ class LLMRouter:
         tools: list[dict[str, Any]] | None,
         temperature: float,
         max_tokens: int | None,
+            task_type: str = "unknown",
     ) -> LLMResponse:
         """Call via Kimi custom adapter."""
         adapter = self._get_kimi_adapter()

@@ -22,13 +22,42 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from core.company import DEFAULT_COMPANY_ID
 from core.mind_arbiter import Candidate
 
 logger = logging.getLogger(__name__)
+
+
+# Minimum gap between dreams. Dreaming had no rate limit at all — the score
+# was the only brake, and a score-only brake failed in both directions: 47
+# dreams in one day (May), then zero for two months (June-August). A cooldown
+# bounds the treadmill independently of how the arbiter weights are tuned,
+# and at roughly one dream a day the day-of-year lens rotation covers all
+# seven lenses instead of converging on one.
+MIN_DREAM_INTERVAL_H: float = 20.0
+
+# A goal whose row has not been touched in this long is wedged, not in
+# flight, and must not suppress dreaming. Mirrors AutonomousMind's
+# _STALE_CKPT_HOURS so the two "is this goal workable?" answers agree.
+STALE_GOAL_HOURS: float = 12.0
+
+
+def _parse_iso(value: str) -> datetime | None:
+    """Parse an ISO timestamp, returning None on anything unparseable.
+
+    Timestamps come from several writers over the project's life; a bad one
+    must degrade to "unknown" rather than raise inside candidate generation.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
 # Reflex cadences. Soft defaults — config can override later if needed.
@@ -108,6 +137,10 @@ class CandidateContext:
     # sweep degrade gracefully — blockers stay open, generator still
     # works but doesn't auto-resolve.
     registry: Any = None
+    # DreamJournal handle, read by ``from_dream`` to enforce the dream
+    # cooldown (MIN_DREAM_INTERVAL_H). None disables the rate limit rather
+    # than crashing the wakeup — same None-safe contract as every field above.
+    dream_journal: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -939,12 +972,47 @@ async def from_dream(ctx: CandidateContext) -> list[Candidate]:
     The principle: finish what's started before starting new things.
     Dream is "what should I do NEXT" not "what else could I do."
     """
+    # Rate limit FIRST — before any scoring. There was no limit at all: the
+    # score was the only brake, and a score-only brake has now failed in both
+    # directions (47 dreams in one day, then none for two months). A cooldown
+    # bounds the treadmill regardless of how the weights are tuned, and it is
+    # what keeps the day-of-year lens rotation covering all seven lenses.
+    if ctx.dream_journal is not None:
+        try:
+            recent_dreams = await ctx.dream_journal.recent(limit=1)
+            if recent_dreams:
+                last_at = _parse_iso(getattr(recent_dreams[0], "created_at", ""))
+                if last_at is not None:
+                    age_h = (datetime.now(UTC) - last_at).total_seconds() / 3600.0
+                    if age_h < MIN_DREAM_INTERVAL_H:
+                        logger.debug(
+                            "from_dream: cooling down (%.1fh since last dream, "
+                            "min %.1fh)",
+                            age_h,
+                            MIN_DREAM_INTERVAL_H,
+                        )
+                        return []
+        except Exception as e:
+            logger.debug("from_dream cooldown check failed: %s", e)
+
+    # "Goals in flight" and "goals wedged" must not be the same input. The
+    # previous count treated any active/planning row as in-flight, so a goal
+    # stuck for weeks suppressed dreaming exactly as effectively as one being
+    # actively worked — which is how a stalled pool silently removed the
+    # agent's only goal-origination path. A goal whose row has not been
+    # touched within STALE_GOAL_HOURS is wedged, not in flight.
     workable_count = 0
     if ctx.goal_manager:
         try:
             active = await ctx.goal_manager.list_goals(status="active", limit=20)
             planning = await ctx.goal_manager.list_goals(status="planning", limit=20)
-            workable_count = len(active) + len(planning)
+            cutoff = datetime.now(UTC) - timedelta(hours=STALE_GOAL_HOURS)
+            for g in list(active) + list(planning):
+                touched = _parse_iso(getattr(g, "updated_at", "") or "")
+                # No parseable timestamp → assume in flight (fail safe: keep
+                # dreaming suppressed rather than spawning work on a guess).
+                if touched is None or touched >= cutoff:
+                    workable_count += 1
         except Exception as e:
             logger.debug("from_dream goal count failed: %s", e)
 

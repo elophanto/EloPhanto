@@ -397,7 +397,9 @@ class GoalDreamTool(BaseTool):
             "infrastructure). Use when the user says 'dream for me', 'suggest "
             "goals', or 'what should I work on'. Does NOT auto-create — returns "
             "candidates for review. Every dream is persisted so the next call "
-            "sees what was already proposed."
+            "sees what was already proposed. The result includes dream_id — "
+            "pass it to goal_create when you act on a candidate, so the goal "
+            "is attributed back to the dream that proposed it."
         )
 
     @property

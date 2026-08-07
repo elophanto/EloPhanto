@@ -8,6 +8,18 @@ even when affect / ego / identity / missions all pointed elsewhere
 (see ``docs/75-AUTONOMOUS-MIND-V2.md`` for the 36h reconciliation
 loop that triggered this redesign).
 
+Note on dream reachability, because this header used to overstate it:
+the arbiter does NOT let dream compete freely. ``from_dream`` scores 2.0
+whenever a goal is genuinely in flight — deliberately below every other
+source — so "finish what's started" wins by default. What the arbiter
+guarantees is narrower: a *wedged* goal (no row activity within
+``STALE_GOAL_HOURS``) no longer counts as in flight, so a stalled pool
+can't silently remove the agent's only goal-origination path, and a
+cooldown (``MIN_DREAM_INTERVAL_H``) bounds dreaming independently of
+scoring. Between 2026-06 and 2026-08 the plain in-flight count meant
+zero dreams for two months; the sentence above described the intent and
+the code did the opposite.
+
 The arbiter inverts the responsibility:
 
   - **candidate generators** (one per source) produce typed

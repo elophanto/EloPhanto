@@ -207,8 +207,9 @@ Step 3 — DECIDE which candidate to pursue. The best pick is not always the
   that teaches something is often the right answer. Match the choice to the
   cycle's focus.
 
-Step 4 — CREATE immediately with goal_create. Then update_scratchpad with your
-  reasoning. Do NOT do anything else this cycle.
+Step 4 — CREATE immediately with goal_create, passing the dream_id returned by
+  goal_dream so the goal is attributed to the dream that proposed it. Then
+  update_scratchpad with your reasoning. Do NOT do anything else this cycle.
 
 CRITICAL: If you spend rounds on self-exploration instead of creating a goal,
 you have FAILED this cycle. The dream phase must end with a goal_create call.
@@ -361,6 +362,15 @@ def _dream_focus_for_today() -> str:
     Day-of-year mod 7 — same focus all day (so a dream cycle that runs
     twice on the same day gets a coherent context), different focus
     each day.
+
+    This holds ONLY while dreaming is rate-limited to roughly the cadence it
+    was designed for. Held constant per day, the lens is a function of the
+    calendar, not of how often the mind wakes: in production the mind dreamed
+    every ~26 minutes and produced 47 consecutive ``identity`` dreams in a
+    single day, covering 2 of 7 lenses over a fortnight. The fix is the
+    cooldown in ``core.mind_candidates.from_dream`` (``MIN_DREAM_INTERVAL_H``),
+    not a cleverer lens: at one dream a day this rotation covers all 7 lenses
+    evenly. If that cooldown is ever removed, this function converges again.
     """
     today = datetime.now(UTC)
     day_of_year = today.timetuple().tm_yday
@@ -411,6 +421,11 @@ class AutonomousMind:
         # from a ranked menu but the operator can't see the menu from
         # the dashboard, only the tool calls. None until first cycle.
         self._last_arbiter_top: Any = None
+
+        # contextvars Token for the per-cycle role mask. Held between
+        # _build_arbiter_prompt (which sets it) and _think's finally (which
+        # releases it) so a role pin never outlives the cycle that earned it.
+        self._role_pin_token: Any = None
 
         # Register mind-specific tools
         self._register_mind_tools()
@@ -1477,6 +1492,10 @@ class AutonomousMind:
             self._agent._conversation_history = saved_history
             self._agent._executor._approval_callback = prev_approval
             self._agent._executor._on_tool_executed = prev_tool_cb
+            # Release the per-cycle role mask (set in _build_arbiter_prompt
+            # when role_neglect wins). Without this the pin outlives its
+            # cycle and silently gates every subsequent one.
+            self._release_role_pin()
 
     # ------------------------------------------------------------------
     # Prompt building
@@ -1489,6 +1508,38 @@ class AutonomousMind:
     # let one stuck checkpoint (last_active 36h with the artifact
     # already produced) starve the dream phase for ~70 wakeups.
     _STALE_CKPT_HOURS: ClassVar[int] = 12
+
+    def _dream_journal_handle(self) -> Any:
+        """The DreamJournal the goal_dream tool already owns, if any.
+
+        Shared rather than rebuilt so the cooldown reads the same history the
+        dream phase writes. Returns None when the tool or its journal isn't
+        wired, which simply disables the rate limit.
+        """
+        try:
+            tool = self._agent._registry.get("goal_dream")
+        except Exception:
+            return None
+        return getattr(tool, "_dream_journal", None) if tool is not None else None
+
+    def _release_role_pin(self) -> None:
+        """Drop the per-cycle role mask, if one was set.
+
+        Best-effort and idempotent: a contextvars Token can only be reset in
+        the context that created it, and the mind's cycle can end in odd ways
+        (cancellation, preemption). Failing to reset must never break the
+        cycle's cleanup — worst case the next pin overwrites it.
+        """
+        token = self._role_pin_token
+        self._role_pin_token = None
+        if token is None:
+            return
+        try:
+            from core.role_context import reset_current_role
+
+            reset_current_role(token)
+        except Exception as e:
+            logger.debug("arbiter: role pin release failed: %s", e)
 
     async def _workable_goals_status(self) -> tuple[int, list[dict[str, Any]]]:
         """Return (workable_count, stale_summaries).
@@ -2070,6 +2121,11 @@ class AutonomousMind:
             ego_manager=self._agent._ego_manager,
             dream_focus=_dream_focus_for_today(),
             mission_weight_map=mission_weight_map,
+            # Enables the dream cooldown in from_dream. Read off the
+            # already-injected goal_dream tool so the journal is shared
+            # rather than reconstructed each wakeup; None-safe (no journal
+            # simply means no rate limit).
+            dream_journal=self._dream_journal_handle(),
             # ABE Phase 2 — enables from_role_neglect candidate source.
             # None-safe; from_role_neglect returns [] when role_manager
             # is missing, so legacy installs / test stubs don't break.
@@ -2154,7 +2210,13 @@ class AutonomousMind:
                     try:
                         from core.role_context import set_current_role
 
-                        set_current_role(role_name)
+                        # Keep the token: the pin is scoped to THIS cycle and
+                        # _think's finally resets it. Discarding the token left
+                        # the mask set forever, so a role that won once kept
+                        # gating every later cycle — including cycles where
+                        # role work did not win — and the narrow allowlists
+                        # then denied the mind its own goal bookkeeping.
+                        self._role_pin_token = set_current_role(role_name)
                         logger.info(
                             "[arbiter] posture=%s pinned role=%s for cycle",
                             posture_obj,

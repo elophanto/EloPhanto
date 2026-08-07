@@ -72,6 +72,125 @@ _INTERNAL_ARTIFACT_HINTS: tuple[str, ...] = (
 )
 
 
+# Phrases describing a benefit that accrues to the AGENT'S OWN OPERATION
+# rather than to the named consumer. These launder self-directed work past
+# the operator/user allowance below: production shipped a candidate whose
+# consumer was "Operator (experiences faster task execution in subsequent
+# cycles)" — nominally the operator, actually the agent's next wakeup.
+#
+# The operator is a legitimate consumer ("the operator deciding which broker
+# to use"); the operator *watching the agent get faster at its own chores* is
+# not. What separates them is who the benefit lands on, so match on that.
+_SELF_BENEFIT_MARKERS: tuple[str, ...] = (
+    "subsequent cycle",
+    "next cycle",
+    "future cycle",
+    "later cycle",
+    "each cycle",
+    "per cycle",
+    "next wakeup",
+    "future run",
+    "subsequent run",
+    "future task",
+    "subsequent task",
+    "task execution",
+    "future prompt",
+    "downstream agent",
+    "the agent's own",
+    "its own work",
+    "my own work",
+)
+
+
+# A consumer nobody has met yet. "Prospective buyers evaluating X" describes
+# an imagined audience, not a party the work can be delivered to — and the
+# founder doctrine's whole point is that the consumer must be reachable.
+# Only rejected when NO concrete party is named alongside (see _names_someone).
+_HYPOTHETICAL_MARKERS: tuple[str, ...] = (
+    "prospective",
+    "potential customer",
+    "potential client",
+    "potential buyer",
+    "potential user",
+    "future customer",
+    "future client",
+    "future buyer",
+    "hypothetical",
+    "would-be",
+    "anyone who",
+    "someone who",
+    "people who might",
+    "users who might",
+)
+
+
+# Signals that a real, reachable party is named: a platform, a channel, a
+# concrete role, or a proper noun. Presence of any of these rescues a
+# candidate that also trips _HYPOTHETICAL_MARKERS.
+# Work that grades itself against data it invented. A candidate promising
+# "100% detection across 40 fixture receipts" has defined a target it cannot
+# fail: the agent writes the fixtures, runs the check, and declares success
+# without anything in the real world moving. Roughly a third of the production
+# dream corpus validated this way.
+_SYNTHETIC_VALIDATION_MARKERS: tuple[str, ...] = (
+    "fixture",
+    "synthetic",
+    "mock ",
+    "mocked",
+    "simulated",
+    "sample data",
+    "seeded example",
+    "golden file",
+    "test corpus",
+)
+
+
+# Evidence that the work touches something real, which rescues a candidate
+# that also mentions fixtures (using fixtures to TEST real delivery is fine).
+_REAL_DELIVERY_MARKERS: tuple[str, ...] = (
+    "publish",
+    "post to",
+    "send to",
+    "reply to",
+    "outreach",
+    "email",
+    "invoice",
+    "payment",
+    "customer",
+    "client",
+    "live url",
+    "production",
+    "deploy",
+    "landing page",
+    "prospect",
+)
+
+
+_CONCRETE_PARTY_MARKERS: tuple[str, ...] = (
+    "operator",
+    "customer on",
+    "subscriber",
+    "existing customer",
+    "existing client",
+    "paying",
+    "current user",
+    "@",
+    "hacker news",
+    "reddit",
+    "twitter",
+    " x ",
+    "github",
+    "linkedin",
+    "discord",
+    "telegram",
+    "email list",
+    "inbox",
+    "waitlist",
+    "prospect in",
+    "the client",
+)
+
+
 # Markers in a consumer string that name the agent itself rather
 # than an outside party. "operator" / "user" override the check so
 # "the agent operator deciding X" is valid.
@@ -113,6 +232,40 @@ def is_consumerless(candidate: dict[str, Any]) -> tuple[bool, str]:
     consumer_is_self = any(m in consumer for m in _AGENT_SELF_MARKERS)
     if consumer_is_self and "operator" not in consumer and "user" not in consumer:
         return True, f"consumer is the agent itself: {consumer!r}"
+
+    # The operator/user allowance above is a real one — the operator IS a
+    # person work can be delivered to. But it was being used as a laundry:
+    # name the operator, describe a benefit that lands on the agent's own
+    # next cycle, and self-directed work walked straight through. Judge by
+    # who the benefit accrues to, not who is named.
+    self_benefit = next((m for m in _SELF_BENEFIT_MARKERS if m in consumer), "")
+    if self_benefit:
+        return True, (
+            f"consumer names a person but the benefit accrues to the agent's "
+            f"own operation ({self_benefit!r}): {consumer!r}"
+        )
+
+    # A consumer nobody has met is not a consumer. Allowed when a concrete,
+    # reachable party is named alongside — "prospective clients on Hacker
+    # News" is a place you can actually go; "prospective clients" is a wish.
+    hypothetical = next((m for m in _HYPOTHETICAL_MARKERS if m in consumer), "")
+    if hypothetical and not any(c in consumer for c in _CONCRETE_PARTY_MARKERS):
+        return True, (
+            f"consumer is hypothetical ({hypothetical!r}) with no reachable "
+            f"party named: {consumer!r}"
+        )
+
+    # Self-graded work: the success target is measured against data the agent
+    # invents, so the candidate cannot fail and nothing real moves. Allowed
+    # when the same description also promises real delivery — testing a live
+    # path against fixtures is legitimate; testing only fixtures is not.
+    description = str(candidate.get("description", "")).strip().lower()
+    synthetic = next((m for m in _SYNTHETIC_VALIDATION_MARKERS if m in description), "")
+    if synthetic and not any(m in description for m in _REAL_DELIVERY_MARKERS):
+        return True, (
+            f"success is measured against self-invented data ({synthetic!r}) "
+            f"with no real-world delivery — the candidate cannot fail"
+        )
 
     artifact = str(candidate.get("consumer_artifact", "")).strip().lower()
     if consumer_is_self and any(h in artifact for h in _INTERNAL_ARTIFACT_HINTS):

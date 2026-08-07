@@ -126,3 +126,96 @@ class TestDreamToolReexports:
 
         rejected, _ = _is_consumerless({"title": "Evidence Garden", "consumer": "X"})
         assert rejected is True
+
+
+# ── Laundering holes found by reviewing the production dream corpus ──────
+
+
+class TestSelfBenefitLaundering:
+    """Naming the operator while describing a benefit to the agent's own loop.
+
+    Production shipped a candidate whose consumer was "Operator (experiences
+    faster task execution in subsequent cycles)" — nominally a person, actually
+    the agent's next wakeup. The operator/user allowance was being used as a
+    laundry.
+    """
+
+    def test_the_exact_production_case_is_rejected(self) -> None:
+        bad, why = is_consumerless(
+            {
+                "title": "Tool Preflight Suite",
+                "consumer": "Operator (experiences faster task execution in subsequent cycles)",
+                "consumer_artifact": "a harness",
+            }
+        )
+        assert bad
+        assert "benefit accrues to the agent" in why
+
+    def test_a_genuine_operator_consumer_still_passes(self) -> None:
+        # The allowance exists for a reason — don't break it.
+        bad, _ = is_consumerless(
+            {
+                "title": "Broker comparison page",
+                "consumer": "Operator deciding which broker to open an account with",
+                "consumer_artifact": "a comparison page",
+            }
+        )
+        assert not bad
+
+
+class TestHypotheticalConsumer:
+    def test_imagined_audience_is_rejected(self) -> None:
+        bad, why = is_consumerless(
+            {"title": "A guide", "consumer": "Prospective clients", "consumer_artifact": "a guide"}
+        )
+        assert bad and "hypothetical" in why
+
+    def test_imagined_but_reachable_audience_passes(self) -> None:
+        # "Prospective clients on Hacker News" is a place you can actually go.
+        bad, _ = is_consumerless(
+            {
+                "title": "A guide",
+                "consumer": "Prospective clients on Hacker News",
+                "consumer_artifact": "a comment",
+            }
+        )
+        assert not bad
+
+
+class TestSelfGradedWork:
+    """Work whose success target is measured against data the agent invented.
+
+    ~30% of the production dream corpus validated this way — the agent writes
+    the fixtures, runs the check, declares success, and nothing real moves.
+    """
+
+    def test_fixture_only_validation_is_rejected(self) -> None:
+        bad, why = is_consumerless(
+            {
+                "title": "Receipt Schema Validator and Size Budget Gate",
+                "description": (
+                    "Build a validator for task receipts. Include at least 40 "
+                    "fixture receipts. Target: 100% required-field detection "
+                    "on fixtures."
+                ),
+                "consumer": "Future operators reviewing autonomous task outcomes",
+                "consumer_artifact": "a validator module",
+            }
+        )
+        assert bad
+        assert "cannot fail" in why
+
+    def test_fixtures_alongside_real_delivery_are_fine(self) -> None:
+        # Testing a live path against fixtures is legitimate engineering.
+        bad, _ = is_consumerless(
+            {
+                "title": "Outreach sender with tests",
+                "description": (
+                    "Build the outreach sender and send to 20 prospects. "
+                    "Cover the parser with fixture emails first."
+                ),
+                "consumer": "Prospects on the waitlist",
+                "consumer_artifact": "sent emails",
+            }
+        )
+        assert not bad

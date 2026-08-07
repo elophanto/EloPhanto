@@ -122,6 +122,12 @@ the rest right.
       as workable only if it has a pending checkpoint OR an `active`
       checkpoint within the last 12h. Stuck goals no longer block dream
       phase; old shim kept for back-compat. New tests added
+      — **superseded 2026-08-07:** that helper only ever applied on the
+      legacy prompt path. Once `arbiter.enabled: true` became the norm,
+      `from_dream` used a plain active/planning count, so stuck goals *did*
+      block dreaming again — zero dreams between 2026-06-02 and 2026-08-07.
+      `from_dream` now applies the same staleness rule (`STALE_GOAL_HOURS`)
+      plus a cooldown (`MIN_DREAM_INTERVAL_H`); see `core/mind_candidates.py`
 - [x] **1.4** Fix `llm_usage` persistence: `CostTracker.flush(db)` and
       `ProviderTracker.flush(db)` existed but had no caller. Added
       `Agent._periodic_usage_flush()` background task (60s cadence) +
