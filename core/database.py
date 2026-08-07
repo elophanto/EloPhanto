@@ -17,6 +17,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# How long a blocked writer waits for the lock before raising "database is
+# locked". SQLite's default is 0 — fail immediately — which is the wrong trade
+# for this workload: contended writes here are short (single INSERTs, small
+# UPDATEs), so waiting costs nothing and turns a spurious crash into a slight
+# pause. Five seconds is far longer than any legitimate transaction, so hitting
+# the timeout still signals a real problem (a stuck writer) rather than
+# ordinary contention.
+BUSY_TIMEOUT_MS = 5000
+
 # Schema DDL
 _SCHEMA = [
     """
@@ -1259,6 +1268,15 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        # WAL gives concurrent readers, but writers still serialize — and
+        # SQLite's default busy timeout is ZERO, so the loser of a write race
+        # raises "database is locked" instantly instead of waiting out a
+        # transaction that typically lasts milliseconds. The agent writes from
+        # several places at once (mind cycle, scheduler dispatch, gateway
+        # session, cost tracker) and the CLI/dashboard open their own
+        # connections to the same file, so that race is routine rather than
+        # exotic. Wait instead of failing.
+        self._conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
 
         # Create standard tables
         for ddl in _SCHEMA:

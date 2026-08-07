@@ -355,6 +355,10 @@ def analyze_performance(
 
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
+    # polynode writes this file while we read it; without a busy timeout a
+    # concurrent write turns a routine analytics query into "database is
+    # locked". Wait it out rather than reporting a false empty window.
+    conn.execute("PRAGMA busy_timeout=3000")
     try:
         cursor = conn.execute(
             f"""SELECT token_id, side, price, size, status, error_msg,

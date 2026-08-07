@@ -270,6 +270,11 @@ def _cookie_count(db_path: Path) -> int:
         return -1
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        # Chrome holds this file open and writes it constantly; a zero busy
+        # timeout makes the count fail (-1 "unreadable") whenever Chrome
+        # happens to be mid-write, which reads as "no cookies" and wrongly
+        # suggests a lost session.
+        conn.execute("PRAGMA busy_timeout=2000")
         try:
             row = conn.execute("SELECT COUNT(*) FROM cookies").fetchone()
             return int(row[0]) if row else -1
