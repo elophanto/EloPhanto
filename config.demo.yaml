@@ -356,6 +356,23 @@ affect:
   enabled: true
   allow_self_pause: false
 
+# --- Ego soft-gate ---
+# The ego soft-gates MODERATE tools: when its per-capability confidence sits
+# below the task's difficulty, it forces an approval prompt EVEN UNDER
+# permission_mode: full_auto. That is deliberate — it's the behavioural proof
+# that measured failure changes what the agent attempts — but it surprises
+# operators who set full_auto and then get asked about every browser click.
+#
+# Difficulty is raised for risky domains (payments 0.75, outreach/social 0.65,
+# browser 0.55), so a capability at the 0.50 default asks by default there and
+# needs ~4 clean successes to clear the gate. The approval prompt names the
+# capability, its confidence and the difficulty, so you can see why it fired.
+#
+# Set false to make full_auto mean exactly that. CRITICAL tools always ask
+# regardless — that gate is not negotiable. See docs/17-IDENTITY.md.
+ego:
+  soft_gate: true
+
 goals:
   enabled: true
   max_checkpoints: 20
