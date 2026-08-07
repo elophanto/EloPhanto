@@ -24,7 +24,7 @@ log lines.
 
 Under ``chrome: hud`` (the ``blade`` theme), the same panel swaps to a
 colder **sensor** face set — square pupils, flat mouths, scan ticks,
-angular box corners, ops labels (``CYCLE`` / ``TOOL`` / ``FAULT`` /
+angular box corners, ops labels (``CYCLE`` / ``TOOL`` / ``DOUBT`` /
 ``OK`` / ``LOW`` / ``SLEEP`` / ``IDLE``). Geometry stays 13×6 so the
 sidebar never reflows when switching themes.
 

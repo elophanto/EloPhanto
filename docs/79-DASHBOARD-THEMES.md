@@ -175,7 +175,7 @@ colors:
 - **Mission rail** — `◆ callsign │ RUNNING/REST/PAUSE/TOOL │ burn meter │ primary mission │ AUTH n / BLK n (when needed) │ LINK`
 - **Panel titles** — MISSION / COS / AUTH / CLOCK / LINK (approvals panel hidden when empty)
 - **Readouts** — pipe meters `|████░░░░|`, field keys (`TRUST`/`VOICE`/`STRAT`/`NET7`), bracketed idle `[standby]`
-- **Mascot** — separate `_FACES_HUD` set (square sensors, scan bars, ops labels `CYCLE`/`TOOL`/`FAULT`)
+- **Mascot** — separate `_FACES_HUD` set (square sensors, scan bars, ops labels `CYCLE`/`TOOL`/`DOUBT`)
 - **CSS** — amber left rail on the sidebar, amber header/input borders, denser panel padding
 
 Fork `blade` and set `chrome: classic` (or omit it) if you want the

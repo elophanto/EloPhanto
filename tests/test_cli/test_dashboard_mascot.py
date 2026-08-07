@@ -391,3 +391,31 @@ class TestPanelWiring:
         recent_error, recent_success = panel._recent_event_signals()
         assert recent_error is False
         assert recent_success is True
+
+
+def test_hud_labels_never_imply_a_system_error() -> None:
+    """The mascot reports the AGENT'S self-assessment, not software health.
+
+    "FAULT" shipped as the label for `concerned` and operators reasonably read
+    it as "EloPhanto has crashed" — it appears while the agent is working
+    perfectly well and merely doubts itself, and it sits right next to real
+    error surfaces. Any word implying the program broke is banned here.
+    """
+    from cli.dashboard.mascot import _HUD_LABELS
+
+    banned = {"FAULT", "ERROR", "FAIL", "FAILED", "CRASH", "BROKEN", "BUG", "PANIC"}
+    offenders = {
+        face: label for face, label in _HUD_LABELS.items() if label.upper() in banned
+    }
+    assert not offenders, (
+        f"HUD labels must describe the agent's state, not a system error: {offenders}"
+    )
+
+
+def test_every_face_has_both_a_plain_and_hud_label() -> None:
+    from cli.dashboard.mascot import _HUD_LABELS, _LABELS
+
+    assert set(_LABELS) == set(_HUD_LABELS)
+    assert all(v.strip() for v in _HUD_LABELS.values())
+    # Sidebar is narrow — labels must stay short enough not to reflow it.
+    assert all(len(v) <= 6 for v in _HUD_LABELS.values()), _HUD_LABELS

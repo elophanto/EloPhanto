@@ -366,7 +366,7 @@ _FACES_HUD: dict[MascotFace, list[str]] = {
         _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
         _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ▬     "),
     ],
-    # concerned / FAULT — harsh triple-bar mouth, darting sensors
+    # concerned / DOUBT — harsh triple-bar mouth, darting sensors
     "concerned": [
         _f_hud("  [{e}]■[/]     [{e}]■[/]  ", "     ≡     "),
         _f_hud("  [{e}]◧[/]     [{e}]◧[/]  ", "     ≡     "),
@@ -403,13 +403,19 @@ _LABELS: dict[MascotFace, str] = {
     "humbled": "humbled",
 }
 
+# Every label here describes the AGENT'S SELF-ASSESSMENT, never the health of
+# the software. "FAULT" broke that rule: operators read it as "EloPhanto has
+# crashed" when it actually meant "the agent is unsure of itself" — and it
+# appears while the agent is working perfectly well. Words implying a system
+# error (FAULT / ERROR / FAIL / CRASH) are therefore banned from this map;
+# see ``test_hud_labels_never_imply_a_system_error``.
 _HUD_LABELS: dict[MascotFace, str] = {
     "sleep": "SLEEP",
     "idle": "IDLE",
     "thinking": "CYCLE",
     "working": "TOOL",
     "happy": "OK",
-    "concerned": "FAULT",
+    "concerned": "DOUBT",
     "humbled": "LOW",
 }
 
