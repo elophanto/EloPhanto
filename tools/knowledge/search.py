@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import struct
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +18,137 @@ from typing import Any
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 logger = logging.getLogger(__name__)
+
+# Role templates are huge and drown operational lessons when scope=all.
+# Keep them findable (demotion, not hard exclude) so explicit role queries
+# still work; learned/self/user outrank them for normal retrieval.
+_PATH_SCORE_ADJUST: tuple[tuple[str, float], ...] = (
+    ("learned/", 0.85),
+    ("self/", 0.55),
+    ("system/", 0.15),
+    ("organization-roles/", -2.0),
+)
+
+_SCOPE_SCORE_ADJUST: dict[str, float] = {
+    "learned": 0.75,
+    "identity": 0.55,
+    "user": 0.35,
+    "plugin": 0.1,
+    "system": 0.0,
+}
+
+_QUERY_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "if",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "for",
+        "from",
+        "with",
+        "about",
+        "into",
+        "over",
+        "after",
+        "before",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "do",
+        "does",
+        "did",
+        "doing",
+        "have",
+        "has",
+        "had",
+        "you",
+        "your",
+        "yours",
+        "yourself",
+        "i",
+        "me",
+        "my",
+        "we",
+        "our",
+        "it",
+        "its",
+        "this",
+        "that",
+        "these",
+        "those",
+        "should",
+        "would",
+        "could",
+        "can",
+        "will",
+        "just",
+        "also",
+        "really",
+        "very",
+        "much",
+        "more",
+        "than",
+        "not",
+        "no",
+        "yes",
+        "please",
+        "got",
+        "get",
+        "make",
+        "made",
+        "use",
+        "used",
+        "using",
+    }
+)
+
+
+def topic_keywords(query: str, *, max_terms: int = 12) -> str:
+    """Strip imperatives/stopwords into topic terms for retrieval.
+
+    Cheap, non-LLM rewrite used by auto-retrieve so directive goals
+    ("post about ego on X") still match lesson/topic chunks.
+    """
+    words = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", (query or "").lower())
+    kept: list[str] = []
+    seen: set[str] = set()
+    for w in words:
+        if w in _QUERY_STOPWORDS or w in seen:
+            continue
+        seen.add(w)
+        kept.append(w)
+        if len(kept) >= max_terms:
+            break
+    return " ".join(kept)
+
+
+def _path_score_adjust(file_path: str) -> float:
+    path = (file_path or "").replace("\\", "/")
+    for prefix, delta in _PATH_SCORE_ADJUST:
+        if path.startswith(prefix) or f"/{prefix}" in f"/{path}":
+            return delta
+    return 0.0
+
+
+def _scope_score_adjust(scope: str) -> float:
+    return _SCOPE_SCORE_ADJUST.get((scope or "").lower(), 0.0)
+
+
+def _significant_terms(query: str, *, max_terms: int = 8) -> list[str]:
+    raw = topic_keywords(query, max_terms=max_terms)
+    return [w for w in raw.split() if w]
 
 
 _QUERY_REWRITE_SYSTEM = (
@@ -315,7 +447,7 @@ class KnowledgeSearchTool(BaseTool):
 
         # Score and rank
         scored: list[tuple[float, dict[str, Any]]] = []
-        query_words = set(query.lower().split())
+        query_words = set(_significant_terms(query) or query.lower().split())
 
         for chunk in chunks:
             chunk_id = chunk["id"]
@@ -332,14 +464,17 @@ class KnowledgeSearchTool(BaseTool):
             except (json.JSONDecodeError, TypeError):
                 pass
 
-            # Recency boost
+            # Recency + operational-knowledge priority
             recency_score = self._recency_boost(chunk["indexed_at"])
+            priority = _scope_score_adjust(chunk["scope"]) + _path_score_adjust(
+                chunk["file_path"]
+            )
 
             # Scope filter
             if scope != "all" and chunk["scope"] != scope:
                 continue
 
-            total_score = semantic_score + keyword_score + recency_score
+            total_score = semantic_score + keyword_score + recency_score + priority
             scored.append(
                 (
                     total_score,
@@ -360,33 +495,64 @@ class KnowledgeSearchTool(BaseTool):
     async def _keyword_search(
         self, query: str, scope: str, limit: int
     ) -> list[dict[str, Any]]:
-        """Fallback keyword-only search using LIKE."""
-        words = query.lower().split()
+        """Fallback keyword-only search using LIKE.
+
+        Prefer AND of significant terms so common words don't fill the
+        candidate window with organization-role templates before lessons
+        are ever scored. Fall back to OR if AND is empty.
+        """
+        words = _significant_terms(query)
+        if not words:
+            words = [w for w in query.lower().split() if len(w) > 1][:5]
         if not words:
             return []
 
-        # Build WHERE clause
-        conditions = []
-        params: list[str] = []
-        for word in words[:5]:  # Limit to 5 search terms
-            conditions.append("LOWER(content) LIKE ?")
-            params.append(f"%{word}%")
+        # Candidate pool must be large enough that late-indexed learned
+        # chunks aren't starved by early organization-roles rowids.
+        candidate_cap = max(limit * 40, 120)
 
-        where = " OR ".join(conditions)
-        if scope != "all":
-            where = f"({where}) AND scope = ?"
-            params.append(scope)
+        async def _fetch(mode: str) -> list[Any]:
+            conditions = []
+            params: list[str] = []
+            for word in words[:6]:
+                conditions.append("LOWER(content) LIKE ?")
+                params.append(f"%{word}%")
+            joiner = " AND " if mode == "and" else " OR "
+            where = joiner.join(conditions)
+            if scope != "all":
+                where = f"({where}) AND scope = ?"
+                params.append(scope)
+            # Prefer newer + learned when the DB has to truncate candidates.
+            sql = (
+                f"SELECT * FROM knowledge_chunks WHERE {where} "
+                f"ORDER BY CASE scope "
+                f"WHEN 'learned' THEN 0 WHEN 'identity' THEN 1 "
+                f"WHEN 'user' THEN 2 ELSE 3 END, indexed_at DESC "
+                f"LIMIT ?"
+            )
+            return await self._db.execute(sql, (*params, candidate_cap))
 
-        rows = await self._db.execute(
-            f"SELECT * FROM knowledge_chunks WHERE {where} LIMIT ?",
-            (*params, limit * 2),
-        )
+        rows = await _fetch("and")
+        if not rows and len(words) > 1:
+            rows = await _fetch("or")
 
         results: list[dict[str, Any]] = []
         for row in rows:
             content_lower = row["content"].lower()
-            score = sum(0.2 for word in words if word in content_lower)
+            path_lower = (row["file_path"] or "").lower()
+            heading_lower = (row["heading_path"] or "").lower()
+            matched = sum(
+                1
+                for word in words
+                if word in content_lower or word in path_lower or word in heading_lower
+            )
+            if matched == 0:
+                continue
+            # Density: reward covering more query terms (AND quality).
+            score = 0.35 * matched + 0.15 * (matched / max(len(words), 1))
             score += self._recency_boost(row["indexed_at"])
+            score += _scope_score_adjust(row["scope"])
+            score += _path_score_adjust(row["file_path"])
 
             results.append(
                 {

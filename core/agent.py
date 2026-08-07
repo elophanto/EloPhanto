@@ -4912,15 +4912,36 @@ class Agent:
             search_tool = self._registry.get("knowledge_search")
             if search_tool and hasattr(search_tool, "_db") and search_tool._db:
                 try:
+                    from tools.knowledge.search import topic_keywords
+
                     # Best-effort pre-loop context: rewrite=False so a 0-result
                     # search never spends an LLM completion here (it would also
-                    # skew the task's step accounting). The rewrite stays on for
-                    # explicit agent knowledge_search tool calls.
-                    result = await search_tool.execute(
-                        {"query": query, "limit": 3, "rewrite": False}
-                    )
-                    if result.success and result.data.get("results"):
-                        return result.data["results"]
+                    # skew the task's step accounting). Cheap local topic
+                    # keywords are used as a second pass so imperative goals
+                    # still recall lessons without an LLM rewrite.
+                    queries = [query]
+                    topics = topic_keywords(query)
+                    if topics and topics.strip().lower() != query.strip().lower():
+                        queries.append(topics)
+
+                    merged: list[dict[str, Any]] = []
+                    seen: set[tuple[str, str]] = set()
+                    for q in queries:
+                        result = await search_tool.execute(
+                            {"query": q, "limit": 5, "rewrite": False}
+                        )
+                        if not (result.success and result.data.get("results")):
+                            continue
+                        for hit in result.data["results"]:
+                            key = (
+                                str(hit.get("source", "")),
+                                str(hit.get("heading", "")),
+                            )
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            merged.append(hit)
+                    return merged[:8]
                 except Exception:
                     pass
             return []

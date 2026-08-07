@@ -152,6 +152,78 @@ class TestKnowledgeSearchTool:
         assert all(r["scope"] == "system" for r in result.data["results"])
 
     @pytest.mark.asyncio
+    async def test_learned_lessons_outrank_organization_roles(
+        self, db: Database
+    ) -> None:
+        """Org-role templates must not starve operational lessons.
+
+        Regression: keyword OR + tiny LIMIT filled candidates with
+        organization-roles/* before learned/chunks were scored.
+        """
+        tool = KnowledgeSearchTool()
+        tool._db = db
+        tool._embedder = None
+
+        # Flood early rowids with role-template noise matching loose terms.
+        for i in range(30):
+            await db.execute_insert(
+                "INSERT INTO knowledge_chunks "
+                "(file_path, heading_path, content, tags, scope, "
+                "token_count, file_updated_at, indexed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"organization-roles/engineering-ai-engineer-{i}.md",
+                    "Workflow",
+                    "AI agent learning personality workflow process posting tools",
+                    "[]",
+                    "system",
+                    20,
+                    "2026-01-01",
+                    "2026-01-01",
+                ),
+            )
+        await db.execute_insert(
+            "INSERT INTO knowledge_chunks "
+            "(file_path, heading_path, content, tags, scope, "
+            "token_count, file_updated_at, indexed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "learned/lessons/x-replies-require-parent-specific-native-language.md",
+                "Lesson",
+                "Before every X reply, identify one concrete parent-specific "
+                "detail. Reject generic posting that could fit ten tweets.",
+                '["lessons","x","twitter","replies"]',
+                "learned",
+                30,
+                "2026-08-07",
+                "2026-08-07T12:00:00+00:00",
+            ),
+        )
+
+        result = await tool.execute(
+            {
+                "query": "lessons X Twitter replies posting parent-specific",
+                "limit": 5,
+                "rewrite": False,
+            }
+        )
+        assert result.success
+        assert result.data["count"] >= 1
+        top = result.data["results"][0]
+        assert top["source"].startswith("learned/")
+        assert "organization-roles/" not in top["source"]
+
+    def test_topic_keywords_strips_imperatives(self) -> None:
+        from tools.knowledge.search import topic_keywords
+
+        topics = topic_keywords(
+            "you should review it and post about it on X. don't underestimate yourself."
+        )
+        assert "should" not in topics.split()
+        assert "post" in topics
+        assert "x" in topics.split() or "yourself" not in topics.split()
+
+    @pytest.mark.asyncio
     async def test_zero_result_triggers_rewrite_retry(
         self, db: Database, knowledge_dir: Path
     ) -> None:
