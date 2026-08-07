@@ -292,9 +292,9 @@ class CompanyCreateTool(_CompanyToolBase):
                     f"{company.id!r} will only act when you ask in chat or "
                     "via scheduled tasks — there's no autonomous rotation "
                     "across companies. ASK THE OPERATOR if they'd like "
-                    "you to start the mind now (call mind_control with "
-                    "action='start' to enable at runtime, no restart "
-                    "needed)."
+                    "you to start the mind now (call set_next_wakeup — that "
+                    "starts the loop if it is stopped; or use the Mind page "
+                    "Start button / /mind start)."
                 )
 
         data: dict[str, Any] = {

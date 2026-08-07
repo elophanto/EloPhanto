@@ -17,6 +17,8 @@ class SetNextWakeupTool(BaseTool):
     name = "set_next_wakeup"
     description = (
         "Set how many seconds until your next autonomous thinking cycle. "
+        "Starts the autonomous mind if it is not already running "
+        "(needed when autonomous_mind.enabled is false at boot). "
         "Use shorter intervals when actively monitoring something, "
         "longer intervals when nothing is happening. "
         "Clamped to min_wakeup_seconds..max_wakeup_seconds from config."
@@ -49,9 +51,25 @@ class SetNextWakeupTool(BaseTool):
             self._mind._config.min_wakeup_seconds,
             min(self._mind._config.max_wakeup_seconds, int(seconds)),
         )
-        self._mind._next_wakeup_sec = float(clamped)
         reason = params.get("reason", "")
+
+        # Chat "turn on autonomous mode" used to call this tool alone.
+        # set_next_wakeup only wrote _next_wakeup_sec — it never started
+        # the background loop — so nothing woke up when enabled=false at
+        # boot. Start first; start() resets the interval to config, so
+        # apply the requested clamp afterward.
+        started = False
+        if not self._mind.is_running:
+            await self._mind.start()
+            started = True
+
+        self._mind._next_wakeup_sec = float(clamped)
         return ToolResult(
             success=True,
-            data={"next_wakeup_seconds": clamped, "reason": reason},
+            data={
+                "next_wakeup_seconds": clamped,
+                "reason": reason,
+                "mind_started": started,
+                "running": bool(self._mind.is_running),
+            },
         )
