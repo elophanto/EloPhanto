@@ -292,6 +292,15 @@ class DatasetBuilder:
         self._quality_filter = QualityFilter(config)
         self._api_key: str | None = None
 
+    def runtime_self_model_facts(self) -> list[str]:
+        """Opt-in self-model surface for who_are_you (owned by this subsystem)."""
+        return [
+            "learning.dataset_capture: on "
+            f"(batch_size={self._config.batch_size}, "
+            f"min_turns={self._config.min_turns}; "
+            "collect→fine-tune→redeploy)"
+        ]
+
     # ------------------------------------------------------------------
     # API key management
     # ------------------------------------------------------------------

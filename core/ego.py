@@ -406,6 +406,10 @@ class EgoManager:
         # ego, but ego only writes to affect through this opaque hook).
         self._affect: Any = None
 
+    def runtime_self_model_facts(self) -> list[str]:
+        """Opt-in self-model surface for who_are_you (owned by this subsystem)."""
+        return ["learning.ego: on (competence scars + felt_state weather)"]
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------

@@ -1,6 +1,10 @@
 # EloPhanto — Self-Learning Model Pipeline
 
-> **Status: Dataset Builder Done** — The agent-side data collection pipeline is fully implemented. Training pipeline remains in idea phase.
+> **Status: Collection live; training loop is the product** — Agent-side dataset
+> capture (`core/dataset_builder.py`) is fully implemented and opt-in. Traces exist
+> to fine-tune and redeploy the EloPhanto agent model (collect → train → publish →
+> pull). Do not describe the agent as “never retraining.” Local recursive learning
+> (lessons, memory, ego, skills) runs independently of weight swaps.
 
 ## Overview
 

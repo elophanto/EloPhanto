@@ -445,6 +445,43 @@ _SCHEMA = [
         updated_at TEXT NOT NULL
     )
     """,
+    # Lived personality (falsifiable self-accounting) — stance rules +
+    # nuclear scenes. Separate from ego.caution_rules (capability-keyed).
+    # See core/personality.py and docs/17-IDENTITY.md.
+    """
+    CREATE TABLE IF NOT EXISTS personality_rules (
+        id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        rule_text TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        measurable_json TEXT NOT NULL DEFAULT '{}',
+        evidence_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'proposed'
+            CHECK (status IN ('proposed','active','retired')),
+        miss_streak INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_personality_rules_company_status
+        ON personality_rules(company_id, status)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS nuclear_scenes (
+        id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        causal_link TEXT NOT NULL,
+        evidence_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'proposed'
+            CHECK (status IN ('proposed','active','retired')),
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_nuclear_scenes_company_status
+        ON nuclear_scenes(company_id, status)
+    """,
     """
     CREATE TABLE IF NOT EXISTS identity_evolution (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

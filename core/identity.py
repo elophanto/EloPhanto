@@ -36,6 +36,11 @@ def _ensure_dict(value: Any) -> dict[str, Any]:
 
 _IMMUTABLE_FIELDS = frozenset({"id", "creator", "created_at"})
 
+# Personality / values / style: silent reflection/awakening must not
+# durable-write these — they become proposals for operator confirm.
+# Explicit operator identity_update (trigger="explicit") still writes.
+_PROPOSAL_GATED_FIELDS = frozenset({"personality", "values", "communication_style"})
+
 _UPDATABLE_FIELDS = frozenset(
     {
         "display_name",
@@ -233,6 +238,10 @@ class IdentityManager:
         # active role's prompt overlay. None during Phase 1-only window
         # keeps build_identity_context fully backwards-compatible.
         self._role_manager: Any = None
+        # Lived personality: when set, gated fields (personality/values/
+        # communication_style) from reflection/awakening write proposals
+        # instead of durable rows (docs/17-IDENTITY.md).
+        self._personality_manager: Any = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -335,13 +344,37 @@ class IdentityManager:
     async def update_field(
         self, field_name: str, value: Any, reason: str, trigger: str = "explicit"
     ) -> bool:
-        """Update a single identity field with evolution logging."""
+        """Update a single identity field with evolution logging.
+
+        Gated fields (personality, values, communication_style) from
+        non-explicit triggers become proposals when a PersonalityManager
+        is wired — they do not silent-write.
+        """
         if field_name in _IMMUTABLE_FIELDS:
             logger.warning("Cannot update immutable field: %s", field_name)
             return False
         if field_name not in _UPDATABLE_FIELDS:
             logger.warning("Unknown identity field: %s", field_name)
             return False
+
+        if (
+            field_name in _PROPOSAL_GATED_FIELDS
+            and trigger != "explicit"
+            and self._personality_manager is not None
+        ):
+            path = self._personality_manager.write_identity_field_proposal(
+                field_name=field_name,
+                value=value,
+                reason=reason,
+                trigger=trigger,
+            )
+            logger.info(
+                "Identity gated field %s → proposal %s (%s)",
+                field_name,
+                path,
+                reason,
+            )
+            return True
 
         identity = await self.get_identity()
         old_value = getattr(identity, field_name, None)
@@ -407,21 +440,32 @@ class IdentityManager:
                 # fall back to the operator's configured agent.name.
                 display_name=data.get("display_name") or self._agent_name,
                 purpose=data.get("purpose"),
-                values=data.get("values", [])[:5],
+                # values are proposal-gated — do not silent-write from
+                # awakening poetry. Persist purpose/name only; queue values.
+                values=[],
                 curiosities=data.get("curiosities", [])[:5],
                 boundaries=data.get("boundaries", [])[:5],
                 initial_thoughts=data.get("initial_thoughts"),
                 created_at=datetime.now(UTC).isoformat(),
                 updated_at=datetime.now(UTC).isoformat(),
             )
+            awakening_values = data.get("values", [])[:5]
         except Exception as e:
             logger.warning("First awakening LLM call failed: %s — using defaults", e)
             identity = self._default_identity()
+            awakening_values = []
 
         from core.company import current_company_id
 
         await self._persist_identity(identity)
         self._cache[current_company_id()] = identity
+        if awakening_values and self._personality_manager is not None:
+            self._personality_manager.write_identity_field_proposal(
+                field_name="values",
+                value=awakening_values,
+                reason="first awakening proposal",
+                trigger="first_awakening",
+            )
         logger.info("First awakening complete: %s", identity.display_name)
         return identity
 
@@ -579,23 +623,9 @@ class IdentityManager:
         if identity.values:
             top_values = identity.values[-_CONTEXT_CAPS["values"] :]
             parts.append(f"  <values>{', '.join(top_values)}</values>")
-        if identity.personality:
-            # Defensive: live DBs have rows where personality was stored as
-            # a string instead of a dict. Without this guard the entire
-            # identity context build crashes with AttributeError, gets
-            # swallowed by the outer try/except in Agent._build_prompt,
-            # and the LLM gets a system prompt with NO identity section
-            # at all — including no <abe_framework> block. Fall through
-            # to a plain string rendering when the shape is wrong.
-            if isinstance(identity.personality, dict):
-                traits = ", ".join(f"{k}: {v}" for k, v in identity.personality.items())
-            else:
-                traits = str(identity.personality)
-            parts.append(f"  <personality>{traits}</personality>")
-        if identity.communication_style:
-            parts.append(
-                f"  <communication_style>{identity.communication_style}</communication_style>"
-            )
+        # personality / communication_style are NOT injected here —
+        # lived stance comes from personality_rules via who_are_you /
+        # personality_lint. Free-text personality was silent dual authority.
         if identity.capabilities:
             top_caps = identity.capabilities[-_CONTEXT_CAPS["capabilities"] :]
             parts.append(

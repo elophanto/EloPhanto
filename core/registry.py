@@ -387,6 +387,19 @@ class ToolRegistry:
         self.register(IdentityUpdateTool())
         self.register(IdentityReflectTool())
 
+        # Lived personality — falsifiable self-accounting
+        from tools.personality import (
+            PersonalityLintTool,
+            PersonalityRuleConfirmTool,
+            PersonalityRuleProposeTool,
+            WhoAreYouTool,
+        )
+
+        self.register(WhoAreYouTool())
+        self.register(PersonalityRuleProposeTool())
+        self.register(PersonalityRuleConfirmTool())
+        self.register(PersonalityLintTool())
+
         # Affect tool — lets the agent register its own felt signal from
         # content it just read. Closes the gap where affect was only fed
         # by operator-typed corrections + tool outcomes, never by the
@@ -768,6 +781,9 @@ class ToolRegistry:
             "email_draft",
             "outreach_draft",
             "post_draft",
+            # Lived personality — who-are-you must be visible without discover
+            "who_are_you",
+            "personality_lint",
             # Kill switch — operator's natural-language stop must work
             # in any profile. Single schema (~60 tokens) is cheap
             # insurance against runaway loops.

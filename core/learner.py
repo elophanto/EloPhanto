@@ -132,6 +132,17 @@ class LessonExtractor:
         self._enabled = enabled
         self._instinct_store: Any = None  # Set by agent during init
 
+    def runtime_self_model_facts(self) -> list[str]:
+        """Opt-in self-model surface for who_are_you (owned by this subsystem)."""
+        if not self._enabled:
+            return ["learning.lesson_extraction: off"]
+        facts = [
+            "learning.lesson_extraction: on (knowledge/learned)",
+        ]
+        if self._instinct_store is not None:
+            facts.append("learning.instinct_store: on")
+        return facts
+
     async def extract_and_store(
         self,
         goal: str,

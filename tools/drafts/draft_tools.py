@@ -131,6 +131,8 @@ class _DraftAuthorBase(BaseTool):
         # ABE Phase 10 — optional VoiceManager. When unset (test
         # fixtures, missing voice contract) the lint is skipped.
         self._voice_manager: Any = None
+        # Lived personality lint — optional PersonalityManager.
+        self._personality_manager: Any = None
 
     @property
     def group(self) -> str:
@@ -171,6 +173,21 @@ class _DraftAuthorBase(BaseTool):
             "the body and re-call this draft tool."
         )
         return ToolResult(success=False, error=msg)
+
+    async def _personality_check(self, body: str, company_id: str) -> ToolResult | None:
+        """Lived personality_lint — fail-closed after deterministic rewrite."""
+        if self._personality_manager is None:
+            return None
+        out, result = await self._personality_manager.lint_and_enforce(
+            body, company_id=company_id
+        )
+        if result.passed:
+            return None
+        msg = "personality_lint failed: " + "; ".join(result.violations)
+        if result.suggestions:
+            msg += " | suggestions: " + "; ".join(result.suggestions)
+        msg += " | revise the body and re-call this draft tool."
+        return ToolResult(success=False, error=msg, data={"rewritten": out})
 
 
 class EmailDraftTool(_DraftAuthorBase):
@@ -227,6 +244,9 @@ class EmailDraftTool(_DraftAuthorBase):
         voice_fail = self._voice_check(body, company_id, "email")
         if voice_fail is not None:
             return voice_fail
+        pers_fail = await self._personality_check(body, company_id)
+        if pers_fail is not None:
+            return pers_fail
 
         path, draft_id = _write_draft(
             self._project_root,  # type: ignore[arg-type]
@@ -304,6 +324,9 @@ class OutreachDraftTool(_DraftAuthorBase):
         voice_fail = self._voice_check(body, company_id, "outreach")
         if voice_fail is not None:
             return voice_fail
+        pers_fail = await self._personality_check(body, company_id)
+        if pers_fail is not None:
+            return pers_fail
 
         path, draft_id = _write_draft(
             self._project_root,  # type: ignore[arg-type]
@@ -378,6 +401,9 @@ class PostDraftTool(_DraftAuthorBase):
         voice_fail = self._voice_check(content, company_id, "post")
         if voice_fail is not None:
             return voice_fail
+        pers_fail = await self._personality_check(content, company_id)
+        if pers_fail is not None:
+            return pers_fail
 
         # Title from first line, capped
         first_line = content.splitlines()[0][:50]

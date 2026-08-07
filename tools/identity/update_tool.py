@@ -25,8 +25,9 @@ class IdentityUpdateTool(BaseTool):
     def description(self) -> str:
         return (
             "Update a specific identity field (e.g. add a capability, "
-            "change communication style, update beliefs with account info). "
-            "Requires a reason for the change."
+            "update beliefs with account info). Requires a reason. "
+            "personality / values / communication_style from reflection "
+            "become proposals; explicit operator updates still write."
         )
 
     @property
@@ -71,7 +72,9 @@ class IdentityUpdateTool(BaseTool):
         if not reason:
             return ToolResult(success=False, error="Reason is required")
 
-        ok = await self._identity_manager.update_field(field, value, reason, trigger="explicit")
+        ok = await self._identity_manager.update_field(
+            field, value, reason, trigger="explicit"
+        )
         if not ok:
             return ToolResult(
                 success=False,

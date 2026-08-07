@@ -619,6 +619,7 @@ class Agent:
         )
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._ego_manager: Any = None  # EgoManager, set during initialize
+        self._personality_manager: Any = None  # PersonalityManager
         self._affect_manager: Any = None  # AffectManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
         self._email_config: Any = None  # EmailConfig, set during initialize
@@ -814,6 +815,7 @@ class Agent:
                 except Exception as e:
                     logger.debug("Instinct store setup failed: %s", e)
                 self._inject_learner_deps()
+                self._wire_personality_runtime_sources()
                 logger.info("Lesson extractor ready")
             except Exception as e:
                 logger.warning(f"Lesson extractor setup failed: {e}")
@@ -1237,6 +1239,23 @@ class Agent:
                 self._inject_identity_deps()
                 logger.info("Identity system ready")
 
+                # Lived personality (rules + scenes + who_are_you compiler)
+                try:
+                    from core.personality import PersonalityManager
+
+                    self._personality_manager = PersonalityManager(
+                        db=self._db,
+                        project_root=self._config.project_root,
+                        agent_name=self._config.agent_name,
+                    )
+                    self._identity_manager._personality_manager = (
+                        self._personality_manager
+                    )
+                    self._inject_personality_deps()
+                    logger.info("Personality system ready")
+                except Exception as e:
+                    logger.warning(f"Personality system setup failed: {e}")
+
                 # Now that identity is loaded, seed missions. Idempotent:
                 # if the table already has rows (e.g. operator pre-seeded
                 # or this is a subsequent boot), the call returns early.
@@ -1257,6 +1276,8 @@ class Agent:
                 )
                 await self._ego_manager.load_or_create()
                 logger.info("Ego system ready")
+                if self._personality_manager is not None:
+                    self._inject_personality_deps()
             except Exception as e:
                 logger.warning(f"Ego system setup failed: {e}")
 
@@ -1750,6 +1771,7 @@ class Agent:
                     config=self._config.self_learning,
                     data_dir=data_dir,
                 )
+                self._wire_personality_runtime_sources()
                 logger.info("Dataset collection ready")
             except Exception as e:
                 logger.debug("Dataset collection setup failed: %s", e)
@@ -2504,6 +2526,73 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._identity_manager:
                 tool._identity_manager = self._identity_manager
+
+    def _inject_personality_deps(self) -> None:
+        """Inject personality + ego managers into lived-personality tools."""
+        for tool_name in (
+            "who_are_you",
+            "personality_rule_propose",
+            "personality_rule_confirm",
+            "personality_lint",
+        ):
+            tool = self._registry.get(tool_name)
+            if tool and self._personality_manager:
+                tool._personality_manager = self._personality_manager
+            if tool_name == "who_are_you" and tool and self._ego_manager:
+                tool._ego_manager = self._ego_manager
+        # Draft tools: optional personality_lint after voice_lint
+        for tool_name in ("email_draft", "outreach_draft", "post_draft"):
+            tool = self._registry.get(tool_name)
+            if tool and self._personality_manager:
+                tool._personality_manager = self._personality_manager
+        self._wire_personality_runtime_sources()
+
+    def _wire_personality_runtime_sources(self) -> None:
+        """Register live subsystems that opt into who_are_you runtime facts.
+
+        Each component owns its own ``runtime_self_model_facts()`` — no
+        hardcoded capability essays in the personality layer. New learning
+        surfaces scale by implementing that method and being wired here
+        (or by exposing it on a registered tool).
+        """
+        pm = self._personality_manager
+        if pm is None:
+            return
+
+        agent_name = getattr(self._config, "agent_name", "EloPhanto")
+        pm.register_runtime_fact_source(
+            "host",
+            lambda: [
+                f"runtime.host: local agent={agent_name} "
+                "with tools, goals, and gated approvals"
+            ],
+        )
+
+        for key, component in (
+            ("learner", getattr(self, "_learner", None)),
+            ("dataset", getattr(self, "_dataset_builder", None)),
+            ("ego", getattr(self, "_ego_manager", None)),
+        ):
+            if component is not None and callable(
+                getattr(component, "runtime_self_model_facts", None)
+            ):
+                # Bind component in default arg so late rebinding is safe.
+                pm.register_runtime_fact_source(
+                    key,
+                    lambda c=component: c.runtime_self_model_facts(),
+                )
+
+        try:
+            for tool in self._registry.all_tools():
+                if not callable(getattr(tool, "runtime_self_model_facts", None)):
+                    continue
+                tool_name = getattr(tool, "name", None) or type(tool).__name__
+                pm.register_runtime_fact_source(
+                    f"tool:{tool_name}",
+                    lambda t=tool: t.runtime_self_model_facts(),
+                )
+        except Exception as e:
+            logger.debug("runtime fact tool scan failed: %s", e)
 
     def _inject_user_profile_deps(self) -> None:
         """Inject user profile manager into user profile tools."""
@@ -3269,6 +3358,15 @@ class Agent:
         if self._ego_manager and is_user_input:
             asyncio.create_task(self._record_ego_correction(goal))
 
+        # Who-are-you: compiler is the authority (via who_are_you tool),
+        # but the model still speaks — dump-and-return short-circuit felt
+        # lifeless and skipped the model (TOK 0). Soft-mandate below.
+        _self_description_query = False
+        if is_user_input and self._personality_manager is not None:
+            from core.personality import is_self_description_query
+
+            _self_description_query = is_self_description_query(goal)
+
         tool_calls_made: list[str] = []
         step = 0
         hard_limit = max_steps_override or self._config.max_steps or 500
@@ -3330,6 +3428,22 @@ class Agent:
             # from scratchpad memory instead of calling company_list.
             # Logging surfaces the next such failure so it can't hide.
             logger.warning("identity context build failed: %s", e)
+
+        if _self_description_query:
+            mandate = (
+                "<who_are_you_mandate>\n"
+                "The operator asked who/what you are. Call who_are_you first, "
+                "then answer in your own voice using ONLY that tool's facts "
+                "and citation tokens. Do not freestyle a marketing monologue "
+                "or invent uncited autobiography. If empty_life is true, say "
+                "so plainly — competence scars and felt_state are weather, "
+                "not a finished self. Do not contradict the tool's runtime "
+                "capability facts.\n"
+                "</who_are_you_mandate>"
+            )
+            identity_context = (
+                f"{identity_context}\n{mandate}" if identity_context else mandate
+            )
 
         try:
             if self._ego_manager:

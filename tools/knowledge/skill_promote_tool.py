@@ -118,6 +118,10 @@ class SkillPromoteTool(BaseTool):
         self._router: Any = None
         self._project_root: Path | None = None
 
+    def runtime_self_model_facts(self) -> list[str]:
+        """Opt-in self-model surface for who_are_you (owned by this tool)."""
+        return ["learning.skill_promote: available (lessons → SKILL.md)"]
+
     @property
     def group(self) -> str:
         return "skills"

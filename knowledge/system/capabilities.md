@@ -182,6 +182,22 @@ Smart tool profiles (7 built-in) route the right tool subset per task type. Prov
 
 75 organization role templates for specialist spawning.
 
+## Self-Learning & Recursive Improvement
+
+EloPhanto improves on two coupled tracks — do **not** claim “I never retrain”:
+
+1. **Local recursive learning (always on)** — after tasks: lesson extraction into
+   `knowledge/learned/`, semantic memory, ego caution scars, skill promotion,
+   identity proposals, self-dev. Later behavior changes from these artifacts.
+2. **Fleet weight loop (`self_learning`)** — when `self_learning.enabled: true`,
+   `core/dataset_builder.py` captures sanitized tool-using interactions, buffers
+   locally, uploads to the EloPhanto collect API → HuggingFace dataset →
+   fine-tune → redeploy. **Dataset capture exists to retrain** the agent model
+   over the recursive loop; it is not logging for its own sake.
+
+Privacy: opt-in collection, local secret/PII sanitization before upload.
+See `docs/14-SELF-LEARNING.md` and `docs/48-LEARNING-ENGINE.md`.
+
 ## Security
 
 - Encrypted vault (Fernet + PBKDF2)

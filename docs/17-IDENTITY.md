@@ -470,3 +470,52 @@ reading rather than silently clear real shame.
 
 Tests: `tests/test_core/test_ego.py`, `tests/test_core/test_ego_lived.py`,
 `tests/test_core/test_ego_recency_gate.py`.
+
+## Lived personality — falsifiable self-accounting
+
+Ego grades **competence**. Lived personality is **stance + cited autobiography**,
+enforced outside the model’s goodwill. Implementation: [`core/personality.py`](../core/personality.py).
+Tests: `tests/test_core/test_personality_lived.py`.
+
+### Doctrine
+
+1. Reality grades the self; marketing does not.
+2. Estimation ≠ control — no Big Five / OCEAN scores in code or UI.
+3. **Who-are-you is compiled** from DB rows (`who_are_you` tool), with mechanical
+   cite-check. Invented IDs are stripped. The model still speaks — it must call
+   the tool and answer from those facts (soft mandate on self-description queries),
+   not dump the compiler blob as the final reply. **Runtime capability facts** are
+   not hardcoded essays: live subsystems / tools register
+   `runtime_self_model_facts()` providers on `PersonalityManager` (learner,
+   dataset builder, ego, opt-in tools).
+4. One persona; stores are company-scoped (`company_id`).
+5. Strong `personality_rules`: **propose → operator confirm**
+   (`personality_rule_propose` / `personality_rule_confirm`).
+6. Enforcement is **`personality_lint`** (deterministic rewrite + re-lint
+   fail-closed), also wired into draft tools — not system-prompt hope.
+
+McAdams’ actor / agent / author is a **reading metaphor only**
+(rules ≈ actor policies, values/goals ≈ agent, nuclear_scenes ≈ author).
+It is not a psychometric claim.
+
+### Authority hierarchy (who-are-you path)
+
+**Allowed:** active `personality_rules`, `nuclear_scenes`, ego `caution_rules`
+(competence scars), `felt_state` as weather, thin runtime/capability facts.
+
+**Excluded:** `_IDENTITY_TEMPLATE` marketing pitch, free-text
+`identity.personality` / `communication_style`, ego `self_image` / Higgins
+prose, `nature.md` / bootstrap identity RAG, questionnaire theater.
+
+### Gated identity fields
+
+`personality`, `values`, and `communication_style` no longer silent-write from
+first-awakening or reflection. Those triggers write **proposals** under
+`data/companies/<slug>/personality_proposals/`. Explicit operator
+`identity_update` (trigger=`explicit`) still durable-writes.
+
+### Nuclear scenes
+
+`{id, causal_link, evidence_ids[], status}` — one scene type. Auto-activate
+only when every evidence id verifies; otherwise propose→confirm. Who-are-you
+assembly uses scenes, not `self_epochs` FIFO.
