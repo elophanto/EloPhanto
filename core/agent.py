@@ -88,6 +88,17 @@ from core.skills import SkillManager
 logger = logging.getLogger(__name__)
 
 
+def _summarize_step_call(tool_name: str, params: dict) -> str:
+    """Per-call detail for STEP_PROGRESS. Best-effort: observability must
+    never break a task, and the summariser touches arbitrary tool params."""
+    try:
+        from core.mind_tool_summary import summarize_step_call
+
+        return summarize_step_call(tool_name, params or {})
+    except Exception:
+        return ""
+
+
 _MAX_CONVERSATION_HISTORY = 20  # Max messages to carry across turns
 
 # Tools that are read-only and safe to execute concurrently via asyncio.gather().
@@ -4598,6 +4609,10 @@ class Agent:
                             "step": step,
                             "tool_name": tool_name,
                             "thought": (thought or "")[:200],
+                            # Per-call detail — see the note in
+                            # Gateway.on_step. Keeps parallel calls of the
+                            # same tool distinguishable in the activity feed.
+                            "detail": _summarize_step_call(tool_name, params),
                             "source": "scheduled",
                             "goal": goal[:80],
                         },

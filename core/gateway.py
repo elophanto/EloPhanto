@@ -40,6 +40,17 @@ from core.session import Session, SessionManager
 logger = logging.getLogger(__name__)
 
 
+def _summarize_step_call(tool_name: str, params: dict) -> str:
+    """Per-call detail for STEP_PROGRESS. Best-effort: observability must
+    never break a task, and the summariser touches arbitrary tool params."""
+    try:
+        from core.mind_tool_summary import summarize_step_call
+
+        return summarize_step_call(tool_name, params or {})
+    except Exception:
+        return ""
+
+
 @dataclass
 class ClientConnection:
     """A connected channel adapter."""
@@ -959,6 +970,12 @@ class Gateway:
                         "step": step,
                         "tool_name": tool_name,
                         "thought": thought[:200],
+                        # Per-CALL detail. `thought` is the planner's reasoning
+                        # for the whole step, so parallel calls of one tool all
+                        # render identically ("email_read x3" reading three
+                        # different messages). Summarised here rather than
+                        # shipping raw params, which can carry secrets.
+                        "detail": _summarize_step_call(tool_name, params),
                     },
                 ),
                 session_id=session.session_id,

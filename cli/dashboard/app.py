@@ -2089,7 +2089,15 @@ class EloPhantoDashboard(App):
                 step_label = f"step {step_num}" if step_num else "step"
                 hint = ""
                 first_line = ""
-                if thought:
+                # Prefer per-CALL detail over the step's planner thought.
+                # `thought` is shared by every call in a step, so parallel
+                # invocations of one tool (three email_read on three messages)
+                # rendered as three identical rows that read like a duplicated
+                # log. `detail` names the actual target of each call.
+                detail = str(msg.data.get("detail") or "").strip()
+                if detail:
+                    hint = f" · [{_DIM}]{detail[:60]}[/]"
+                elif thought:
                     # First non-empty line, truncated.
                     first_line = next(
                         (ln.strip() for ln in thought.splitlines() if ln.strip()),

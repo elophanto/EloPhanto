@@ -91,7 +91,58 @@ _OBJECT_KEYS: tuple[str, ...] = (
     "to",
     "subject",
     "title",
+    # Identifiers that distinguish otherwise-identical parallel calls.
+    # Without these, three concurrent email_read calls render as three
+    # copies of the same line in the activity feed.
+    "message_id",
+    "email_id",
+    "prospect_id",
+    "company_id",
+    "subject_id",
+    "dimension",
 )
+
+
+def summarize_step_call(tool_name: str, params: dict[str, Any]) -> str:
+    """Short per-call detail for the dashboard activity feed.
+
+    Like ``summarize_call`` but always returns something distinguishing when
+    the params carry an identifier: the feed shows one row per tool call, and
+    tools are frequently invoked in parallel (three ``email_read`` on three
+    message ids, three ``skill_read`` on three skills). Rendering the step's
+    shared planner thought against each row made those look like duplicated
+    log lines.
+
+    Identifiers are trimmed to their readable part — a raw RFC-822 Message-ID
+    is 60+ chars of noise whose only human-legible piece is the sending
+    domain.
+    """
+    obj = _extract_object(dict(params or {}))
+    # Opaque identifiers get shortened before anything else — summarize_call
+    # would happily emit the full 60-char Message-ID, which is exactly the
+    # noise this function exists to remove.
+    if obj and ("@" in obj or len(obj) > 44):
+        return f"{tool_name}: {_readable_identifier(obj)}"[:60]
+    summary = summarize_call(tool_name, dict(params or {}))
+    if summary and summary != tool_name:
+        return summary[:60]
+    return _readable_identifier(obj)[:60] if obj else ""
+
+
+def _readable_identifier(value: str) -> str:
+    """Reduce an opaque identifier to the part a human can read.
+
+    ``<20260803074304.f26f@cio129328.polymarket.com>`` → ``polymarket.com``.
+    Anything without an ``@`` is returned trimmed of angle brackets.
+    """
+    v = value.strip().strip("<>").strip()
+    if "@" in v:
+        domain = v.rsplit("@", 1)[-1].strip(">")
+        parts = [p for p in domain.split(".") if p]
+        if len(parts) >= 2:
+            return ".".join(parts[-2:])
+        return domain or v
+    return v
 
 
 def _shorten_path(value: str, max_chars: int = 48) -> str:
