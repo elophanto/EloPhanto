@@ -36,6 +36,25 @@ def test_distinct_phases_stay_distinguishable() -> None:
     assert round(by_type["planning"], 2) == 0.02
 
 
+def test_every_record_call_site_passes_task_type() -> None:
+    """Behavioural guard, not a signature guard.
+
+    The first version of this test only checked that the provider helpers
+    ACCEPTED task_type. They did — and three of the four then called
+    record(...) without it, so codex (the primary path), zai and kimi kept
+    writing 'unknown' while CI stayed green. Assert the argument is actually
+    forwarded at every call site.
+    """
+    import re
+    from pathlib import Path
+
+    src = Path("core/router.py").read_text()
+    calls = re.findall(r"self\._cost_tracker\.record\((.*?)\n\s*\)", src, re.S)
+    assert len(calls) >= 4, f"expected 4+ record() call sites, found {len(calls)}"
+    dropped = [c.strip()[:40] for c in calls if "task_type" not in c]
+    assert not dropped, f"record() call sites dropping task_type: {dropped}"
+
+
 def test_router_threads_task_type_to_every_provider_path() -> None:
     """Signature guard: all four provider calls must accept task_type, or the
     value silently reverts to 'unknown' for that provider only — the hardest

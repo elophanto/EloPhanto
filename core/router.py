@@ -993,6 +993,7 @@ class LLMRouter:
                 response.input_tokens,
                 response.output_tokens,
                 response.cost_estimate,
+                task_type,
             )
             return response
         except Exception as e:
@@ -1033,6 +1034,7 @@ class LLMRouter:
                 response.input_tokens,
                 response.output_tokens,
                 response.cost_estimate,
+                task_type,
             )
             return response
         except Exception as e:
@@ -1069,6 +1071,7 @@ class LLMRouter:
                 response.input_tokens,
                 response.output_tokens,
                 response.cost_estimate,
+                task_type,
             )
             return response
         except Exception as e:

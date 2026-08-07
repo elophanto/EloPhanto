@@ -1247,6 +1247,15 @@ class AutonomousMind:
         operator's persistent selection. Falls through silently when
         the sidecar is missing (default contextvar value applies).
         """
+        # Drop any role mask left over from a previous cycle before doing
+        # anything else. The pin is set during prompt building, which happens
+        # BEFORE this method's try/finally opens — so an exception or a
+        # cancellation in that window would otherwise strand the mask, and the
+        # mind loop is one long-lived task whose contextvar persists across
+        # cycles. Releasing on entry bounds any such leak to the cycle that
+        # caused it instead of every cycle thereafter.
+        self._release_role_pin()
+
         try:
             from core.company import (
                 read_persisted_current_company,
@@ -2216,6 +2225,12 @@ class AutonomousMind:
                         # gating every later cycle — including cycles where
                         # role work did not win — and the narrow allowlists
                         # then denied the mind its own goal bookkeeping.
+                        #
+                        # Release first: overwriting a live token strands the
+                        # contextvar permanently, because the only handle that
+                        # could restore it is the one being discarded. That
+                        # turns a one-cycle leak into an unrecoverable one.
+                        self._release_role_pin()
                         self._role_pin_token = set_current_role(role_name)
                         logger.info(
                             "[arbiter] posture=%s pinned role=%s for cycle",
