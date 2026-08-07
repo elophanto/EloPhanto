@@ -129,6 +129,18 @@ class Executor:
         self._tool_overrides: dict[str, str] = perms.get("tool_overrides", {}) or {}
         self._disabled_tools: set[str] = set(perms.get("disabled_tools", []) or [])
 
+    async def _ego_confidence(self, capability: str) -> float:
+        """Current confidence for a capability, for the approval message.
+
+        Best-effort: the number is explanatory only, so a failure here must
+        never change whether the tool runs.
+        """
+        try:
+            ego = await self._ego_manager.get_ego()
+            return float(ego.confidence.get(capability, 0.5))
+        except Exception:
+            return 0.5
+
     def set_approval_callback(
         self, callback: Callable[[str, str, dict[str, Any]], bool]
     ) -> None:
@@ -490,10 +502,16 @@ class Executor:
         callback = approval_callback or self._approval_callback
         override = self._tool_overrides.get(tool.name)
 
-        async def _ask() -> bool:
+        async def _ask(reason: str = "") -> bool:
             if not callback:
                 return False
             description = self._format_approval_request(tool, params)
+            if reason:
+                # Say WHY this is being asked. A bare "approve browser_navigate?"
+                # under full_auto reads as a bug; the operator needs to see that
+                # the ego gate fired and on what evidence, or they cannot tell a
+                # deliberate caution from a broken permission mode.
+                description = f"{description}\n{reason}"
             result = callback(tool.name, description, params)
             if inspect.isawaitable(result):
                 return bool(await result)
@@ -519,9 +537,17 @@ class Executor:
         # Ego soft-gate: when confidence says decline (or caution rule
         # forces ask), require approval even in full_auto. This is the
         # behavioral proof that shame changes what the agent attempts.
-        if self._ego_manager is not None and tool.permission_level in (
-            PermissionLevel.MODERATE,
-            PermissionLevel.CRITICAL,
+        soft_gate_on = getattr(
+            getattr(self._config, "ego", None), "soft_gate", True
+        )
+        if (
+            soft_gate_on
+            and self._ego_manager is not None
+            and tool.permission_level
+            in (
+                PermissionLevel.MODERATE,
+                PermissionLevel.CRITICAL,
+            )
         ):
             try:
                 from core.ego import capability_for_tool
@@ -537,20 +563,34 @@ class Executor:
                 verdict = await self._ego_manager.should_attempt(
                     capability, difficulty=difficulty
                 )
+                conf = await self._ego_confidence(capability)
+                reason = (
+                    f"⚑ Ego gate ({verdict}): '{capability}' confidence "
+                    f"{conf:.2f} vs difficulty {difficulty:.2f}. Asking despite "
+                    f"{self._config.permission_mode}. "
+                    f"Confidence rises ~0.05 per success; set "
+                    f"ego.soft_gate: false in config.yaml to disable this gate."
+                )
                 if verdict == "decline":
                     logger.info(
-                        "Ego soft-gate: decline on %s (%s) — forcing approval ask",
+                        "Ego soft-gate: decline on %s (%s, conf=%.2f vs %.2f) "
+                        "— forcing approval ask",
                         tool.name,
                         capability,
+                        conf,
+                        difficulty,
                     )
-                    return await _ask()
+                    return await _ask(reason)
                 if verdict == "ask" and self._config.permission_mode == "full_auto":
                     logger.info(
-                        "Ego soft-gate: ask on %s (%s) — overriding full_auto",
+                        "Ego soft-gate: ask on %s (%s, conf=%.2f vs %.2f) "
+                        "— overriding full_auto",
                         tool.name,
                         capability,
+                        conf,
+                        difficulty,
                     )
-                    return await _ask()
+                    return await _ask(reason)
             except Exception as e:
                 logger.debug("Ego soft-gate skipped: %s", e)
 

@@ -702,6 +702,25 @@ class WebhookConfig:
 
 
 @dataclass
+class EgoConfig:
+    """Ego soft-gate behaviour.
+
+    The executor consults the ego before MODERATE tools and can force an
+    approval ask even under ``full_auto`` when per-capability confidence is
+    below the task's difficulty — the behavioural proof that shame changes
+    what the agent attempts.
+
+    That is deliberate, but it must be escapable: an operator who set
+    ``full_auto`` and is then prompted for every browser click needs a way to
+    say "I meant it" without editing code. Set ``soft_gate: false`` to make
+    ``full_auto`` mean exactly what it says. CRITICAL tools still always ask —
+    that gate is not negotiable.
+    """
+
+    soft_gate: bool = True
+
+
+@dataclass
 class IdentityConfig:
     """Evolving agent identity configuration."""
 
@@ -1244,6 +1263,7 @@ class Config:
     documents: DocumentConfig = field(default_factory=DocumentConfig)
     goals: GoalsConfig = field(default_factory=GoalsConfig)
     identity: IdentityConfig = field(default_factory=IdentityConfig)
+    ego: EgoConfig = field(default_factory=EgoConfig)
     learner: LearnerConfig = field(default_factory=LearnerConfig)
     payments: PaymentsConfig = field(default_factory=PaymentsConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
@@ -1853,6 +1873,9 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
     )
 
     # Parse identity section
+    ego_raw = raw.get("ego", {}) or {}
+    ego_config = EgoConfig(soft_gate=bool(ego_raw.get("soft_gate", True)))
+
     identity_raw = raw.get("identity", {})
     identity_config = IdentityConfig(
         enabled=identity_raw.get("enabled", True),
@@ -2272,6 +2295,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         documents=documents_config,
         goals=goals_config,
         identity=identity_config,
+        ego=ego_config,
         learner=learner_config,
         payments=payments_config,
         email=email_config,

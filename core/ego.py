@@ -39,7 +39,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +120,13 @@ _CONF_DEFAULT = 0.50
 
 # How many humbling events to retain and inject into context.
 _HUMBLING_CAP = 5
+
+# How old a humbling event can be and still colour the felt state. The events
+# list is loaded newest-first with no date filter, so without this a stumble
+# from months ago outvotes thousands of subsequent successes and the agent is
+# permanently ashamed. Two weeks is long enough that a real pattern persists
+# across it, short enough that a fixed problem stops haunting the self-model.
+_HUMBLING_RECENT_DAYS = 14
 
 # Recompute self_image / self_critique every N recorded outcomes.
 _RECOMPUTE_EVERY = 25
@@ -1174,18 +1181,44 @@ The numbers below are the evidence; the writing above is how I feel about it.
         n = len(ego.recent_outcomes) or 1
         return min(len(ego.humbling_events), max(1, n // 2 + 1))
 
+    @staticmethod
+    def _recent_humbling_count(ego: Ego) -> int:
+        """How many humbling events are RECENT — by the clock, not by rank.
+
+        The previous version counted ``len(ego.humbling_events)``, which the
+        loader caps at the newest few *of all time* with no date filter. Any
+        agent with three lifetime humbling events therefore scored
+        ``humbling_recent >= 3`` forever, pinning ``felt_state`` to 'shame'
+        permanently: production sat in shame on 6,314 consecutive successes
+        and coherence 1.0, because the freshest humbling event was a month
+        old. The softening clause was unreachable for the same reason — it
+        required fewer than 3 lifetime events.
+
+        Events older than ``_HUMBLING_RECENT_DAYS`` no longer count. Undated
+        events are treated as recent, so a parse failure keeps the cautious
+        reading rather than silently clearing real shame.
+        """
+        if not ego.humbling_events:
+            return 0
+        cutoff = datetime.now(UTC) - timedelta(days=_HUMBLING_RECENT_DAYS)
+        recent = 0
+        for e in ego.humbling_events:
+            raw = getattr(e, "created_at", "") or ""
+            try:
+                seen = datetime.fromisoformat(str(raw))
+            except (TypeError, ValueError):
+                recent += 1  # undated → assume it still counts
+                continue
+            if seen.tzinfo is None:
+                seen = seen.replace(tzinfo=UTC)
+            if seen >= cutoff:
+                recent += 1
+        return recent
+
     def _refresh_felt_state(self, ego: Ego) -> None:
         """Pure derivation — never LLM-set. First match wins."""
         rate = self._recent_success_rate(ego)
-        humbling_recent = len(ego.humbling_events)
-        # Prefer counting only events that are "fresh" relative to window:
-        # if we have outcome history, scale humbling by whether rate is low.
-        if ego.recent_outcomes:
-            # Count humblings as "recent" when rate is poor or many events.
-            humbling_recent = min(len(ego.humbling_events), _RECENT_OUTCOME_WINDOW)
-            # Soften if outcomes recovered: only count if still in list.
-            if rate >= 0.8 and len(ego.humbling_events) < 3:
-                humbling_recent = min(humbling_recent, 1)
+        humbling_recent = self._recent_humbling_count(ego)
         coherence = ego.coherence_score
         has_caution = bool(ego.caution_rules)
 

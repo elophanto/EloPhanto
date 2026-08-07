@@ -418,7 +418,7 @@ Higgins `ideal_self` / `ought_self`, `proud_of`, `embarrassed_by`, `aspiration`,
 
 | Field | Role |
 | --- | --- |
-| `felt_state` | Derived every outcome: `pride` / `shame` / `composure` / `questioning`. Injected as `<felt_state>`; dashboard footer prefers it. |
+| `felt_state` | Derived every outcome: `pride` / `shame` / `composure` / `questioning`. Injected as `<felt_state>`; dashboard footer prefers it. Humbling events only colour it for `_HUMBLING_RECENT_DAYS` (14) — see *Recency* below. |
 | `caution_rules` | Shame with memory. Created on humbling; **survives** confidence recovery; retired only by `Verification: PASS` on that capability. |
 | `self_epochs` | Last 3 causal self-story notes on recompute (not "recompute #N"). |
 | Coherence recovery | Only when recent success rate ≥ 0.7 — no blind +0.20. |
@@ -430,4 +430,43 @@ Higgins `ideal_self` / `ought_self`, `proud_of`, `embarrassed_by`, `aspiration`,
 an approval callback. Active caution rules force at least `ask`. CRITICAL tools
 always ask regardless.
 
-Tests: `tests/test_core/test_ego.py`, `tests/test_core/test_ego_lived.py`.
+The verdict is a margin: `confidence − difficulty`, where `>= 0.15` is `yes`,
+`>= -0.15` is `ask`, below that is `decline`. Difficulty is raised for risky
+domains (`payments` 0.75, `outreach`/`social` 0.65, `browser` 0.55), so a
+capability sitting at the 0.50 default asks by default in those domains and
+needs roughly four clean successes to clear the gate (`_ALPHA_SUCCESS` is 0.10
+toward 1.0). **No operator praise is required** — recorded successes raise
+confidence on their own.
+
+Because this overrides an explicit `full_auto`, it explains itself: the
+approval request names the capability, its confidence, the difficulty it was
+measured against, and how to switch the gate off. An operator who cannot tell
+deliberate caution from a broken permission mode will reasonably assume the
+latter.
+
+**Override.** Set `ego.soft_gate: false` in `config.yaml` to make `full_auto`
+mean exactly that. CRITICAL tools still always ask — that gate is not
+negotiable.
+
+```yaml
+ego:
+  soft_gate: false   # default true
+```
+
+### Recency
+
+`felt_state` counts only humbling events from the last `_HUMBLING_RECENT_DAYS`
+(14). This matters more than it sounds: the events list is loaded newest-first
+with **no date filter** and capped at 5, so before this window existed, any
+agent with three lifetime humbling events was pinned to `shame` forever — and
+`pride` was unreachable, because its softening clause required fewer than three
+lifetime events. Observed in production: 6,314 outcomes at a 100% success rate
+and coherence 1.00, still reporting `shame`, with the freshest humbling event a
+month old. Since the ego is behaviour-shaping, that also meant the soft-gate
+stayed hot indefinitely.
+
+Undated events count as recent — a parse failure should keep the cautious
+reading rather than silently clear real shame.
+
+Tests: `tests/test_core/test_ego.py`, `tests/test_core/test_ego_lived.py`,
+`tests/test_core/test_ego_recency_gate.py`.
