@@ -197,6 +197,42 @@ class InterventionManager:
                 await store.suppress(result.signal_id)
             except Exception:
                 pass
+        if decision == "denied":
+            # Standing coach: deny pauses the order (refuseable care).
+            try:
+                proposal = result.proposal if isinstance(result.proposal, dict) else {}
+                coach_id = None
+                if proposal.get("claim_type") == "standing_coach":
+                    payload = proposal.get("payload") or {}
+                    if isinstance(payload, dict):
+                        coach_id = payload.get("coach_id")
+                    coach_id = coach_id or (proposal.get("features") or {}).get(
+                        "coach_id"
+                    )
+                if not coach_id and result.prediction_id:
+                    rows = await self._db.execute(
+                        "SELECT features_json FROM ambient_predictions "
+                        "WHERE prediction_id = ?",
+                        (result.prediction_id,),
+                    )
+                    if rows:
+                        feats = json.loads(rows[0]["features_json"] or "{}")
+                        if isinstance(feats, dict):
+                            coach_id = feats.get("coach_id")
+                if coach_id:
+                    from core.ambient_model import AmbientModelManager
+
+                    model = AmbientModelManager(self._db)
+                    await model.set_coach_status(str(coach_id), "paused")
+                    await model.update_coach_continuity(
+                        str(coach_id),
+                        {
+                            "last_outcome": "denied_paused",
+                            "last_note": "Operator denied check-in; order paused",
+                        },
+                    )
+            except Exception:
+                pass
         return result
 
     async def actuate_approved(
@@ -206,6 +242,8 @@ class InterventionManager:
         inject_event: Any | None = None,
         create_goal: Any | None = None,
         workspace_dir: Any | None = None,
+        personality_manager: Any | None = None,
+        ego_manager: Any | None = None,
     ) -> Intervention | None:
         """Bounded help after operator approve for observe/nudge.
 
@@ -215,7 +253,7 @@ class InterventionManager:
         """
         from pathlib import Path
 
-        from core.ambient_needs import build_help_artifact
+        from core.ambient_needs import build_help_artifact, style_help_markdown
 
         row = await self.get(intervention_id)
         if row is None or row.status != STATUS_APPROVED:
@@ -266,6 +304,14 @@ class InterventionManager:
             payload=payload,
             intervention_id=intervention_id,
         )
+        style_meta: dict[str, Any] = {}
+        try:
+            artifact_md, style_meta = await style_help_markdown(
+                artifact_md, personality_manager=personality_manager
+            )
+        except Exception as e:
+            logger.debug("ambient help style failed: %s", e)
+            style_meta = {"styled": False, "error": str(e)[:120]}
         help_path = ""
         try:
             if workspace_dir is not None:
@@ -289,6 +335,8 @@ class InterventionManager:
             merged_proposal["help_preview"] = preview
             if help_path:
                 merged_proposal["help_artifact"] = help_path
+            if style_meta:
+                merged_proposal["style"] = style_meta
             await self._db.execute_insert(
                 "UPDATE ambient_interventions SET proposal_json = ? "
                 "WHERE intervention_id = ?",
@@ -320,17 +368,153 @@ class InterventionManager:
                 )
             except Exception as e:
                 logger.debug("ambient actuate create_goal failed: %s", e)
+        if ego_manager is not None:
+            try:
+                await ego_manager.record_outcome(
+                    "ambient_anticipation",
+                    True,
+                    task_goal=need[:200] or "ambient help",
+                    notes=f"approved+actuated {intervention_id}",
+                    source="tool",
+                )
+            except Exception as e:
+                logger.debug("ambient ego credit failed: %s", e)
+        # Standing coach continuity memory
+        try:
+            coach_id = None
+            if str(claim_type or "") == "standing_coach":
+                coach_id = payload.get("coach_id")
+            if coach_id:
+                from core.ambient_model import AmbientModelManager
+
+                model = AmbientModelManager(self._db)
+                await model.update_coach_continuity(
+                    str(coach_id),
+                    {
+                        "last_outcome": "helped",
+                        "last_note": (need or action)[:160] or "check-in completed",
+                        "last_intervention_id": intervention_id,
+                    },
+                )
+        except Exception as e:
+            logger.debug("ambient coach continuity failed: %s", e)
+        # If standing coach saw conflicts, queue a separate act-strength protect.
+        try:
+            conflicts = payload.get("conflicts") if isinstance(payload, dict) else None
+            if (
+                str(claim_type or "") == "standing_coach"
+                and isinstance(conflicts, list)
+                and conflicts
+            ):
+                follow = await self.propose_quiet_hours_protect(
+                    parent_intervention_id=intervention_id,
+                    conflicts=[str(c) for c in conflicts],
+                    coach_id=str(payload.get("coach_id") or "") or None,
+                    company_id=row.company_id,
+                    household_id=row.household_id,
+                    person_id=row.person_id,
+                )
+                if follow is not None:
+                    logger.info(
+                        "[ambient_intervene] queued quiet-hours protect %s",
+                        follow.intervention_id,
+                    )
+        except Exception as e:
+            logger.debug("ambient protect follow-up failed: %s", e)
         return await self.mark_executed(
             intervention_id,
             {
                 "bounded_help": "artifact",
                 "help_artifact": help_path or None,
                 "help_preview": preview,
+                "style": style_meta,
                 "event": event_text[:400],
                 "goal_id": goal_id,
                 "operator": "actuate_approved",
             },
         )
+
+    async def propose_quiet_hours_protect(
+        self,
+        *,
+        parent_intervention_id: str,
+        conflicts: list[str],
+        coach_id: str | None = None,
+        company_id: str | None = None,
+        household_id: str | None = None,
+        person_id: str | None = None,
+    ) -> Intervention | None:
+        """Follow-up act proposal: pause conflicting schedules (operator must execute)."""
+        if not conflicts:
+            return None
+        proposal = {
+            "need": "Quiet-hours hold for standing coach window",
+            "action": "Temporarily disable conflicting scheduled tasks",
+            "risk": "medium — pauses automation until hold ends",
+            "why": f"Conflicts: {', '.join(str(c)[:40] for c in conflicts[:5])}",
+            "claim_type": "quiet_hours_hold",
+            "protect_kind": "quiet_hours",
+            "conflicts": list(conflicts)[:10],
+            "coach_id": coach_id,
+            "parent_intervention_id": parent_intervention_id,
+            "strength": "act",
+            "requires_approval": True,
+            "summary": "Quiet-hours hold → pause conflicting schedules",
+            "silence_exempt": True,
+        }
+        return await self.propose(
+            strength=STRENGTH_ACT,
+            channel="chat",
+            proposal=proposal,
+            company_id=company_id,
+            household_id=household_id,
+            person_id=person_id,
+        )
+
+    async def apply_quiet_hours_hold(
+        self,
+        intervention_id: str,
+        *,
+        hold_hours: float = 3.0,
+    ) -> dict[str, Any]:
+        """Disable enabled schedules named in proposal.conflicts; return receipt facts."""
+        row = await self.get(intervention_id)
+        if row is None:
+            return {"ok": False, "error": "not found"}
+        proposal = row.proposal if isinstance(row.proposal, dict) else {}
+        if proposal.get("protect_kind") != "quiet_hours":
+            return {"ok": False, "error": "not a quiet_hours protect"}
+        conflicts = proposal.get("conflicts") or []
+        paused: list[dict[str, Any]] = []
+        now = datetime.now(UTC)
+        until = (now + timedelta(hours=max(0.5, float(hold_hours)))).isoformat()
+        try:
+            rows = await self._db.execute(
+                "SELECT id, name, enabled FROM scheduled_tasks WHERE enabled = 1"
+            )
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:160]}
+        conflict_blob = " ".join(str(c).lower() for c in conflicts)
+        for sched in rows or []:
+            name = str(sched["name"] or "")
+            sid = str(sched["id"])
+            if (
+                name.lower() in conflict_blob
+                or sid in conflict_blob
+                or any(name.lower() in str(c).lower() for c in conflicts)
+            ):
+                await self._db.execute_insert(
+                    "UPDATE scheduled_tasks SET enabled = 0, updated_at = ? WHERE id = ?",
+                    (now.isoformat(), sid),
+                )
+                paused.append({"id": sid, "name": name})
+        return {
+            "ok": True,
+            "protect_kind": "quiet_hours",
+            "paused": paused,
+            "hold_until": until,
+            "note": "Schedules paused; re-enable manually or after hold_until",
+        }
 
     async def mark_executed(
         self,

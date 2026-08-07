@@ -347,6 +347,19 @@ export interface AmbientStatus {
     unknown_rate: number | null;
     hist_ready: boolean;
   }[];
+  coaches?: {
+    coach_id: string;
+    title: string;
+    instruction: string;
+    expires_at?: string | null;
+    continuity?: Record<string, unknown>;
+  }[];
+  ego?: {
+    felt_state?: string;
+    ambient_confidence?: number | null;
+    cautions?: { capability: string; rule: string }[];
+    presence?: string;
+  } | null;
 }
 
 export interface MindData {

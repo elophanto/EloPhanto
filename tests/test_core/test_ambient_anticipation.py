@@ -944,3 +944,191 @@ class TestCandidateFrozen:
             metadata={"strength_hint": "nudge"},
         )
         assert c.stable_dedup_key() == "signal:abc"
+
+
+class TestEgoPersonalityPresence:
+    async def test_help_has_refuseable_draft(self) -> None:
+        from core.ambient_needs import build_help_artifact
+
+        md = build_help_artifact(
+            need="Reply due",
+            action="Draft",
+            why="test",
+            claim_type="reply_due",
+            payload={"subject": "hi", "from": "a@b.com", "preview": "please reply"},
+        )
+        assert "Draft reply" in md
+        assert "do not send" in md.lower()
+        assert "software agent" not in md.lower()
+        assert "not a human" not in md.lower()
+
+    async def test_standing_coach_tick(self, stores: dict) -> None:
+        from datetime import UTC, datetime
+
+        coach = await stores["model"].create_coach(
+            "Deep work", "Protect 9–12 from meetings", days=3
+        )
+        now = datetime.now(UTC)
+        created = await stores["predictor"]._tick_standing_coaches(
+            (
+                stores["db"].__dict__.get("_company") or "elophanto-self"
+                if False
+                else __import__(
+                    "core.company", fromlist=["current_company_id"]
+                ).current_company_id()
+            ),
+            now,
+        )
+        assert created
+        assert created[0]["claim_type"] == "standing_coach"
+        assert coach["coach_id"] in str(created[0]["features"])
+
+    async def test_actuate_credits_ego(self, stores: dict) -> None:
+        class _Ego:
+            def __init__(self) -> None:
+                self.calls: list[tuple] = []
+
+            async def record_outcome(self, *args, **kwargs):
+                self.calls.append((args, kwargs))
+
+        ego = _Ego()
+        prop = await stores["interventions"].propose(
+            strength="nudge",
+            channel="chat",
+            proposal={
+                "need": "Prep before meeting: sync",
+                "action": "Prep pack",
+                "why": "test",
+                "claim_type": "prep_before_meeting",
+                "payload": {"title": "sync", "description": "agenda"},
+            },
+        )
+        await stores["interventions"].decide(
+            prop.intervention_id, "approved", receipt={"operator": "test"}
+        )
+        done = await stores["interventions"].actuate_approved(
+            prop.intervention_id,
+            ego_manager=ego,
+        )
+        assert done is not None
+        assert done.status == "executed"
+        assert done.receipt.get("bounded_help") == "artifact"
+        assert ego.calls
+        assert ego.calls[0][0][0] == "ambient_anticipation"
+        assert ego.calls[0][0][1] is True
+
+
+class TestStandingCoachDepth:
+    def test_coach_checkin_filled(self) -> None:
+        from core.ambient_needs import build_help_artifact
+
+        md = build_help_artifact(
+            need="Standing coach: Deep work",
+            action="check-in",
+            why="daily",
+            claim_type="standing_coach",
+            payload={
+                "title": "Deep work",
+                "instruction": "Protect 9–12 from meetings",
+                "continuity": {
+                    "last_note": "Kept the window",
+                    "last_outcome": "helped",
+                },
+                "conflicts": ["Standup @ 10:00"],
+            },
+        )
+        assert "Standing coach check-in" in md
+        assert "Protect 9–12" in md
+        assert "Continuity" in md
+        assert "Refuseable protect" in md or "quiet-hours" in md.lower()
+        assert "software agent" not in md.lower()
+
+    async def test_deny_pauses_coach(self, stores: dict) -> None:
+        from core.company import current_company_id
+
+        coach = await stores["model"].create_coach(
+            "Focus", "No Slack until noon", days=5
+        )
+        pred = await stores["predictor"]._insert_prediction(
+            company_id=current_company_id(),
+            household_id=None,
+            routine_id=None,
+            person_id=None,
+            claim="Standing coach: Focus",
+            claim_type="standing_coach",
+            p_hat=0.6,
+            model="rule:v1",
+            features={"coach_id": coach["coach_id"], "instruction": "No Slack"},
+            resolve_by="2099-01-01T00:00:00+00:00",
+        )
+        prop = await stores["interventions"].propose_from_prediction(
+            pred,
+            strength="nudge",
+            channel="chat",
+            proposal={
+                "need": pred["claim"],
+                "claim_type": "standing_coach",
+                "payload": {"coach_id": coach["coach_id"]},
+            },
+        )
+        await stores["interventions"].decide(
+            prop.intervention_id, "denied", receipt={"operator": "test"}
+        )
+        rows = await stores["db"].execute(
+            "SELECT status, continuity_json FROM ambient_coaches WHERE coach_id = ?",
+            (coach["coach_id"],),
+        )
+        assert rows[0]["status"] == "paused"
+
+
+class TestProtectAndMeetingPresence:
+    async def test_quiet_hours_hold_pauses_schedule(self, stores: dict) -> None:
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC).isoformat()
+        await stores["db"].execute_insert(
+            "INSERT INTO scheduled_tasks "
+            "(id, name, description, cron_expression, task_goal, enabled, "
+            "next_run_at, created_at, updated_at) "
+            "VALUES ('sched_qh', 'Standup', '', '0 10 * * *', 'standup', 1, "
+            "?, ?, ?)",
+            (now, now, now),
+        )
+        prop = await stores["interventions"].propose(
+            strength="act",
+            channel="chat",
+            proposal={
+                "need": "Quiet-hours hold",
+                "protect_kind": "quiet_hours",
+                "conflicts": ["Standup @ 10:00"],
+                "requires_approval": True,
+            },
+        )
+        await stores["interventions"].decide(
+            prop.intervention_id,
+            "approved",
+            receipt={"operator": "test", "approval_id": "a1"},
+        )
+        meta = await stores["interventions"].apply_quiet_hours_hold(
+            prop.intervention_id
+        )
+        assert meta["ok"] is True
+        assert any(p["id"] == "sched_qh" for p in meta["paused"])
+        rows = await stores["db"].execute(
+            "SELECT enabled FROM scheduled_tasks WHERE id = 'sched_qh'"
+        )
+        assert int(rows[0]["enabled"]) == 0
+
+    async def test_meeting_presence_declare(self) -> None:
+        from tools.ambient.tools import AmbientMeetingPresenceDeclareTool
+
+        tool = AmbientMeetingPresenceDeclareTool()
+        events: list[str] = []
+        tool._inject_event = events.append
+        result = await tool.execute(
+            {"meeting_title": "Design review", "channel": "meet"}
+        )
+        assert result.success
+        assert result.data["display_name"] == "EloPhanto"
+        assert result.data["exit_phrase"]
+        assert events

@@ -1,7 +1,7 @@
 """Ambient need contract — signal → need → action → risk → why.
 
-Turns raw ambient signals into operator-readable proposals AIA-useful
-jobs expect (notice → know → help with a refuseable brake).
+Turns raw ambient signals into operator-readable proposals
+(notice → know → help with a refuseable brake).
 """
 
 from __future__ import annotations
@@ -202,6 +202,8 @@ def proposal_from_prediction(
         action = "Build a short meeting prep pack"
     elif claim_type == "stale_goal_resume":
         action = "Propose the smallest next checkpoint to resume the stale goal"
+    elif claim_type == "standing_coach":
+        action = "Surface today’s standing-coach check-in (refuseable)"
     elif claim_type == "chore_due":
         action = "Nudge the chore with a one-line checklist"
     else:
@@ -256,6 +258,8 @@ def build_help_artifact(
         lines.extend(_filled_prep_pack(payload, claim_type=ct, need=need))
     elif ct == "stale_goal_resume" or "stale" in (need or "").lower():
         lines.extend(_filled_resume_checkpoint(payload, need=need))
+    elif ct == "standing_coach" or "standing coach" in (need or "").lower():
+        lines.extend(_filled_coach_checkin(payload, need=need))
     elif ct == "schedule_recover" or "recover" in (need or "").lower():
         lines.extend(_filled_schedule_recover(payload))
     else:
@@ -414,6 +418,65 @@ def _filled_resume_checkpoint(payload: dict[str, Any], *, need: str) -> list[str
     return lines
 
 
+def _filled_coach_checkin(payload: dict[str, Any], *, need: str) -> list[str]:
+    title = str(payload.get("title") or need or "coach")[:120]
+    instruction = str(payload.get("instruction") or "")[:400]
+    continuity = payload.get("continuity") or {}
+    if not isinstance(continuity, dict):
+        continuity = {}
+    yesterday = str(continuity.get("last_note") or continuity.get("summary") or "")[
+        :200
+    ]
+    last_outcome = str(continuity.get("last_outcome") or "")[:40]
+    conflicts = payload.get("conflicts") or []
+    if isinstance(conflicts, str):
+        conflicts = [conflicts]
+    lines = [
+        "## Standing coach check-in (filled)",
+        f"- **Order:** {title}",
+        f"- **Standing instruction:** {instruction or '(none — ask operator to clarify)'}",
+    ]
+    if yesterday or last_outcome:
+        lines.append(
+            f"- **Continuity:** Yesterday/last → {yesterday or '—'} "
+            f"(outcome={last_outcome or 'unknown'})"
+        )
+    else:
+        lines.append("- **Continuity:** First day of this order — establish baseline.")
+    lines.extend(
+        [
+            "",
+            "### Today’s protect plan",
+            f"1. Restate the order in one line: {instruction[:120] or title}.",
+            "2. Scan calendar/schedules in the protected window for conflicts.",
+        ]
+    )
+    if conflicts:
+        lines.append("3. Conflicts already seen:")
+        for c in list(conflicts)[:5]:
+            lines.append(f"   - {str(c)[:100]}")
+        lines.append(
+            "4. **Refuseable protect act (not executed):** propose holding or "
+            "declining the conflicting invite — requires separate `act` approval."
+        )
+    else:
+        lines.extend(
+            [
+                "3. If a conflict appears: propose a quiet-hours hold / decline "
+                "(strength=`act`, never silent).",
+                "4. If clear: confirm the window is protected and stop (silence is success).",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "### Operator ask",
+            "Keep / reshape / pause this standing order?",
+        ]
+    )
+    return lines
+
+
 def _filled_schedule_recover(payload: dict[str, Any]) -> list[str]:
     task = str(payload.get("task_name") or payload.get("name") or "schedule")[:80]
     last = str(
@@ -490,3 +553,56 @@ def person_allows_ambient(consent: dict[str, Any] | None) -> bool:
     if consent.get("ambient") is False:
         return False
     return True
+
+
+async def style_help_markdown(
+    markdown: str,
+    *,
+    personality_manager: Any | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Apply lived personality lint to help body.
+
+    Prefers fenced ``` draft blocks; otherwise lints the full markdown.
+    Fail-open if lint fails or manager missing.
+    """
+    meta: dict[str, Any] = {"styled": False, "violations": []}
+    if personality_manager is None or not markdown:
+        return markdown, meta
+
+    fence = "```"
+    start = markdown.find(fence)
+    if start >= 0:
+        start_body = markdown.find("\n", start)
+        if start_body >= 0:
+            start_body += 1
+            end = markdown.find(fence, start_body)
+            if end >= 0:
+                draft = markdown[start_body:end]
+                try:
+                    rewritten, result = await personality_manager.lint_and_enforce(
+                        draft
+                    )
+                except Exception as e:
+                    meta["error"] = str(e)[:120]
+                    return markdown, meta
+                if not rewritten:
+                    meta["violations"] = list(getattr(result, "violations", []) or [])
+                    return markdown, meta
+                meta["styled"] = True
+                meta["passed"] = bool(getattr(result, "passed", True))
+                styled = (
+                    markdown[:start_body] + rewritten.rstrip() + "\n" + markdown[end:]
+                )
+                return styled, meta
+
+    try:
+        rewritten, result = await personality_manager.lint_and_enforce(markdown)
+    except Exception as e:
+        meta["error"] = str(e)[:120]
+        return markdown, meta
+    if not rewritten:
+        meta["violations"] = list(getattr(result, "violations", []) or [])
+        return markdown, meta
+    meta["styled"] = True
+    meta["passed"] = bool(getattr(result, "passed", True))
+    return rewritten, meta

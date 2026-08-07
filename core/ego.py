@@ -94,6 +94,14 @@ CAPABILITY_DOMAINS: dict[str, str] = {
     "schedule_task": "ops",
     "company_trust_set": "ops",
     "skill_read": "ops",
+    # Ambient anticipation / presence coach (refuseable digital help).
+    "ambient_intervention_decide": "ambient_anticipation",
+    "ambient_intervention_execute": "ambient_anticipation",
+    "ambient_intervention_list": "ambient_anticipation",
+    "ambient_presence_report": "ambient_anticipation",
+    "ambient_coach_create": "ambient_coaching",
+    "ambient_coach_list": "ambient_coaching",
+    "ambient_coach_pause": "ambient_coaching",
 }
 
 

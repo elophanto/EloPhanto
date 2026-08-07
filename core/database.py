@@ -628,6 +628,25 @@ _SCHEMA = [
         WHERE prediction_id IS NOT NULL
     """,
     """
+    CREATE TABLE IF NOT EXISTS ambient_coaches (
+        coach_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        title TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active','paused','retired')),
+        expires_at TEXT,
+        last_proposed_at TEXT,
+        continuity_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ambient_coaches_active
+        ON ambient_coaches(company_id, status, expires_at)
+    """,
+    """
     CREATE TABLE IF NOT EXISTS identity_evolution (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         trigger TEXT NOT NULL,
@@ -1247,6 +1266,7 @@ _MIGRATIONS = [
     # See core/role_display.py.
     "ALTER TABLE roles ADD COLUMN emoji TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE roles ADD COLUMN titles_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE ambient_coaches ADD COLUMN continuity_json TEXT NOT NULL DEFAULT '{}'",
 ]
 
 

@@ -90,6 +90,7 @@ class AmbientPredictor:
         created.extend(await self._tick_schedule_prep(cid, now_utc))
         created.extend(await self._tick_calendar_meetings(cid, now_utc))
         created.extend(await self._tick_stale_goals(cid, now_utc))
+        created.extend(await self._tick_standing_coaches(cid, now_utc))
         return created
 
     async def _tick_routines(self, cid: str, now_utc: datetime) -> list[dict[str, Any]]:
@@ -505,6 +506,84 @@ class AmbientPredictor:
             created.append(pred)
         return created
 
+    async def _tick_standing_coaches(
+        self, cid: str, now_utc: datetime
+    ) -> list[dict[str, Any]]:
+        """Active multi-day coaches → at most one standing_coach claim / day each."""
+        now_iso = now_utc.isoformat()
+        day = now_iso[:10]
+        try:
+            rows = await self._db.execute(
+                "SELECT * FROM ambient_coaches "
+                "WHERE company_id = ? AND status = 'active' "
+                "AND (expires_at IS NULL OR expires_at > ?) "
+                "ORDER BY created_at ASC LIMIT 10",
+                (cid, now_iso),
+            )
+        except Exception:
+            return []
+        created: list[dict[str, Any]] = []
+        hh_id, person_id = await self._operator_scope(cid)
+        for row in rows:
+            last = str(row["last_proposed_at"] or "")
+            if last.startswith(day):
+                continue
+            coach_id = row["coach_id"]
+            existing = await self._db.execute(
+                "SELECT prediction_id FROM ambient_predictions "
+                "WHERE company_id = ? AND claim_type = 'standing_coach' "
+                "AND outcome IS NULL AND features_json LIKE ? LIMIT 1",
+                (cid, f'%"{coach_id}"%'),
+            )
+            if existing:
+                continue
+            title = str(row["title"] or "coach")[:100]
+            instruction = str(row["instruction"] or "")[:240]
+            try:
+                continuity = json.loads(row["continuity_json"] or "{}")
+            except (json.JSONDecodeError, TypeError, KeyError):
+                continuity = {}
+            if not isinstance(continuity, dict):
+                continuity = {}
+            # Optional: upcoming schedules as "conflicts" hints for protect plan.
+            conflicts: list[str] = []
+            try:
+                scheds = await self._db.execute(
+                    "SELECT name, next_run_at FROM scheduled_tasks "
+                    "WHERE enabled = 1 AND next_run_at IS NOT NULL "
+                    "ORDER BY next_run_at ASC LIMIT 5"
+                )
+                for s in scheds or []:
+                    conflicts.append(
+                        f"{s['name']} @ {str(s['next_run_at'] or '')[:16]}"
+                    )
+            except Exception:
+                pass
+            pred = await self._insert_prediction(
+                company_id=cid,
+                household_id=hh_id,
+                routine_id=None,
+                person_id=person_id,
+                claim=f"Standing coach: {title}",
+                claim_type="standing_coach",
+                p_hat=0.65,
+                model=MODEL_RULE_V1,
+                features={
+                    "coach_id": coach_id,
+                    "title": title,
+                    "instruction": instruction,
+                    "continuity": continuity,
+                    "conflicts": conflicts,
+                },
+                resolve_by=(now_utc + timedelta(hours=20)).isoformat(),
+            )
+            created.append(pred)
+            try:
+                await self._model.mark_coach_proposed(coach_id)
+            except Exception:
+                pass
+        return created
+
     async def resolve_due(
         self,
         *,
@@ -529,6 +608,20 @@ class AmbientPredictor:
                 (outcome, now_iso, json.dumps(evidence), row["prediction_id"]),
             )
             resolved += 1
+            # Credit ego when claims falsify cleanly (did not miss) or miss.
+            if outcome in ("true", "false"):
+                ego = getattr(self, "_ego_manager", None)
+                if ego is not None:
+                    try:
+                        await ego.record_outcome(
+                            "ambient_anticipation",
+                            success=(outcome == "false"),
+                            task_goal=str(row["claim"] or row["claim_type"])[:200],
+                            notes=f"prediction {row['prediction_id']} → {outcome}",
+                            source="verification",
+                        )
+                    except Exception:
+                        pass
             logger.info(
                 "[ambient_predict] resolved %s outcome=%s evidence=%d",
                 row["prediction_id"],
@@ -870,6 +963,24 @@ class AmbientPredictor:
             return await self._grade_prep_schedule(row, features, now)
         if claim_type == CLAIM_STALE_GOAL:
             return await self._grade_stale_goal(row, features, now)
+        if claim_type == "standing_coach":
+            # Coach day held if help was executed; otherwise miss/unknown.
+            pred_id = row["prediction_id"]
+            ints = await self._db.execute(
+                "SELECT intervention_id FROM ambient_interventions "
+                "WHERE prediction_id = ? AND status = 'executed' LIMIT 1",
+                (pred_id,),
+            )
+            if ints:
+                return "false", [ints[0]["intervention_id"]]
+            denied = await self._db.execute(
+                "SELECT intervention_id FROM ambient_interventions "
+                "WHERE prediction_id = ? AND status = 'denied' LIMIT 1",
+                (pred_id,),
+            )
+            if denied:
+                return "false", [denied[0]["intervention_id"]]
+            return "true", [str(features.get("coach_id") or pred_id)]
 
         # Routine presence claims (leave_by / chore_due).
         person_id = row["person_id"]

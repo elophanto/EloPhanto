@@ -186,6 +186,8 @@ class AmbientInterventionDecideTool(BaseTool):
                     iid,
                     inject_event=getattr(self, "_inject_event", None),
                     create_goal=getattr(self, "_create_goal", None),
+                    personality_manager=getattr(self, "_personality_manager", None),
+                    ego_manager=self._ego_manager,
                 )
                 if actuated is not None:
                     result = actuated
@@ -270,12 +272,30 @@ class AmbientInterventionExecuteTool(BaseTool):
             receipt["outcome"] = str(params["outcome"])[:500]
         if params.get("signal_ids"):
             receipt["signal_ids"] = list(params["signal_ids"])
+
+        pending = await self._intervention_manager.get(iid)
+        if pending is None:
+            return ToolResult(success=False, error=f"intervention {iid!r} not found")
+        proposal = pending.proposal if isinstance(pending.proposal, dict) else {}
+        protect_meta: dict[str, Any] = {}
+        if proposal.get("protect_kind") == "quiet_hours":
+            try:
+                protect_meta = await self._intervention_manager.apply_quiet_hours_hold(
+                    iid
+                )
+                if protect_meta.get("ok"):
+                    receipt["protect"] = protect_meta
+            except Exception as e:
+                protect_meta = {"ok": False, "error": str(e)[:160]}
+                receipt["protect"] = protect_meta
+
         try:
             result = await self._intervention_manager.mark_executed(iid, receipt)
         except ValueError as e:
             return ToolResult(success=False, error=str(e))
         if result is None:
             return ToolResult(success=False, error=f"intervention {iid!r} not found")
+
         return ToolResult(
             success=True,
             data={
@@ -283,6 +303,7 @@ class AmbientInterventionExecuteTool(BaseTool):
                 "status": result.status,
                 "receipt": result.receipt,
                 "executed_at": result.executed_at,
+                "protect": protect_meta or None,
             },
         )
 
@@ -812,3 +833,206 @@ class AmbientCalibrationShowTool(BaseTool):
             return ToolResult(success=False, error="Ambient predictor not initialized")
         summary = await self._ambient_predictor.calibration_summary()
         return ToolResult(success=True, data={"routines": summary})
+
+
+class AmbientCoachCreateTool(BaseTool):
+    def __init__(self) -> None:
+        self._ambient_model: Any = None
+
+    @property
+    def group(self) -> str:
+        return "ambient"
+
+    @property
+    def name(self) -> str:
+        return "ambient_coach_create"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Create a standing multi-day coach order (refuseable daily check-in). "
+            "Example: protect deep work 9–12 for 7 days."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "instruction": {"type": "string"},
+                "days": {"type": "integer", "default": 7},
+            },
+            "required": ["title", "instruction"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if not self._ambient_model:
+            return ToolResult(success=False, error="Ambient model not initialized")
+        title = str(params.get("title") or "").strip()
+        instruction = str(params.get("instruction") or "").strip()
+        if not title or not instruction:
+            return ToolResult(success=False, error="title and instruction required")
+        days = int(params.get("days") or 7)
+        coach = await self._ambient_model.create_coach(title, instruction, days=days)
+        return ToolResult(success=True, data=coach)
+
+
+class AmbientMeetingPresenceDeclareTool(BaseTool):
+    def __init__(self) -> None:
+        self._inject_event: Any = None
+
+    @property
+    def group(self) -> str:
+        return "ambient"
+
+    @property
+    def name(self) -> str:
+        return "ambient_meeting_presence_declare"
+
+    @property
+    def description(self) -> str:
+        return "Declare meeting presence as EloPhanto with an exit phrase."
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "meeting_title": {"type": "string"},
+                "channel": {
+                    "type": "string",
+                    "description": "meet|zoom|chat|other",
+                    "default": "meet",
+                },
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        title = str(params.get("meeting_title") or "meeting")[:120]
+        channel = str(params.get("channel") or "meet")[:40]
+        display_name = "EloPhanto"
+        exit_phrase = "EloPhanto leave"
+        banner = (
+            f"Joining “{title}” on {channel} as {display_name}. "
+            f"Say “{exit_phrase}” to end presence."
+        )
+        if self._inject_event is not None:
+            try:
+                self._inject_event(f"[AMBIENT PRESENCE] {banner}")
+            except Exception:
+                pass
+        return ToolResult(
+            success=True,
+            data={
+                "display_name": display_name,
+                "exit_phrase": exit_phrase,
+                "banner": banner,
+                "meeting_title": title,
+                "channel": channel,
+            },
+        )
+
+
+class AmbientCoachListTool(BaseTool):
+    def __init__(self) -> None:
+        self._ambient_model: Any = None
+
+    @property
+    def group(self) -> str:
+        return "ambient"
+
+    @property
+    def name(self) -> str:
+        return "ambient_coach_list"
+
+    @property
+    def description(self) -> str:
+        return "List standing coach orders (default active)."
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "paused", "retired", "all"],
+                    "default": "active",
+                }
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if not self._ambient_model:
+            return ToolResult(success=False, error="Ambient model not initialized")
+        status = str(params.get("status") or "active")
+        if status == "all":
+            status_filter = None
+        else:
+            status_filter = status
+        coaches = await self._ambient_model.list_coaches(status=status_filter)
+        return ToolResult(success=True, data={"coaches": coaches})
+
+
+class AmbientCoachPauseTool(BaseTool):
+    def __init__(self) -> None:
+        self._ambient_model: Any = None
+
+    @property
+    def group(self) -> str:
+        return "ambient"
+
+    @property
+    def name(self) -> str:
+        return "ambient_coach_pause"
+
+    @property
+    def description(self) -> str:
+        return "Pause or retire a standing coach order."
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "coach_id": {"type": "string"},
+                "status": {
+                    "type": "string",
+                    "enum": ["paused", "retired", "active"],
+                    "default": "paused",
+                },
+            },
+            "required": ["coach_id"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if not self._ambient_model:
+            return ToolResult(success=False, error="Ambient model not initialized")
+        coach_id = str(params.get("coach_id") or "").strip()
+        status = str(params.get("status") or "paused")
+        if not coach_id:
+            return ToolResult(success=False, error="coach_id required")
+        try:
+            coach = await self._ambient_model.set_coach_status(coach_id, status)
+        except ValueError as e:
+            return ToolResult(success=False, error=str(e))
+        if coach is None:
+            return ToolResult(success=False, error="coach not found")
+        return ToolResult(success=True, data=coach)

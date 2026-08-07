@@ -416,6 +416,8 @@ function LifeModelCard({ ambient }: { ambient?: AmbientStatus }) {
   const persons = ambient?.persons ?? [];
   const routines = ambient?.routines ?? [];
   const calibration = ambient?.calibration ?? [];
+  const coaches = ambient?.coaches ?? [];
+  const ego = ambient?.ego;
 
   return (
     <div className="crop-marks overflow-hidden rounded-lg border border-border/50 p-4">
@@ -432,6 +434,27 @@ function LifeModelCard({ ambient }: { ambient?: AmbientStatus }) {
           </span>
         )}
       </div>
+      {ego ? (
+        <div className="mb-3 rounded border border-border/30 px-2 py-1.5">
+          <p className="font-mono text-[8px] uppercase tracking-[0.1em] text-muted-foreground/60">
+            Ego
+          </p>
+          <p className="mt-0.5 font-mono text-[10px] text-foreground/85">
+            {ego.felt_state ? `felt=${ego.felt_state}` : "—"}
+            {ego.ambient_confidence != null
+              ? ` · ambient p̂=${Number(ego.ambient_confidence).toFixed(2)}`
+              : ""}
+          </p>
+          {(ego.cautions || []).slice(0, 2).map((c) => (
+            <p
+              key={c.capability + c.rule}
+              className="mt-0.5 truncate font-mono text-[8px] text-amber-500/70"
+            >
+              caution:{c.capability} — {c.rule}
+            </p>
+          ))}
+        </div>
+      ) : null}
       {!household ? (
         <p className="font-mono text-[10px] text-muted-foreground/60">
           No household yet
@@ -446,6 +469,28 @@ function LifeModelCard({ ambient }: { ambient?: AmbientStatus }) {
               {household.name}
             </p>
           </div>
+          {coaches.length > 0 ? (
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                  Standing coaches
+                </span>
+                <span className="font-mono text-[9px] text-muted-foreground/50">
+                  {coaches.length}
+                </span>
+              </div>
+              <ul className="space-y-1">
+                {coaches.slice(0, 4).map((c) => (
+                  <li key={c.coach_id} className="font-mono text-[10px]">
+                    <span className="text-foreground/85">{c.title}</span>
+                    <span className="block truncate text-[8px] text-muted-foreground/55">
+                      {c.instruction}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <div>
             <div className="mb-1 flex items-center justify-between">
               <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">

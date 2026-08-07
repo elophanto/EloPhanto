@@ -1285,7 +1285,7 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Ego system setup failed: {e}")
 
-            # Ambient anticipation spine (AIA-useful jobs, operator stage).
+            # Ambient anticipation spine (refuseable digital presence coach).
             try:
                 from core.ambient_intervene import InterventionManager
                 from core.ambient_model import AmbientModelManager
@@ -1299,6 +1299,7 @@ class Agent:
                     self._db,
                     model_manager=self._ambient_model,
                 )
+                self._ambient_predictor._ego_manager = self._ego_manager
                 # Ensure operator household/person exists (idempotent).
                 from core.company import current_company_id
 
@@ -1336,6 +1337,9 @@ class Agent:
                         _t._intervention_manager = self._ambient_interventions
                         if _tname == "ambient_intervention_decide":
                             _t._ego_manager = self._ego_manager
+                            _t._personality_manager = getattr(
+                                self, "_personality_manager", None
+                            )
                             mind = getattr(self, "_autonomous_mind", None)
                             if mind is not None:
                                 _t._inject_event = mind.inject_event
@@ -1355,12 +1359,20 @@ class Agent:
                     "ambient_routine_list",
                     "ambient_routine_create",
                     "ambient_routine_pause",
+                    "ambient_coach_create",
+                    "ambient_coach_list",
+                    "ambient_coach_pause",
                 ):
                     _t = self._registry.get(_tname)
                     if _t is not None:
                         _t._ambient_model = self._ambient_model
                         if _tname == "ambient_presence_report":
                             _t._signal_store = self._ambient_signal_store
+                _meet = self._registry.get("ambient_meeting_presence_declare")
+                if _meet is not None:
+                    mind = getattr(self, "_autonomous_mind", None)
+                    if mind is not None:
+                        _meet._inject_event = mind.inject_event
                 _cal = self._registry.get("ambient_calibration_show")
                 if _cal is not None:
                     _cal._ambient_predictor = self._ambient_predictor

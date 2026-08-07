@@ -304,6 +304,9 @@ notice 36-hour rumination loops; they don't happen.
       stated; the rule is "workable checkpoint first, otherwise arbiter"
 - [ ] **C5** Keep Phase B priority system intact — the arbiter runs at
       MIND priority; nothing about scheduler/preemption changes
+- [x] **C6** Ambient anticipation candidate source (`from_external_signals`)
+      + predictor tick on wakeup — see `docs/82-AMBIENT-ANTICIPATION.md`.
+      Does not rewrite ego/planner; capped external proposals only.
 
 ## Anti-goals (explicitly **not** doing)
 

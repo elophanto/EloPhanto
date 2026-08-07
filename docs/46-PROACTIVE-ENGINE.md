@@ -14,6 +14,12 @@ The Proactive Engine makes EloPhanto genuinely proactive — it can act without 
 
 Both mechanisms complement the existing **Autonomous Mind** (LLM-driven background thinking) and **Scheduler** (cron-based task execution). The heartbeat is simpler and cheaper — it only calls the LLM when there's actual work to do.
 
+For **ambient anticipation** — typed signals → need contract → refuseable help
+(including prep-before-meeting from ICS) — see
+[82 — Ambient Anticipation](82-AMBIENT-ANTICIPATION.md). `/hooks/wake` can ingest
+those signals (`kind`, `source`, `urgency`, `payload`) in addition to triggering
+heartbeat.
+
 ---
 
 ## Heartbeat Engine

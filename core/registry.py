@@ -413,6 +413,10 @@ class ToolRegistry:
         # Ambient anticipation — interventions + life model + presence.
         from tools.ambient.tools import (
             AmbientCalibrationShowTool,
+            AmbientCoachCreateTool,
+            AmbientCoachListTool,
+            AmbientCoachPauseTool,
+            AmbientMeetingPresenceDeclareTool,
             AmbientHouseholdSetTimezoneTool,
             AmbientHouseholdShowTool,
             AmbientInterventionDecideTool,
@@ -438,6 +442,10 @@ class ToolRegistry:
         self.register(AmbientRoutineCreateTool())
         self.register(AmbientRoutinePauseTool())
         self.register(AmbientCalibrationShowTool())
+        self.register(AmbientCoachCreateTool())
+        self.register(AmbientCoachListTool())
+        self.register(AmbientCoachPauseTool())
+        self.register(AmbientMeetingPresenceDeclareTool())
 
         # X style preflight — mechanical check against the operator's
         # accumulated banned-phrase list. Closes the gap where the

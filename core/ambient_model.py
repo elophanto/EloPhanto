@@ -10,7 +10,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from core.company import current_company_id
@@ -426,6 +426,142 @@ class AmbientModelManager:
             (status, now, routine_id),
         )
         return await self.get_routine(routine_id)
+
+    # ------------------------------------------------------------------
+    # Standing coaches (multi-day refuseable orders)
+    # ------------------------------------------------------------------
+
+    async def create_coach(
+        self,
+        title: str,
+        instruction: str,
+        *,
+        days: int = 7,
+        company_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create an active standing coach order (default 7 days)."""
+        cid = company_id or current_company_id()
+        coach_id = f"coach_{uuid.uuid4().hex[:12]}"
+        now = datetime.now(UTC)
+        expires = (now + timedelta(days=max(1, int(days)))).isoformat()
+        now_iso = now.isoformat()
+        await self._db.execute_insert(
+            "INSERT INTO ambient_coaches "
+            "(coach_id, company_id, title, instruction, status, expires_at, "
+            "last_proposed_at, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'active', ?, NULL, ?, ?)",
+            (
+                coach_id,
+                cid,
+                title[:120],
+                instruction[:800],
+                expires,
+                now_iso,
+                now_iso,
+            ),
+        )
+        return {
+            "coach_id": coach_id,
+            "company_id": cid,
+            "title": title[:120],
+            "instruction": instruction[:800],
+            "status": "active",
+            "expires_at": expires,
+            "last_proposed_at": None,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+
+    async def list_coaches(
+        self,
+        *,
+        company_id: str | None = None,
+        status: str | None = "active",
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        cid = company_id or current_company_id()
+        if status:
+            rows = await self._db.execute(
+                "SELECT * FROM ambient_coaches WHERE company_id = ? AND status = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (cid, status, int(limit)),
+            )
+        else:
+            rows = await self._db.execute(
+                "SELECT * FROM ambient_coaches WHERE company_id = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (cid, int(limit)),
+            )
+        return [self._row_to_coach(r) for r in rows]
+
+    async def set_coach_status(
+        self, coach_id: str, status: str
+    ) -> dict[str, Any] | None:
+        if status not in ("active", "paused", "retired"):
+            raise ValueError("status must be active|paused|retired")
+        now = datetime.now(UTC).isoformat()
+        await self._db.execute_insert(
+            "UPDATE ambient_coaches SET status = ?, updated_at = ? WHERE coach_id = ?",
+            (status, now, coach_id),
+        )
+        rows = await self._db.execute(
+            "SELECT * FROM ambient_coaches WHERE coach_id = ?",
+            (coach_id,),
+        )
+        return self._row_to_coach(rows[0]) if rows else None
+
+    async def mark_coach_proposed(self, coach_id: str) -> None:
+        now = datetime.now(UTC).isoformat()
+        await self._db.execute_insert(
+            "UPDATE ambient_coaches SET last_proposed_at = ?, updated_at = ? "
+            "WHERE coach_id = ?",
+            (now, now, coach_id),
+        )
+
+    async def update_coach_continuity(
+        self, coach_id: str, continuity: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        now = datetime.now(UTC).isoformat()
+        rows = await self._db.execute(
+            "SELECT * FROM ambient_coaches WHERE coach_id = ?",
+            (coach_id,),
+        )
+        if not rows:
+            return None
+        try:
+            existing = self._loads_dict(rows[0]["continuity_json"])
+        except (KeyError, IndexError, TypeError):
+            existing = {}
+        existing.update(continuity or {})
+        await self._db.execute_insert(
+            "UPDATE ambient_coaches SET continuity_json = ?, updated_at = ? "
+            "WHERE coach_id = ?",
+            (json.dumps(existing), now, coach_id),
+        )
+        rows = await self._db.execute(
+            "SELECT * FROM ambient_coaches WHERE coach_id = ?",
+            (coach_id,),
+        )
+        return self._row_to_coach(rows[0]) if rows else None
+
+    @staticmethod
+    def _row_to_coach(row: Any) -> dict[str, Any]:
+        try:
+            continuity = AmbientModelManager._loads_dict(row["continuity_json"])
+        except (KeyError, IndexError, TypeError):
+            continuity = {}
+        return {
+            "coach_id": row["coach_id"],
+            "company_id": row["company_id"],
+            "title": row["title"],
+            "instruction": row["instruction"],
+            "status": row["status"],
+            "expires_at": row["expires_at"],
+            "last_proposed_at": row["last_proposed_at"],
+            "continuity": continuity,
+            "created_at": row["created_at"] or "",
+            "updated_at": row["updated_at"] or "",
+        }
 
     # ------------------------------------------------------------------
     # Row helpers

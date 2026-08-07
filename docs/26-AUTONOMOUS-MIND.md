@@ -349,6 +349,10 @@ mind.inject_event("Received 50 USDC from 0x...abc — payment for DataSync gig")
 
 These events appear in the mind's context as "Recent Events" and influence priority decisions.
 
+Ambient anticipation also feeds the mind: predictor ticks on wakeup, and
+approved interventions inject `[AMBIENT APPROVED] …` events. See
+[82 — Ambient Anticipation](82-AMBIENT-ANTICIPATION.md).
+
 ## Owner Communication
 
 The mind can proactively message the owner — but only when it matters:

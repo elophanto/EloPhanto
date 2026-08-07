@@ -1335,11 +1335,15 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
                         pred.prediction_id
                     ):
                         continue
+                    proposal = need.as_dict()
+                    feats = getattr(pred, "features", None) or {}
+                    if isinstance(feats, dict) and feats:
+                        proposal["payload"] = feats
                     prop = await ctx.intervention_manager.propose_from_prediction(
                         pred,
                         strength=need.strength,
                         channel="chat",
-                        proposal=need.as_dict(),
+                        proposal=proposal,
                     )
                     intervention_id = prop.intervention_id
                 except Exception as e:

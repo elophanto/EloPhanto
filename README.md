@@ -20,7 +20,8 @@ It is not a chatbot with plugins bolted on, and not a hosted black box. You run 
 | **Human stop-points** | Draft and inspect freely; confirm before post / send / pay / push / delete. Unanswered approvals **pause** (`awaiting_approval`) — they never silently deny or soft-auto-approve. |
 | **Proof, not vibes** | Checkpoints complete only with **tool-grounded receipts** (trail or system-of-record). Kill criteria actually cancel zombie goals. CRITICAL tools always ask — even in `full_auto`. |
 | **Work that continues** | Goals and schedules persist across sessions. With `--daemon`, background work keeps going after you close the terminal. Budget hits pause as `budget_paused` until you raise the limit. |
-| **A real evaluative ego** | Confidence is measured from outcomes; shame becomes durable caution rules that can force an approval ask; pride is earned. Footer shows a lived `felt_state`, not truncated critique prose. |
+| **Stress notice → refuseable help** | Ambient anticipation watches digital load — reply-due email, meeting prep, failed schedules, stale goals, standing coach windows — and proposes help before you drown. Cap of a few notices/day; **Ok** hands you a draft or prep pack; **deny** or `elophanto stop` ends it. Nothing irreversible soft-autos. |
+| **A real evaluative ego** | Confidence is measured from outcomes; shame becomes durable caution rules that can force an approval ask; pride is earned. Ambient approve/deny and prediction hits/misses feed the same ego. Footer shows a lived `felt_state`, not truncated critique prose. |
 
 ---
 
@@ -54,7 +55,7 @@ Docs: [docs.elophanto.com](https://docs.elophanto.com) · themes: [docs/79-DASHB
 3. **Receipt-backed** — evaluate a run by its after-state and tool trail, not a demo screenshot.
 4. **Trust ladder for outreach** — new companies start in `learning` (drafts only). Promotion is propose → confirm (`elophanto company trust <slug> propose|confirm`); never a silent unlock under `full_auto`.
 
-A useful receipt names the goal, allowed actions, mutating boundary, failures handled, and the verification artifact. Autonomy loop + ego detail: [`docs/13-GOAL-LOOP.md`](docs/13-GOAL-LOOP.md), [`docs/17-IDENTITY.md`](docs/17-IDENTITY.md), [`docs/69-AFFECT.md`](docs/69-AFFECT.md). Full index: [`docs/`](docs/README.md).
+A useful receipt names the goal, allowed actions, mutating boundary, failures handled, and the verification artifact. Autonomy loop + ego + ambient anticipation (stress notice, prep-before-meeting, standing coaches): [`docs/13-GOAL-LOOP.md`](docs/13-GOAL-LOOP.md), [`docs/17-IDENTITY.md`](docs/17-IDENTITY.md), [`docs/69-AFFECT.md`](docs/69-AFFECT.md), [`docs/82-AMBIENT-ANTICIPATION.md`](docs/82-AMBIENT-ANTICIPATION.md), [`docs/83-PRESENCE-COACH-EGO.md`](docs/83-PRESENCE-COACH-EGO.md). Full index: [`docs/`](docs/README.md).
 
 ---
 

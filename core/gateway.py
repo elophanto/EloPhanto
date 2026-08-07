@@ -1855,6 +1855,12 @@ class Gateway:
                                             "workspace",
                                             None,
                                         ),
+                                        personality_manager=getattr(
+                                            self._agent, "_personality_manager", None
+                                        ),
+                                        ego_manager=getattr(
+                                            self._agent, "_ego_manager", None
+                                        ),
                                     )
                                     or decided
                                 )
@@ -3361,6 +3367,8 @@ class Gateway:
             "persons": [],
             "routines": [],
             "calibration": [],
+            "coaches": [],
+            "ego": None,
         }
         cfg = getattr(self._agent, "_config", None)
         mind_cfg = getattr(cfg, "autonomous_mind", None) if cfg else None
@@ -3402,6 +3410,20 @@ class Gateway:
                         }
                         for r in routines[:20]
                     ]
+                    try:
+                        coaches = await model.list_coaches(status="active", limit=10)
+                        out["coaches"] = [
+                            {
+                                "coach_id": c["coach_id"],
+                                "title": c["title"],
+                                "instruction": c["instruction"][:160],
+                                "expires_at": c.get("expires_at"),
+                                "continuity": c.get("continuity") or {},
+                            }
+                            for c in coaches
+                        ]
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.debug("ambient life-model status failed: %s", e)
         if im is None:
@@ -3480,6 +3502,44 @@ class Gateway:
             try:
                 out["open_predictions"] = len(await predictor.list_open(limit=50))
                 out["calibration"] = await predictor.calibration_summary()
+            except Exception:
+                pass
+        ego = getattr(self._agent, "_ego_manager", None)
+        if ego is not None:
+            try:
+                state = await ego.get_ego()
+                conf = getattr(state, "confidence", None) or {}
+                if isinstance(conf, dict):
+                    ambient_conf = conf.get("ambient_anticipation")
+                else:
+                    ambient_conf = None
+                felt = getattr(state, "felt_state", None) or ""
+                cautions = []
+                try:
+                    rules = list(getattr(state, "caution_rules", None) or [])
+                    for rule in rules[-5:]:
+                        if not isinstance(rule, dict):
+                            continue
+                        cap = str(rule.get("capability") or "")
+                        if cap.startswith("ambient"):
+                            cautions.append(
+                                {
+                                    "capability": cap,
+                                    "rule": str(
+                                        rule.get("rule")
+                                        or rule.get("reason")
+                                        or rule.get("text")
+                                        or ""
+                                    )[:160],
+                                }
+                            )
+                except Exception:
+                    pass
+                out["ego"] = {
+                    "felt_state": felt,
+                    "ambient_confidence": ambient_conf,
+                    "cautions": cautions,
+                }
             except Exception:
                 pass
         return out
