@@ -180,6 +180,18 @@ class AmbientInterventionDecideTool(BaseTool):
             except Exception:
                 pass
 
+        if decision == "approved" and result.strength not in ("act", "escalate"):
+            try:
+                actuated = await self._intervention_manager.actuate_approved(
+                    iid,
+                    inject_event=getattr(self, "_inject_event", None),
+                    create_goal=getattr(self, "_create_goal", None),
+                )
+                if actuated is not None:
+                    result = actuated
+            except Exception:
+                pass
+
         return ToolResult(
             success=True,
             data={
@@ -187,6 +199,16 @@ class AmbientInterventionDecideTool(BaseTool):
                 "status": result.status,
                 "strength": result.strength,
                 "receipt": result.receipt,
+                "need": (
+                    (result.proposal or {}).get("need")
+                    if isinstance(result.proposal, dict)
+                    else None
+                ),
+                "action": (
+                    (result.proposal or {}).get("action")
+                    if isinstance(result.proposal, dict)
+                    else None
+                ),
             },
         )
 

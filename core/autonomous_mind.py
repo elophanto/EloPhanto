@@ -2182,6 +2182,7 @@ class AutonomousMind:
             instinct_store=self._instinct_store(),
             predictor=predictor,
             intervention_manager=getattr(self._agent, "_ambient_interventions", None),
+            ambient_model=getattr(self._agent, "_ambient_model", None),
             max_external_proposals_per_day=int(
                 getattr(
                     getattr(self._config, "arbiter", None),

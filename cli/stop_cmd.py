@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -45,7 +46,6 @@ from core.kill_switch import (
     clear_sentinel,
     resolve_data_dir,
     stop_file_path,
-    write_sentinel,
 )
 
 console = Console()
@@ -97,7 +97,16 @@ def stop_cmd(
 
     cfg = load_config(config_path)
     data_dir = resolve_data_dir(cfg)
-    result = write_sentinel(data_dir)
+    # Always sweep ambient interventions on STOP — proposed/approved
+    # cannot outlive the kill switch (same invariant as gateway hard_stop).
+    result = asyncio.run(
+        _hard_stop_ambient(
+            config_path,
+            data_dir,
+            cancel_goals=cancel_goals,
+            cancel_schedules=cancel_schedules,
+        )
+    )
     if result.already_stopped:
         console.print(
             f"[yellow]Already stopped (sentinel at {result.sentinel_path})[/yellow]"
@@ -108,9 +117,21 @@ def stop_cmd(
             "  Mind, scheduler, and agent.run loops will halt at their "
             "next safe checkpoint."
         )
-
-    if cancel_goals or cancel_schedules:
-        asyncio.run(_do_db_cancels(config_path, cancel_goals, cancel_schedules))
+    if result.cancelled_goals:
+        console.print(
+            f"[green]✓[/green] cancelled {result.cancelled_goals} "
+            "active/planning goal(s)"
+        )
+    if result.disabled_schedules:
+        console.print(
+            f"[green]✓[/green] disabled {result.disabled_schedules} "
+            "enabled schedule(s)"
+        )
+    if result.killed_interventions:
+        console.print(
+            f"[green]✓[/green] killed {result.killed_interventions} "
+            "ambient intervention(s)"
+        )
 
     console.print(
         "\n[dim]Run [bold]elophanto resume[/bold] to clear the sentinel.[/dim]"
@@ -137,10 +158,14 @@ def resume_cmd(config_path: str | None) -> None:
     )
 
 
-async def _do_db_cancels(
-    config_path: str | None, cancel_goals: bool, cancel_schedules: bool
-) -> None:
-    from core.kill_switch import cancel_active_goals, disable_enabled_schedules
+async def _hard_stop_ambient(
+    config_path: str | None,
+    data_dir: Path,
+    *,
+    cancel_goals: bool,
+    cancel_schedules: bool,
+) -> Any:
+    from core.kill_switch import hard_stop
 
     cfg = load_config(config_path)
     db_path = Path(cfg.database.db_path)
@@ -148,10 +173,13 @@ async def _do_db_cancels(
         db_path = cfg.project_root / db_path
     db = Database(db_path)
     await db.initialize()
-
-    if cancel_goals:
-        n = await cancel_active_goals(db)
-        console.print(f"[green]✓[/green] cancelled {n} active/planning goal(s)")
-    if cancel_schedules:
-        n = await disable_enabled_schedules(db)
-        console.print(f"[green]✓[/green] disabled {n} enabled schedule(s)")
+    try:
+        return await hard_stop(
+            data_dir=data_dir,
+            db=db,
+            cancel_goals=cancel_goals,
+            cancel_schedules=cancel_schedules,
+            kill_interventions=True,
+        )
+    finally:
+        await db.close()

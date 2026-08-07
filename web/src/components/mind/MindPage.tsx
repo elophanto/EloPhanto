@@ -604,11 +604,32 @@ function AnticipationCard({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate font-mono text-[10px] text-foreground/90">
-                            {item.summary || item.intervention_id}
+                            {item.need || item.summary || item.intervention_id}
                           </p>
+                          {item.action ? (
+                            <p className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground/80">
+                              → {item.action}
+                            </p>
+                          ) : null}
                           <p className="mt-0.5 font-mono text-[8px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                            {item.strength} · {item.status}
+                            {item.strength}
+                            {item.p_hat != null
+                              ? ` · p=${Number(item.p_hat).toFixed(2)}`
+                              : ""}
+                            {item.claim_type ? ` · ${item.claim_type}` : ""}
+                            {" · "}
+                            {item.status}
                           </p>
+                          {item.why ? (
+                            <p className="mt-0.5 truncate font-mono text-[8px] text-muted-foreground/50">
+                              {item.why}
+                            </p>
+                          ) : null}
+                          {item.help_preview ? (
+                            <p className="mt-1 line-clamp-2 whitespace-pre-wrap font-mono text-[8px] text-emerald-500/70">
+                              {item.help_preview}
+                            </p>
+                          ) : null}
                         </div>
                         {key === "proposed" && (
                           <div className="flex shrink-0 gap-1">

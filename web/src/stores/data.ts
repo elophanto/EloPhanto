@@ -298,6 +298,13 @@ export interface AmbientInterventionBrief {
   strength: string;
   status: string;
   summary: string;
+  need?: string;
+  why?: string;
+  action?: string;
+  p_hat?: number | null;
+  claim_type?: string | null;
+  help_preview?: string | null;
+  help_artifact?: string | null;
   signal_id?: string | null;
   prediction_id?: string | null;
   created_at?: string;

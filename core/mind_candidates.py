@@ -148,6 +148,7 @@ class CandidateContext:
     instinct_store: Any = None
     predictor: Any = None
     intervention_manager: Any = None
+    ambient_model: Any = None
     # Hard silence cap for external/ambient proposals per local calendar day.
     max_external_proposals_per_day: int = 3
 
@@ -1200,6 +1201,21 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
         if remaining <= 0:
             return []
 
+        # Soft person ACL: operator consent.ambient=false silences proposals.
+        ambient_model = getattr(ctx, "ambient_model", None)
+        if ambient_model is not None:
+            try:
+                from core.ambient_needs import person_allows_ambient
+
+                hh = await ambient_model.get_primary_household()
+                if hh is not None:
+                    persons = await ambient_model.list_persons(hh.household_id)
+                    ops = [p for p in persons if getattr(p, "role", None) == "operator"]
+                    if ops and not person_allows_ambient(ops[0].consent):
+                        return []
+            except Exception:
+                pass
+
         signals = await store.list_open(min_urgency=0.3, limit=20)
         for sig in signals:
             # Presence is evidence for prediction grading — never an
@@ -1209,6 +1225,11 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
             remaining = await _remaining()
             if remaining <= 0 or len(out) >= min(5, remaining):
                 break
+            from core.ambient_needs import proposal_from_signal, score_email_urgency
+
+            urgency = float(sig.urgency)
+            if sig.kind == "email":
+                urgency = max(urgency, score_email_urgency(sig.payload))
             payload_text = " ".join(
                 str(v) for v in (sig.payload or {}).values() if v is not None
             )
@@ -1218,12 +1239,21 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
             )
             matched = match_instincts(ctx.instinct_store, blob, limit=3)
             instinct_boost = sum(m.overlap * m.confidence for m in matched) * 2.0
-            strength = "nudge"
-            if sig.urgency >= 0.85:
-                strength = "escalate" if sig.kind in ("crisis", "notify") else "nudge"
-            elif sig.urgency < 0.45:
-                strength = "observe"
-
+            instinct_hint = ""
+            if matched:
+                instinct_hint = (
+                    f"{getattr(matched[0].instinct, 'trigger', '')}→"
+                    f"{getattr(matched[0].instinct, 'action', '')}"
+                )
+            need = proposal_from_signal(
+                kind=sig.kind,
+                source=sig.source,
+                urgency=urgency,
+                payload=sig.payload,
+                signal_id=sig.signal_id,
+                instinct_hint=instinct_hint,
+            )
+            strength = need.strength
             instinct_ids = [
                 getattr(m.instinct, "id", "")
                 for m in matched
@@ -1231,22 +1261,16 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
             ]
             intervention_id = ""
             if ctx.intervention_manager is None:
-                # No ledger → cannot enforce silence or receipts. Stay quiet.
                 break
             try:
+                proposal = need.as_dict()
+                proposal["payload"] = sig.payload
+                proposal["instinct_ids"] = instinct_ids
                 prop = await ctx.intervention_manager.propose_from_signal(
                     sig,
                     strength=strength,
                     channel="chat",
-                    proposal={
-                        "summary": (
-                            f"{sig.kind} from {sig.source} "
-                            f"(urgency={sig.urgency:.2f})"
-                        ),
-                        "payload": sig.payload,
-                        "instinct_ids": instinct_ids,
-                        "requires_approval": strength in ("act", "escalate"),
-                    },
+                    proposal=proposal,
                 )
                 intervention_id = prop.intervention_id
                 await store.consume(sig.signal_id)
@@ -1258,28 +1282,17 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
                 )
                 continue
 
-            action = (
-                f"Ambient signal [{sig.kind}] from {sig.source} "
-                f"(urgency={sig.urgency:.2f}). "
-                f"Strength={strength} — do not silently act. "
-                f"signal_id={sig.signal_id}"
+            action = need.action_spec(
+                signal_id=sig.signal_id, intervention_id=intervention_id
             )
-            if intervention_id:
-                action += f" intervention_id={intervention_id}."
-            action += f" Payload: {json.dumps(sig.payload)[:180]}"
             if matched:
                 action += " " + format_for_prompt(matched)
-                action += " Matched instincts: " + "; ".join(
-                    f"{getattr(m.instinct, 'trigger', '')}→"
-                    f"{getattr(m.instinct, 'action', '')}"
-                    for m in matched[:2]
-                )
 
             out.append(
                 Candidate(
                     source="external_signal",
                     action_spec=action,
-                    expected_value=min(9.0, 3.0 + sig.urgency * 5.0 + instinct_boost),
+                    expected_value=min(9.0, 3.0 + urgency * 5.0 + instinct_boost),
                     feasibility=0.85 if strength in ("observe", "nudge") else 0.45,
                     cost=1.5 if strength == "observe" else 2.5,
                     dedup_key=f"signal:{sig.signal_id}",
@@ -1289,6 +1302,10 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
                         "kind": sig.kind,
                         "strength_hint": strength,
                         "instinct_ids": instinct_ids,
+                        "need": need.need,
+                        "why": need.why,
+                        "p_hat": need.p_hat,
+                        "claim_type": need.claim_type,
                     },
                 )
             )
@@ -1303,8 +1320,15 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
                 if remaining <= 0 or len(out) >= min(5, remaining):
                     break
                 if ctx.intervention_manager is None:
-                    # Without a ledger we cannot meter silence — stay quiet.
                     break
+                from core.ambient_needs import proposal_from_prediction
+
+                need = proposal_from_prediction(
+                    claim=pred.claim,
+                    claim_type=pred.claim_type,
+                    p_hat=pred.p_hat,
+                    prediction_id=pred.prediction_id,
+                )
                 intervention_id = ""
                 try:
                     if await ctx.intervention_manager.has_intervention_for_prediction(
@@ -1313,14 +1337,9 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
                         continue
                     prop = await ctx.intervention_manager.propose_from_prediction(
                         pred,
-                        strength="nudge",
+                        strength=need.strength,
                         channel="chat",
-                        proposal={
-                            "summary": pred.claim,
-                            "claim_type": pred.claim_type,
-                            "p_hat": pred.p_hat,
-                            "requires_approval": False,
-                        },
+                        proposal=need.as_dict(),
                     )
                     intervention_id = prop.intervention_id
                 except Exception as e:
@@ -1331,15 +1350,7 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
                     )
                     continue
 
-                action = (
-                    f"Prediction ({pred.claim_type}, p={pred.p_hat:.2f}): "
-                    f"{pred.claim} Nudge with receipt; "
-                    f"act/escalate requires approval. "
-                    f"prediction_id={pred.prediction_id}"
-                )
-                if intervention_id:
-                    action += f" intervention_id={intervention_id}."
-
+                action = need.action_spec(intervention_id=intervention_id)
                 out.append(
                     Candidate(
                         source="ambient_prediction",
@@ -1351,8 +1362,11 @@ async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
                         metadata={
                             "prediction_id": pred.prediction_id,
                             "intervention_id": intervention_id,
-                            "strength_hint": "nudge",
+                            "strength_hint": need.strength,
                             "claim_type": pred.claim_type,
+                            "need": need.need,
+                            "why": need.why,
+                            "p_hat": need.p_hat,
                         },
                     )
                 )

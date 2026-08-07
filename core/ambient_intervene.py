@@ -185,7 +185,152 @@ class InterventionManager:
             decision,
             strength,
         )
-        return await self.get(intervention_id)
+        result = await self.get(intervention_id)
+        if result is None:
+            return None
+        if decision == "denied" and result.signal_id:
+            # Suppress further noise for the same signal id.
+            try:
+                from core.ambient_signals import AmbientSignalStore
+
+                store = AmbientSignalStore(self._db)
+                await store.suppress(result.signal_id)
+            except Exception:
+                pass
+        return result
+
+    async def actuate_approved(
+        self,
+        intervention_id: str,
+        *,
+        inject_event: Any | None = None,
+        create_goal: Any | None = None,
+        workspace_dir: Any | None = None,
+    ) -> Intervention | None:
+        """Bounded help after operator approve for observe/nudge.
+
+        act/escalate stay approved until explicit ambient_intervention_execute.
+        Nudge/observe: write a refuseable help artifact (draft/prep/resume),
+        inject a mind event (and optional goal), then mark executed.
+        """
+        from pathlib import Path
+
+        from core.ambient_needs import build_help_artifact
+
+        row = await self.get(intervention_id)
+        if row is None or row.status != STATUS_APPROVED:
+            return row
+        if row.strength in _AUTO_APPROVE_FORBIDDEN:
+            return row  # wait for explicit execute
+        proposal = row.proposal if isinstance(row.proposal, dict) else {}
+        need = str(proposal.get("need") or proposal.get("summary") or "")[:200]
+        action = str(proposal.get("action") or "")[:240]
+        why = str(proposal.get("why") or "")[:240]
+        claim_type = proposal.get("claim_type")
+        payload: dict[str, Any] = {}
+        if isinstance(proposal.get("payload"), dict):
+            payload = dict(proposal["payload"])
+        elif row.signal_id:
+            try:
+                sig_rows = await self._db.execute(
+                    "SELECT payload_json FROM ambient_signals WHERE signal_id = ?",
+                    (row.signal_id,),
+                )
+                if sig_rows:
+                    payload = json.loads(sig_rows[0]["payload_json"] or "{}")
+                    if not isinstance(payload, dict):
+                        payload = {}
+            except Exception:
+                payload = {}
+        if row.prediction_id and not payload:
+            try:
+                pred_rows = await self._db.execute(
+                    "SELECT features_json, claim FROM ambient_predictions "
+                    "WHERE prediction_id = ?",
+                    (row.prediction_id,),
+                )
+                if pred_rows:
+                    feats = json.loads(pred_rows[0]["features_json"] or "{}")
+                    if isinstance(feats, dict):
+                        payload = feats
+                    if not need:
+                        need = str(pred_rows[0]["claim"] or "")[:200]
+            except Exception:
+                pass
+
+        artifact_md = build_help_artifact(
+            need=need,
+            action=action,
+            why=why,
+            claim_type=str(claim_type) if claim_type else None,
+            payload=payload,
+            intervention_id=intervention_id,
+        )
+        help_path = ""
+        try:
+            if workspace_dir is not None:
+                base = Path(workspace_dir)
+            else:
+                base = Path(getattr(self._db, "_db_path", Path("."))).parent
+            help_dir = base / "ambient_help"
+            help_dir.mkdir(parents=True, exist_ok=True)
+            path = help_dir / f"{intervention_id}.md"
+            path.write_text(artifact_md, encoding="utf-8")
+            help_path = str(path)
+        except Exception as e:
+            logger.debug("ambient help artifact write failed: %s", e)
+
+        preview = "\n".join(line for line in artifact_md.splitlines() if line.strip())[
+            :400
+        ]
+        # Persist preview on the proposal so UI / brief can show it.
+        try:
+            merged_proposal = dict(proposal)
+            merged_proposal["help_preview"] = preview
+            if help_path:
+                merged_proposal["help_artifact"] = help_path
+            await self._db.execute_insert(
+                "UPDATE ambient_interventions SET proposal_json = ? "
+                "WHERE intervention_id = ?",
+                (json.dumps(merged_proposal), intervention_id),
+            )
+        except Exception:
+            pass
+
+        event_text = (
+            f"[AMBIENT APPROVED] {need} → {action} "
+            f"(intervention_id={intervention_id}"
+            + (f", artifact={help_path}" if help_path else "")
+            + ")"
+        )
+        if inject_event is not None:
+            try:
+                inject_event(event_text)
+            except Exception as e:
+                logger.debug("ambient actuate inject failed: %s", e)
+        goal_id = None
+        if create_goal is not None and action:
+            try:
+                goal = await create_goal(
+                    f"[ambient] {need}: {action}"[:300],
+                    source="ambient_intervention",
+                )
+                goal_id = getattr(goal, "goal_id", None) or (
+                    goal.get("goal_id") if isinstance(goal, dict) else None
+                )
+            except Exception as e:
+                logger.debug("ambient actuate create_goal failed: %s", e)
+        return await self.mark_executed(
+            intervention_id,
+            {
+                "bounded_help": "artifact",
+                "help_artifact": help_path or None,
+                "help_preview": preview,
+                "event": event_text[:400],
+                "goal_id": goal_id,
+                "operator": "actuate_approved",
+            },
+        )
 
     async def mark_executed(
         self,

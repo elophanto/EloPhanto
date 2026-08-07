@@ -1336,6 +1336,16 @@ class Agent:
                         _t._intervention_manager = self._ambient_interventions
                         if _tname == "ambient_intervention_decide":
                             _t._ego_manager = self._ego_manager
+                            mind = getattr(self, "_autonomous_mind", None)
+                            if mind is not None:
+                                _t._inject_event = mind.inject_event
+                            gm = getattr(self, "_goal_manager", None)
+                            if gm is not None and hasattr(gm, "create_goal"):
+
+                                async def _cg(text: str, source: str = "") -> Any:
+                                    return await gm.create_goal(text)
+
+                                _t._create_goal = _cg
                 for _tname in (
                     "ambient_presence_report",
                     "ambient_household_show",

@@ -1834,10 +1834,36 @@ class Gateway:
                         if decided is None:
                             result = {"ok": False, "error": "not found"}
                         else:
+                            if decision == "approved":
+                                mind = getattr(self._agent, "_autonomous_mind", None)
+                                inject = mind.inject_event if mind is not None else None
+                                create_goal = None
+                                gm = getattr(self._agent, "_goal_manager", None)
+                                if gm is not None and hasattr(gm, "create_goal"):
+
+                                    async def _cg(text: str, source: str = "") -> Any:
+                                        return await gm.create_goal(text)
+
+                                    create_goal = _cg
+                                decided = (
+                                    await im.actuate_approved(
+                                        iid,
+                                        inject_event=inject,
+                                        create_goal=create_goal,
+                                        workspace_dir=getattr(
+                                            getattr(self._agent, "_config", None),
+                                            "workspace",
+                                            None,
+                                        ),
+                                    )
+                                    or decided
+                                )
                             result = {
                                 "ok": True,
                                 "intervention_id": decided.intervention_id,
                                 "status": decided.status,
+                                "need": (decided.proposal or {}).get("need"),
+                                "action": (decided.proposal or {}).get("action"),
                             }
             else:
                 result["error"] = f"Unknown action: {action}"
@@ -3383,14 +3409,41 @@ class Gateway:
 
         def _brief(i: Any) -> dict[str, Any]:
             proposal = getattr(i, "proposal", {}) or {}
+            receipt = getattr(i, "receipt", {}) or {}
             summary = ""
+            need = ""
+            why = ""
+            p_hat = None
+            claim_type = None
+            action = ""
+            help_preview = ""
+            help_artifact = ""
             if isinstance(proposal, dict):
-                summary = str(proposal.get("summary") or "")[:160]
+                need = str(proposal.get("need") or "")[:160]
+                why = str(proposal.get("why") or "")[:160]
+                action = str(proposal.get("action") or "")[:160]
+                summary = str(proposal.get("summary") or need or "")[:160]
+                p_hat = proposal.get("p_hat")
+                claim_type = proposal.get("claim_type")
+                help_preview = str(proposal.get("help_preview") or "")[:240]
+                help_artifact = str(proposal.get("help_artifact") or "")[:240]
+            if isinstance(receipt, dict):
+                if not help_preview:
+                    help_preview = str(receipt.get("help_preview") or "")[:240]
+                if not help_artifact:
+                    help_artifact = str(receipt.get("help_artifact") or "")[:240]
             return {
                 "intervention_id": i.intervention_id,
                 "strength": i.strength,
                 "status": i.status,
                 "summary": summary,
+                "need": need,
+                "why": why,
+                "action": action,
+                "p_hat": p_hat,
+                "claim_type": claim_type,
+                "help_preview": help_preview or None,
+                "help_artifact": help_artifact or None,
                 "signal_id": i.signal_id,
                 "prediction_id": i.prediction_id,
                 "created_at": i.created_at,

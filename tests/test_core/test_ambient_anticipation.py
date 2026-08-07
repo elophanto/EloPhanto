@@ -560,6 +560,350 @@ class TestTrackBPresenceAndHist:
         assert any(s.kind == "presence" for s in opens)
 
 
+class TestNeedContractAndActuate:
+    def test_email_need_shape(self) -> None:
+        from core.ambient_needs import proposal_from_signal, score_email_urgency
+
+        u = score_email_urgency(
+            {"subject": "URGENT deadline Friday", "from": "ceo@x.com"}
+        )
+        assert u >= 0.7
+        need = proposal_from_signal(
+            kind="email",
+            source="email_monitor",
+            urgency=u,
+            payload={"subject": "deadline Friday", "from": "ceo@x.com"},
+            signal_id="sig_1",
+        )
+        d = need.as_dict()
+        assert d["need"]
+        assert d["action"]
+        assert d["risk"]
+        assert d["why"]
+        assert "NEED:" in need.action_spec(signal_id="sig_1")
+
+    async def test_candidate_uses_need_contract(self, stores: dict) -> None:
+        await stores["signals"].ingest(
+            kind="email",
+            source="email_monitor",
+            urgency=0.8,
+            payload={"subject": "deadline ASAP please reply", "from": "vip@x.com"},
+        )
+        ctx = CandidateContext(
+            signal_store=stores["signals"],
+            intervention_manager=stores["interventions"],
+            max_external_proposals_per_day=3,
+        )
+        cands = await from_external_signals(ctx)
+        assert cands
+        assert "NEED:" in cands[0].action_spec
+        assert "ACTION:" in cands[0].action_spec
+        assert cands[0].metadata.get("need")
+        prop = await stores["interventions"].get(cands[0].metadata["intervention_id"])
+        assert prop is not None
+        assert prop.proposal.get("need")
+        assert prop.proposal.get("action")
+
+    async def test_approve_actuates_nudge(self, stores: dict) -> None:
+        events: list[str] = []
+        prop = await stores["interventions"].propose(
+            strength="nudge",
+            channel="chat",
+            proposal={
+                "need": "Reply due on email from vip@x.com: deadline ASAP",
+                "action": "Draft outline",
+                "risk": "low",
+                "why": "test",
+                "claim_type": "reply_due",
+                "payload": {
+                    "subject": "deadline ASAP",
+                    "from": "vip@x.com",
+                    "preview": "Please reply by EOD",
+                },
+            },
+        )
+        await stores["interventions"].decide(
+            prop.intervention_id, "approved", receipt={"operator": "test"}
+        )
+        done = await stores["interventions"].actuate_approved(
+            prop.intervention_id,
+            inject_event=events.append,
+        )
+        assert done is not None
+        assert done.status == "executed"
+        assert events
+        assert "AMBIENT APPROVED" in events[0]
+        assert done.receipt.get("bounded_help") == "artifact"
+        assert done.receipt.get("help_preview")
+        path = done.receipt.get("help_artifact")
+        assert path
+        assert Path(path).is_file()
+        body = Path(path).read_text(encoding="utf-8")
+        assert "Draft reply" in body
+        assert "do not send" in body.lower()
+        assert "Proposed reply" in body or "Hi " in body
+
+
+class TestDigitalClaimGrading:
+    async def test_reply_due_false_on_outbound(self, stores: dict) -> None:
+        from core.company import current_company_id
+
+        cid = current_company_id()
+        now = datetime.now(UTC)
+        sid = await stores["signals"].ingest(
+            kind="email",
+            source="email_monitor",
+            urgency=0.8,
+            payload={"subject": "Board pack", "from": "ceo@x.com"},
+        )
+        pred = await stores["predictor"]._insert_prediction(
+            company_id=cid,
+            household_id=None,
+            routine_id=None,
+            person_id=None,
+            claim="Reply due: Board pack",
+            claim_type="reply_due",
+            p_hat=0.8,
+            model="rule:v1",
+            features={"signal_id": sid, "subject": "Board pack"},
+            resolve_by=(now + timedelta(minutes=5)).isoformat(),
+        )
+        created = (now - timedelta(hours=2)).isoformat()
+        await stores["db"].execute_insert(
+            "UPDATE ambient_predictions SET created_at = ?, resolve_by = ? "
+            "WHERE prediction_id = ?",
+            (
+                created,
+                (now - timedelta(minutes=1)).isoformat(),
+                pred["prediction_id"],
+            ),
+        )
+        await stores["db"].execute_insert(
+            "INSERT INTO email_log "
+            "(timestamp, tool_name, inbox_id, direction, subject, status) "
+            "VALUES (?, 'email_send', 'in1', 'outbound', ?, 'sent')",
+            ((now - timedelta(minutes=30)).isoformat(), "Re: Board pack"),
+        )
+        n = await stores["predictor"].resolve_due(now=now)
+        assert n >= 1
+        row = await stores["predictor"].get(pred["prediction_id"])
+        assert row is not None
+        assert row.outcome == "false"
+
+    async def test_reply_due_true_when_still_open(self, stores: dict) -> None:
+        from core.company import current_company_id
+
+        cid = current_company_id()
+        now = datetime.now(UTC)
+        sid = await stores["signals"].ingest(
+            kind="email",
+            source="email_monitor",
+            urgency=0.9,
+            payload={"subject": "Still waiting", "from": "a@b.com"},
+        )
+        pred = await stores["predictor"]._insert_prediction(
+            company_id=cid,
+            household_id=None,
+            routine_id=None,
+            person_id=None,
+            claim="Reply due: Still waiting",
+            claim_type="reply_due",
+            p_hat=0.9,
+            model="rule:v1",
+            features={"signal_id": sid, "subject": "Still waiting"},
+            resolve_by=(now - timedelta(minutes=1)).isoformat(),
+        )
+        await stores["predictor"].resolve_due(now=now)
+        row = await stores["predictor"].get(pred["prediction_id"])
+        assert row is not None
+        assert row.outcome == "true"
+        assert sid in row.evidence_ids
+
+    async def test_prep_schedule_false_when_ran(self, stores: dict) -> None:
+        from core.company import current_company_id
+
+        cid = current_company_id()
+        now = datetime.now(UTC)
+        created = (now - timedelta(hours=1)).isoformat()
+        await stores["db"].execute_insert(
+            "INSERT INTO scheduled_tasks "
+            "(id, name, description, cron_expression, task_goal, enabled, "
+            "next_run_at, last_run_at, last_status, created_at, updated_at) "
+            "VALUES ('sched_1', 'Daily report', '', '0 9 * * *', 'report', 1, "
+            "?, ?, 'ok', ?, ?)",
+            (now.isoformat(), now.isoformat(), created, now.isoformat()),
+        )
+        pred = await stores["predictor"]._insert_prediction(
+            company_id=cid,
+            household_id=None,
+            routine_id=None,
+            person_id=None,
+            claim="Prep before scheduled task: Daily report",
+            claim_type="prep_before_schedule",
+            p_hat=0.6,
+            model="rule:v1",
+            features={"schedule_id": "sched_1", "next_run_at": now.isoformat()},
+            resolve_by=(now - timedelta(minutes=1)).isoformat(),
+        )
+        await stores["db"].execute_insert(
+            "UPDATE ambient_predictions SET created_at = ? WHERE prediction_id = ?",
+            (created, pred["prediction_id"]),
+        )
+        await stores["predictor"].resolve_due(now=now)
+        row = await stores["predictor"].get(pred["prediction_id"])
+        assert row is not None
+        assert row.outcome == "false"
+
+    async def test_stale_goal_false_when_touched(self, stores: dict) -> None:
+        from core.company import current_company_id
+
+        cid = current_company_id()
+        now = datetime.now(UTC)
+        baseline = (now - timedelta(days=3)).isoformat()
+        await stores["db"].execute_insert(
+            "INSERT INTO goals "
+            "(goal_id, goal, status, plan_json, created_at, updated_at) "
+            "VALUES ('g_stale', 'Ship X', 'active', '[]', ?, ?)",
+            (baseline, now.isoformat()),
+        )
+        pred = await stores["predictor"]._insert_prediction(
+            company_id=cid,
+            household_id=None,
+            routine_id=None,
+            person_id=None,
+            claim="Stale goal needs resume: Ship X",
+            claim_type="stale_goal_resume",
+            p_hat=0.7,
+            model="rule:v1",
+            features={"goal_id": "g_stale", "updated_at": baseline},
+            resolve_by=(now - timedelta(minutes=1)).isoformat(),
+        )
+        await stores["predictor"].resolve_due(now=now)
+        row = await stores["predictor"].get(pred["prediction_id"])
+        assert row is not None
+        assert row.outcome == "false"
+
+    async def test_schedule_claim_not_meeting(self, stores: dict) -> None:
+        from core.ambient_needs import proposal_from_signal
+
+        need = proposal_from_signal(
+            kind="calendar",
+            source="scheduler",
+            urgency=0.7,
+            payload={"title": "cron report", "schedule_id": "s1"},
+            signal_id="sig_x",
+        )
+        assert need.claim_type == "prep_before_schedule"
+        assert "meeting" not in need.need.lower()
+        assert "scheduled task" in need.need.lower()
+
+    async def test_calendar_meeting_from_signal(self, stores: dict) -> None:
+        from core.company import current_company_id
+
+        cid = current_company_id()
+        now = datetime.now(UTC)
+        starts = (now + timedelta(minutes=15)).isoformat()
+        await stores["signals"].ingest(
+            kind="calendar",
+            source="calendar_ics",
+            urgency=0.8,
+            payload={
+                "title": "Design review",
+                "starts_at": starts,
+                "description": "Ship checklist + open PRs",
+                "attendees": ["alex@x.com"],
+            },
+            dedup_key="cal:design:1",
+        )
+        created = await stores["predictor"]._tick_calendar_meetings(cid, now)
+        assert created
+        assert created[0]["claim_type"] == "prep_before_meeting"
+        assert "meeting" in created[0]["claim"].lower()
+
+    def test_parse_ics_and_filled_draft(self) -> None:
+        from core.ambient_needs import build_help_artifact, parse_ics_events
+
+        ics = (
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\n"
+            "UID:abc@x\nSUMMARY:Standup\n"
+            "DTSTART:20260315T140000Z\n"
+            "DESCRIPTION:Daily sync\\nBring blockers\n"
+            "END:VEVENT\nEND:VCALENDAR\n"
+        )
+        evs = parse_ics_events(ics)
+        assert len(evs) == 1
+        assert evs[0]["title"] == "Standup"
+        draft = build_help_artifact(
+            need="Reply due",
+            action="Draft",
+            why="test",
+            claim_type="reply_due",
+            payload={
+                "subject": "Can you confirm by Friday?",
+                "from": "ceo@x.com",
+                "preview": "Please reply with the launch date. Deadline Friday.",
+            },
+        )
+        assert "Draft reply" in draft
+        assert "ceo@x.com" in draft
+        assert "Proposed reply" in draft
+
+    async def test_digital_hist_blend(self, stores: dict) -> None:
+        from core.company import current_company_id
+
+        cid = current_company_id()
+        now = datetime.now(UTC)
+        for i in range(5):
+            pred = await stores["predictor"]._insert_prediction(
+                company_id=cid,
+                household_id=None,
+                routine_id=None,
+                person_id=None,
+                claim=f"Reply due hist {i}",
+                claim_type="reply_due",
+                p_hat=0.5,
+                model="rule:v1",
+                features={"signal_id": f"sig_h{i}", "subject": f"s{i}"},
+                resolve_by=now.isoformat(),
+            )
+            await stores["db"].execute_insert(
+                "UPDATE ambient_predictions SET outcome = ?, resolved_at = ? "
+                "WHERE prediction_id = ?",
+                ("true" if i < 3 else "false", now.isoformat(), pred["prediction_id"]),
+            )
+        p_hat, model, feats = await stores["predictor"]._blend_hist_claim(
+            cid, "reply_due", 0.5
+        )
+        assert model == "hist:v1"
+        assert feats["hist_n"] >= 5
+        assert 0.05 <= p_hat <= 0.95
+        cal = await stores["predictor"].calibration_summary()
+        assert any(c.get("claim_type") == "reply_due" for c in cal)
+
+    async def test_consent_blocks_proposals(self, stores: dict) -> None:
+        model = stores["model"]
+        hh = await model.create_household("acl-hh")
+        person = await model.ensure_operator_person(hh.household_id, "Op")
+        await stores["db"].execute_insert(
+            "UPDATE persons SET consent_json = ? WHERE person_id = ?",
+            ('{"ambient": false}', person.person_id),
+        )
+        await stores["signals"].ingest(
+            kind="email",
+            source="email_monitor",
+            urgency=0.9,
+            payload={"subject": "urgent deadline", "from": "a@b.com"},
+        )
+        ctx = CandidateContext(
+            signal_store=stores["signals"],
+            intervention_manager=stores["interventions"],
+            ambient_model=model,
+            max_external_proposals_per_day=3,
+        )
+        cands = await from_external_signals(ctx)
+        assert cands == []
+
+
 class TestKillInvariant:
     async def test_killed_intervention(self, stores: dict) -> None:
         im = stores["interventions"]

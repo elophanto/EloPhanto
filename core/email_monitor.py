@@ -150,11 +150,14 @@ class EmailMonitor:
             store = getattr(agent, "_ambient_signal_store", None) if agent else None
             if store is not None:
                 try:
+                    from core.ambient_needs import score_email_urgency
+
                     mid = str(msg.get("message_id") or subject)[:80]
+                    urgency = score_email_urgency(data)
                     await store.ingest(
                         kind="email",
                         source="email_monitor",
-                        urgency=0.55,
+                        urgency=urgency,
                         payload=data,
                         dedup_key=f"email:{mid}",
                         subject_ref=sender[:120],
