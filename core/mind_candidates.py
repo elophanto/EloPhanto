@@ -20,6 +20,7 @@ See ``docs/75-AUTONOMOUS-MIND-V2.md`` §Phase 3.2.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -141,6 +142,14 @@ class CandidateContext:
     # cooldown (MIN_DREAM_INTERVAL_H). None disables the rate limit rather
     # than crashing the wakeup — same None-safe contract as every field above.
     dream_journal: Any = None
+    # Ambient anticipation spine (AIA-useful jobs). Optional — generators
+    # return [] when missing so legacy / test fixtures stay green.
+    signal_store: Any = None
+    instinct_store: Any = None
+    predictor: Any = None
+    intervention_manager: Any = None
+    # Hard silence cap for external/ambient proposals per local calendar day.
+    max_external_proposals_per_day: int = 3
 
 
 # ---------------------------------------------------------------------------
@@ -1158,11 +1167,199 @@ async def _mission_rebalance_due(ctx: CandidateContext) -> float | None:
 
 
 async def from_external_signals(ctx: CandidateContext) -> list[Candidate]:
-    """Placeholder for Phase 3.5 — mentions, market deltas, schedule
-    failures, news headlines. Returns [] today so the arbiter shape
-    is fixed for callers; bolt on after the internal loop is healthy.
+    """Turn open ambient signals + predictions into arbiter candidates.
+
+    Cap: at most ``max_external_proposals_per_day`` *ledger* proposals/day
+    (silence is first-class). Emitting a candidate writes an intervention
+    row and consumes the signal so wakeups cannot flood the operator.
+    Strength for act/escalate is advisory — execute requires approvals.
     """
-    return []
+    store = ctx.signal_store
+    if store is None:
+        return []
+
+    out: list[Candidate] = []
+    try:
+        from core.instinct_match import format_for_prompt, match_instincts
+
+        try:
+            await store.expire_due()
+        except Exception:
+            pass
+
+        async def _remaining() -> int:
+            if ctx.intervention_manager is None:
+                return int(ctx.max_external_proposals_per_day)
+            try:
+                used = await ctx.intervention_manager.daily_proposal_count()
+            except Exception:
+                used = 0
+            return max(0, int(ctx.max_external_proposals_per_day) - used)
+
+        remaining = await _remaining()
+        if remaining <= 0:
+            return []
+
+        signals = await store.list_open(min_urgency=0.3, limit=20)
+        for sig in signals:
+            # Presence is evidence for prediction grading — never an
+            # intervention candidate (would burn the silence cap on "home").
+            if sig.kind == "presence":
+                continue
+            remaining = await _remaining()
+            if remaining <= 0 or len(out) >= min(5, remaining):
+                break
+            payload_text = " ".join(
+                str(v) for v in (sig.payload or {}).values() if v is not None
+            )
+            blob = (
+                f"{sig.kind} {sig.source} {sig.subject_ref or ''} "
+                f"{payload_text} {json.dumps(sig.payload)[:240]}"
+            )
+            matched = match_instincts(ctx.instinct_store, blob, limit=3)
+            instinct_boost = sum(m.overlap * m.confidence for m in matched) * 2.0
+            strength = "nudge"
+            if sig.urgency >= 0.85:
+                strength = "escalate" if sig.kind in ("crisis", "notify") else "nudge"
+            elif sig.urgency < 0.45:
+                strength = "observe"
+
+            instinct_ids = [
+                getattr(m.instinct, "id", "")
+                for m in matched
+                if getattr(m, "instinct", None)
+            ]
+            intervention_id = ""
+            if ctx.intervention_manager is None:
+                # No ledger → cannot enforce silence or receipts. Stay quiet.
+                break
+            try:
+                prop = await ctx.intervention_manager.propose_from_signal(
+                    sig,
+                    strength=strength,
+                    channel="chat",
+                    proposal={
+                        "summary": (
+                            f"{sig.kind} from {sig.source} "
+                            f"(urgency={sig.urgency:.2f})"
+                        ),
+                        "payload": sig.payload,
+                        "instinct_ids": instinct_ids,
+                        "requires_approval": strength in ("act", "escalate"),
+                    },
+                )
+                intervention_id = prop.intervention_id
+                await store.consume(sig.signal_id)
+            except Exception as e:
+                logger.debug(
+                    "ambient propose_from_signal failed for %s: %s",
+                    sig.signal_id,
+                    e,
+                )
+                continue
+
+            action = (
+                f"Ambient signal [{sig.kind}] from {sig.source} "
+                f"(urgency={sig.urgency:.2f}). "
+                f"Strength={strength} — do not silently act. "
+                f"signal_id={sig.signal_id}"
+            )
+            if intervention_id:
+                action += f" intervention_id={intervention_id}."
+            action += f" Payload: {json.dumps(sig.payload)[:180]}"
+            if matched:
+                action += " " + format_for_prompt(matched)
+                action += " Matched instincts: " + "; ".join(
+                    f"{getattr(m.instinct, 'trigger', '')}→"
+                    f"{getattr(m.instinct, 'action', '')}"
+                    for m in matched[:2]
+                )
+
+            out.append(
+                Candidate(
+                    source="external_signal",
+                    action_spec=action,
+                    expected_value=min(9.0, 3.0 + sig.urgency * 5.0 + instinct_boost),
+                    feasibility=0.85 if strength in ("observe", "nudge") else 0.45,
+                    cost=1.5 if strength == "observe" else 2.5,
+                    dedup_key=f"signal:{sig.signal_id}",
+                    metadata={
+                        "signal_id": sig.signal_id,
+                        "intervention_id": intervention_id,
+                        "kind": sig.kind,
+                        "strength_hint": strength,
+                        "instinct_ids": instinct_ids,
+                    },
+                )
+            )
+
+        if ctx.predictor is not None:
+            try:
+                preds = await ctx.predictor.list_open(limit=5)
+            except Exception:
+                preds = []
+            for pred in preds:
+                remaining = await _remaining()
+                if remaining <= 0 or len(out) >= min(5, remaining):
+                    break
+                if ctx.intervention_manager is None:
+                    # Without a ledger we cannot meter silence — stay quiet.
+                    break
+                intervention_id = ""
+                try:
+                    if await ctx.intervention_manager.has_intervention_for_prediction(
+                        pred.prediction_id
+                    ):
+                        continue
+                    prop = await ctx.intervention_manager.propose_from_prediction(
+                        pred,
+                        strength="nudge",
+                        channel="chat",
+                        proposal={
+                            "summary": pred.claim,
+                            "claim_type": pred.claim_type,
+                            "p_hat": pred.p_hat,
+                            "requires_approval": False,
+                        },
+                    )
+                    intervention_id = prop.intervention_id
+                except Exception as e:
+                    logger.debug(
+                        "ambient propose_from_prediction failed for %s: %s",
+                        pred.prediction_id,
+                        e,
+                    )
+                    continue
+
+                action = (
+                    f"Prediction ({pred.claim_type}, p={pred.p_hat:.2f}): "
+                    f"{pred.claim} Nudge with receipt; "
+                    f"act/escalate requires approval. "
+                    f"prediction_id={pred.prediction_id}"
+                )
+                if intervention_id:
+                    action += f" intervention_id={intervention_id}."
+
+                out.append(
+                    Candidate(
+                        source="ambient_prediction",
+                        action_spec=action,
+                        expected_value=min(9.0, 4.0 + pred.p_hat * 4.0),
+                        feasibility=0.8,
+                        cost=2.0,
+                        dedup_key=f"prediction:{pred.prediction_id}",
+                        metadata={
+                            "prediction_id": pred.prediction_id,
+                            "intervention_id": intervention_id,
+                            "strength_hint": "nudge",
+                            "claim_type": pred.claim_type,
+                        },
+                    )
+                )
+    except Exception as e:
+        logger.warning("from_external_signals failed: %s", e)
+        return []
+    return out
 
 
 # ---------------------------------------------------------------------------

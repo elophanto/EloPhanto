@@ -293,6 +293,55 @@ export interface MindEvent {
   timestamp: number;
 }
 
+export interface AmbientInterventionBrief {
+  intervention_id: string;
+  strength: string;
+  status: string;
+  summary: string;
+  signal_id?: string | null;
+  prediction_id?: string | null;
+  created_at?: string;
+  decided_at?: string | null;
+  executed_at?: string | null;
+}
+
+export interface AmbientStatus {
+  proposed: AmbientInterventionBrief[];
+  waiting: AmbientInterventionBrief[];
+  done: AmbientInterventionBrief[];
+  ignored: AmbientInterventionBrief[];
+  open_signals: number;
+  open_predictions: number;
+  daily_proposals: number;
+  daily_cap: number;
+  household?: {
+    household_id: string;
+    name: string;
+    timezone: string;
+  } | null;
+  persons?: {
+    person_id: string;
+    display_name: string;
+    role?: string | null;
+  }[];
+  routines?: {
+    routine_id: string;
+    title: string;
+    window_start?: string | null;
+    window_end?: string | null;
+    person_id?: string | null;
+    status: string;
+  }[];
+  calibration?: {
+    routine_id: string;
+    n: number;
+    n_labeled: number;
+    miss_rate: number | null;
+    unknown_rate: number | null;
+    hist_ready: boolean;
+  }[];
+}
+
 export interface MindData {
   enabled: boolean;
   running?: boolean;
@@ -308,6 +357,7 @@ export interface MindData {
   pending_events?: number;
   scratchpad?: string;
   config?: MindConfig;
+  ambient?: AmbientStatus;
   error?: string;
 }
 
@@ -434,7 +484,7 @@ interface DataState {
   fetchMind: () => void;
   setMind: (data: MindData) => void;
   addMindEvent: (event: MindEvent) => void;
-  sendMindControl: (action: string) => void;
+  sendMindControl: (action: string, args?: Record<string, unknown>) => void;
 
   // History
   history: HistoryData | null;
@@ -596,8 +646,8 @@ export const useDataStore = create<DataState>((set, get) => ({
     set((state) => ({
       mindEvents: [...state.mindEvents.slice(-99), event],
     })),
-  sendMindControl: (action) => {
-    gateway.sendCommand("mind_control", { action });
+  sendMindControl: (action, args) => {
+    gateway.sendCommand("mind_control", { action, ...(args || {}) });
   },
 
   // History — always refetch

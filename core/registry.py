@@ -410,6 +410,35 @@ class ToolRegistry:
 
         self.register(AffectRecordEventTool())
 
+        # Ambient anticipation — interventions + life model + presence.
+        from tools.ambient.tools import (
+            AmbientCalibrationShowTool,
+            AmbientHouseholdSetTimezoneTool,
+            AmbientHouseholdShowTool,
+            AmbientInterventionDecideTool,
+            AmbientInterventionExecuteTool,
+            AmbientInterventionListTool,
+            AmbientPersonCreateTool,
+            AmbientPersonListTool,
+            AmbientPresenceReportTool,
+            AmbientRoutineCreateTool,
+            AmbientRoutineListTool,
+            AmbientRoutinePauseTool,
+        )
+
+        self.register(AmbientInterventionListTool())
+        self.register(AmbientInterventionDecideTool())
+        self.register(AmbientInterventionExecuteTool())
+        self.register(AmbientPresenceReportTool())
+        self.register(AmbientHouseholdShowTool())
+        self.register(AmbientHouseholdSetTimezoneTool())
+        self.register(AmbientPersonListTool())
+        self.register(AmbientPersonCreateTool())
+        self.register(AmbientRoutineListTool())
+        self.register(AmbientRoutineCreateTool())
+        self.register(AmbientRoutinePauseTool())
+        self.register(AmbientCalibrationShowTool())
+
         # X style preflight — mechanical check against the operator's
         # accumulated banned-phrase list. Closes the gap where the
         # agent's self-graded "style_preflight_pass" claim was the

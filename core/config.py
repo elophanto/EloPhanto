@@ -650,6 +650,8 @@ class MindArbiterConfig:
 
     enabled: bool = True
     top_k: int = 5
+    # Hard silence cap for ambient/external proposals per local calendar day.
+    max_external_proposals_per_day: int = 3
     weights: dict[str, float] = field(
         default_factory=lambda: {
             # See ``core/mind_arbiter.py:ArbiterWeights`` for the
@@ -2158,6 +2160,9 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
     arbiter_config = MindArbiterConfig(
         enabled=bool(arb_raw.get("enabled", False)),
         top_k=int(arb_raw.get("top_k", 5)),
+        max_external_proposals_per_day=int(
+            arb_raw.get("max_external_proposals_per_day", 3)
+        ),
         weights={**MindArbiterConfig().weights, **(arb_raw.get("weights") or {})},
     )
     autonomous_mind_config = AutonomousMindConfig(

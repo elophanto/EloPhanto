@@ -145,6 +145,22 @@ class EmailMonitor:
                 event_message("", EventType.NOTIFICATION, data),
                 session_id=None,
             )
+            # Feed anticipation spine so the mind can propose follow-ups.
+            agent = getattr(self._gateway, "_agent", None)
+            store = getattr(agent, "_ambient_signal_store", None) if agent else None
+            if store is not None:
+                try:
+                    mid = str(msg.get("message_id") or subject)[:80]
+                    await store.ingest(
+                        kind="email",
+                        source="email_monitor",
+                        urgency=0.55,
+                        payload=data,
+                        dedup_key=f"email:{mid}",
+                        subject_ref=sender[:120],
+                    )
+                except Exception as e:
+                    logger.debug("ambient email ingest failed: %s", e)
         else:
             logger.info("New email from %s: %s", sender, subject)
 

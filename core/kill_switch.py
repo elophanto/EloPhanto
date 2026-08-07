@@ -44,6 +44,7 @@ class StopResult:
     already_stopped: bool
     cancelled_goals: int = 0
     disabled_schedules: int = 0
+    killed_interventions: int = 0
 
 
 @dataclass(slots=True, frozen=True)
@@ -115,14 +116,47 @@ async def disable_enabled_schedules(db: Any) -> int:
     return len(rows)
 
 
+async def kill_open_interventions(db: Any) -> int:
+    """Mark proposed/approved ambient interventions as killed. Returns count."""
+    now = datetime.now(UTC).isoformat()
+    rows = await db.execute(
+        "SELECT intervention_id, receipt_json FROM ambient_interventions "
+        "WHERE status IN ('proposed', 'approved')"
+    )
+    if not rows:
+        return 0
+    import json as _json
+
+    for r in rows:
+        try:
+            receipt = _json.loads(r["receipt_json"] or "{}")
+        except Exception:
+            receipt = {}
+        if not isinstance(receipt, dict):
+            receipt = {}
+        receipt["killed_at"] = now
+        receipt["reason"] = "kill_switch"
+        await db.execute_insert(
+            "UPDATE ambient_interventions SET status = 'killed', "
+            "receipt_json = ?, decided_at = COALESCE(decided_at, ?) "
+            "WHERE intervention_id = ?",
+            (_json.dumps(receipt), now, r["intervention_id"]),
+        )
+    return len(rows)
+
+
 async def hard_stop(
     *,
     data_dir: Path,
     db: Any = None,
     cancel_goals: bool = False,
     cancel_schedules: bool = False,
+    kill_interventions: bool = True,
 ) -> StopResult:
     """Write the sentinel + optionally cancel goals / disable schedules.
+
+    Ambient interventions are always swept on hard stop when ``db`` is
+    provided (kill invariant): proposed/approved cannot outlive STOP.
 
     Returns the merged StopResult so the caller can render a single
     confirmation line without re-running the queries.
@@ -130,12 +164,15 @@ async def hard_stop(
     base = write_sentinel(data_dir)
     cg = 0
     cs = 0
+    ki = 0
     if db is not None:
         try:
             if cancel_goals:
                 cg = await cancel_active_goals(db)
             if cancel_schedules:
                 cs = await disable_enabled_schedules(db)
+            if kill_interventions:
+                ki = await kill_open_interventions(db)
         except Exception as e:
             logger.warning("kill_switch DB cancels failed: %s", e)
     return StopResult(
@@ -143,6 +180,7 @@ async def hard_stop(
         already_stopped=base.already_stopped,
         cancelled_goals=cg,
         disabled_schedules=cs,
+        killed_interventions=ki,
     )
 
 

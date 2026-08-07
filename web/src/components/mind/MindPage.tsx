@@ -9,9 +9,11 @@ import {
   StickyNote,
   Activity,
   Settings2,
+  Radar,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useDataStore } from "@/stores/data";
+import { useDataStore, type AmbientStatus } from "@/stores/data";
 import { useConnectionStore } from "@/stores/connection";
 import { Badge } from "@/components/ui/badge";
 import { MindFeed } from "./MindFeed";
@@ -155,6 +157,18 @@ export function MindPage() {
             {/* Right column — status + budget + config + scratchpad + recent actions */}
             <div className="space-y-4 overflow-y-auto pr-1">
               <StatusCard mind={mind} state={state} stateColor={stateColor} />
+              <AnticipationCard
+                ambient={mind.ambient}
+                onDecide={(interventionId, decision) => {
+                  sendMindControl("ambient_decide", {
+                    intervention_id: interventionId,
+                    decision,
+                    operator: "dashboard",
+                  });
+                  setTimeout(fetchMind, 400);
+                }}
+              />
+              <LifeModelCard ambient={mind.ambient} />
               <BudgetCard mind={mind} />
               <ConfigCard mind={mind} />
               {mind.scratchpad && (
@@ -396,6 +410,240 @@ function ActionsCard({
 }
 
 // --- Shared ---
+
+function LifeModelCard({ ambient }: { ambient?: AmbientStatus }) {
+  const household = ambient?.household;
+  const persons = ambient?.persons ?? [];
+  const routines = ambient?.routines ?? [];
+  const calibration = ambient?.calibration ?? [];
+
+  return (
+    <div className="crop-marks overflow-hidden rounded-lg border border-border/50 p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Users className="size-3.5 text-muted-foreground" />
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.15em]">
+            Life model
+          </h3>
+        </div>
+        {household?.timezone && (
+          <span className="font-mono text-[9px] text-muted-foreground/60">
+            {household.timezone}
+          </span>
+        )}
+      </div>
+      {!household ? (
+        <p className="font-mono text-[10px] text-muted-foreground/60">
+          No household yet
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+              Household
+            </span>
+            <p className="mt-0.5 truncate font-mono text-[10px] text-foreground/90">
+              {household.name}
+            </p>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                Persons
+              </span>
+              <span className="font-mono text-[9px] text-muted-foreground/50">
+                {persons.length}
+              </span>
+            </div>
+            {persons.length === 0 ? (
+              <p className="font-mono text-[10px] text-muted-foreground/40">—</p>
+            ) : (
+              <ul className="space-y-1">
+                {persons.slice(0, 4).map((p) => (
+                  <li
+                    key={p.person_id}
+                    className="font-mono text-[10px] text-foreground/85"
+                  >
+                    {p.display_name}
+                    {p.role ? (
+                      <span className="text-muted-foreground/50"> · {p.role}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                Routines
+              </span>
+              <span className="font-mono text-[9px] text-muted-foreground/50">
+                {routines.length}
+              </span>
+            </div>
+            {routines.length === 0 ? (
+              <p className="font-mono text-[10px] text-muted-foreground/40">—</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {routines.slice(0, 5).map((r) => (
+                  <li key={r.routine_id} className="min-w-0">
+                    <p className="truncate font-mono text-[10px] text-foreground/90">
+                      {r.title}
+                    </p>
+                    <p className="font-mono text-[8px] uppercase tracking-[0.08em] text-muted-foreground/60">
+                      {r.window_start || "—"}
+                      {r.window_end ? `–${r.window_end}` : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {calibration.length > 0 && (
+            <div>
+              <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                Calibration
+              </span>
+              <ul className="mt-1 space-y-1">
+                {calibration.slice(0, 4).map((c) => (
+                  <li
+                    key={c.routine_id}
+                    className="font-mono text-[9px] text-muted-foreground/80"
+                  >
+                    n={c.n_labeled}
+                    {c.miss_rate != null
+                      ? ` · miss ${(c.miss_rate * 100).toFixed(0)}%`
+                      : ""}
+                    {c.hist_ready ? " · hist" : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnticipationCard({
+  ambient,
+  onDecide,
+}: {
+  ambient?: AmbientStatus;
+  onDecide: (interventionId: string, decision: "approved" | "denied") => void;
+}) {
+  if (!ambient) {
+    return (
+      <div className="crop-marks overflow-hidden rounded-lg border border-border/50 p-4">
+        <div className="mb-2 flex items-center gap-2">
+          <Radar className="size-3.5 text-muted-foreground" />
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.15em]">
+            Anticipation
+          </h3>
+        </div>
+        <p className="font-mono text-[10px] text-muted-foreground/60">
+          Spine idle — no ambient ledger yet
+        </p>
+      </div>
+    );
+  }
+
+  const buckets: {
+    key: keyof Pick<
+      AmbientStatus,
+      "proposed" | "waiting" | "done" | "ignored"
+    >;
+    label: string;
+  }[] = [
+    { key: "proposed", label: "Proposed" },
+    { key: "waiting", label: "Waiting" },
+    { key: "done", label: "Done" },
+    { key: "ignored", label: "Ignored" },
+  ];
+
+  return (
+    <div className="crop-marks overflow-hidden rounded-lg border border-border/50 p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Radar className="size-3.5 text-muted-foreground" />
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.15em]">
+            Anticipation
+          </h3>
+        </div>
+        <span className="font-mono text-[9px] text-muted-foreground/60">
+          {ambient.daily_proposals}/{ambient.daily_cap} today ·{" "}
+          {ambient.open_signals} signals · {ambient.open_predictions} preds
+        </span>
+      </div>
+      <div className="space-y-3">
+        {buckets.map(({ key, label }) => {
+          const items = ambient[key] || [];
+          return (
+            <div key={key}>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+                  {label}
+                </span>
+                <span className="font-mono text-[9px] text-muted-foreground/50">
+                  {items.length}
+                </span>
+              </div>
+              {items.length === 0 ? (
+                <p className="font-mono text-[10px] text-muted-foreground/40">
+                  —
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {items.slice(0, 4).map((item) => (
+                    <li
+                      key={item.intervention_id}
+                      className="rounded border border-border/30 px-2 py-1.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-[10px] text-foreground/90">
+                            {item.summary || item.intervention_id}
+                          </p>
+                          <p className="mt-0.5 font-mono text-[8px] uppercase tracking-[0.08em] text-muted-foreground/60">
+                            {item.strength} · {item.status}
+                          </p>
+                        </div>
+                        {key === "proposed" && (
+                          <div className="flex shrink-0 gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onDecide(item.intervention_id, "approved")
+                              }
+                              className="rounded px-1.5 py-0.5 font-mono text-[8px] uppercase text-emerald-500 hover:bg-emerald-500/10"
+                            >
+                              Ok
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onDecide(item.intervention_id, "denied")
+                              }
+                              className="rounded px-1.5 py-0.5 font-mono text-[8px] uppercase text-red-400 hover:bg-red-500/10"
+                            >
+                              No
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function Row({
   label,

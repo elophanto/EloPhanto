@@ -461,7 +461,7 @@ class Gateway:
             )
 
     def _webhook_wake(self, payload: dict[str, Any]) -> Any:
-        """POST /hooks/wake — trigger an immediate heartbeat check."""
+        """POST /hooks/wake — ingest ambient signal + trigger heartbeat."""
         from websockets.datastructures import Headers
         from websockets.http11 import Response
 
@@ -475,28 +475,108 @@ class Gateway:
                 body,
             )
 
-        # Inject event into autonomous mind if available
-        event_text = payload.get("event", "External wake trigger received")
+        event_text = str(payload.get("event") or "External wake trigger received")
+        kind = str(payload.get("kind") or "wake").strip() or "wake"
+        source = str(payload.get("source") or "webhook.wake").strip() or "webhook.wake"
+        try:
+            urgency = float(payload.get("urgency", 0.6))
+        except (TypeError, ValueError):
+            body = json.dumps({"error": "urgency must be a number"}).encode()
+            return Response(
+                400, "Bad Request", Headers({"Content-Type": "application/json"}), body
+            )
+        if not (0.0 <= urgency <= 1.0):
+            body = json.dumps({"error": "urgency must be between 0 and 1"}).encode()
+            return Response(
+                400, "Bad Request", Headers({"Content-Type": "application/json"}), body
+            )
+        sig_payload = payload.get("payload")
+        if sig_payload is not None and not isinstance(sig_payload, dict):
+            body = json.dumps({"error": "payload must be an object"}).encode()
+            return Response(
+                400, "Bad Request", Headers({"Content-Type": "application/json"}), body
+            )
+        if not isinstance(sig_payload, dict):
+            sig_payload = {"event": event_text}
+        else:
+            sig_payload = {**sig_payload, "event": event_text}
+
         mind = getattr(self._agent, "_autonomous_mind", None)
         if mind:
             mind.inject_event(f"[WEBHOOK] {event_text}")
 
-        # Schedule heartbeat check on next event loop iteration
-        self._schedule_async(heartbeat._check_and_execute())
+        signal_meta: dict[str, Any] = {
+            "hook": "wake",
+            "event": event_text[:200],
+            "kind": kind,
+        }
+        store = getattr(self._agent, "_ambient_signal_store", None)
+        signal_id: str | None = None
+        ingest_error: str | None = None
 
-        # Broadcast webhook received event
+        async def _ingest() -> str | None:
+            if store is None:
+                return None
+            return await store.ingest(
+                kind=kind,
+                source=source,
+                urgency=urgency,
+                payload=sig_payload,
+                household_id=payload.get("household_id"),
+                subject_ref=payload.get("subject_ref"),
+                dedup_key=payload.get("dedup_key"),
+                expires_at=payload.get("expires_at"),
+            )
+
+        # Await ingest before 200 so callers get signal_id (or a real error).
+        loop = self._loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+        if store is not None and loop is not None and loop.is_running():
+            try:
+                fut = asyncio.run_coroutine_threadsafe(_ingest(), loop)
+                signal_id = fut.result(timeout=5.0)
+                signal_meta["signal_id"] = signal_id
+            except Exception as e:
+                ingest_error = str(e)
+                logger.warning("ambient wake ingest failed: %s", e)
+        elif store is not None:
+            # No running loop (tests) — fire-and-forget best effort.
+            self._schedule_async(_ingest())
+
+        if ingest_error and store is not None:
+            body = json.dumps(
+                {"error": "ambient ingest failed", "detail": ingest_error[:200]}
+            ).encode()
+            return Response(
+                500,
+                "Internal Server Error",
+                Headers({"Content-Type": "application/json"}),
+                body,
+            )
+
         self._schedule_async(
             self.broadcast(
-                event_message(
-                    "",
-                    EventType.WEBHOOK_RECEIVED,
-                    {"hook": "wake", "event": event_text[:200]},
-                ),
+                event_message("", EventType.WEBHOOK_RECEIVED, signal_meta),
                 session_id=None,
             )
         )
+        self._schedule_async(heartbeat._check_and_execute())
 
-        body = json.dumps({"status": "ok", "action": "heartbeat_triggered"}).encode()
+        body = json.dumps(
+            {
+                "status": "ok",
+                "action": "heartbeat_triggered",
+                "ambient": store is not None,
+                "signal_id": signal_id,
+                "kind": kind,
+                "source": source,
+                "urgency": urgency,
+            }
+        ).encode()
         return Response(200, "OK", Headers({"Content-Type": "application/json"}), body)
 
     def _webhook_task(self, payload: dict[str, Any]) -> Any:
@@ -876,6 +956,14 @@ class Gateway:
 
         channel = msg.channel or client.channel or "unknown"
         user_id = msg.user_id or client.user_id or client.client_id
+
+        # Digital presence: operator chat activity → home (never infer leave).
+        try:
+            emit = getattr(self._agent, "emit_operator_presence_home", None)
+            if emit is not None:
+                await emit(source="chat")
+        except Exception:
+            pass
 
         # Update client info
         client.channel = channel
@@ -1422,6 +1510,11 @@ class Gateway:
                 lines.append(
                     f"✅  Disabled {result.disabled_schedules} enabled schedule(s)."
                 )
+            if getattr(result, "killed_interventions", 0):
+                lines.append(
+                    f"✅  Killed {result.killed_interventions} ambient "
+                    "intervention(s)."
+                )
             lines.append("Send `resume` to clear the sentinel.")
             await client.websocket.send(
                 response_message(session_id, "\n".join(lines), done=True).to_json()
@@ -1671,6 +1764,7 @@ class Gateway:
                             "mind_status": {
                                 **status,
                                 "config": config_data,
+                                "ambient": await self._build_ambient_status(),
                             }
                         }
                     )
@@ -1715,6 +1809,36 @@ class Gateway:
             elif action == "stop":
                 await mind.cancel()
                 result = {"ok": True, "message": "Mind stopped"}
+            elif action == "ambient_decide":
+                im = getattr(self._agent, "_ambient_interventions", None)
+                iid = str(args.get("intervention_id") or "").strip()
+                decision = str(args.get("decision") or "").strip()
+                if im is None:
+                    result = {"ok": False, "error": "Ambient interventions unavailable"}
+                elif not iid or decision not in ("approved", "denied"):
+                    result = {
+                        "ok": False,
+                        "error": "intervention_id + decision=approved|denied required",
+                    }
+                else:
+                    receipt = {
+                        "operator": str(args.get("operator") or "dashboard"),
+                    }
+                    if args.get("note"):
+                        receipt["note"] = str(args["note"])[:500]
+                    try:
+                        decided = await im.decide(iid, decision, receipt)
+                    except ValueError as e:
+                        result = {"ok": False, "error": str(e)}
+                    else:
+                        if decided is None:
+                            result = {"ok": False, "error": "not found"}
+                        else:
+                            result = {
+                                "ok": True,
+                                "intervention_id": decided.intervention_id,
+                                "status": decided.status,
+                            }
             else:
                 result["error"] = f"Unknown action: {action}"
 
@@ -3192,6 +3316,120 @@ class Gateway:
         except Exception as e:
             logger.debug("goal_detail failed: %s", e)
         await self._send_json(client, session_id, {"goal_detail": detail})
+
+    async def _build_ambient_status(self) -> dict[str, Any]:
+        """Proposed / waiting / done / ignored buckets for Mind UI."""
+        im = getattr(self._agent, "_ambient_interventions", None)
+        store = getattr(self._agent, "_ambient_signal_store", None)
+        predictor = getattr(self._agent, "_ambient_predictor", None)
+        out: dict[str, Any] = {
+            "proposed": [],
+            "waiting": [],
+            "done": [],
+            "ignored": [],
+            "open_signals": 0,
+            "open_predictions": 0,
+            "daily_proposals": 0,
+            "daily_cap": 3,
+            "household": None,
+            "persons": [],
+            "routines": [],
+            "calibration": [],
+        }
+        cfg = getattr(self._agent, "_config", None)
+        mind_cfg = getattr(cfg, "autonomous_mind", None) if cfg else None
+        arb = getattr(mind_cfg, "arbiter", None) if mind_cfg else None
+        if arb is not None:
+            out["daily_cap"] = int(
+                getattr(arb, "max_external_proposals_per_day", 3) or 3
+            )
+        model = getattr(self._agent, "_ambient_model", None)
+        if model is not None:
+            try:
+                hh = await model.get_primary_household()
+                if hh is not None:
+                    out["household"] = {
+                        "household_id": hh.household_id,
+                        "name": hh.name,
+                        "timezone": hh.timezone,
+                    }
+                    persons = await model.list_persons(hh.household_id)
+                    out["persons"] = [
+                        {
+                            "person_id": p.person_id,
+                            "display_name": p.display_name,
+                            "role": p.role,
+                        }
+                        for p in persons
+                    ]
+                    routines = await model.list_routines(
+                        hh.household_id, status="active"
+                    )
+                    out["routines"] = [
+                        {
+                            "routine_id": r.routine_id,
+                            "title": r.title,
+                            "window_start": r.window_start,
+                            "window_end": r.window_end,
+                            "person_id": r.person_id,
+                            "status": r.status,
+                        }
+                        for r in routines[:20]
+                    ]
+            except Exception as e:
+                logger.debug("ambient life-model status failed: %s", e)
+        if im is None:
+            return out
+
+        def _brief(i: Any) -> dict[str, Any]:
+            proposal = getattr(i, "proposal", {}) or {}
+            summary = ""
+            if isinstance(proposal, dict):
+                summary = str(proposal.get("summary") or "")[:160]
+            return {
+                "intervention_id": i.intervention_id,
+                "strength": i.strength,
+                "status": i.status,
+                "summary": summary,
+                "signal_id": i.signal_id,
+                "prediction_id": i.prediction_id,
+                "created_at": i.created_at,
+                "decided_at": i.decided_at,
+                "executed_at": i.executed_at,
+            }
+
+        try:
+            hh_tz = None
+            if out.get("household"):
+                hh_tz = out["household"].get("timezone")
+            out["proposed"] = [
+                _brief(i) for i in await im.list_by_status("proposed", limit=20)
+            ]
+            out["waiting"] = [
+                _brief(i) for i in await im.list_by_status("approved", limit=20)
+            ]
+            out["done"] = [
+                _brief(i) for i in await im.list_by_status("executed", limit=20)
+            ]
+            denied = await im.list_by_status("denied", limit=10)
+            killed = await im.list_by_status("killed", limit=10)
+            expired = await im.list_by_status("expired", limit=10)
+            out["ignored"] = [_brief(i) for i in (denied + killed + expired)][:20]
+            out["daily_proposals"] = await im.daily_proposal_count(timezone=hh_tz)
+        except Exception as e:
+            logger.debug("ambient status build failed: %s", e)
+        if store is not None:
+            try:
+                out["open_signals"] = len(await store.list_open(limit=50))
+            except Exception:
+                pass
+        if predictor is not None:
+            try:
+                out["open_predictions"] = len(await predictor.list_open(limit=50))
+                out["calibration"] = await predictor.calibration_summary()
+            except Exception:
+                pass
+        return out
 
     async def _build_schedules(self) -> list[dict[str, Any]]:
         """Schedule rows for the web (shared by read + post-mutation refresh)."""

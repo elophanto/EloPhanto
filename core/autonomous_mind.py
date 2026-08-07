@@ -1531,6 +1531,17 @@ class AutonomousMind:
             return None
         return getattr(tool, "_dream_journal", None) if tool is not None else None
 
+    def _instinct_store(self) -> Any:
+        """InstinctStore from the learner, if wired.
+
+        Used by ambient candidate matching. None-safe — generators
+        simply skip instinct boost when missing.
+        """
+        learner = getattr(self._agent, "_learner", None)
+        if learner is None:
+            return None
+        return getattr(learner, "_instinct_store", None)
+
     def _release_role_pin(self) -> None:
         """Drop the per-cycle role mask, if one was set.
 
@@ -2122,6 +2133,15 @@ class AutonomousMind:
             except Exception as e:
                 logger.debug("arbiter: mission map unavailable: %s", e)
 
+        # Ambient anticipation — falsifiable predictions before candidates.
+        predictor = getattr(self._agent, "_ambient_predictor", None)
+        if predictor is not None:
+            try:
+                await predictor.tick()
+                await predictor.resolve_due()
+            except Exception as e:
+                logger.debug("ambient predictor tick failed: %s", e)
+
         ctx = CandidateContext(
             goal_manager=self._agent._goal_manager,
             mission_manager=self._agent._mission_manager,
@@ -2158,6 +2178,18 @@ class AutonomousMind:
             # the top of each wakeup so closed gaps don't keep firing
             # build candidates.
             registry=getattr(self._agent, "_registry", None),
+            signal_store=getattr(self._agent, "_ambient_signal_store", None),
+            instinct_store=self._instinct_store(),
+            predictor=predictor,
+            intervention_manager=getattr(self._agent, "_ambient_interventions", None),
+            max_external_proposals_per_day=int(
+                getattr(
+                    getattr(self._config, "arbiter", None),
+                    "max_external_proposals_per_day",
+                    3,
+                )
+                or 3
+            ),
         )
 
         all_candidates = await collect_all(ctx)

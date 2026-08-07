@@ -620,6 +620,10 @@ class Agent:
         self._identity_manager: Any = None  # IdentityManager, set during initialize
         self._ego_manager: Any = None  # EgoManager, set during initialize
         self._personality_manager: Any = None  # PersonalityManager
+        self._ambient_signal_store: Any = None
+        self._ambient_model: Any = None
+        self._ambient_predictor: Any = None
+        self._ambient_interventions: Any = None
         self._affect_manager: Any = None  # AffectManager, set during initialize
         self._payments_manager: Any = None  # PaymentsManager, set during initialize
         self._email_config: Any = None  # EmailConfig, set during initialize
@@ -1280,6 +1284,79 @@ class Agent:
                     self._inject_personality_deps()
             except Exception as e:
                 logger.warning(f"Ego system setup failed: {e}")
+
+            # Ambient anticipation spine (AIA-useful jobs, operator stage).
+            try:
+                from core.ambient_intervene import InterventionManager
+                from core.ambient_model import AmbientModelManager
+                from core.ambient_predict import AmbientPredictor
+                from core.ambient_signals import AmbientSignalStore
+
+                self._ambient_signal_store = AmbientSignalStore(self._db)
+                self._ambient_model = AmbientModelManager(self._db)
+                self._ambient_interventions = InterventionManager(self._db)
+                self._ambient_predictor = AmbientPredictor(
+                    self._db,
+                    model_manager=self._ambient_model,
+                )
+                # Ensure operator household/person exists (idempotent).
+                from core.company import current_company_id
+
+                rows = await self._db.execute(
+                    "SELECT household_id FROM households WHERE company_id = ? LIMIT 1",
+                    (current_company_id(),),
+                )
+                if rows:
+                    hid = rows[0]["household_id"]
+                else:
+                    import os
+
+                    tz = (
+                        os.environ.get("ELOPHANTO_HOUSEHOLD_TZ")
+                        or os.environ.get("TZ")
+                        or "UTC"
+                    )
+                    hh = await self._ambient_model.create_household(
+                        getattr(self._config, "agent_name", "operator"),
+                        timezone=tz,
+                    )
+                    hid = hh.household_id
+                await self._ambient_model.ensure_household_timezone(hid)
+                await self._ambient_model.ensure_operator_person(
+                    hid,
+                    getattr(self._config, "agent_name", "Operator"),
+                )
+                for _tname in (
+                    "ambient_intervention_list",
+                    "ambient_intervention_decide",
+                    "ambient_intervention_execute",
+                ):
+                    _t = self._registry.get(_tname)
+                    if _t is not None:
+                        _t._intervention_manager = self._ambient_interventions
+                        if _tname == "ambient_intervention_decide":
+                            _t._ego_manager = self._ego_manager
+                for _tname in (
+                    "ambient_presence_report",
+                    "ambient_household_show",
+                    "ambient_household_set_timezone",
+                    "ambient_person_list",
+                    "ambient_person_create",
+                    "ambient_routine_list",
+                    "ambient_routine_create",
+                    "ambient_routine_pause",
+                ):
+                    _t = self._registry.get(_tname)
+                    if _t is not None:
+                        _t._ambient_model = self._ambient_model
+                        if _tname == "ambient_presence_report":
+                            _t._signal_store = self._ambient_signal_store
+                _cal = self._registry.get("ambient_calibration_show")
+                if _cal is not None:
+                    _cal._ambient_predictor = self._ambient_predictor
+                logger.info("Ambient anticipation spine ready")
+            except Exception as e:
+                logger.warning("Ambient anticipation setup failed: %s", e)
 
             # Affect — state-level emotion, sister to ego (trait-level).
             # Decays toward zero on the order of minutes-to-hours; colors
@@ -4815,13 +4892,65 @@ class Agent:
                     goal[:200].replace("\n", " "),
                 )
 
+    async def emit_operator_presence_home(self, *, source: str = "activity") -> None:
+        """Low-urgency digital 'home' presence from operator activity.
+
+        Leave is never inferred from silence — only arrive/home here.
+        Deduped so chat spam does not flood the signal inbox.
+        """
+        store = self._ambient_signal_store
+        model = self._ambient_model
+        if store is None or model is None:
+            return
+        try:
+            hh = await model.get_primary_household()
+            if hh is None:
+                return
+            persons = await model.list_persons(hh.household_id)
+            op = next((p for p in persons if p.role == "operator"), None)
+            if op is None:
+                return
+            await store.ingest(
+                kind="presence",
+                source=f"operator_activity.{source}",
+                urgency=0.35,
+                payload={
+                    "transition": "home",
+                    "person_id": op.person_id,
+                    "source": source,
+                },
+                household_id=hh.household_id,
+                subject_ref=op.person_id,
+                dedup_key=f"presence:{op.person_id}:home:activity",
+            )
+        except Exception as e:
+            logger.debug("operator presence home emit failed: %s", e)
+
     async def _notify_scheduled_result(
         self, task_name: str, status: str, result: str
     ) -> None:
         """Push scheduled task result to connected channels.
 
         Gateway mode: broadcast NOTIFICATION event to all connected clients.
+        Failures also feed the ambient anticipation spine.
         """
+        if status == "failed" and self._ambient_signal_store is not None:
+            try:
+                await self._ambient_signal_store.ingest(
+                    kind="schedule_fail",
+                    source="scheduler",
+                    urgency=0.7,
+                    payload={
+                        "task_name": task_name,
+                        "status": status,
+                        "result": (result or "")[:500],
+                    },
+                    dedup_key=f"schedule_fail:{task_name}:{status}",
+                    subject_ref=task_name[:120],
+                )
+            except Exception as e:
+                logger.debug("ambient schedule_fail ingest failed: %s", e)
+
         if self._gateway:
             from core.protocol import EventType, event_message
 

@@ -482,6 +482,151 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_nuclear_scenes_company_status
         ON nuclear_scenes(company_id, status)
     """,
+    # Ambient anticipation spine (AIA-useful jobs, operator stage).
+    # Signals feed from_external_signals; predictions/interventions are
+    # propose→confirm. See core/ambient_*.py.
+    """
+    CREATE TABLE IF NOT EXISTS ambient_signals (
+        signal_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        household_id TEXT,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        subject_ref TEXT,
+        urgency REAL NOT NULL DEFAULT 0.5,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'open'
+            CHECK (status IN ('open','consumed','expired','suppressed')),
+        dedup_key TEXT,
+        received_at TEXT NOT NULL,
+        expires_at TEXT,
+        consumed_at TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ambient_signals_open
+        ON ambient_signals(company_id, status, urgency DESC, received_at)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ambient_signals_dedup
+        ON ambient_signals(company_id, dedup_key, status)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS households (
+        household_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        name TEXT NOT NULL,
+        timezone TEXT NOT NULL DEFAULT 'UTC',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS persons (
+        person_id TEXT PRIMARY KEY,
+        household_id TEXT NOT NULL,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        display_name TEXT NOT NULL,
+        role TEXT,
+        channel_refs_json TEXT NOT NULL DEFAULT '[]',
+        consent_json TEXT NOT NULL DEFAULT '{}',
+        prefs_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_persons_household
+        ON persons(household_id, company_id)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS places (
+        place_id TEXT PRIMARY KEY,
+        household_id TEXT NOT NULL,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        name TEXT NOT NULL,
+        kind TEXT,
+        attrs_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS routines (
+        routine_id TEXT PRIMARY KEY,
+        household_id TEXT NOT NULL,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        person_id TEXT,
+        title TEXT NOT NULL,
+        rrule TEXT,
+        window_start TEXT,
+        window_end TEXT,
+        place_id TEXT,
+        signal_kinds_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active','paused','retired')),
+        attrs_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_routines_active
+        ON routines(company_id, household_id, status)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ambient_predictions (
+        prediction_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        household_id TEXT,
+        routine_id TEXT,
+        person_id TEXT,
+        claim TEXT NOT NULL,
+        claim_type TEXT NOT NULL,
+        p_hat REAL NOT NULL,
+        model TEXT NOT NULL,
+        features_json TEXT NOT NULL DEFAULT '{}',
+        evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+        resolve_by TEXT NOT NULL,
+        outcome TEXT,
+        resolved_at TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ambient_predictions_open
+        ON ambient_predictions(company_id, outcome, resolve_by)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ambient_interventions (
+        intervention_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        household_id TEXT,
+        prediction_id TEXT,
+        signal_id TEXT,
+        person_id TEXT,
+        strength TEXT NOT NULL
+            CHECK (strength IN ('observe','nudge','act','escalate')),
+        channel TEXT NOT NULL,
+        proposal_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'proposed'
+            CHECK (status IN (
+                'proposed','approved','denied','executed','expired','killed'
+            )),
+        receipt_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        executed_at TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ambient_interventions_status
+        ON ambient_interventions(company_id, status, created_at)
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ambient_interventions_prediction
+        ON ambient_interventions(company_id, prediction_id)
+        WHERE prediction_id IS NOT NULL
+    """,
     """
     CREATE TABLE IF NOT EXISTS identity_evolution (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
