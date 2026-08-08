@@ -26,7 +26,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 04 | [Self-Development Pipeline](04-SELF-DEVELOPMENT.md) | How agent builds and tests new capabilities |
 | 05 | [Knowledge System](05-KNOWLEDGE-SYSTEM.md) | Markdown knowledge base, indexing, retrieval, self-documentation |
 | 06 | [LLM Routing](06-LLM-ROUTING.md) | Multi-model strategy, provider config, cost management |
-| 07 | [Security Architecture](07-SECURITY.md) | Vault, permissions, credential isolation, threat model |
+| 07 | [Security Architecture](07-SECURITY.md) | Vault, permission modes (`ask_always` → `nuclear`), overrides, credential isolation, threat model |
 | 08 | [Browser Automation](08-BROWSER.md) | Node.js bridge, Playwright + stealth, profile mode, 47 browser tools, iframe extraction, editor detection |
 | 09 | [Project Structure](09-PROJECT-STRUCTURE.md) | Directory layout, tech stack, database schema, dependencies |
 | 10 | [Implementation Roadmap](10-ROADMAP.md) | 23-phase build plan with exit criteria for each phase |

@@ -192,7 +192,7 @@ Telegram bots support slash commands with autocomplete. EloPhanto registers thes
 | `/approve` | Approve the most recent pending action |
 | `/deny` | Deny the most recent pending action |
 | `/plugins` | List current capabilities |
-| `/mode` | Show/change permission mode (ask/smart/auto) |
+| `/mode` | Show/change permission mode (`ask_always` / `smart_auto` / `full_auto` / `nuclear`) |
 | `/budget` | Show today's LLM spending |
 | `/stop` | Pause the agent (stops all tasks) |
 | `/resume` | Resume the agent |

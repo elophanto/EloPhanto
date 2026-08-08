@@ -715,8 +715,9 @@ class EgoConfig:
     That is deliberate, but it must be escapable: an operator who set
     ``full_auto`` and is then prompted for every browser click needs a way to
     say "I meant it" without editing code. Set ``soft_gate: false`` to make
-    ``full_auto`` mean exactly what it says. CRITICAL tools still always ask —
-    that gate is not negotiable.
+    ``full_auto`` mean exactly what it says for MODERATE tools. CRITICAL tools
+    still always ask under ``full_auto``. Use ``permission_mode: nuclear`` if
+    CRITICAL must also auto-run (browser_eval, wallet, trust promotion, …).
     """
 
     soft_gate: bool = True

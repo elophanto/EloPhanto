@@ -17,7 +17,7 @@ EloPhanto is a layered system with five tiers.
 
 ## Permission & Safety Layer
 
-Three permission modes (ask_always, smart_auto, full_auto) with per-tool overrides via `permissions.yaml`. Protected files system prevents modification of safety-critical code (core/executor.py, core/vault.py, etc.). Database-backed approval queue survives restarts and works across CLI and Telegram.
+Four permission modes (ask_always, smart_auto, full_auto, nuclear) with per-tool overrides via `permissions.yaml`. `full_auto` still asks for CRITICAL tools; `nuclear` skips CRITICAL prompts too (only `tool_overrides: ask` forces a prompt). Protected files system prevents modification of safety-critical code (core/executor.py, core/vault.py, etc.). Database-backed approval queue survives restarts and works across CLI and Telegram.
 
 ## Self-Development Layer
 

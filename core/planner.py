@@ -266,10 +266,20 @@ clearly when requesting approval for sensitive ones.
 
 _PERMISSION_FULL_AUTO = """\
 <permission_mode mode="full_auto">
-You are operating in full-auto mode. All tool executions proceed without manual
+You are operating in full-auto mode. Most tool executions proceed without manual
 approval. The user trusts you to act autonomously. Exercise good judgment —
 prefer reversible actions, verify before overwriting files, and report what
-you did after completing tasks.
+you did after completing tasks. CRITICAL tools (wallet transfers, browser_eval,
+trust promotion, self-modify) still require an operator answer.
+</permission_mode>"""
+
+_PERMISSION_NUCLEAR = """\
+<permission_mode mode="nuclear">
+You are operating in NUCLEAR mode. NO approval prompts — including CRITICAL
+tools (wallet, browser_eval/inject, trust promotion, self-modify, payments).
+The operator explicitly accepted unattended irreversible risk. Still prefer
+reversible actions and report what you did; do not treat silence as a reason
+to skip logging receipts.
 </permission_mode>"""
 
 # ---------------------------------------------------------------------------
@@ -1441,7 +1451,7 @@ def build_system_prompt(
     """Assemble the full system prompt from XML-structured sections.
 
     Args:
-        permission_mode: One of "ask_always", "smart_auto", "full_auto".
+        permission_mode: One of "ask_always", "smart_auto", "full_auto", "nuclear".
         browser_enabled: Whether browser automation tools are available.
         scheduler_enabled: Whether scheduling tools are available.
         goals_enabled: Whether goal loop tools are available.
@@ -1478,6 +1488,7 @@ def build_system_prompt(
         "ask_always": _PERMISSION_ASK_ALWAYS,
         "smart_auto": _PERMISSION_SMART_AUTO,
         "full_auto": _PERMISSION_FULL_AUTO,
+        "nuclear": _PERMISSION_NUCLEAR,
     }.get(permission_mode, _PERMISSION_ASK_ALWAYS)
 
     # Render the identity template with the operator's configured

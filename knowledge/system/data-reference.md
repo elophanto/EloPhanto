@@ -143,7 +143,7 @@ Payments Manager (financial operations)
          ▼
 Approval System (permission control)
     ├── Tool risk levels: safe, moderate, destructive, critical
-    ├── Permission modes: ask_always, smart_auto, auto_approve
+    ├── Permission modes: ask_always, smart_auto, full_auto, nuclear
     ├── Approval queue: persists across restarts (database-backed)
     └── Multi-channel routing: approval request → correct client → response
          │

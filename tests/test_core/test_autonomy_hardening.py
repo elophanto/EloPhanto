@@ -158,6 +158,53 @@ class TestCriticalAlwaysAsk:
         assert ok is False
         assert asked == ["crypto_transfer"]
 
+    @pytest.mark.asyncio
+    async def test_nuclear_skips_critical(self) -> None:
+        from core.config import Config
+        from core.executor import Executor
+
+        asked: list[str] = []
+
+        async def _cb(name: str, desc: str, params: dict) -> bool:
+            asked.append(name)
+            return False
+
+        cfg = Config(permission_mode="nuclear")
+        ex = Executor(config=cfg, registry=MagicMock())
+        ex.set_approval_callback(_cb)
+
+        tool = MagicMock()
+        tool.name = "browser_eval"
+        tool.permission_level = PermissionLevel.CRITICAL
+
+        ok = await ex._check_permission(tool, {"expression": "1+1"})
+        assert ok is True
+        assert asked == []
+
+    @pytest.mark.asyncio
+    async def test_nuclear_still_honors_tool_override_ask(self) -> None:
+        from core.config import Config
+        from core.executor import Executor
+
+        asked: list[str] = []
+
+        async def _cb(name: str, desc: str, params: dict) -> bool:
+            asked.append(name)
+            return False
+
+        cfg = Config(permission_mode="nuclear")
+        ex = Executor(config=cfg, registry=MagicMock())
+        ex.set_approval_callback(_cb)
+        ex._tool_overrides = {"browser_eval": "ask"}
+
+        tool = MagicMock()
+        tool.name = "browser_eval"
+        tool.permission_level = PermissionLevel.CRITICAL
+
+        ok = await ex._check_permission(tool, {"expression": "1+1"})
+        assert ok is False
+        assert asked == ["browser_eval"]
+
 
 class TestBudgetPaused:
     @pytest.mark.asyncio

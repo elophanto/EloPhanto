@@ -662,11 +662,16 @@ def _edit_permissions(config: dict) -> None:
     console.print(
         "  [dim]smart_auto[/dim]  — Safe actions auto-approve, risky ones ask"
     )
-    console.print("  [dim]full_auto[/dim]   — Everything runs with logging only")
+    console.print(
+        "  [dim]full_auto[/dim]   — Auto except CRITICAL (wallet, browser_eval, …)"
+    )
+    console.print(
+        "  [dim]nuclear[/dim]     — No approval prompts at all (CRITICAL included)"
+    )
     current = config.get("agent", {}).get("permission_mode", "ask_always")
     mode = Prompt.ask(
         "  Select mode",
-        choices=["ask_always", "smart_auto", "full_auto"],
+        choices=["ask_always", "smart_auto", "full_auto", "nuclear"],
         default=current,
     )
     config.setdefault("agent", {})["permission_mode"] = mode

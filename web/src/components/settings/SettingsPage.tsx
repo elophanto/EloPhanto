@@ -43,7 +43,7 @@ const PROVIDER_VAULT_KEY: Record<string, string> = {
   kimi: "kimi_api_key",
 };
 
-const PERMISSION_MODES = ["ask_always", "smart_auto", "full_auto"] as const;
+const PERMISSION_MODES = ["ask_always", "smart_auto", "full_auto", "nuclear"] as const;
 
 const PROVIDER_DEFAULT_MODELS: Record<string, string[]> = {
   openrouter: ["openrouter/hunter-alpha"],

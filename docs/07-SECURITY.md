@@ -297,18 +297,42 @@ Protection is enforced at the tool level: `file_write`, `file_delete`, `file_mov
 
 ## Configurable Permissions
 
+### Permission modes
+
+Set `agent.permission_mode` in `config.yaml` (also via Settings UI, Telegram
+`/mode`, or the init wizard):
+
+| Mode | Behavior |
+|------|----------|
+| `ask_always` | Every non-SAFE tool asks for approval |
+| `smart_auto` | Safe / known-safe shell auto; risky tools ask |
+| `full_auto` | MODERATE/DESTRUCTIVE auto; **CRITICAL still asks** |
+| `nuclear` | **No approval prompts**, including CRITICAL (`browser_eval`, wallet, trust promotion, self-modify, …) |
+
+`nuclear` is the explicit operator opt-out of the CRITICAL always-ask gate.
+Spending limits and role / trust-ladder denials still apply; only the
+executor approval prompt is skipped. Use on purpose.
+
+### Per-tool overrides
+
 Per-tool permission overrides are defined in `permissions.yaml` at the project root:
 
 ```yaml
 tool_overrides:
-  shell_execute: ask      # always require approval, even in full_auto
+  shell_execute: ask      # always require approval, even in full_auto / nuclear
   file_delete: ask        # always require approval
   browser_type: default   # follow global permission_mode
 
 disabled_tools: []        # completely disable specific tools
 ```
 
-Override values: `auto` (always approve), `ask` (always require approval), `default` (follow global mode). This allows fine-grained control beyond the three-tier permission system.
+Override values:
+
+- `auto` — always approve (CRITICAL still asks unless mode is `nuclear`)
+- `ask` — always require approval (**survives `nuclear`**)
+- `default` — follow global mode
+
+This allows fine-grained control beyond the four permission modes.
 
 ## Approval Queue Persistence
 

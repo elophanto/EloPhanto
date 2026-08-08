@@ -223,7 +223,7 @@ The bridge exposes 48 browser tools from `AwareBrowserAgent`. Key categories:
 | `browser_get_storage` | localStorage and sessionStorage |
 | `browser_get_console` | Captured console logs |
 | `browser_get_network` | Network request/response log |
-| `browser_eval` | Execute JavaScript in page context |
+| `browser_eval` | Execute JavaScript in page context (**CRITICAL** — asks under `full_auto`; auto under `nuclear`) |
 | `browser_full_audit` | Deep inspect + scripts + storage + meta in one call |
 
 ## Element Interaction

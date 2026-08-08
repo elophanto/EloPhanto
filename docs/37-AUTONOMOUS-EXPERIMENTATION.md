@@ -122,7 +122,7 @@ Successful experiments are distilled into knowledge entries. "Caching provider c
 
 No new configuration is required. The skill uses existing config:
 
-- `agent.permission_mode: full_auto` — recommended for unattended experimentation
+- `agent.permission_mode: full_auto` — recommended for unattended experimentation (CRITICAL tools like `browser_eval` still ask; use `nuclear` only if you accept that risk)
 - `autonomous_mind.enabled: true` — required for background experiment loops
 - `goals.enabled: true` — recommended for tracking experiment sessions
 

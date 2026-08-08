@@ -428,7 +428,8 @@ Higgins `ideal_self` / `ought_self`, `proud_of`, `embarrassed_by`, `aspiration`,
 `should_attempt(capability)` returns `yes` / `ask` / `decline`. The executor
 **soft-gates** MODERATE tools: under `full_auto`, `ask`/`decline` still forces
 an approval callback. Active caution rules force at least `ask`. CRITICAL tools
-always ask regardless.
+still always ask under `full_auto` (and under per-tool `auto`); only
+`permission_mode: nuclear` skips CRITICAL prompts (see [07-SECURITY](07-SECURITY.md)).
 
 The verdict is a margin: `confidence − difficulty`, where `>= 0.15` is `yes`,
 `>= -0.15` is `ask`, below that is `decline`. Difficulty is raised for risky
@@ -445,12 +446,17 @@ deliberate caution from a broken permission mode will reasonably assume the
 latter.
 
 **Override.** Set `ego.soft_gate: false` in `config.yaml` to make `full_auto`
-mean exactly that. CRITICAL tools still always ask — that gate is not
-negotiable.
+mean that for MODERATE tools. CRITICAL tools still always ask under
+`full_auto`. Use `permission_mode: nuclear` if CRITICAL must also auto-run
+(`browser_eval`, wallet, trust promotion, …). Only `tool_overrides: ask`
+still forces a prompt under nuclear.
 
 ```yaml
 ego:
   soft_gate: false   # default true
+
+agent:
+  permission_mode: nuclear   # optional — skips CRITICAL approvals too
 ```
 
 ### Recency

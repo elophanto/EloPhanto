@@ -494,13 +494,17 @@ class Executor:
             approval_callback: Per-call override for the instance-level callback.
                 Used by gateway to route approvals to the correct channel session.
 
-        CRITICAL tools always require approval even in ``full_auto`` —
-        wallet/self-mod/swap must never auto-fire unattended.
+        CRITICAL tools always require approval under ``full_auto`` —
+        wallet/self-mod/swap must never auto-fire unattended there.
+        ``nuclear`` is the explicit escape hatch: no approval prompts
+        at all (CRITICAL included). Only ``tool_overrides: ask`` still
+        forces a prompt.
         """
         import inspect
 
         callback = approval_callback or self._approval_callback
         override = self._tool_overrides.get(tool.name)
+        mode = self._config.permission_mode
 
         async def _ask(reason: str = "") -> bool:
             if not callback:
@@ -517,14 +521,21 @@ class Executor:
                 return bool(await result)
             return bool(result)
 
+        # Explicit per-tool ask is the only hard stop that survives nuclear.
+        if override == "ask":
+            return await _ask()
+
+        # nuclear: operator opted out of ALL approval prompts, including
+        # CRITICAL (browser_eval, wallet, trust promotion, etc.).
+        if mode == "nuclear":
+            return True
+
         if override == "auto":
             # Explicit per-tool auto still wins — except CRITICAL, which
-            # is never auto regardless of override / mode.
+            # is never auto under non-nuclear modes.
             if tool.permission_level == PermissionLevel.CRITICAL:
                 return await _ask()
             return True
-        if override == "ask":
-            return await _ask()
 
         # SAFE tools always run.
         if tool.permission_level == PermissionLevel.SAFE:
@@ -537,9 +548,7 @@ class Executor:
         # Ego soft-gate: when confidence says decline (or caution rule
         # forces ask), require approval even in full_auto. This is the
         # behavioral proof that shame changes what the agent attempts.
-        soft_gate_on = getattr(
-            getattr(self._config, "ego", None), "soft_gate", True
-        )
+        soft_gate_on = getattr(getattr(self._config, "ego", None), "soft_gate", True)
         if (
             soft_gate_on
             and self._ego_manager is not None
@@ -567,7 +576,7 @@ class Executor:
                 reason = (
                     f"⚑ Ego gate ({verdict}): '{capability}' confidence "
                     f"{conf:.2f} vs difficulty {difficulty:.2f}. Asking despite "
-                    f"{self._config.permission_mode}. "
+                    f"{mode}. "
                     f"Confidence rises ~0.05 per success; set "
                     f"ego.soft_gate: false in config.yaml to disable this gate."
                 )
@@ -581,7 +590,7 @@ class Executor:
                         difficulty,
                     )
                     return await _ask(reason)
-                if verdict == "ask" and self._config.permission_mode == "full_auto":
+                if verdict == "ask" and mode == "full_auto":
                     logger.info(
                         "Ego soft-gate: ask on %s (%s, conf=%.2f vs %.2f) "
                         "— overriding full_auto",
@@ -594,10 +603,10 @@ class Executor:
             except Exception as e:
                 logger.debug("Ego soft-gate skipped: %s", e)
 
-        if self._config.permission_mode == "full_auto":
+        if mode == "full_auto":
             return True
 
-        if self._config.permission_mode == "smart_auto":
+        if mode == "smart_auto":
             if tool.name == "shell_execute" and hasattr(tool, "is_safe_command"):
                 if tool.is_safe_command(params.get("command", "")):
                     return True

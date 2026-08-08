@@ -215,8 +215,8 @@ All MCP tools go through EloPhanto's standard permission system. The permission 
 |-------|----------|----------|
 | `safe` | Auto-approved | Read-only MCP servers (filesystem read, search) |
 | `moderate` | Asks in `ask_always` and `smart_auto` modes | **Default** — most MCP servers |
-| `destructive` | Always asks unless `full_auto` | Servers that write data (DB, GitHub) |
-| `critical` | Always asks | Servers with irreversible actions |
+| `destructive` | Always asks unless `full_auto` or `nuclear` | Servers that write data (DB, GitHub) |
+| `critical` | Always asks unless `nuclear` | Servers with irreversible actions |
 
 Example:
 

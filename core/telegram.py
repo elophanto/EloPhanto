@@ -167,14 +167,19 @@ class TelegramAdapter:
             if not self._is_authorized(message.from_user.id):
                 return
             args = message.text.split(maxsplit=1)
-            if len(args) > 1 and args[1] in ("ask_always", "smart_auto", "full_auto"):
+            if len(args) > 1 and args[1] in (
+                "ask_always",
+                "smart_auto",
+                "full_auto",
+                "nuclear",
+            ):
                 self._agent._config.permission_mode = args[1]
                 await message.answer(f"Permission mode changed to: {args[1]}")
             else:
                 mode = self._agent._config.permission_mode
                 await message.answer(
                     f"Current mode: {mode}\n"
-                    "Change with: /mode ask_always|smart_auto|full_auto"
+                    "Change with: /mode ask_always|smart_auto|full_auto|nuclear"
                 )
 
         @self._dp.message(Command("budget"))

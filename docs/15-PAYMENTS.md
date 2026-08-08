@@ -20,7 +20,7 @@ Both rails integrate with EloPhanto's existing permission system — every trans
 - **Agent gets its own wallet** — Like a prepaid card: user funds it, agent spends within limits. User's main wallet is never exposed.
 - **Dual wallet providers** — Local self-custody (default, zero config) or Coinbase CDP (optional, managed custody with gasless + swaps)
 - **Private keys secured** — Local wallet stores encrypted key in vault (Fernet + PBKDF2). CDP manages keys server-side.
-- **Always require approval for real transactions** — Even in `full_auto` mode, payments above threshold require explicit user consent
+- **Always require approval for real transactions under `full_auto`** — CRITICAL payment tools still prompt; use `permission_mode: nuclear` only if you accept unattended wallet risk. Spending limits still refuse over-limit amounts.
 - **Audit everything** — Every transaction logged with full context (who requested, why, approval chain, result)
 - **Credentials in vault** — Payment API keys and tokens stored encrypted, retrieved at execution time, never in LLM context
 - **Multi-channel approval** — Approve a $500 purchase from Telegram while the agent runs on your desktop
@@ -342,7 +342,10 @@ On first startup, a Solana keypair is generated and stored encrypted in the vaul
 | `invoice_pay` | CRITICAL | Parse + pay invoice (compound action) |
 | `payment_history` | SAFE | Query transaction history and receipts |
 
-All CRITICAL tools require explicit user approval regardless of permission mode.
+All CRITICAL tools require explicit user approval under `ask_always` /
+`smart_auto` / `full_auto`. Under `permission_mode: nuclear`, the executor
+skips those CRITICAL approval prompts too (only `tool_overrides: ask` still
+forces a prompt). Spending limits still refuse over-limit amounts.
 
 ### Tool Implementation Pattern
 
@@ -399,7 +402,10 @@ Configurable limits prevent runaway spending:
 | **Monthly** | $5,000 | Calendar month |
 | **Per-merchant** | $200 | Single recipient per day |
 
-Transactions exceeding any limit are **always** held for approval, even in `full_auto` mode.
+Transactions exceeding any limit are **always** refused by the spending-limit
+checker. Under `full_auto`, CRITICAL payment tools still also require an
+operator approval prompt; under `nuclear` that prompt is skipped, but the
+limit refusal still applies.
 
 ### Approval Tiers
 

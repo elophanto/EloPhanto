@@ -484,7 +484,8 @@ File analysis respects the existing permission tiers:
 
 - `ask_always`: Confirm before processing each file
 - `smart_auto`: Auto-approve for read-only analysis, ask for collection creation
-- `full_auto`: Everything auto-approved
+- `full_auto`: Non-CRITICAL auto-approved; CRITICAL still asks
+- `nuclear`: Everything auto-approved, including CRITICAL
 
 ---
 

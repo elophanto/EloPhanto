@@ -2925,7 +2925,7 @@ class Gateway:
 
             if "permission_mode" in args:
                 mode = str(args["permission_mode"])
-                if mode in ("ask_always", "smart_auto", "full_auto"):
+                if mode in ("ask_always", "smart_auto", "full_auto", "nuclear"):
                     config.permission_mode = mode
                     changed.append("permission_mode")
 

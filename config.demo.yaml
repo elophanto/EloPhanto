@@ -8,7 +8,7 @@
 
 agent:
   name: EloPhanto
-  permission_mode: full_auto              # ask_always | smart_auto | full_auto
+  permission_mode: full_auto              # ask_always | smart_auto | full_auto | nuclear
   workspace: ~/agents/elophanto           # ← change to where you want artifacts saved
 
 llm:
@@ -368,8 +368,9 @@ affect:
 # needs ~4 clean successes to clear the gate. The approval prompt names the
 # capability, its confidence and the difficulty, so you can see why it fired.
 #
-# Set false to make full_auto mean exactly that. CRITICAL tools always ask
-# regardless — that gate is not negotiable. See docs/17-IDENTITY.md.
+# Set false to make full_auto mean exactly that for MODERATE tools. CRITICAL
+# tools still always ask under full_auto. Use permission_mode: nuclear to also
+# skip CRITICAL prompts. See docs/17-IDENTITY.md.
 ego:
   soft_gate: true
 

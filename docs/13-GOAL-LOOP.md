@@ -23,7 +23,7 @@ This pairs with the metabolism signal (the `[COMPANY]` state line shows net incl
 | **Approval pause-not-deny** | Timeout → re-ping once → goal/checkpoint `awaiting_approval`. Never silent deny, never soft-auto-approve. Operator yes resumes the same checkpoint. See `core/approval_wait.py`. |
 | **Kill criterion evaluation** | After checkpoint success/fail and on validate failure, numeric evidence (tool/SoR counts + age) can cancel the goal. Short `[kill_grace]` window allows undo. |
 | **Tool-grounded receipts** | `verify_checkpoint_receipt` must pass before `mark_checkpoint_complete`. Quantitative claims with empty tool trail fail closed. |
-| **CRITICAL always-ask** | Even `full_auto` / per-tool `auto` cannot skip `PermissionLevel.CRITICAL`. |
+| **CRITICAL always-ask** | Under `full_auto` / per-tool `auto`, `PermissionLevel.CRITICAL` still asks. Use `permission_mode: nuclear` to skip CRITICAL prompts too (only `tool_overrides: ask` still forces a prompt). |
 | **`budget_paused`** | Cost/time/LLM budget hits snapshot limits into context; resume only when a limit is **explicitly raised**. |
 | **Instinct extract** | After a receipt-gated complete, optional few-shot instinct candidates (never force-applied). |
 
