@@ -84,10 +84,12 @@ class ExecutionContext:
     Fields:
         source: Who initiated this work.
         in_agent_loop: True iff the AGENT_LOOP resource semaphore is
-            already held by this asyncio task (or a parent that
-            transferred via ``copy_context``). Used by ``agent.run``
+            already held by this asyncio task. Used by ``agent.run``
             to skip the reacquire and avoid self-deadlock when
-            ``run_isolated`` nests under an active loop.
+            ``run_isolated`` nests under an active loop. Background
+            tasks started via ``asyncio.create_task`` inherit this flag
+            (ContextVars are copied) — callers that spawn GoalRunner /
+            similar MUST force ``in_agent_loop=False`` at task entry.
         depth: Reentrance counter. 0 = top-level entry. Incremented
             on each nested ``execution_context`` block. Diagnostic
             only — no behavior depends on it. Useful for debug logs

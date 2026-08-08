@@ -24,6 +24,9 @@ This pairs with the metabolism signal (the `[COMPANY]` state line shows net incl
 | **Kill criterion evaluation** | After checkpoint success/fail and on validate failure, numeric evidence (tool/SoR counts + age) can cancel the goal. Short `[kill_grace]` window allows undo. |
 | **Tool-grounded receipts** | `verify_checkpoint_receipt` must pass before `mark_checkpoint_complete`. Quantitative claims with empty tool trail fail closed. |
 | **CRITICAL always-ask** | Under `full_auto` / per-tool `auto`, `PermissionLevel.CRITICAL` still asks. Use `permission_mode: nuclear` to skip CRITICAL prompts too (only `tool_overrides: ask` still forces a prompt). |
+| **GoalRunner context isolation** | `start_goal` clears inherited `in_agent_loop` so background goal work cannot skip `AGENT_LOOP` and run concurrent with Mind (2026-08-08 hang). |
+| **AGENT_LOOP hold ceiling** | `agent.max_agent_loop_seconds` (default 7200) cancels a wedged holder so REL always fires; chat cannot block forever behind a hung cycle. |
+| **revise_plan reactivates** | If a goal was marked `completed` and revise adds pending checkpoints, status returns to `active`. |
 | **`budget_paused`** | Cost/time/LLM budget hits snapshot limits into context; resume only when a limit is **explicitly raised**. |
 | **Instinct extract** | After a receipt-gated complete, optional few-shot instinct candidates (never force-applied). |
 

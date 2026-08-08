@@ -104,10 +104,33 @@ class GoalRunner:
 
         self._stop_requested = False
         self._current_goal_id = goal_id
+        # MUST go through _run_goal_loop_entry — see that method for why
+        # we cannot create_task(_run_goal_loop) directly.
         self._current_task = asyncio.create_task(
-            self._run_goal_loop(goal_id), name=f"goal-{goal_id[:8]}"
+            self._run_goal_loop_entry(goal_id), name=f"goal-{goal_id[:8]}"
         )
         return True
+
+    async def _run_goal_loop_entry(self, goal_id: str) -> None:
+        """Isolate GoalRunner from the caller's ExecutionContext.
+
+        ``asyncio.create_task`` copies ContextVars into the child task.
+        When ``start_goal`` is invoked from a tool call inside a Mind
+        (or User) agent loop, ``in_agent_loop=True`` leaks into this
+        background task. ``agent.submit_task`` then skips AGENT_LOOP
+        acquire and runs a *concurrent* agent loop on the same Agent
+        while the outer Mind cycle still holds the slot.
+
+        Observed 2026-08-08: MIND ACQ at 14:32 never emitted REL;
+        GoalRunner nested checkpoint work for ~80 minutes; USER chat
+        blocked forever on ``WAIT in_use=1``. Forcing
+        ``in_agent_loop=False`` here makes GoalRunner wait for a real
+        AGENT_LOOP lease instead of piggy-backing the parent's.
+        """
+        from core.execution_context import TaskSource, execution_context
+
+        with execution_context(source=TaskSource.GOAL, in_agent_loop=False):
+            await self._run_goal_loop(goal_id)
 
     async def pause(self) -> None:
         """Request the current goal to pause after the current checkpoint."""

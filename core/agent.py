@@ -34,10 +34,14 @@ if TYPE_CHECKING:
 # loop. Re-entrant calls (e.g. ``run_isolated`` invoked by the in-process
 # ``delegate`` tool from inside a tool execution) must NOT try to
 # re-acquire AGENT_LOOP — they already hold it transitively. Without
-# this, the second acquire deadlocks against the first. Contextvars
-# scope to the current asyncio task and propagate to awaited inner
-# coroutines but not to ``asyncio.create_task`` children unless
-# explicitly copied — exactly the semantics we want.
+# this, the second acquire deadlocks against the first.
+#
+# Contextvars propagate to awaited coroutines AND are copied into
+# ``asyncio.create_task`` children (Python 3.7+). Background tasks
+# started from inside an agent loop (GoalRunner via start_goal) MUST
+# clear ``in_agent_loop`` at entry — see
+# ``GoalRunner._run_goal_loop_entry``. Leaking True lets the child skip
+# AGENT_LOOP acquire and run a concurrent loop on the same Agent.
 # Legacy contextvar — kept as a thin shim around the unified
 # ExecutionContext in core/execution_context.py. New code should read
 # ``current_context().in_agent_loop`` directly; this alias survives
@@ -3143,13 +3147,32 @@ class Agent:
                         self._resources, priority=TaskPriority.USER.value
                     ):
                         try:
-                            response = await self._run_with_history(
+                            hold_limit = int(
+                                getattr(self._config, "max_agent_loop_seconds", 0) or 0
+                            )
+                            if not hold_limit:
+                                hold_limit = int(self._config.max_time_seconds or 0)
+                            run_coro = self._run_with_history(
                                 goal,
                                 session.conversation_history,
                                 session.append_conversation_turn,
                                 authority=authority,
                                 session=session,
                             )
+                            if hold_limit > 0:
+                                try:
+                                    response = await asyncio.wait_for(
+                                        run_coro, timeout=float(hold_limit)
+                                    )
+                                except TimeoutError:
+                                    logger.error(
+                                        "[agent_loop] HOLD TIMEOUT src=USER "
+                                        "limit=%ds — forcing release",
+                                        hold_limit,
+                                    )
+                                    raise
+                            else:
+                                response = await run_coro
                             session.touch()
                             return response
                         finally:
@@ -3342,7 +3365,18 @@ class Agent:
                     # can acquire BROWSER / DESKTOP session-lazily and
                     # per-call resources around tool calls.
                     async with run_scope(self._resources, priority=effective_priority):
-                        return await self._run_with_history(
+                        # Hard hold ceiling. Between-step max_time only
+                        # fires at loop checkpoints — a hung tool/LLM
+                        # await never reaches them (2026-08-08: MIND
+                        # held AGENT_LOOP with no REL for 90+ minutes).
+                        # wait_for cancels the body so ``finally`` REL
+                        # always runs.
+                        hold_limit = int(
+                            getattr(self._config, "max_agent_loop_seconds", 0) or 0
+                        )
+                        if not hold_limit:
+                            hold_limit = int(self._config.max_time_seconds or 0)
+                        run_coro = self._run_with_history(
                             goal,
                             self._conversation_history,
                             self._append_conversation_turn,
@@ -3350,6 +3384,21 @@ class Agent:
                             authority=AuthorityLevel.OWNER,
                             is_user_input=is_user_input,
                         )
+                        if hold_limit > 0:
+                            try:
+                                return await asyncio.wait_for(
+                                    run_coro, timeout=float(hold_limit)
+                                )
+                            except TimeoutError:
+                                logger.error(
+                                    "[agent_loop] HOLD TIMEOUT src=%s "
+                                    "limit=%ds — forcing release so chat/"
+                                    "schedules can proceed",
+                                    _pri_label,
+                                    hold_limit,
+                                )
+                                raise
+                        return await run_coro
             finally:
                 self._current_preempt_event = None
                 logger.info(

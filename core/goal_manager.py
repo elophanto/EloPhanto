@@ -772,6 +772,22 @@ class GoalManager:
             }
             for c in all_cps
         ]
+        # If mark_checkpoint_complete already flipped the goal to
+        # ``completed`` (no pending rows at that instant) and we just
+        # re-planned remaining work, reopen it. Otherwise the goal
+        # runner's next loop iteration sees status ∉ {active, planning}
+        # and exits — orphaning the new pending checkpoints
+        # (2026-08-08: goal 2b40946b left completed with CP 15–18 pending).
+        pending_left = any(c.status == "pending" for c in all_cps)
+        if pending_left and goal.status == "completed":
+            logger.info(
+                "revise_plan re-activated completed goal %s — %d new "
+                "pending checkpoint(s) added",
+                goal.goal_id[:8],
+                sum(1 for c in all_cps if c.status == "pending"),
+            )
+            goal.status = "active"
+            goal.completed_at = None
         goal.updated_at = datetime.now(UTC).isoformat()
         await self._persist_goal(goal)
 

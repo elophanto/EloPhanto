@@ -184,6 +184,45 @@ class TestStartGoal:
         result = await runner.start_goal("nonexistent-id")
         assert result is False
 
+    async def test_start_goal_clears_inherited_in_agent_loop(
+        self, runner: GoalRunner, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """create_task copies ContextVars — must not leak in_agent_loop.
+
+        If GoalRunner inherits in_agent_loop=True from a Mind tool call,
+        submit_task skips AGENT_LOOP and runs concurrent with the parent
+        (2026-08-08 hang). Entry must force False before any submit.
+        """
+        from core.execution_context import (
+            TaskSource,
+            current_context,
+            execution_context,
+        )
+
+        goal = await _create_goal_with_checkpoints(gm, router)
+        seen: list[bool] = []
+
+        async def capture_submit(*args, **kwargs):
+            seen.append(current_context().in_agent_loop)
+            return FakeAgentResponse()
+
+        runner._agent.submit_task = AsyncMock(side_effect=capture_submit)
+
+        with execution_context(source=TaskSource.MIND, in_agent_loop=True):
+            # Mimic start_goal being called from inside a Mind tool:
+            # create_task copies this True flag into the child.
+            assert current_context().in_agent_loop is True
+            ok = await runner.start_goal(goal.goal_id)
+            assert ok is True
+
+        if runner._current_task:
+            await asyncio.wait_for(runner._current_task, timeout=5)
+
+        assert seen, "submit_task never called"
+        assert all(
+            flag is False for flag in seen
+        ), f"in_agent_loop leaked into GoalRunner submits: {seen}"
+
 
 class TestPauseResume:
     async def test_notify_user_interaction_pauses(

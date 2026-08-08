@@ -1245,6 +1245,12 @@ class Config:
     permission_mode: str = "ask_always"
     max_steps: int = 0
     max_time_seconds: int = 0
+    # Hard ceiling on how long any AGENT_LOOP holder may run before the
+    # lease is cancelled and REL fires. Between-step max_time_seconds only
+    # checks at loop checkpoints — a hung tool/LLM await never reaches
+    # them. Default 2h matches goals.max_total_time_per_goal_seconds.
+    # Set 0 to disable (not recommended).
+    max_agent_loop_seconds: int = 7200
     llm: LLMConfig = field(default_factory=LLMConfig)
     shell: ShellConfig = field(default_factory=ShellConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
@@ -1525,6 +1531,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
     permission_mode = agent.get("permission_mode", "ask_always")
     max_steps = agent.get("max_steps", 0)
     max_time_seconds = agent.get("max_time_seconds", 0)
+    max_agent_loop_seconds = agent.get("max_agent_loop_seconds", 7200)
     workspace = agent.get("workspace", "")
 
     # Parse LLM section
@@ -2279,6 +2286,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         permission_mode=permission_mode,
         max_steps=max_steps,
         max_time_seconds=max_time_seconds,
+        max_agent_loop_seconds=max_agent_loop_seconds,
         workspace=workspace,
         llm=llm_config,
         shell=shell_config,

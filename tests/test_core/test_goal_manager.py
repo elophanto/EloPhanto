@@ -507,6 +507,47 @@ class TestRevision:
         assert len(new_cps) == 2
         assert new_cps[0].title == "New step 2"
 
+    async def test_revise_reactivates_completed_goal(
+        self, gm: GoalManager, router: AsyncMock
+    ) -> None:
+        """Premature complete + revise must reopen the goal.
+
+        2026-08-08: mark_checkpoint_complete flipped status=completed
+        (no pending left), then evaluate→revise_plan added CP 15–18
+        but left status=completed; goal runner exited and work stalled.
+        """
+        revised_json = json.dumps(
+            [
+                {
+                    "order": 99,
+                    "title": "Follow-up window",
+                    "description": "Wait for D+3",
+                    "success_criteria": "Follow-ups executed",
+                },
+            ]
+        )
+        router.complete.side_effect = [
+            FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON),
+            FakeLLMResponse(content=revised_json),
+        ]
+        goal = await gm.create_goal("Complete then revise")
+        await gm.decompose(goal)
+        cps = await gm.get_checkpoints(goal.goal_id)
+        for cp in cps:
+            await gm.mark_checkpoint_complete(goal.goal_id, cp.order, "done")
+        goal = await gm.get_goal(goal.goal_id)
+        assert goal is not None
+        assert goal.status == "completed"
+
+        new_cps = await gm.revise_plan(goal, "Outcomes still pending")
+        assert len(new_cps) == 1
+        goal = await gm.get_goal(goal.goal_id)
+        assert goal is not None
+        assert goal.status == "active"
+        assert goal.completed_at is None
+        pending = await gm.get_checkpoints(goal.goal_id, status="pending")
+        assert len(pending) >= 1
+
 
 # ---------------------------------------------------------------------------
 # UNIQUE(goal_id, checkpoint_order) regression — the LLM cannot be trusted
