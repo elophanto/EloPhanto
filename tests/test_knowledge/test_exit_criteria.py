@@ -58,11 +58,16 @@ class TestExitCriteria:
         tool._db = db
         tool._embedder = embedder
 
-        result = await tool.execute({"query": "What tools do you have?"})
+        # The mock embedder hashes text, so ranking carries no semantic
+        # signal — a default top-5 over ~33 chunks would make this assert
+        # on hash luck and break whenever capabilities.md is reorganised.
+        # Ask for every chunk: this still exercises index → search end to
+        # end, but tests retrievability rather than mock ordering.
+        result = await tool.execute({"query": "What tools do you have?", "limit": 100})
         assert result.success
         assert result.data["count"] >= 1
 
-        # At least one result should contain tool names
+        # The indexed capabilities must actually carry tool names
         all_content = " ".join(r["content"] for r in result.data["results"])
         assert "shell_execute" in all_content or "knowledge_search" in all_content
 

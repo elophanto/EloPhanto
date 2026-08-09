@@ -1,7 +1,7 @@
 ---
 title: EloPhanto Domain Model Reference
 created: 2026-03-10
-updated: 2026-03-10
+updated: 2026-08-09
 tags: architecture, domain-model, data, relationships
 scope: system
 covers: [core/agent.py, core/gateway.py, core/session.py, core/skills.py, core/autonomous_mind.py, core/identity.py]
@@ -50,7 +50,7 @@ Session (per-user/channel isolation)
 ## The Intelligence Stack
 
 ```
-Skills (147 SKILL.md files)
+Skills (178 SKILL.md files)
     │  "How to do X well"
     │  Loaded into system prompt before tasks
     │  Matched by trigger keywords, auto-loaded for top match
@@ -98,6 +98,7 @@ Autonomous Mind (what I do when idle)
     ├── State snapshot: goals + schedules + recent activity + knowledge drift + directives
     ├── Budget: % of daily LLM cost allocated to background thinking
     ├── Scratchpad: persistent working notes (data/scratchpad.md)
+    ├── Re-entrant execution context: nested delegation inherits the held AGENT_LOOP
     └── Events: MIND_WAKEUP, MIND_ACTION, MIND_SLEEP, broadcast to all channels
          │
          ▼
@@ -117,6 +118,8 @@ Task Memory (what I've done)
 **Key relationships:**
 - **Identity** shapes how the agent communicates and what it prioritizes
 - **Autonomous mind** drives proactive behavior between user interactions
+- **AGENT_LOOP** is capacity-one, but nested delegation in the same execution context is re-entrant; it inherits the held slot instead of reacquiring and deadlocking
+- Foreground callers may request preemption; the active loop yields the slot only at safe checkpoints
 - **Goals** are the agent's long-term objectives — survive across sessions
 - **Task memory** prevents repetition and provides historical context
 - Identity evolves through triggers (reflection, capability learning, user correction)

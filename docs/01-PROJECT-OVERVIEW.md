@@ -12,7 +12,7 @@ It is not a chatbot. It is not an assistant wrapper. It is a persistent, self-aw
 - **Self-evolving**: When EloPhanto encounters a task it lacks tools for, it designs, implements, tests, and deploys a new plugin — then documents what it built.
 - **Self-aware**: EloPhanto maintains markdown documentation of its own architecture, capabilities, and changelog. It reads these files on startup to understand itself.
 - **Full system access**: Shell, filesystem, real browser (with user's sessions), email, calendar — anything the user can do, EloPhanto can do.
-- **Open source**: Apache 2.0 licensed. No telemetry. No central server. No vendor lock-in.
+- **Source-available**: PolyForm Noncommercial 1.0.0 — free for personal, research, education and non-profit use; commercial use needs a separate licence. No vendor lock-in: your data, vault and models stay yours, and Ollama runs the whole thing locally. One exception to "no phone home": the [agent census](21-AGENT-CENSUS.md) sends an anonymous salted machine hash to `api.elophanto.com` on startup, with no opt-out toggle today.
 - **Secure by design**: Encrypted credential vault. Immutable permission core. Tiered approval system.
 - **Autonomous when idle**: Between user interactions, a purpose-driven background mind pursues goals, revenue, and maintenance on its own. Pauses when you speak, resumes when done. Budget-isolated.
 
@@ -34,6 +34,6 @@ Most AI agents are sandboxed tools that call APIs. EloPhanto is different in thr
 
 - **Name**: EloPhanto
 - **Domain**: elophanto.com
-- **License**: Apache 2.0
+- **License**: PolyForm Noncommercial 1.0.0
 - **Language**: Python (agent core) + TypeScript (Node.js browser bridge + React web dashboard)
 - **Repository**: To be created on GitHub

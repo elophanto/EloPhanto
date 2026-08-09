@@ -137,7 +137,7 @@ Two EloPhanto instances can't collaborate.
 **Problem:** CONTRIBUTING.md exists but no governance, no RFC process,
 no issue templates, no good-first-issue program.
 
-**What exists:** CONTRIBUTING.md (93 lines), Apache 2.0 license.
+**What exists:** CONTRIBUTING.md (93 lines), PolyForm Noncommercial 1.0.0 license.
 
 **What to build:**
 - `.github/ISSUE_TEMPLATE/` — bug report, feature request, skill proposal

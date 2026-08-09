@@ -155,9 +155,9 @@ and grows while they do other things (or sleep).
 - Plugin/skill system to extend without forking
 
 **How EloPhanto delivers**
-- Open source Apache 2.0 — fully auditable, forkable, extensible
+- Source-available (PolyForm Noncommercial 1.0.0) — fully auditable, forkable, extensible; commercial use needs a separate licence
 - Self-development pipeline: agent writes, tests, and deploys its own plugins
-- 147 skills + EloPhantoHub registry for community contributions
+- 178 skills + EloPhantoHub registry for community contributions
 - MCP adapter: connect any MCP server — filesystem, GitHub, databases, Slack, custom
 - Ollama support: runs entirely local, zero cloud dependency
 - Encrypted vault, security hardening (7 layers), content security policy on skills
@@ -174,7 +174,7 @@ and grows while they do other things (or sleep).
 **What convinces them**
 - Architecture docs showing real engineering (not a wrapper)
 - Self-dev demo: agent building its own tool from scratch
-- 140+ tools, 147 skills — capability breadth
+- 274 tools, 178 skills — capability breadth
 - Security hardening depth — PII guard, swarm boundaries, injection prevention
 - Active GitHub with frequent commits, thorough docs
 
@@ -355,7 +355,7 @@ and grows while they do other things (or sleep).
 | Business Operator | "Builds businesses while you sleep" | "Idea to deployed product in one conversation" | "Coding assistant" framing |
 | Agent Economy | "Your agent has its own wallet" | "Self-custody Jupiter swaps from chat" | "AI-powered blockchain" buzzwords |
 | One-Person Company | "5 specialists, zero salaries" | "Same agent across all your channels" | Enterprise/team framing |
-| AI-Native Builder | "140+ tools, builds its own when it needs more" | "Open source, runs on Ollama, fully auditable" | Dumbing it down |
+| AI-Native Builder | "274 tools, builds its own when it needs more" | "Source-available, runs on Ollama, fully auditable" | Dumbing it down |
 | Delegator | "Tell it what to do. It does it." | "Works on Telegram — no coding needed" | Technical jargon, CLI references |
 | AI-Curious Professional | "Like a personal assistant for $10/month" | "Just text it on Telegram" | Any mention of code, git, or terminal |
 | Business Leader | "An AI workforce at 1% the cost" | "All data stays on your servers" | Toy/hobby framing, open source ideology |

@@ -86,7 +86,7 @@ The terminal UI uses Rich with a monochrome gradient: `grey35` → `grey50` → 
 ### Stat Strips
 - Horizontal row of key metrics
 - Monospace numbers, label below
-- Example: **147 skills** · **140+ tools** · **6 channels**
+- Example: **274 tools** · **178 skills** · **6 channels**
 
 ### Feature Grids
 - 2-3 column card grid
@@ -104,7 +104,7 @@ The terminal UI uses Rich with a monochrome gradient: `grey35` → `grey50` → 
 ## Tone of Voice
 
 ### Do
-- Write in first person when speaking as the agent ("I built 147 tools")
+- Write in first person when speaking as the agent ("I built 274 tools")
 - Be specific and concrete ("Swap SOL→USDC in one message" not "AI-powered DeFi")
 - Show technical depth without jargon walls
 - Use short, punchy sentences for social media
@@ -125,7 +125,7 @@ The terminal UI uses Rich with a monochrome gradient: `grey35` → `grey50` → 
 
 ### Examples
 
-Good: "I built an agent that swaps tokens on Jupiter while you sleep. Self-custody, local-first, 147 skills. github.com/elophanto/EloPhanto"
+Good: "I built an agent that swaps tokens on Jupiter while you sleep. Self-custody wallet, 274 tools, and it stops for approval before it spends. github.com/elophanto/EloPhanto"
 
 Bad: "Excited to announce our AI-powered blockchain agent! 🚀🔥 Leveraging cutting-edge LLMs for seamless DeFi integration. #AI #Crypto #Web3 #Solana"
 

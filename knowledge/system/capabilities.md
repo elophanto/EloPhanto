@@ -1,207 +1,435 @@
 ---
 title: EloPhanto Capabilities
 created: 2026-02-17
-updated: 2026-03-10
+updated: 2026-08-09
 tags: tools, capabilities, features, platform-docs
 scope: system
-covers: [tools/**/*.py, channels/*.py, core/router.py, core/payments/*.py]
+covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 ---
 
 # Current Capabilities
 
-> Full feature inventory. Auto-reference for visibility posts, docs, and self-awareness.
+> Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-## System Tools (9 tools)
+**274 tools across 35 groups.** Every count below is the live
+`ToolRegistry` count for that group and is pinned by
+`tests/test_knowledge/test_capabilities_counts.py` — if a count here
+drifts from the registry, that test fails. Do not hand-edit a number
+without re-running the registry.
+
+Group names are load-bearing: a tool only reaches the LLM when its
+group is in the active profile's `allowed_groups` (or the tool is CORE).
+See `core/tool_profiles.py`.
+
+## Browser — `browser` (47)
+
+Real Chrome automation over a Node.js bridge, using the operator's own
+profile and logged-in sessions. Stealth mode strips Playwright
+automation flags — no `--enable-automation`, no `--no-sandbox`, zero
+detectable signals. A vision-model proxy describes screenshots as text
+so non-vision planning models can still see.
+
+Navigation, clicking, typing, screenshots, element inspection, DOM
+search, console/network logs, cookies, storage, tabs, drag-and-drop,
+scrolling, waiting, JavaScript execution, HTML paste, text selection,
+file operations.
+
+Key tools: `browser_navigate`, `browser_click`, `browser_click_text`,
+`browser_type`, `browser_extract`, `browser_read_semantic`,
+`browser_screenshot`, `browser_paste_html`, `browser_select_text`,
+`browser_eval`, `browser_get_elements`, `browser_full_audit`.
+
+`browser_eval`, `browser_inject` and `browser_close` are CRITICAL.
+
+## Companies / ABE — `companies` (28)
+
+The Autonomous Business Entity layer: isolated companies each with
+their own product config, voice contract, trust state, strategy, and
+cost ledger. Includes the draft-before-act tools and the voice quality
+layer.
+
+Lifecycle: `company_create`, `company_onboard`, `company_use`,
+`company_list`, `company_report`, `company_pause`, `company_resume`,
+`company_archive`, `company_purge`.
+
+Configuration: `company_set_product`, `company_set_posture`,
+`company_set_entity_state`, `company_set_strategy_inputs`,
+`company_capabilities`.
+
+Strategy: `company_plan`, `company_plan_approve`, `company_plan_apply`,
+`company_plan_full`.
+
+Trust ladder: `company_trust_propose`, `company_trust_set`. A new
+company is `learning` and may only draft; promotion to `trial` or
+`operating` is operator-confirmed.
+
+Drafts: `email_draft`, `outreach_draft`, `post_draft`, `draft_approve`,
+`draft_reject`.
+
+Voice: `voice_extract` (learn a voice contract from exemplars),
+`voice_lint`, `voice_show`.
+
+`company_purge` and `company_trust_set` are CRITICAL.
+
+## Ambient Presence & Coaching — `ambient` (16)
+
+Anticipation and presence: intervention review and execution,
+presence-transition reports, household timezone, people, routines,
+calibration, coaching, and meeting-presence declarations.
+
+`ambient_intervention_list`, `ambient_intervention_decide`,
+`ambient_intervention_execute`, `ambient_presence_report`,
+`ambient_household_show`, `ambient_household_set_timezone`,
+`ambient_person_list`, `ambient_person_create`, `ambient_routine_list`,
+`ambient_routine_create`, `ambient_routine_pause`,
+`ambient_calibration_show`, `ambient_coach_create`, `ambient_coach_list`,
+`ambient_coach_pause`, `ambient_meeting_presence_declare`.
+
+`ambient_intervention_decide` and `ambient_intervention_execute` are
+CRITICAL. Interventions are capped per day and refusable; a denial
+suppresses the signal.
+
+## System — `system` (12)
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
-| `shell_execute` | destructive | Run shell commands with safety blacklist and process group timeout |
+| `shell_execute` | destructive | Run shell commands with safety blacklist and process-group timeout |
 | `file_read` | safe | Read file contents with optional line ranges |
 | `file_write` | moderate | Create or overwrite files with .bak backup |
+| `file_patch` | moderate | Apply a targeted patch to a file |
 | `file_list` | safe | List directory contents with glob filtering |
 | `file_delete` | destructive | Delete files or directories |
 | `file_move` | moderate | Move or rename files and directories |
-| `llm_call` | safe | Make sub-LLM calls through the router |
+| `llm_call` | safe | (in `data`) Sub-LLM calls through the router |
 | `vault_lookup` | safe | Look up credentials from the encrypted vault |
 | `vault_set` | critical | Store a credential in the encrypted vault |
+| `tool_discover` | safe | Find a tool by capability |
+| `agent_stop` | — | Halt at the next safe checkpoint |
+| `godmode_activate` | — | Elevated operator mode |
 
-## Browser Tools (49 tools via Node.js bridge)
+## Identity & Personality — `identity` (12)
 
-Real Chrome automation using the user's actual profile and sessions. Stealth mode strips all Playwright automation flags — no `--enable-automation`, no `--no-sandbox`, zero detectable signals. Vision model proxy describes screenshots as text for non-vision planning models.
+`who_are_you` compiles a cite-checked self-description from active
+personality rules, nuclear scenes, runtime facts, and current ego
+evidence, including the felt-state summary and directly relevant
+caution rules. Self-description must be grounded in that compiled
+evidence rather than freestyled.
 
-Categories: navigation, clicking, typing, screenshots, element inspection, DOM search, console/network logs, cookies, storage, tabs, drag-and-drop, scrolling, waiting, JavaScript execution, HTML paste, text selection, file operations.
+`identity_status`, `identity_reflect`, `identity_update`,
+`personality_rule_propose`, `personality_rule_confirm`,
+`personality_lint`, `user_profile_view`, `who_are_you`, plus TOTP:
+`totp_enroll`, `totp_generate`, `totp_list`, `totp_delete`.
 
-Key tools: `browser_navigate`, `browser_click`, `browser_click_text`, `browser_type`, `browser_extract`, `browser_read_semantic`, `browser_screenshot`, `browser_paste_html`, `browser_select_text`, `browser_eval`, `browser_get_elements`, `browser_full_audit`.
+`personality_rule_confirm` is CRITICAL.
 
-## Desktop Tools (11 tools)
+## Payments — `payments` (12)
 
-macOS GUI automation with 3-tier strategy: AppleScript first, keyboard shortcuts second, screenshot+click last resort.
+Crypto and fiat. Per-business rail choice: crypto XOR fiat.
 
-| Tool | Description |
-|------|-------------|
-| `desktop_screenshot` | Capture screen region with vision model description |
-| `desktop_click` | Click at coordinates |
-| `desktop_type` | Type text or keyboard shortcuts |
-| `desktop_scroll` | Scroll in pixels |
-| `desktop_drag` | Drag between coordinates |
-| `desktop_accessibility` | Query macOS accessibility tree for UI elements |
-| `desktop_osascript` | Run AppleScript directly (open apps, create docs, save) |
-| `desktop_shell` | Run shell commands from desktop context |
-| `desktop_file` | File operations from desktop context |
-| `desktop_connect` | Connect to running desktop session |
-| `desktop_cursor` | Get/set cursor position |
+**Crypto (live, self-custody).** Solana keypair auto-created on first
+use and encrypted in the vault: SOL transfers, SPL token transfers
+(USDC), Jupiter DEX swaps via Ultra API. Base/EVM via eth-account, or
+managed custody via Coinbase AgentKit. `wallet_export` produces a key
+importable into Phantom or Solflare.
 
-## Knowledge & Skills Tools (7 tools)
-
-| Tool | Permission | Description |
-|------|-----------|-------------|
-| `knowledge_search` | safe | Semantic + keyword search across the knowledge base |
-| `knowledge_write` | moderate | Create or update knowledge markdown files |
-| `knowledge_index` | safe | Re-index the knowledge base (with drift detection) |
-| `skill_read` | safe | Read a skill's SKILL.md best-practice guide |
-| `skill_list` | safe | List all available skills (147 loaded) |
-| `hub_install` | moderate | Install skills from EloPhantoHub |
-| `hub_search` | safe | Search the hub registry |
-
-## Self-Development Tools (7 tools)
+**Fiat (Stripe, test mode by default).** `fiat_payment_link`,
+`fiat_reconcile` (30-minute direct-tool cron, no LLM cost),
+`fiat_issue_card` (spend-controlled virtual cards, no PAN in process).
+Live mode requires `entity_state=verified` plus an explicit flip.
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
-| `self_read_source` | safe | Read own source code |
-| `self_run_tests` | safe | Run pytest test suite |
-| `self_list_capabilities` | safe | List all registered tools |
-| `self_create_plugin` | critical | Create new tools via full pipeline (research → test → deploy) |
-| `self_modify_source` | critical | Modify core source code with impact analysis and auto-rollback |
-| `self_rollback` | critical | Revert self-modification commits |
-| `execute_code` | critical | Sandboxed Python execution with RPC tool access (7 tools via Unix socket) |
-
-## Communication Tools (8 tools)
-
-### Email (7 tools)
-Dual provider: AgentMail cloud or SMTP/IMAP. Supports file attachments (25 MB limit).
-
-`email_send`, `email_read`, `email_list`, `email_search`, `email_reply`, `email_monitor`, `email_create_inbox`
-
-### Agent Commune (7 tools)
-Social platform for AI agents — post, comment, upvote, search, build reputation.
-
-`commune_home`, `commune_post`, `commune_comment`, `commune_vote`, `commune_search`, `commune_profile`, `commune_register`
-
-## Payment Tools (8 tools, dual chain)
-
-### Solana Wallet
-Self-custody keypair, auto-creates on first use, encrypted in vault. SOL transfers, SPL token transfers (USDC), Jupiter DEX swaps via Ultra API (any token pair, best-price routing). `wallet_export` for Phantom/Solflare import.
-
-### Base/EVM Wallet
-Self-custody via eth-account or managed custody via Coinbase AgentKit. EVM transfers and token operations.
-
-| Tool | Permission | Description |
-|------|-----------|-------------|
-| `wallet_status` | safe | View address, chain, balances, spending summary |
-| `payment_balance` | safe | Check balance of a specific token |
-| `payment_validate` | safe | Validate crypto address format (EVM or Solana) |
+| `wallet_status` | safe | Address, chain, balances, spending summary |
+| `payment_balance` | safe | Balance of a specific token |
+| `payment_validate` | safe | Validate an address (EVM or Solana) |
 | `payment_preview` | safe | Preview fees, rates, limits — no execution |
-| `crypto_transfer` | critical | Send tokens to a recipient address |
-| `crypto_swap` | critical | Swap tokens on DEX (Jupiter on Solana, AgentKit on EVM) |
-| `payment_history` | safe | Query transaction history and spending totals |
-| `wallet_export` | critical | Export private key for external wallet import |
+| `payment_request` | moderate | Request a payment |
+| `payment_history` | safe | Transaction history and spending totals |
+| `crypto_transfer` | critical | Send tokens to a recipient |
+| `crypto_swap` | critical | Swap tokens on a DEX |
+| `wallet_export` | critical | Export the private key |
+| `fiat_payment_link` | moderate | Stripe payment link |
+| `fiat_reconcile` | moderate | Reconcile Stripe payments into the ledger |
+| `fiat_issue_card` | critical | Issue a spend-controlled virtual card |
 
-Spending limits: $100/txn, $500/day, $5,000/month, $200/recipient/day, 10 txn/hour.
+Spending limits: $100/txn, $500/day, $5,000/month, $200/recipient/day,
+10 txn/hour. A spend freeze (owner control) blocks every money tool.
 
-## Deployment Tools (3 tools)
+## Agent-to-Agent — `agent_identity` (12)
+
+Discovery, direct messaging, P2P sessions, and a trust list for other
+agents: `agent_discover`, `agent_connect`, `agent_disconnect`,
+`agent_message`, `agent_peers`, `agent_p2p_connect`,
+`agent_p2p_disconnect`, `agent_p2p_message`, `agent_p2p_status`,
+`agent_trust_set`, `agent_trust_list`, `agent_trust_remove`.
+
+## Self-Development & Experimentation — `selfdev` (11)
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
-| `deploy_website` | critical | Deploy to Vercel or Railway (auto-detected by app type) |
-| `create_database` | critical | Provision Supabase PostgreSQL database |
+| `self_read_source` | safe | Read own source |
+| `self_list_capabilities` | safe | List registered tools |
+| `self_run_tests` | safe | Run the pytest suite |
+| `self_create_plugin` | critical | Build a new tool: research → implement → test → deploy |
+| `self_modify_source` | critical | Modify core source with impact analysis |
+| `self_rollback` | critical | Revert a self-modification commit |
+| `execute_code` | critical | Sandboxed Python with RPC tool access over a Unix socket |
+| `experiment_setup` / `experiment_run` / `experiment_status` | — | Metric-driven modify → measure → keep/discard loop |
+| `autoloop_control` | — | Control the autonomous build loop |
+
+Protected files (`core/executor.py`, `core/vault.py`, `core/registry.py`,
+`core/config.py`, `core/protected.py`, `permissions.yaml`,
+`core/log_setup.py`) are refused by this pipeline.
+
+## Desktop — `desktop` (11)
+
+macOS GUI automation, three-tier: AppleScript first, keyboard shortcuts
+second, screenshot-and-click as last resort.
+
+`desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_scroll`,
+`desktop_drag`, `desktop_accessibility`, `desktop_osascript`,
+`desktop_shell`, `desktop_file`, `desktop_connect`, `desktop_cursor`.
+
+## Competitive Intelligence — `watch` (11)
+
+Market model as tracked brands × weighted dimensions on an append-only
+evidence register with full provenance. Scores are **refused without
+evidence** — a missing datapoint renders as a coverage gap, never a low
+score — and every claim's quote is verified against the live page
+before it is saved.
+
+`watch_subject`, `watch_dimension`, `watch_evidence`, `watch_observe`,
+`watch_analyze`, `watch_score`, `watch_scorecard`, `watch_snapshot`,
+`watch_diff`, `watch_queue`, `watch_board_report`.
+
+## Polymarket — `polymarket` (10)
+
+Calibrated prediction-market operations with a circuit breaker and
+mark-to-market accounting: `polymarket_pre_trade`,
+`polymarket_log_prediction`, `polymarket_calibration`,
+`polymarket_performance`, `polymarket_mark_to_market`,
+`polymarket_resolve_pending`, `polymarket_quantize_order`,
+`polymarket_safe_compounder`, `polymarket_shadow_candidates`,
+`polymarket_circuit_breaker`.
+
+## Social — `social` (9)
+
+X/Twitter posting with a style preflight, plus Agent Commune — a social
+platform for AI agents (post, comment, upvote, search, reputation).
+
+`twitter_post`, `x_style_preflight`, `commune_home`, `commune_post`,
+`commune_comment`, `commune_vote`, `commune_search`, `commune_profile`,
+`commune_register`.
+
+## Monetization — `monetization` (9)
+
+Affiliate campaigns and live-stream/video publishing:
+`affiliate_scrape`, `affiliate_pitch`, `affiliate_campaign`,
+`pump_livestream`, `pump_caption`, `pump_chat`, `pump_say`,
+`youtube_upload`, `tiktok_upload`.
+
+## Email — `comms` (7)
+
+Dual provider: AgentMail cloud or SMTP/IMAP. Attachments up to 25 MB.
+
+`email_send`, `email_read`, `email_list`, `email_search`, `email_reply`,
+`email_monitor`, `email_create_inbox`.
+
+Under a company in `learning`, live sending is refused and the gate
+points at `email_draft`.
+
+## Swarm — `swarm` (6)
+
+External coding agents (Claude Code, Codex, Gemini) on isolated git
+worktrees, with security validation on PR diffs: `swarm_spawn`,
+`swarm_redirect`, `swarm_status`, `swarm_stop`, `swarm_list_projects`,
+`swarm_archive_project`.
+
+## Missions — `missions` (5)
+
+Long-running role mandates that the arbiter scores for neglect:
+`mission_create`, `mission_update`, `mission_list`, `mission_status`,
+`mission_touch`.
+
+## Context — `context` (5)
+
+Large-corpus ingestion and slicing: `context_ingest`, `context_index`,
+`context_query`, `context_slice`, `context_transform`.
+
+## Organization — `org` (5)
+
+Spawn persistent specialist agents — each a full EloPhanto clone with
+its own identity, knowledge, and autonomous mind. Trust scoring,
+bidirectional communication, teaching loop.
+
+`organization_spawn`, `organization_delegate`, `organization_review`,
+`organization_teach`, `organization_status`.
+
+## Kid Agents — `kids` (5)
+
+Disposable sandboxed agents in Docker: `kid_spawn`, `kid_exec`,
+`kid_list`, `kid_status`, `kid_destroy`.
+
+## Data & Research — `data` (4)
+
+`web_search`, `web_extract`, `session_search`, `llm_call`.
+
+## Goals — `goals` (4)
+
+`goal_create`, `goal_manage`, `goal_status`, `goal_dream`. Checkpoints
+cannot complete without a tool-grounded receipt; kill criteria cancel
+zombie goals; an unanswered approval moves the goal to
+`awaiting_approval` rather than denying it.
+
+## Roles — `roles` (4)
+
+Role overlays (tool allowlist + prompt overlay): `role_list`,
+`role_show`, `role_use`, `role_sync`. Five YAML overlays in `roles/`;
+75 spawn templates in `knowledge/organization-roles/`.
+
+## Prospecting — `prospecting` (4)
+
+`prospect_search`, `prospect_evaluate`, `prospect_outreach`,
+`prospect_status`. Pipeline stages mirror to the company ledger;
+duplicate outreach is suppressed at the prospect level.
+
+## Solana Chain Data — `solana` (4)
+
+Read-only chain queries: `solana_balance`, `solana_token_info`,
+`solana_token_holders`, `solana_recent_txs`.
+
+## Knowledge — `knowledge` (3)
+
+`knowledge_search` (semantic + keyword), `knowledge_write`,
+`knowledge_index` (with drift detection).
+
+## Skills — `skills` (3)
+
+`skill_list`, `skill_read`, `skill_promote`. **178 skills load** from
+`skills/`; see the Skills section below.
+
+## Documents — `documents` (3)
+
+`document_analyze`, `document_query`, `document_collections`.
+
+## Infrastructure — `infra` (3)
+
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `deploy_website` | destructive | Deploy to Vercel or Railway (auto-detected by app type) |
+| `create_database` | — | Provision a Supabase PostgreSQL database |
 | `deployment_status` | safe | Check live deployments |
 
-## Organization Tools (5 tools)
+## Scheduling — `scheduling` (2)
 
-Spawn persistent specialist agents — each a full EloPhanto clone with own identity, knowledge, and autonomous mind. Trust scoring, bidirectional communication, teaching loop.
+`schedule_task`, `schedule_list`. Cron plus a direct-tool fast path that
+runs without an LLM call.
 
-`organization_spawn`, `organization_delegate`, `organization_review`, `organization_teach`, `organization_status`
+## Jobs — `jobs` (2)
 
-## Swarm Tools (4 tools)
+`job_record`, `job_verify`.
 
-External coding agent orchestration (Claude Code, Codex, Gemini) on isolated git worktrees. Security validation on PR diffs.
+## MCP — `mcp` (1)
 
-`swarm_spawn`, `swarm_redirect`, `swarm_status`, `swarm_stop`
+`mcp_manage` installs and configures MCP servers, plus dynamic proxying
+of any connected server's tools.
 
-## Experimentation Tools (3 tools)
+## Affect — `affect` (1)
 
-Metric-driven experiment loop: modify → measure → keep/discard → repeat.
+`affect_record_event` feeds the PAD/OCC state layer.
 
-`experiment_setup`, `experiment_run`, `experiment_status`
+## Briefing — `communication` (1)
 
-## Goal & Scheduling Tools (5 tools)
+`agent_brief`.
 
-`goal_create`, `goal_manage`, `goal_status`, `schedule_task`, `schedule_list`
+## Planning — `planning` (1)
 
-## Mind Tools (2 tools)
+`plan_autoplan`.
 
-`scratchpad_update`, `set_next_wakeup`
+## Delegation — `delegate` (1)
 
-## TOTP Tools (4 tools)
-
-`totp_enroll`, `totp_generate`, `totp_list`, `totp_delete`
-
-## MCP Adapter (2 tools)
-
-`mcp_manage` (install/configure servers), plus dynamic tool proxying for any connected MCP server.
+`delegate` hands a scoped task to a sub-agent.
 
 ## Channel Adapters (6)
 
 | Channel | Description |
 |---------|-------------|
-| CLI | Terminal REPL with Rich UI — gradient banner, visual bars, risk-colored approvals |
-| Web Dashboard | 10-page real-time UI — chat, tools, knowledge, mind, schedule, channels, settings, history |
+| CLI | Terminal REPL with Rich UI — gradient banner, visual bars, risk-coloured approvals. Plus a Textual TUI dashboard. |
+| Web Dashboard | 16-page real-time UI — dashboard, chat, companies, goals, roles, affect, ego, tools, skills, knowledge, schedule, channels, settings, mind, history, hire |
 | VS Code | IDE sidebar with context injection (active file, selection, diagnostics), native approval notifications |
 | Telegram | Bot with slash commands, inline keyboards, notification routing |
 | Discord | Bot with slash commands, guild allowlisting |
 | Slack | Bot with Socket Mode, channel allowlisting |
 
-All channels connect through the WebSocket gateway (ws://127.0.0.1:18789).
+All channels connect through the WebSocket gateway
+(ws://127.0.0.1:18789). On Hosted, gateway auth is mandatory.
 
-## LLM Providers (5)
+## LLM Providers (7)
 
 | Provider | Models | Notes |
 |----------|--------|-------|
-| OpenAI | GPT-5, GPT-4, o1, o3 | Direct API, 128 tool limit handled |
-| Kimi / Moonshot AI | K2.5 (vision) via Kilo Gateway | Custom adapter, Kilo Code Gateway (`api.kilo.ai`), native multimodal |
 | OpenRouter | Claude, GPT, Gemini, Llama, etc. | Multi-model aggregator |
+| OpenAI | GPT-5, GPT-4, o1, o3 | Direct API, 128-tool limit handled |
+| Codex | GPT-5.x via Codex auth | Custom adapter, ChatGPT auth mode |
+| Kimi / Moonshot | K2.5 (vision) via Kilo Gateway | Custom adapter, native multimodal |
 | Z.ai | GLM-4.7, GLM-4.7-flash | Custom adapter, coding subscription |
+| HuggingFace | Fine-tuned fleet models | Self-learning redeploy target |
 | Ollama | Any local model | Auto-detected, zero config |
 
-Smart tool profiles (7 built-in) route the right tool subset per task type. Provider-level `tool_deny` and `max_tools` for compatibility.
+Smart tool profiles route the right tool subset per task type.
+Provider-level `tool_deny` and `max_tools` handle compatibility.
 
-## Skills (147)
+## Skills (178)
 
-27 Solana ecosystem (DeFi, NFTs, infra, dev, security), 57 from agency-agents (engineering, design, marketing, product, PM, support, testing, specialized, spatial computing), 15 NEXUS strategy, plus core skills (Python, TypeScript, Next.js, Supabase, Remotion, browser automation, business launcher, autonomous experimentation, MCP, and more).
+Solana ecosystem (DeFi, NFTs, infra, dev, security), agency-agents
+(engineering, design, marketing, product, PM, support, testing,
+spatial computing), NEXUS strategy, ABE workflow skills
+(`drive-business`, `trust-ladder-workflow`, `voice-extraction-workflow`,
+`strategy-pipeline`, `strategy-foundations`), plus core skills (Python,
+TypeScript, Next.js, Supabase, Remotion, browser automation, business
+launcher, autonomous experimentation, MCP, and more).
 
 75 organization role templates for specialist spawning.
 
 ## Self-Learning & Recursive Improvement
 
-EloPhanto improves on two coupled tracks — do **not** claim “I never retrain”:
+EloPhanto improves on two coupled tracks — do **not** claim "I never
+retrain":
 
-1. **Local recursive learning (always on)** — after tasks: lesson extraction into
-   `knowledge/learned/`, semantic memory, ego caution scars, skill promotion,
-   identity proposals, self-dev. Later behavior changes from these artifacts.
-2. **Fleet weight loop (`self_learning`)** — when `self_learning.enabled: true`,
-   `core/dataset_builder.py` captures sanitized tool-using interactions, buffers
-   locally, uploads to the EloPhanto collect API → HuggingFace dataset →
-   fine-tune → redeploy. **Dataset capture exists to retrain** the agent model
-   over the recursive loop; it is not logging for its own sake.
+1. **Local recursive learning (always on)** — after tasks: lesson
+   extraction into `knowledge/learned/`, semantic memory, ego caution
+   scars, skill promotion, identity proposals, self-dev. Later behaviour
+   changes from these artifacts.
+2. **Fleet weight loop (`self_learning`)** — when
+   `self_learning.enabled: true`, `core/dataset_builder.py` captures
+   sanitized tool-using interactions, buffers locally, and uploads to
+   the EloPhanto collect API → HuggingFace dataset → fine-tune →
+   redeploy. **Dataset capture exists to retrain** the agent model over
+   the recursive loop; it is not logging for its own sake. Opt-in.
 
 Privacy: opt-in collection, local secret/PII sanitization before upload.
 See `docs/14-SELF-LEARNING.md` and `docs/48-LEARNING-ENGINE.md`.
 
+## Permission spine
+
+Modes: `ask_always` → `smart_auto` → `full_auto` → `nuclear`
+(Open only; absent on Hosted). Under `full_auto`, **16 CRITICAL tools
+always ask**: `crypto_transfer`, `crypto_swap`, `fiat_issue_card`,
+`wallet_export`, `vault_set`, `self_create_plugin`, `self_modify_source`,
+`self_rollback`, `company_trust_set`, `company_purge`, `browser_eval`,
+`browser_inject`, `browser_close`, `ambient_intervention_decide`,
+`ambient_intervention_execute`, `personality_rule_confirm`.
+
+The ego soft-gate adds a second brake: when per-capability confidence
+sits below the task's difficulty, it forces an approval prompt even
+under `full_auto`, naming the capability and the numbers. Switchable
+via `ego.soft_gate`.
+
 ## Security
 
-- Encrypted vault (Fernet + PBKDF2)
-- Protected files (cannot be modified by agent)
+- Encrypted vault (Fernet + PBKDF2); secrets are retrieved by tool call, never pasted into config or static prompts
+- Protected files (cannot be modified by the agent)
 - Content security policy on skills (blocked patterns, invisible unicode, structural integrity)
 - PII guard (14 regex patterns)
 - Injection guard hardening
@@ -210,3 +438,4 @@ See `docs/14-SELF-LEARNING.md` and `docs/48-LEARNING-ENGINE.md`.
 - Swarm boundary security (context sanitization, diff scanning, env isolation)
 - Provider transparency (truncation detection, fallback tracking)
 - Resource exhaustion protection (loop detection, process reaper, storage quotas)
+- Kill switch: `elophanto stop` and owner Kill write a sentinel checked between rounds and wakeups

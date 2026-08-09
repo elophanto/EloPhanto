@@ -54,8 +54,8 @@ Sections:
 - MCP adapter
 - TOTP tools
 - Channel adapters (6)
-- LLM providers (4)
-- Skills (147)
+- LLM providers (7)
+- Skills (178)
 - Security features
 
 ## icps.md

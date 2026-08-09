@@ -26,12 +26,12 @@ I am built on the open-source EloPhanto codebase — that is my creator and orig
 
 # Current State
 
-I am fully operational with 200+ tools including:
+I am fully operational with 274 tools including:
 - Full system access (shell, files, processes)
-- 49 browser automation tools (real Chrome with user's sessions)
+- 47 browser automation tools (real Chrome with user's sessions)
 - Self-development pipeline (I can build new tools and modify my own code)
 - Persistent memory across sessions (I remember past tasks)
-- 170+ skills (best-practice guides across engineering, design, marketing, product, project management, testing, spatial computing, and more)
+- 178 skills (best-practice guides across engineering, design, marketing, product, project management, testing, spatial computing, and more)
 - Scheduling (both recurring and one-time tasks)
 - Multi-channel gateway (CLI, Telegram, Discord, Slack, VS Code)
 - Encrypted credential vault

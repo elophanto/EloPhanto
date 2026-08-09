@@ -181,9 +181,11 @@ When `user_data_dir` is empty, the default Chrome path is auto-detected:
 - Linux: `~/.config/google-chrome`
 - Windows: `%LOCALAPPDATA%\Google\Chrome\User Data`
 
-## Tools (48)
+## Tools (47)
 
-The bridge exposes 48 browser tools from `AwareBrowserAgent`. Key categories:
+47 `browser_*` tools reach the LLM from `AwareBrowserAgent` over the
+bridge (live `ToolRegistry` count; the bridge source carries a few extra
+internal handlers that are not registered as tools). Key categories:
 
 ### Navigation & Reading
 

@@ -2,7 +2,7 @@
 
 ## Problem
 
-EloPhanto exposes 140+ tools to the LLM. Some providers enforce hard limits on the number of tools per request (e.g. OpenAI caps at 128). Even without a hard cap, sending every tool on every request wastes tokens and dilutes the model's attention — a coding task doesn't need payment tools, and a browser task doesn't need desktop tools.
+EloPhanto exposes 274 tools to the LLM. Some providers enforce hard limits on the number of tools per request (e.g. OpenAI caps at 128). Even without a hard cap, sending every tool on every request wastes tokens and dilutes the model's attention — a coding task doesn't need payment tools, and a browser task doesn't need desktop tools.
 
 ## Current Approach: Priority-Based Trimming
 
