@@ -186,11 +186,56 @@ async def hard_stop(
 
 def resolve_data_dir(config: Any) -> Path:
     """Resolve ``data_dir`` from a loaded config. Centralized so the
-    CLI + gateway + tool agree."""
+    CLI + gateway + tool agree.
+
+    Hosted: prefer ``ELOPHANTO_DATA_ROOT`` / absolute db parent so STOP and
+    SPEND_FREEZE land on the persistent volume, not the code image.
+    """
+    import os
+
+    hosted_data = os.environ.get("ELOPHANTO_DATA_ROOT", "").strip()
+    if os.environ.get("ELOPHANTO_CLOUD") == "1" and hosted_data:
+        path = Path(hosted_data) / "data"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     db_path = Path(config.database.db_path)
     if not db_path.is_absolute():
         db_path = config.project_root / db_path
     return db_path.parent
+
+
+# ── Owner spend freeze (Hosted L8) ──────────────────────────────────
+
+
+def spend_freeze_path(data_dir: Path) -> Path:
+    return data_dir / "SPEND_FREEZE"
+
+
+def write_spend_freeze(data_dir: Path) -> bool:
+    """Create SPEND_FREEZE sentinel. Returns True if newly created."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = spend_freeze_path(data_dir)
+    if path.exists():
+        return False
+    path.write_text(
+        "Owner spend freeze. Remove via owner_spend_unfreeze to resume payments.\n",
+        encoding="utf-8",
+    )
+    return True
+
+
+def clear_spend_freeze(data_dir: Path) -> bool:
+    """Remove SPEND_FREEZE. Returns True if it existed."""
+    path = spend_freeze_path(data_dir)
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
+def is_spend_frozen(data_dir: Path) -> bool:
+    return spend_freeze_path(data_dir).exists()
 
 
 # ── Slash-command parsing (used by gateway + CLI chat intercept) ────

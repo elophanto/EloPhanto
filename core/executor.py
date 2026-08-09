@@ -85,16 +85,47 @@ class ExecutionResult:
 
 
 def _load_permissions(project_root: Path) -> dict[str, Any]:
-    """Load permissions.yaml if it exists."""
+    """Load permissions.yaml; Hosted also merges permissions.hosted.yaml."""
     path = project_root / "permissions.yaml"
-    if not path.exists():
-        return {}
+    data: dict[str, Any] = {}
+    if path.exists():
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as e:
+            logger.warning(f"Failed to load permissions.yaml: {e}")
+            data = {}
     try:
-        with open(path) as f:
-            return yaml.safe_load(f) or {}
+        from core.hosted import is_hosted
+
+        if is_hosted():
+            hosted_path = project_root / "permissions.hosted.yaml"
+            if not hosted_path.exists():
+                raise FileNotFoundError(
+                    f"Hosted refuse-start: {hosted_path} missing — "
+                    "image must ship permissions.hosted.yaml"
+                )
+            with open(hosted_path) as f:
+                hosted = yaml.safe_load(f) or {}
+            overrides = dict(data.get("tool_overrides") or {})
+            overrides.update(hosted.get("tool_overrides") or {})
+            disabled = list(data.get("disabled_tools") or [])
+            for t in hosted.get("disabled_tools") or []:
+                if t not in disabled:
+                    disabled.append(t)
+            data["tool_overrides"] = overrides
+            data["disabled_tools"] = disabled
+    except FileNotFoundError:
+        raise
     except Exception as e:
-        logger.warning(f"Failed to load permissions.yaml: {e}")
-        return {}
+        from core.hosted import is_hosted
+
+        if is_hosted():
+            raise RuntimeError(
+                f"Hosted refuse-start: failed merging permissions.hosted.yaml: {e}"
+            ) from e
+        logger.warning(f"Failed to merge permissions.hosted.yaml: {e}")
+    return data
 
 
 class Executor:
@@ -185,6 +216,41 @@ class Executor:
                 tool_call_id=tool_call_id,
                 error=f"Tool '{tool_name}' is disabled in permissions.yaml",
             )
+
+        # Hosted L8: owner spend freeze blocks money tools hard (fail-closed).
+        from core.kill_switch import is_spend_frozen, resolve_data_dir
+
+        _MONEY_PREFIXES = ("crypto_", "wallet_", "fiat_")
+        _MONEY_TOOLS = frozenset(
+            {
+                "crypto_transfer",
+                "crypto_swap",
+                "wallet_export",
+                "wallet_send",
+                "fiat_payout",
+                "fiat_transfer",
+                "card_create",
+                "payment_send",
+            }
+        )
+        if tool_name in _MONEY_TOOLS or tool_name.startswith(_MONEY_PREFIXES):
+            try:
+                data_dir = resolve_data_dir(self._config)
+            except Exception as e:
+                return ExecutionResult(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    error=f"Spend freeze check failed (fail-closed): {e}",
+                )
+            if is_spend_frozen(data_dir):
+                return ExecutionResult(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    error=(
+                        "Spend freeze is active (owner control). "
+                        "Unfreeze before any payment or wallet action."
+                    ),
+                )
 
         # Look up tool
         tool = self._registry.get(tool_name)
@@ -504,7 +570,12 @@ class Executor:
 
         callback = approval_callback or self._approval_callback
         override = self._tool_overrides.get(tool.name)
-        mode = self._config.permission_mode
+        from core.hosted import clamp_permission_mode, is_hosted
+
+        # Hosted L1: never honor nuclear even if config was smuggled in.
+        mode = clamp_permission_mode(self._config.permission_mode)
+        if is_hosted() and self._config.permission_mode == "nuclear":
+            self._config.permission_mode = mode
 
         async def _ask(reason: str = "") -> bool:
             if not callback:

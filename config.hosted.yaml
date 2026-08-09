@@ -1,0 +1,45 @@
+# config.hosted.yaml — template baked into Hosted images / provisioned volumes.
+# Copy to /data/config.yaml on first boot. Open users should use config.demo.yaml
+# or ./setup.sh instead — this file assumes ELOPHANTO_CLOUD=1.
+
+agent:
+  name: EloPhanto
+  permission_mode: full_auto   # nuclear is forbidden on Hosted
+
+# Absolute paths on the persistent volume — project_root is /app (code),
+# but durable state must live on /data.
+database:
+  db_path: /data/data/elophanto.db
+
+gateway:
+  enabled: true
+  host: "0.0.0.0"
+  port: 18789
+  # Token comes from ELOPHANTO_GATEWAY_TOKEN at runtime (provisioner-minted).
+  auth_token_ref: ""
+
+browser:
+  enabled: true
+  local:
+    mode: fresh
+    headless: true
+    use_system_chrome: false
+    user_data_dir: /data/browser-profile
+
+payments:
+  enabled: false
+
+autonomous_mind:
+  enabled: true
+
+knowledge:
+  base_dir: /data/knowledge
+
+llm:
+  provider_priority:
+    - openrouter
+  budget:
+    daily_limit_usd: 25
+
+# Custody notice (also enforced in core/hosted.py):
+# Managed custody. This instance runs on infrastructure we operate.

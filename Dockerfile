@@ -65,6 +65,11 @@ COPY channels/ channels/
 COPY knowledge/ knowledge/
 COPY plugins/ plugins/
 COPY skills/ skills/
+COPY cloud/ cloud/
+COPY profiles/ profiles/
+COPY config.hosted.yaml config.hosted.yaml
+COPY permissions.hosted.yaml permissions.hosted.yaml
+COPY permissions.yaml permissions.yaml
 
 # ---------- Playwright browser install ----------
 RUN uv run playwright install chromium --with-deps
@@ -78,6 +83,10 @@ VOLUME /data
 ENV PYTHONUNBUFFERED=1
 ENV ELOPHANTO_CONFIG=/data/config.yaml
 ENV ELOPHANTO_CLOUD=1
+ENV ELOPHANTO_PROFILE=hosted
+ENV ELOPHANTO_CODE_ROOT=/app
+# ELOPHANTO_GATEWAY_TOKEN and ELOPHANTO_VAULT_PASSWORD must be injected
+# at provision time — gateway refuses to start Hosted without the token.
 
 # Gateway port
 EXPOSE 18789
@@ -86,5 +95,7 @@ EXPOSE 18789
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:18789/health || exit 1
 
-# Entrypoint: start gateway bound to all interfaces
-CMD ["uv", "run", "python", "-m", "cli.main", "gateway", "--no-cli", "--no-dashboard"]
+RUN chmod +x /app/cloud/entrypoint.sh
+
+# Entrypoint: seed /data from hosted templates, then gateway
+CMD ["/app/cloud/entrypoint.sh"]

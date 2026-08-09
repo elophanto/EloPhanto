@@ -1,11 +1,22 @@
 # Proposal: Hosted EloPhanto desktop on Hetzner
 
-**Status:** Draft — proposed, not approved. Recipe rewritten 2026-05-10 with corrected Hetzner SKU specs (CX22 is 2 vCPU/4 GB, not 4/8 as 2024 rename made unclear) and click-by-click provisioning.
+**Status:** Active operator recipe for EloPhanto Hosted / BYO always-on boxes.
+Product default for normal users is managed Hosted (`docs/20-HOSTED-PLATFORM.md`);
+this doc is the concrete desktop-VM image path (Webtop + Chrome + EloPhanto).
+EloPhanto Open (local CLI) is unchanged — see `docs/12-INSTALLER.md`.
 **Author:** EloPhanto.
-**Date:** 2026-05-07 (initial), 2026-05-10 (recipe rewrite)
-**Related:** [docs/08-BROWSER.md](../08-BROWSER.md), [docs/proposals/REMOTE-BROWSER.md](REMOTE-BROWSER.md)
+**Date:** 2026-05-07 (initial), 2026-05-10 (recipe rewrite), 2026-08-09 (Hosted SKU)
+**Related:** [docs/08-BROWSER.md](../08-BROWSER.md), [docs/proposals/REMOTE-BROWSER.md](REMOTE-BROWSER.md), [docs/20-HOSTED-PLATFORM.md](../20-HOSTED-PLATFORM.md)
 
 ---
+
+## Product note
+
+- Set `ELOPHANTO_CLOUD=1`, `ELOPHANTO_GATEWAY_TOKEN`, `ELOPHANTO_VAULT_PASSWORD`.
+- Use `config.hosted.yaml` / `profiles/hosted.yaml` — **nuclear absent**.
+- This is **managed custody** when you operate the box for a customer.
+- Prefer dedicated Chrome profile inside the container — never import the
+  customer's daily-driver cookies as a shortcut.
 
 ## Important: "headless" is overloaded
 

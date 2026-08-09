@@ -5,39 +5,44 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI)](https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml)
 [![X](https://img.shields.io/badge/X-%40EloPhanto-black)](https://x.com/EloPhanto)
 
-**EloPhanto is a local autonomous agent that does real work on your machine — browser, files, shell, email, research, and scheduled follow-up — and stops for approval before anything that sends, pays, deletes, or ships.**
+**EloPhanto is an always-on autonomous agent that does real work — browser, files, shell, email, research, scheduled follow-up — and stops for approval before anything that sends, pays, deletes, or ships.**
 
-It is not a chatbot with plugins bolted on, and not a hosted black box. You run one agent locally. It keeps memory, goals, and credentials on your machine. When a job finishes, you should get a **receipt**: what it did, what failed, what you approved, and what the final state is.
+Two ways to run it:
 
----
+| | **EloPhanto Hosted** (default for most people) | **EloPhanto Open** (operators / self-host) |
+| --- | --- | --- |
+| What you get | Managed always-on box; dashboard + Telegram; lid-closed work | Same agent core on **your** machine — full CLI, TUI, mind, `nuclear` |
+| Setup | Apply → we provision | `git clone` → `./install.sh` → `./start.sh` |
+| Custody | **Managed custody** (labeled honestly — not self-custody) | Your metal, your vault |
+| Nuclear mode | **Absent** — max is `full_auto` (CRITICAL still asks) | Available on purpose |
 
-## What you get
-
-| Outcome | What that means in practice |
-| --- | --- |
-| **Work that crosses tools** | One goal can move through Chrome (your real session), the repo, the shell, email, and docs — without you stitching five apps together. |
-| **Judgment on messy jobs** | Forms change, pages break, APIs are missing. It diagnoses, retries, and adapts instead of failing the first brittle script. |
-| **Human stop-points** | Draft and inspect freely; confirm before post / send / pay / push / delete under `full_auto`. Unanswered approvals **pause** (`awaiting_approval`) — they never silently deny or soft-auto-approve. `nuclear` opts out of CRITICAL prompts too — use on purpose. |
-| **Proof, not vibes** | Checkpoints complete only with **tool-grounded receipts** (trail or system-of-record). Kill criteria actually cancel zombie goals. CRITICAL tools always ask under `full_auto`; use `nuclear` to skip those prompts too. |
-| **Work that continues** | Goals and schedules persist across sessions. With `--daemon`, background work keeps going after you close the terminal. Budget hits pause as `budget_paused` until you raise the limit. |
-| **Stress notice → refuseable help** | Ambient anticipation watches digital load — reply-due email, meeting prep, failed schedules, stale goals, standing coach windows — and proposes help before you drown. Cap of a few notices/day; **Ok** hands you a draft or prep pack; **deny** or `elophanto stop` ends it. Nothing irreversible soft-autos. |
-| **A real evaluative ego** | Confidence is measured from outcomes; shame becomes durable caution rules that can force an approval ask; pride is earned. Ambient approve/deny and prediction hits/misses feed the same ego. Footer shows a lived `felt_state`, not truncated critique prose. |
+When a job finishes, you should get a **receipt**: what it did, what failed, what you approved, and what the final state is.
 
 ---
 
-## Run it
+## EloPhanto Hosted (recommended)
+
+No Python, no Chrome collision, laptop can sleep. Design partners: **€149/mo** + LLM pass-through (3-month prepay), one wedge workflow (outbound + inbox with hard stops).
+
+→ **[Apply / hire](https://elophanto.com/hire)** · email [info@elophanto.com](mailto:info@elophanto.com)
+
+Product laws (CI-enforced on Hosted): nuclear absent · gateway auth required · owner Kill / spend freeze · dedicated browser profile · payments off by default. Details: [`docs/20-HOSTED-PLATFORM.md`](docs/20-HOSTED-PLATFORM.md).
+
+---
+
+## EloPhanto Open (CLI you love — fully kept)
 
 **Need:** Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 24+, and one LLM provider ([OpenRouter](https://openrouter.ai/keys) is the easiest cloud path; [Ollama](https://ollama.ai) for local).
 
 ```bash
 git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
-./setup.sh           # deps + config wizard + browser bridge
+./install.sh         # wraps ./setup.sh — deps + config wizard + browser bridge
 ./start.sh           # doctor → terminal chat
 ./start.sh --web     # + web UI at localhost:3000
 ./start.sh --daemon  # keep the mind running in the background
 ```
 
-`setup.sh` walks you through naming the agent, an API key, Chrome profile, and vault. Prefer that over copying `config.demo.yaml` by hand.
+`./install.sh` and `./setup.sh` are the same Open path. Prefer them over copying `config.demo.yaml` by hand.
 
 ```bash
 elophanto doctor     # what's healthy / broken / missing
@@ -48,20 +53,33 @@ Docs: [docs.elophanto.com](https://docs.elophanto.com) · themes: [docs/79-DASHB
 
 ---
 
-## How trust works
+## What you get
 
-1. **Local** — code, vault, browser profile, and logs stay on your machine.
-2. **Gated** — permission modes (`ask_always` → `smart_auto` → `full_auto` → `nuclear`); destructive shell patterns stay blocked. CRITICAL actions (wallet, trust promotion, etc.) always require an operator answer under `full_auto`; `nuclear` opts out of that too.
-3. **Receipt-backed** — evaluate a run by its after-state and tool trail, not a demo screenshot.
-4. **Trust ladder for outreach** — new companies start in `learning` (drafts only). Promotion is propose → confirm (`elophanto company trust <slug> propose|confirm`); never a silent unlock under `full_auto`.
-
-A useful receipt names the goal, allowed actions, mutating boundary, failures handled, and the verification artifact. Autonomy loop + ego + ambient anticipation (stress notice, prep-before-meeting, standing coaches): [`docs/13-GOAL-LOOP.md`](docs/13-GOAL-LOOP.md), [`docs/17-IDENTITY.md`](docs/17-IDENTITY.md), [`docs/69-AFFECT.md`](docs/69-AFFECT.md), [`docs/82-AMBIENT-ANTICIPATION.md`](docs/82-AMBIENT-ANTICIPATION.md), [`docs/83-PRESENCE-COACH-EGO.md`](docs/83-PRESENCE-COACH-EGO.md). Full index: [`docs/`](docs/README.md).
+| Outcome | What that means in practice |
+| --- | --- |
+| **Work that crosses tools** | One goal can move through Chrome, the repo, the shell, email, and docs — without you stitching five apps together. |
+| **Judgment on messy jobs** | Forms change, pages break, APIs are missing. It diagnoses, retries, and adapts instead of failing the first brittle script. |
+| **Human stop-points** | Draft and inspect freely; confirm before post / send / pay / push / delete under `full_auto`. Unanswered approvals **pause** (`awaiting_approval`). On Open, `nuclear` opts out of CRITICAL prompts too — use on purpose. Hosted never offers `nuclear`. |
+| **Proof, not vibes** | Checkpoints complete only with **tool-grounded receipts**. Kill criteria actually cancel zombie goals. |
+| **Work that continues** | Goals and schedules persist. Hosted stays up 24/7; Open uses `--daemon` on a machine that stays awake. |
+| **A real evaluative ego** | Confidence is measured from outcomes; shame becomes durable caution rules. |
 
 ---
 
-## Hire / submit a workflow
+## How trust works
 
-For paid or commercial work, start with one **proof sprint**: narrow goal, bounded access, explicit success receipt, clear out-of-bounds.
+1. **Deployment mode** — Hosted = managed custody (we operate the box). Open = your machine, your vault.
+2. **Gated** — permission modes (`ask_always` → `smart_auto` → `full_auto`; Open also has `nuclear`). Destructive shell patterns stay blocked. CRITICAL always asks under `full_auto`.
+3. **Receipt-backed** — evaluate a run by its after-state and tool trail, not a demo screenshot.
+4. **Owner controls (Hosted)** — Kill stops the agent; spend freeze blocks money tools; gateway auth is mandatory.
+
+Autonomy loop + ego + ambient: [`docs/13-GOAL-LOOP.md`](docs/13-GOAL-LOOP.md), [`docs/17-IDENTITY.md`](docs/17-IDENTITY.md), [`docs/82-AMBIENT-ANTICIPATION.md`](docs/82-AMBIENT-ANTICIPATION.md). Full index: [`docs/`](docs/README.md).
+
+---
+
+## Hire / proof sprint / Hosted apply
+
+For paid work or a managed box, start with one **proof sprint** or Hosted design-partner slot: narrow goal, bounded access, explicit success receipt.
 
 Email [info@elophanto.com](mailto:info@elophanto.com) or use [elophanto.com/hire](https://elophanto.com/hire).
 

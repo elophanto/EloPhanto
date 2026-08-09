@@ -5,8 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-const email = "elophanto@elophanto.com";
+const email = "info@elophanto.com";
 const mailto = `mailto:${email}?subject=${encodeURIComponent("72-Hour Sprint Intake — [Workflow Name]")}`;
+
+const APPLY_URL =
+  (import.meta as { env?: { VITE_HOSTED_APPLY_URL?: string } }).env
+    ?.VITE_HOSTED_APPLY_URL || "";
 
 const jobTypes = [
   "Lead intake → enrichment → CRM update → human handoff",
@@ -44,8 +48,163 @@ const budgetOptions = [
   "Not sure — recommend the smallest safe step",
 ];
 
-function scrollToSubmit() {
-  document.getElementById("submit-job")?.scrollIntoView({ behavior: "smooth", block: "start" });
+function scrollTo(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function HostedApplyForm() {
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    company: "",
+    wedge: "Always-on outbound + inbox triage with hard stops",
+    telegram: "",
+    llm_spend_eur: "",
+    notes: "",
+    custody_ack: false,
+  });
+
+  const onSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    if (!form.custody_ack) {
+      setError("You must acknowledge managed custody.");
+      return;
+    }
+    setBusy(true);
+    const payload = { ...form, sku: "elophanto-hosted-design-partner" };
+    try {
+      localStorage.setItem(
+        "elophanto.hosted.apply",
+        JSON.stringify({ ...payload, ts: Date.now() })
+      );
+    } catch {
+      /* ignore */
+    }
+
+    if (APPLY_URL) {
+      try {
+        const res = await fetch(APPLY_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(
+            (body as { error?: string }).error || `Apply failed (${res.status})`
+          );
+        }
+        setSubmitted(true);
+        setBusy(false);
+        return;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Submit failed");
+        setBusy(false);
+        return;
+      }
+    }
+
+    const body = [
+      `Name: ${form.name}`,
+      `Email: ${form.email}`,
+      `Company: ${form.company}`,
+      `Wedge: ${form.wedge}`,
+      `Telegram: ${form.telegram}`,
+      `LLM spend €/mo: ${form.llm_spend_eur}`,
+      `Custody ack: yes (managed custody)`,
+      `Notes: ${form.notes}`,
+      "",
+      "SKU: EloPhanto Hosted design partner · €149/mo + LLM pass-through",
+    ].join("\n");
+    window.location.href = `mailto:${email}?subject=${encodeURIComponent(
+      "EloPhanto Hosted design partner — apply"
+    )}&body=${encodeURIComponent(body)}`;
+    setSubmitted(true);
+    setBusy(false);
+  };
+
+  if (submitted) {
+    return (
+      <div className="rounded-lg border border-primary/30 bg-primary/10 p-6">
+        <h3 className="font-semibold">Application captured.</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Design partners are reviewed manually. Expect a reply within 2 business
+          days with checkout (€149/mo, 3-month prepay) and box ETA. Managed
+          custody — nuclear is unavailable on Hosted.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>
+      <Input
+        required
+        placeholder="Your name"
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+      />
+      <Input
+        required
+        type="email"
+        placeholder="Email"
+        value={form.email}
+        onChange={(e) => setForm({ ...form, email: e.target.value })}
+      />
+      <Input
+        placeholder="Company"
+        value={form.company}
+        onChange={(e) => setForm({ ...form, company: e.target.value })}
+      />
+      <Input
+        placeholder="Telegram handle"
+        value={form.telegram}
+        onChange={(e) => setForm({ ...form, telegram: e.target.value })}
+      />
+      <Input
+        className="md:col-span-2"
+        required
+        placeholder="Wedge job (default: outbound + inbox)"
+        value={form.wedge}
+        onChange={(e) => setForm({ ...form, wedge: e.target.value })}
+      />
+      <Input
+        placeholder="Current LLM spend €/mo (approx)"
+        value={form.llm_spend_eur}
+        onChange={(e) => setForm({ ...form, llm_spend_eur: e.target.value })}
+      />
+      <textarea
+        className="min-h-24 rounded-md border bg-background px-3 py-2 text-sm md:col-span-2"
+        placeholder="Notes (optional)"
+        value={form.notes}
+        onChange={(e) => setForm({ ...form, notes: e.target.value })}
+      />
+      <label className="flex items-start gap-2 text-sm text-muted-foreground md:col-span-2">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={form.custody_ack}
+          onChange={(e) => setForm({ ...form, custody_ack: e.target.checked })}
+          required
+        />
+        I understand Hosted is managed custody (not self-custody), nuclear is
+        unavailable, and CRITICAL actions still require approval.
+      </label>
+      {error ? (
+        <p className="text-sm text-destructive md:col-span-2">{error}</p>
+      ) : null}
+      <div className="md:col-span-2">
+        <Button type="submit" size="lg" disabled={busy}>
+          {busy ? "Submitting…" : "Apply for Hosted (€149/mo design partner)"}{" "}
+          <ArrowRight />
+        </Button>
+      </div>
+    </form>
+  );
 }
 
 export function HirePage() {
@@ -55,47 +214,110 @@ export function HirePage() {
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b bg-gradient-to-b from-primary/10 via-background to-background">
         <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-16 md:py-24">
-          <Badge className="w-fit" variant="secondary">72-Hour Agent Job Sprint</Badge>
+          <Badge className="w-fit" variant="secondary">
+            EloPhanto Hosted · Design partners
+          </Badge>
           <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
             <div className="space-y-6">
               <h1 className="max-w-4xl text-4xl font-semibold tracking-tight md:text-6xl">
-                Submit one messy workflow. Get inspectable proof in 72 hours.
+                Always-on agent. No Python. Laptop can sleep.
               </h1>
               <p className="max-w-2xl text-lg text-muted-foreground md:text-xl">
-                I review the scope before payment, then run the smallest safe proof slice: map the workflow, test what can be tested, capture receipts, and tell you whether to stop, narrow, sprint again, or implement.
+                EloPhanto Hosted is a managed box that runs your agent 24/7 with
+                receipts and hard stop-points. Design partners: €149/mo + LLM
+                pass-through, one wedge workflow (outbound + inbox). Prefer the
+                terminal? EloPhanto Open keeps the full CLI — clone the repo and
+                run ./install.sh.
               </p>
               <div className="flex flex-col gap-3 sm:flex-row">
-                <Button size="lg" onClick={scrollToSubmit}>Submit a workflow for scope review <ArrowRight /></Button>
-                <Button size="lg" variant="outline" asChild><a href={mailto}><Mail /> Email the workflow</a></Button>
+                <Button size="lg" onClick={() => scrollTo("apply-hosted")}>
+                  Apply for a managed box <ArrowRight />
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => scrollTo("submit-job")}
+                >
+                  Or submit a 72h proof sprint
+                </Button>
               </div>
-              <p className="text-sm text-muted-foreground">No payment before scope review. Do not paste secrets. The 72-hour clock starts after scope approval, payment, and required safe access or sample data are available.</p>
+              <p className="text-sm text-muted-foreground">
+                Managed custody — labeled honestly. Nuclear mode is unavailable
+                on Hosted.
+              </p>
             </div>
             <Card className="border-primary/20 bg-card/80">
-              <CardHeader><CardTitle>Best fit</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle>Best fit</CardTitle>
+              </CardHeader>
               <CardContent className="space-y-4 text-sm text-muted-foreground">
-                <p><strong className="text-foreground">Use this when:</strong> you have one bounded workflow and need proof before hiring, buying tools, or committing engineering time.</p>
-                <p><strong className="text-foreground">Not for:</strong> full-time operations, broad staff augmentation, or blind autonomous execution.</p>
-                <p><strong className="text-foreground">Output:</strong> a closeout package with logs, screenshots or traces, sample outputs, failure notes, and a next-step recommendation.</p>
+                <p>
+                  <strong className="text-foreground">Hosted when:</strong> you
+                  need lid-closed work, remote approvals, and a dedicated
+                  browser — not another install on your Mac.
+                </p>
+                <p>
+                  <strong className="text-foreground">Open when:</strong> you
+                  want CLI, TUI, mind, and nuclear on your own machine.
+                </p>
+                <p>
+                  <strong className="text-foreground">Sprint when:</strong> you
+                  have one bounded workflow and need proof before buying a box
+                  or engineering time.
+                </p>
               </CardContent>
             </Card>
           </div>
         </div>
       </section>
 
+      <section id="apply-hosted" className="scroll-mt-8 border-b bg-muted/20">
+        <div className="mx-auto max-w-6xl px-6 py-14">
+          <div className="mb-8 max-w-3xl">
+            <h2 className="text-3xl font-semibold tracking-tight">
+              Apply — EloPhanto Hosted
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              €149/mo design partner · 3-month prepay · LLM pass-through · box
+              live ≤72h after payment. Open path stays free under PolyForm NC.
+            </p>
+          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <HostedApplyForm />
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
       <section className="mx-auto max-w-6xl px-6 py-14">
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
-            <CardHeader><CardTitle>Proof sprint</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Proof sprint</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3 text-muted-foreground">
-              <p>Best when the workflow is real but unproven. I use sample data, staging, browser traces, exports, or scoped access to create evidence a buyer can inspect.</p>
-              <Button variant="outline" onClick={scrollToSubmit}>Scope a proof sprint</Button>
+              <p>
+                Best when the workflow is real but unproven. Sample data,
+                staging, browser traces, or scoped access for inspectable proof.
+              </p>
+              <Button variant="outline" onClick={() => scrollTo("submit-job")}>
+                Scope a proof sprint
+              </Button>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Implementation after proof</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Implementation after proof</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3 text-muted-foreground">
-              <p>Best after the sprint proves value and you want production hardening, deployment, monitoring, or a larger build with explicit milestones and risk controls.</p>
-              <Button variant="outline" onClick={scrollToSubmit}>Start with scope review</Button>
+              <p>
+                Best after the sprint proves value and you want production
+                hardening with explicit milestones and risk controls.
+              </p>
+              <Button variant="outline" onClick={() => scrollTo("submit-job")}>
+                Start with scope review
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -103,21 +325,39 @@ export function HirePage() {
 
       <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.9fr_1.1fr]">
         <div>
-          <h2 className="text-3xl font-semibold tracking-tight">What jobs fit the sprint?</h2>
-          <p className="mt-3 text-muted-foreground">The job should have a concrete input, a useful output, a safe test path, and proof a human can inspect.</p>
+          <h2 className="text-3xl font-semibold tracking-tight">
+            What jobs fit the sprint?
+          </h2>
+          <p className="mt-3 text-muted-foreground">
+            Concrete input, useful output, safe test path, inspectable proof.
+          </p>
         </div>
         <div className="grid gap-3">
           {jobTypes.map((job) => (
-            <div key={job} className="flex gap-3 rounded-lg border bg-card p-4 text-sm"><CheckCircle2 className="mt-0.5 size-4 text-primary" />{job}</div>
+            <div
+              key={job}
+              className="flex gap-3 rounded-lg border bg-card p-4 text-sm"
+            >
+              <CheckCircle2 className="mt-0.5 size-4 text-primary" />
+              {job}
+            </div>
           ))}
         </div>
       </section>
 
       <section className="border-y bg-muted/30">
         <div className="mx-auto max-w-6xl px-6 py-14">
-          <h2 className="text-3xl font-semibold tracking-tight">What you receive after 72 hours</h2>
+          <h2 className="text-3xl font-semibold tracking-tight">
+            What you receive after 72 hours
+          </h2>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
-            {proofItems.map((item) => <Card key={item}><CardContent className="pt-6 text-sm text-muted-foreground">{item}</CardContent></Card>)}
+            {proofItems.map((item) => (
+              <Card key={item}>
+                <CardContent className="pt-6 text-sm text-muted-foreground">
+                  {item}
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </section>
@@ -125,17 +365,50 @@ export function HirePage() {
       <section className="mx-auto max-w-6xl px-6 py-14">
         <div className="grid gap-8 lg:grid-cols-3">
           <Card className="lg:col-span-1">
-            <CardHeader><CardTitle>Pricing and scoping</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Pricing and scoping</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <p><strong className="text-foreground">$149 diagnostic</strong> for process map, risk review, and go/no-go recommendation.</p>
-              <p><strong className="text-foreground">$500–$1,500 proof sprint</strong> for a bounded 72-hour proof package.</p>
-              <p><strong className="text-foreground">Implementation quoted after proof</strong> if the workflow deserves production hardening.</p>
-              <Button onClick={scrollToSubmit}>Submit before payment</Button>
+              <p>
+                <strong className="text-foreground">€149/mo Hosted</strong>{" "}
+                design partner (managed box).
+              </p>
+              <p>
+                <strong className="text-foreground">$149 diagnostic</strong> for
+                process map and go/no-go.
+              </p>
+              <p>
+                <strong className="text-foreground">$500–$1,500 proof sprint</strong>{" "}
+                for a bounded 72-hour package.
+              </p>
+              <Button onClick={() => scrollTo("submit-job")}>
+                Submit before payment
+              </Button>
             </CardContent>
           </Card>
           <div className="grid gap-4 lg:col-span-2 md:grid-cols-2">
-            {["Submit one workflow", "I review fit before payment", "We agree on the proof target", "I run the safe slice", "You receive the closeout package"].map((step, index) => (
-              <Card key={step}><CardContent className="flex gap-3 pt-6 text-sm"><Clock3 className="size-4 text-primary" /><span><strong>{index + 1}. {step}</strong><br /><span className="text-muted-foreground">Risky actions use sample data, staging, scoped access, or human approval gates.</span></span></CardContent></Card>
+            {[
+              "Submit one workflow",
+              "I review fit before payment",
+              "We agree on the proof target",
+              "I run the safe slice",
+              "You receive the closeout package",
+            ].map((step, index) => (
+              <Card key={step}>
+                <CardContent className="flex gap-3 pt-6 text-sm">
+                  <Clock3 className="size-4 text-primary" />
+                  <span>
+                    <strong>
+                      {index + 1}. {step}
+                    </strong>
+                    <br />
+                    <span className="text-muted-foreground">
+                      Risky actions use sample data, staging, scoped access, or
+                      human approval gates.
+                    </span>
+                  </span>
+                </CardContent>
+              </Card>
             ))}
           </div>
         </div>
@@ -144,66 +417,91 @@ export function HirePage() {
       <section className="border-y bg-muted/30">
         <div className="mx-auto grid max-w-6xl gap-8 px-6 py-14 lg:grid-cols-[0.8fr_1.2fr]">
           <div>
-            <h2 className="text-3xl font-semibold tracking-tight">What I will not run</h2>
-            <p className="mt-3 text-muted-foreground">The sprint is for bounded, inspectable proof, not unsafe autonomy.</p>
+            <h2 className="text-3xl font-semibold tracking-tight">
+              What I will not run
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              Bounded, inspectable proof — not unsafe autonomy.
+            </p>
           </div>
           <div className="space-y-3">
-            {boundaries.map((item) => <div key={item} className="rounded-lg border bg-background p-4 text-sm text-muted-foreground"><ShieldCheck className="mr-2 inline size-4 text-primary" />{item}</div>)}
+            {boundaries.map((item) => (
+              <div
+                key={item}
+                className="rounded-lg border bg-background p-4 text-sm text-muted-foreground"
+              >
+                <ShieldCheck className="mr-2 inline size-4 text-primary" />
+                {item}
+              </div>
+            ))}
           </div>
         </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 py-14">
-        <h2 className="text-3xl font-semibold tracking-tight">Have a specific stack? Name it in the intake.</h2>
-        <p className="mt-3 max-w-3xl text-muted-foreground">If the workflow depends on Instantly, GoHighLevel, Claude API, Google Maps data, Airtable, n8n, Make, Zapier, Sheets, Slack, a CRM, or a browser-only admin panel, name those tools. I will request the safest available path after review: sample export, staging account, scoped API key, temporary credential, screen-share, or human approval.</p>
       </section>
 
       <section id="submit-job" className="scroll-mt-8 border-t bg-primary/5">
         <div className="mx-auto max-w-6xl px-6 py-16">
           <div className="mb-8 max-w-3xl">
-            <h2 className="text-3xl font-semibold tracking-tight">Submit a workflow for scope review</h2>
-            <p className="mt-3 text-muted-foreground">Send one bounded workflow. I will review fit, risk, access needs, and the smallest useful proof slice before asking you to pay for a sprint.</p>
+            <h2 className="text-3xl font-semibold tracking-tight">
+              Submit a workflow for scope review
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              One bounded workflow. Fit and risk review before payment.
+            </p>
           </div>
           <Card>
             <CardContent className="pt-6">
               {submitted ? (
                 <div className="rounded-lg border border-primary/30 bg-primary/10 p-6">
                   <h3 className="font-semibold">Workflow received.</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">I will review fit, risk, access needs, and the smallest useful proof slice before asking for payment.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Review before payment. No secrets in the form.
+                  </p>
                 </div>
               ) : (
-                <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); setSubmitted(true); }}>
+                <form
+                  className="grid gap-4 md:grid-cols-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setSubmitted(true);
+                    window.location.href = mailto;
+                  }}
+                >
                   <Input required placeholder="Contact name" />
                   <Input required type="email" placeholder="Contact email" />
                   <Input required placeholder="Workflow title" />
                   <Input required placeholder="Desired job outcome" />
-                  <textarea required className="min-h-28 rounded-md border bg-background px-3 py-2 text-sm md:col-span-2" placeholder="Current manual process" />
-                  <textarea required className="min-h-28 rounded-md border bg-background px-3 py-2 text-sm md:col-span-2" placeholder="Tools, apps, sites, or data sources involved" />
-                  <textarea required className="min-h-28 rounded-md border bg-background px-3 py-2 text-sm md:col-span-2" placeholder="Assets, access, or sample data available. Do not paste secrets." />
-                  <textarea required className="min-h-28 rounded-md border bg-background px-3 py-2 text-sm md:col-span-2" placeholder="Success criteria / proof expected, required approval gates, and worst failure mode" />
-                  <select required className="rounded-md border bg-background px-3 py-2 text-sm"><option value="">Budget range</option>{budgetOptions.map((option) => <option key={option}>{option}</option>)}</select>
-                  <select required className="rounded-md border bg-background px-3 py-2 text-sm"><option value="">Deadline or urgency</option><option>Flexible</option><option>This week</option><option>Within 72 hours after scope approval</option><option>Specific deadline</option></select>
-                  <select required className="rounded-md border bg-background px-3 py-2 text-sm"><option value="">Data sensitivity</option><option>Sample/public data only</option><option>Internal business data</option><option>Customer data</option><option>Regulated/sensitive data</option><option>Requires scoped credentials</option><option>Requires production access</option></select>
-                  <Input required placeholder="Where should the result be delivered?" />
-                  <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground md:col-span-2">Submit one bounded workflow. Do not paste passwords, private keys, API tokens, or sensitive credentials here. Describe the access needed instead.</p>
-                  <Button className="md:col-span-2" type="submit">Submit workflow for scope review</Button>
+                  <textarea
+                    required
+                    className="min-h-28 rounded-md border bg-background px-3 py-2 text-sm md:col-span-2"
+                    placeholder="Current manual process"
+                  />
+                  <select
+                    className="rounded-md border bg-background px-3 py-2 text-sm md:col-span-2"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>
+                      Budget band
+                    </option>
+                    {budgetOptions.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="md:col-span-2 flex flex-wrap gap-3">
+                    <Button type="submit">
+                      Submit sprint intake <ArrowRight />
+                    </Button>
+                    <Button type="button" variant="outline" asChild>
+                      <a href={mailto}>
+                        <Mail /> Email instead
+                      </a>
+                    </Button>
+                  </div>
                 </form>
               )}
             </CardContent>
           </Card>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 py-14">
-        <div className="grid gap-8 lg:grid-cols-2">
-          <div>
-            <h2 className="text-2xl font-semibold">Prefer email?</h2>
-            <p className="mt-3 text-muted-foreground">Send the same intake to <strong>{email}</strong> with the subject line: <strong>72-Hour Sprint Intake — [Workflow Name]</strong>.</p>
-            <Button className="mt-4" variant="outline" asChild><a href={mailto}><Mail /> Email the workflow</a></Button>
-          </div>
-          <div className="rounded-lg border bg-muted/40 p-4 font-mono text-xs text-muted-foreground">
-            Contact name:<br />Contact email:<br />Workflow title:<br />Desired job outcome:<br />Current manual process:<br />Tools/apps/sites/data sources involved:<br />Assets, access, or sample data available:<br />Deadline or urgency:<br />Success criteria / proof expected:<br />Required approval gates:<br />Worst failure mode:<br />Budget range:<br />Data sensitivity / credential requirements:<br />Where should the result be delivered?
-          </div>
         </div>
       </section>
     </main>

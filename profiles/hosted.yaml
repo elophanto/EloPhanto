@@ -1,0 +1,33 @@
+# profiles/hosted.yaml
+# EloPhanto Hosted (managed always-on) — CI-enforced product laws.
+# Nuclear is absent. Money/shell stay ask. Dedicated browser profile.
+name: Hosted
+description: >
+  Managed always-on Companion instance. Managed custody — not self-custody.
+  Nuclear permission mode is unavailable. CRITICAL actions always ask.
+tool_groups:
+  - system
+  - knowledge
+  - browser
+  - email
+  - research
+skills_priority:
+  - browser-automation
+config_overrides:
+  agent:
+    permission_mode: full_auto
+  browser:
+    enabled: true
+    local:
+      mode: fresh
+      headless: true
+      use_system_chrome: false
+  payments:
+    enabled: false
+  commune:
+    enabled: false
+  gateway:
+    enabled: true
+    host: "0.0.0.0"
+  autonomous_mind:
+    enabled: true

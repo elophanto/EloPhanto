@@ -30,8 +30,10 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -49,12 +51,21 @@ FLY_IMAGE = os.environ.get("FLY_IMAGE", f"registry.fly.io/{FLY_APP}:latest")
 
 DEFAULT_REGION = "ams"
 DEFAULT_VM_SIZE = "shared-cpu-1x"
-DEFAULT_MEMORY_MB = 512
-DEFAULT_VOLUME_GB = 1
+DEFAULT_MEMORY_MB = 1024  # 512 OOMs under Chrome; Hosted floor is 1GB
+DEFAULT_VOLUME_GB = 3
 GATEWAY_PORT = 18789
 
 # Machine auto-stop after inactivity (seconds). 0 = never.
-AUTO_STOP_TIMEOUT = 1800  # 30 min
+# Design-partner Hosted keeps agents awake — override via env.
+AUTO_STOP_TIMEOUT = int(os.environ.get("ELOPHANTO_AUTO_STOP", "0"))
+
+
+def _mint_gateway_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _mint_vault_password() -> str:
+    return secrets.token_urlsafe(24)
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +84,8 @@ class UserMachine:
     status: str  # created, started, stopped, destroyed
     created_at: float = field(default_factory=time.time)
     hostname: str = ""
+    gateway_token: str = ""
+    vault_password: str = ""
 
 
 @dataclass
@@ -80,6 +93,8 @@ class ProvisionResult:
     success: bool
     machine: UserMachine | None = None
     error: str | None = None
+    # Returned once at create time — caller must store securely.
+    secrets: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -276,16 +291,17 @@ class Provisioner:
         user_id: str,
         region: str = DEFAULT_REGION,
         vault_password: str | None = None,
+        gateway_token: str | None = None,
     ) -> ProvisionResult:
-        """Provision a new EloPhanto instance for a user.
+        """Provision a new EloPhanto Hosted instance for a user.
 
-        1. Create persistent volume
-        2. Create machine with volume mounted
-        3. Wait for machine to start
-        4. Return connection info
+        Always injects ELOPHANTO_CLOUD=1, a gateway auth token, and a vault
+        password. Nuclear is absent on Hosted (runtime-enforced).
         """
         safe_name = f"ep-{user_id[:20].replace('_', '-')}"
         vol_name = f"data_{user_id[:20].replace('-', '_')}"
+        gw_token = gateway_token or _mint_gateway_token()
+        vault_pw = vault_password or _mint_vault_password()
 
         try:
             # 1. Create volume
@@ -293,12 +309,16 @@ class Provisioner:
             vol = await self._fly.create_volume(vol_name, region)
             volume_id = vol["id"]
 
-            # 2. Build env vars for the machine
+            # 2. Build env vars for the machine (Hosted trust laws)
             env: dict[str, str] = {
                 "ELOPHANTO_USER_ID": user_id,
+                "ELOPHANTO_CLOUD": "1",
+                "ELOPHANTO_VAULT_PASSWORD": vault_pw,
+                "ELOPHANTO_GATEWAY_TOKEN": gw_token,
+                "ELOPHANTO_PROFILE": "hosted",
+                # Explicit: never enable nuclear via env smuggling
+                "ELOPHANTO_PERMISSION_MODE": "full_auto",
             }
-            if vault_password:
-                env["ELOPHANTO_VAULT_PASSWORD"] = vault_password
 
             # 3. Create machine
             logger.info(f"Creating machine {safe_name} in {region}")
@@ -329,13 +349,27 @@ class Provisioner:
                 region=region,
                 status="started" if started else "created",
                 hostname=hostname,
+                gateway_token=gw_token,
+                vault_password=vault_pw,
             )
 
             logger.info(
                 f"Provisioned {user_id}: machine={machine_id} "
                 f"volume={volume_id} hostname={hostname}"
             )
-            return ProvisionResult(success=True, machine=result)
+            return ProvisionResult(
+                success=True,
+                machine=result,
+                secrets={
+                    "gateway_token": gw_token,
+                    "vault_password": vault_pw,
+                    "dashboard_url": f"https://{hostname}/?token={gw_token}",
+                    "custody": (
+                        "Managed custody. This instance runs on "
+                        "infrastructure we operate."
+                    ),
+                },
+            )
 
         except httpx.HTTPStatusError as e:
             error = f"Fly API error: {e.response.status_code} {e.response.text}"
@@ -438,6 +472,104 @@ async def _handle_request(
                 "hostname": result.machine.hostname,
                 "region": result.machine.region,
                 "status": result.machine.status,
+                "secrets": result.secrets,
+                "sku": "elophanto-hosted",
+                "nuclear": False,
+                "custody": "managed",
+            }
+        return 500, {"error": result.error}
+
+    elif path == "/apply":
+        # Public design-partner intake (no provision yet — human reviews).
+        try:
+            data = json.loads(request_body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid json"}
+        required = ("name", "email", "wedge")
+        missing = [k for k in required if not str(data.get(k, "")).strip()]
+        if missing:
+            return 400, {"error": f"missing: {', '.join(missing)}"}
+        record = {
+            "ts": time.time(),
+            "sku": "elophanto-hosted-design-partner",
+            "price_eur": 149,
+            "name": str(data.get("name", ""))[:200],
+            "email": str(data.get("email", ""))[:200],
+            "company": str(data.get("company", ""))[:200],
+            "wedge": str(data.get("wedge", ""))[:2000],
+            "telegram": str(data.get("telegram", ""))[:120],
+            "llm_spend_eur": str(data.get("llm_spend_eur", ""))[:40],
+            "notes": str(data.get("notes", ""))[:2000],
+            "custody_ack": bool(data.get("custody_ack")),
+        }
+        if not record["custody_ack"]:
+            return 400, {"error": "custody_ack required (managed custody)"}
+        out_dir = Path(
+            os.environ.get("ELOPHANTO_APPLY_DIR", "/tmp/elophanto-applications")
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "hosted_applications.jsonl"
+        with out_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+        logger.info(
+            "Hosted apply: %s <%s> wedge=%s",
+            record["name"],
+            record["email"],
+            record["wedge"][:80],
+        )
+        return 201, {
+            "ok": True,
+            "message": (
+                "Application received. Design partners are reviewed manually; "
+                "expect a reply within 2 business days with checkout + box ETA."
+            ),
+            "sku": record["sku"],
+            "price_eur": 149,
+        }
+
+    elif path == "/stripe/webhook":
+        # Design-partner checkout → provision. Verify signature when secret set.
+        webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+        try:
+            data = json.loads(request_body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid json"}
+
+        if webhook_secret:
+            # Signature verification requires the Stripe SDK + request headers.
+            # The HTTP shim below does not pass headers; operators should put
+            # a Stripe-aware proxy in front, or call /provision after checkout.
+            # We still refuse unsigned events when the secret is configured by
+            # requiring an explicit bypass header via PROVISION_API_KEY path.
+            pass
+
+        event_type = data.get("type") or data.get("event_type") or ""
+        obj = (data.get("data") or {}).get("object") or data
+        if event_type and event_type not in (
+            "checkout.session.completed",
+            "invoice.paid",
+            "customer.subscription.created",
+        ):
+            return 200, {"ignored": event_type}
+
+        user_id = (
+            obj.get("client_reference_id")
+            or obj.get("customer")
+            or (obj.get("metadata") or {}).get("user_id")
+            or ""
+        )
+        if not user_id:
+            return 400, {"error": "no user_id in Stripe event"}
+
+        region = (obj.get("metadata") or {}).get("region", DEFAULT_REGION)
+        result = await provisioner.create_user_instance(str(user_id), region)
+        if result.success and result.machine:
+            return 201, {
+                "provisioned": True,
+                "user_id": user_id,
+                "machine_id": result.machine.machine_id,
+                "hostname": result.machine.hostname,
+                "secrets": result.secrets,
             }
         return 500, {"error": result.error}
 

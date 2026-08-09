@@ -166,21 +166,33 @@ class TelegramAdapter:
         async def cmd_mode(message: types.Message) -> None:
             if not self._is_authorized(message.from_user.id):
                 return
+            from core.hosted import (
+                allowed_permission_modes,
+                clamp_permission_mode,
+                nuclear_forbidden_reason,
+            )
+
             args = message.text.split(maxsplit=1)
-            if len(args) > 1 and args[1] in (
-                "ask_always",
-                "smart_auto",
-                "full_auto",
-                "nuclear",
-            ):
-                self._agent._config.permission_mode = args[1]
-                await message.answer(f"Permission mode changed to: {args[1]}")
-            else:
-                mode = self._agent._config.permission_mode
-                await message.answer(
-                    f"Current mode: {mode}\n"
-                    "Change with: /mode ask_always|smart_auto|full_auto|nuclear"
-                )
+            allowed = allowed_permission_modes()
+            if len(args) > 1:
+                requested = args[1].strip().lower()
+                if requested == "nuclear":
+                    reason = nuclear_forbidden_reason()
+                    if reason:
+                        await message.answer(reason)
+                        return
+                if requested in allowed:
+                    self._agent._config.permission_mode = clamp_permission_mode(
+                        requested
+                    )
+                    await message.answer(
+                        f"Permission mode changed to: "
+                        f"{self._agent._config.permission_mode}"
+                    )
+                    return
+            mode = clamp_permission_mode(self._agent._config.permission_mode)
+            choices = "|".join(allowed)
+            await message.answer(f"Current mode: {mode}\nChange with: /mode {choices}")
 
         @self._dp.message(Command("budget"))
         async def cmd_budget(message: types.Message) -> None:

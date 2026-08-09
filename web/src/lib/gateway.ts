@@ -32,10 +32,27 @@ class GatewayConnection {
       // Local gateway direct (port 18789) → ws://same-host
       // Local dev (Vite on :5173 etc.) → ws://127.0.0.1:18789
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const isLocalhost =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
       const isDevServer = isLocalhost && window.location.port !== "18789";
       const host = isDevServer ? "127.0.0.1:18789" : window.location.host;
-      this.url = `${proto}//${host}`;
+      // Hosted: ?token= from URL or localStorage (provisioner dashboard_url)
+      let token = "";
+      try {
+        const params = new URLSearchParams(window.location.search);
+        token =
+          params.get("token") ||
+          localStorage.getItem("elophanto.gateway.token") ||
+          "";
+        if (params.get("token")) {
+          localStorage.setItem("elophanto.gateway.token", params.get("token")!);
+        }
+      } catch {
+        /* ignore */
+      }
+      const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+      this.url = `${proto}//${host}${qs}`;
     }
   }
 

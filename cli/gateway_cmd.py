@@ -128,6 +128,9 @@ async def _run_gateway(
     # In cloud mode, always bind to all interfaces so Fly.io proxy can reach us
     if cloud_mode:
         cfg.gateway.host = "0.0.0.0"
+        from core.hosted import clamp_permission_mode
+
+        cfg.permission_mode = clamp_permission_mode(cfg.permission_mode)
 
     if not cfg.gateway.enabled:
         console.print(
@@ -187,10 +190,20 @@ async def _run_gateway(
     from core.session import SessionManager
 
     session_mgr = SessionManager(agent._db)
-    # Resolve auth token from vault if configured
+    # Resolve auth token from vault if configured, else Hosted env secret.
     auth_token: str | None = None
     if cfg.gateway.auth_token_ref and agent._vault:
         auth_token = agent._vault.get(cfg.gateway.auth_token_ref)
+    if not auth_token:
+        auth_token = os.environ.get("ELOPHANTO_GATEWAY_TOKEN") or None
+
+    if cloud_mode and not auth_token:
+        console.print(
+            f"  [bold red]Hosted refuse-start:[/] ELOPHANTO_GATEWAY_TOKEN "
+            f"(or gateway.auth_token_ref) is required when ELOPHANTO_CLOUD=1. "
+            f"Refusing to bind 0.0.0.0 without auth."
+        )
+        return
 
     gateway = Gateway(
         agent=agent,

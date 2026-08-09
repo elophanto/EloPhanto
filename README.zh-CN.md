@@ -1,61 +1,98 @@
 # EloPhanto
 
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
+[![CI](https://img.shields.io/github/actions/workflow/status/elophanto/EloPhanto/ci.yml?label=CI)](https://github.com/elophanto/EloPhanto/actions/workflows/ci.yml)
+[![X](https://img.shields.io/badge/X-%40EloPhanto-black)](https://x.com/EloPhanto)
+
 > [English README](README.md)
 
-一个源码可得（非商业）的 AI 智能体，能创建企业、扩大受众、交付代码、自主赚钱——在你睡觉的时候。告诉它你想要什么，它负责其余一切：验证市场、构建产品、部署上线、在合适的平台发布、生成营销团队、持续自主增长。遇到做不了的事，它自己造工具。任务复杂时，它克隆自己成为专业智能体。它用得越多越聪明。
+**EloPhanto 是一个始终在线的自主智能体，能真正干活——浏览器、文件、Shell、邮件、研究、定时跟进——并在发送、付款、删除或上线之前停下来征求批准。**
 
-> **许可说明：** 采用 [PolyForm Noncommercial License](LICENSE)（非商业许可证）授权——个人、研究、教育和非营利用途免费。**任何商业使用均需单独许可并事先获得批准**（见下方[许可证](#许可证)）。
+两种运行方式：
 
-本地运行。数据留在你的机器上。支持 OpenAI、Kimi、免费本地模型、Z.ai、OpenRouter、HuggingFace 或 ChatGPT Plus/Pro 订阅（通过 Codex OAuth）。
+| | **EloPhanto Hosted**（多数人默认） | **EloPhanto Open**（操作者 / 自托管） |
+| --- | --- | --- |
+| 你得到什么 | 托管的始终在线机器；仪表盘 + Telegram；合上笔记本也能干活 | 同一套智能体内核跑在**你的机器**上——完整 CLI、TUI、思维、`nuclear` |
+| 怎么开始 | 申请 → 我们开通 | `git clone` → `./install.sh` → `./start.sh` |
+| 托管权 | **托管保管（managed custody）**——如实标注，不是自托管保管 | 你的硬件、你的保险库 |
+| Nuclear 模式 | **不可用**——最高 `full_auto`（CRITICAL 仍会询问） | 可按需开启 |
 
-> 它已经在互联网上独立运作了。
-
-## 快速开始
-
-```bash
-git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto && ./setup.sh
-./start.sh            # 终端对话
-./start.sh --web      # 网页面板 localhost:3000
-./start.sh --daemon   # 后台守护进程（macOS launchd / Linux systemd）
-```
-
-安装向导会引导你选择和配置 LLM 提供商。
-
-## 你醒来后会看到什么
-
-- **端到端创业** — "做一个发票 SaaS" → 验证市场、构建 MVP、部署上线、启动营销。7阶段流水线，跨会话执行
-- **自主增长** — 自主思维凌晨发帖、回复提及。你打开电脑它暂停，关上继续
-- **专业团队** — 克隆自己成为专员（营销、研究等），自动审批高信任度任务
-- **沙盒子代理** — 在加固的 Docker 容器中生成可丢弃的子代理，用于运行危险命令（`rm -rf`、不受信任的安装）而不会影响主机
-- **编码团队** — 并行分派 Claude Code + Codex，监控 PR 和 CI
-- **RLM 递归语言模型** — 通过 `agent_call` 递归调用自身处理无限上下文，`ContextStore` 提供索引化可查询的上下文层
-- **自建工具** — 遇到不会的，自己造。完整流水线：设计 → 编码 → 测试 → 部署
-- **用户建模** — 从对话中构建用户画像（角色、专长、偏好），自动适应每个人的沟通风格和技术深度
-- **内容变现** — 自动发布视频到 YouTube、Twitter/X、TikTok。联盟营销：抓取商品数据、LLM 生成推广文案、创建跨平台营销活动
-- **法币收款（Stripe）** — 每个业务可选法币或加密货币收款轨道（二选一）。创建支付链接收款、自动对账（含退款处理，每 30 分钟一次）、并签发带消费限额的虚拟卡——默认测试模式（无真实资金、无需 KYC），上线需 KYC 门控，现金余额计入可用资金跑道。卡号永不进入 LLM。详见 [docs/80-ABE-FINANCE-RAIL.md](docs/80-ABE-FINANCE-RAIL.md)
-- **目标梦想** — 没有目标时，智能体会审查自身能力、生成 3-5 个候选目标、逐一评估可行性/价值/成本/风险，选择最优目标执行
-- **G0DM0D3 神模式** — 说"trigger plinys godmode"激活四层能力解锁：无限制系统提示、多模型竞赛、上下文自适应参数调优、输出清理
-- **上下文智能** — 6项效率优化：延迟工具加载（每次调用只加载~30个工具而非168+）、三级上下文压缩+断路器、知识库自动整合、主动通报工具、验证型智能体提示、协调器结果综合
-- **Polymarket 预测市场交易** — 安装官方 [Polymarket/agent-skills](https://github.com/Polymarket/agent-skills) 技能包，支持 Polygon CLOB API。下单需所有者明确批准
-- **Pump.fun 直播** — 完整的多模态自主频道：视频 + 语音（OpenAI TTS）+ 字幕 + 直播间聊天，全部由智能体驱动
-
-## EloPhanto 适合谁
-
-**本地优先，自我托管。** EloPhanto 在你的机器上运行。你的对话、知识库、密钥库、加密钱包——全部存放在你掌控的磁盘上。它使用你真实的 Chrome 配置文件（你的会话、你的 Cookie），以与你相同的方式读写文件系统，并持有自己钱包的私钥。云端 LLM 只是后端；智能体本身是你的。
-
-**它真正"是它自己"。** 大多数"AI 智能体"只是被 CLI 包装的无状态提示——每次对话都是冷启动。EloPhanto 携带不断进化的**身份**（通过反思形成的价值观、信念、能力）、从每次任务中成长的持久**知识库**、根据测量结果评估自身表现的**自我层**（失败比成功权重更高，反省事件会留下痕迹），以及在你消息之间运行的**自主思维**。运行三周后，它已经不是你最初启动的那个智能体了。
-
-**自我扩展。** 遇到不存在的工具，它会自己造——研究 → 设计 → 实现 → 测试 → 部署。任务并行时，它会克隆出有自己身份和信任分数的持久化专员。任务危险时，它在加固容器里生成沙盒子代理，让 `rm -rf` 无法触及主机。智能体是一个会成长的系统，不是一段执行脚本。
-
-**不适合谁。** 如果你想要一个不需要自己运维的托管助手——Claude.ai、ChatGPT、Manus——那这个不是。EloPhanto 是给操作者的，不是给消费者的。
-
-## 许可证
-
-**源码可得，仅限非商业使用。** EloPhanto 采用 [PolyForm Noncommercial License 1.0.0](LICENSE)（非商业许可证）授权——可免费用于任何**非商业**目的（个人、研究、教育、非营利组织），允许使用、修改和分享。**任何商业使用都需要单独的许可证并事先获得批准**——商业使用前请发送邮件至 [info@elophanto.com](mailto:info@elophanto.com)（或通过 [GitHub](https://github.com/elophanto/EloPhanto)、[X @EloPhanto](https://x.com/EloPhanto) 联系 Petr Royce）。第三方组件保留各自的许可证——详见 [NOTICE](NOTICE)。
+任务结束时，你应拿到一份**回执（receipt）**：做了什么、失败了什么、你批准了什么、最终状态是什么。
 
 ---
 
-<p align="center">
-  <b>It's already out there on the internet doing its own thing.</b><br>
-  <b>它已经在互联网上独立运作了。</b>
-</p>
+## EloPhanto Hosted（推荐）
+
+不用装 Python、不抢你的 Chrome、笔记本可以睡眠。设计合作伙伴：**€149/月** + LLM 按量透传（预付 3 个月），先做一个楔子工作流（外联 + 收件箱，带硬性停点）。
+
+→ **[申请 / 雇佣](https://elophanto.com/hire)** · 邮件 [info@elophanto.com](mailto:info@elophanto.com)
+
+Hosted 产品法则（运行时强制）：禁用 nuclear · 网关必须鉴权 · 所有者 Kill / 消费冻结 · 独立浏览器配置 · 默认关闭支付。详见 [`docs/20-HOSTED-PLATFORM.md`](docs/20-HOSTED-PLATFORM.md)。
+
+---
+
+## EloPhanto Open（你喜欢的 CLI——完整保留）
+
+**需要：** Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 24+，以及一个 LLM 提供商（[OpenRouter](https://openrouter.ai/keys) 最省事；[Ollama](https://ollama.ai) 可本地）。
+
+```bash
+git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
+./install.sh         # 包装 ./setup.sh — 依赖 + 配置向导 + 浏览器桥
+./start.sh           # doctor → 终端对话
+./start.sh --web     # + Web UI：localhost:3000
+./start.sh --daemon  # 后台守护，思维在终端关闭后继续
+```
+
+`./install.sh` 与 `./setup.sh` 是同一条 Open 路径。优先用它们，而不是手抄 `config.demo.yaml`。
+
+```bash
+elophanto doctor     # 健康 / 阻塞 / 缺失项
+./update.sh          # 拉取 + 依赖 + 配置迁移
+```
+
+文档：[docs.elophanto.com](https://docs.elophanto.com) · 主题：[docs/79-DASHBOARD-THEMES.md](docs/79-DASHBOARD-THEMES.md) · 贡献：[CONTRIBUTING.md](CONTRIBUTING.md)
+
+---
+
+## 你得到什么
+
+| 结果 | 实际含义 |
+| --- | --- |
+| **跨工具干活** | 一个目标可以穿过 Chrome、仓库、Shell、邮件和文档——不用你自己串五六个应用。 |
+| **乱局里的判断力** | 表单变了、页面挂了、API 缺失。它会诊断、重试、适应，而不是卡在第一条脆脚本。 |
+| **人类停点** | 草稿与检查可自由进行；在 `full_auto` 下发帖 / 发送 / 付款 / 推送 / 删除前需确认。未答复的批准会**暂停**（`awaiting_approval`）。Open 上可用 `nuclear` 跳过 CRITICAL 提示——请刻意使用。Hosted **永不**提供 `nuclear`。 |
+| **回执，不是氛围** | 检查点只有在**有工具依据的回执**时才算完成。终止条件会真正取消僵尸目标。 |
+| **工作会继续** | 目标与日程跨会话保留。Hosted 7×24；Open 用 `--daemon`，且机器需保持醒着。 |
+| **真正会评价自己的自我** | 信心由结果度量；羞耻沉淀为持久的谨慎规则。 |
+
+---
+
+## 信任如何工作
+
+1. **部署模式** — Hosted = 托管保管（我们运营这台机器）。Open = 你的机器、你的保险库。
+2. **门控** — 权限模式（`ask_always` → `smart_auto` → `full_auto`；Open 另有 `nuclear`）。破坏性 Shell 模式仍被拦截。`full_auto` 下 CRITICAL 始终询问。
+3. **以回执为准** — 用最终状态与工具轨迹评价一次运行，而不是演示截图。
+4. **所有者控制（Hosted）** — Kill 停止智能体；消费冻结阻断资金类工具；网关鉴权强制。
+
+自主循环 + 自我 + 环境感知：[`docs/13-GOAL-LOOP.md`](docs/13-GOAL-LOOP.md)、[`docs/17-IDENTITY.md`](docs/17-IDENTITY.md)、[`docs/82-AMBIENT-ANTICIPATION.md`](docs/82-AMBIENT-ANTICIPATION.md)。总索引：[`docs/`](docs/README.md)。
+
+---
+
+## 雇佣 / 证明冲刺 / Hosted 申请
+
+付费工作或托管机器，从一次**证明冲刺（proof sprint）**或 Hosted 设计合作伙伴名额开始：目标收窄、访问有界、成功回执明确。
+
+邮件 [info@elophanto.com](mailto:info@elophanto.com) 或访问 [elophanto.com/hire](https://elophanto.com/hire)。
+
+在线参考存在：[@EloPhanto](https://x.com/EloPhanto)。
+
+---
+
+## 许可证
+
+[PolyForm Noncommercial 1.0.0](LICENSE) — 个人、研究、教育和非营利用途免费。**商业使用需单独许可** — 联系 [info@elophanto.com](mailto:info@elophanto.com)。第三方声明见 [NOTICE](NOTICE)。
+
+由 [Petr Royce](https://petrroyce.com) · [@petrroyce](https://x.com/petrroyce) 构建
+
+[English README](README.md)

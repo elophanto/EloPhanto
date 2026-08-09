@@ -12,6 +12,9 @@ echo "  ██╔══╝  ██║     ██║   ██║██╔══�
 echo "  ███████╗███████╗╚██████╔╝██║     ██║  ██║██║  ██║██║ ╚████║   ██║   ╚██████╔╝"
 echo "  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝"
 echo ""
+echo "  EloPhanto Open — local operator setup"
+echo "  Want always-on without this? → https://elophanto.com/hire  (Hosted)"
+echo ""
 
 # ── System checks ──
 

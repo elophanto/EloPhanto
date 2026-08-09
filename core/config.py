@@ -1386,6 +1386,18 @@ def _parse_routing(data: dict[str, Any]) -> RoutingConfig:
     )
 
 
+def _hosted_code_root() -> Path:
+    """Image code root for Hosted (profiles, permissions.hosted.yaml).
+
+    Data volume is separate (``/data``); laws/templates ship with the image.
+    """
+    env = os.environ.get("ELOPHANTO_CODE_ROOT", "").strip()
+    if env:
+        return Path(env)
+    # core/config.py → repo / image root
+    return Path(__file__).resolve().parent.parent
+
+
 def _apply_env_overrides(config: Config) -> None:
     """Apply environment variable overrides for API keys.
 
@@ -1450,12 +1462,32 @@ def _apply_env_overrides(config: Config) -> None:
         except Exception:
             pass
 
-    # In cloud mode: override browser to headless playwright Chromium (no system Chrome)
+    # In cloud / Hosted mode: dedicated browser profile + trust clamps.
+    # Nuclear is absent (L1). CRITICAL still always asks under full_auto.
     if os.environ.get("ELOPHANTO_CLOUD") == "1":
+        from core.hosted import clamp_permission_mode
+
         config.browser.local.mode = "fresh"
         config.browser.local.headless = True
         config.browser.local.use_system_chrome = False
-        config.browser.local.user_data_dir = "/tmp/elophanto-browser-profile"
+        # Persist profile on the data volume when present; else /tmp.
+        data_root = os.environ.get("ELOPHANTO_DATA_ROOT", "/data")
+        profile_dir = Path(data_root) / "browser-profile"
+        try:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            config.browser.local.user_data_dir = str(profile_dir)
+        except Exception:
+            config.browser.local.user_data_dir = "/tmp/elophanto-browser-profile"
+        config.permission_mode = clamp_permission_mode(config.permission_mode)
+        # Durable DB on volume if still relative
+        db_path = Path(config.database.db_path)
+        if not db_path.is_absolute():
+            config.database.db_path = str(Path(data_root) / "data" / "elophanto.db")
+        # Public gateway bind is set in gateway_cmd; force auth when possible.
+        if not (config.gateway.auth_token_ref or "").strip():
+            # Provisioner injects ELOPHANTO_GATEWAY_TOKEN; resolve later in
+            # gateway_cmd. Mark enabled so Hosted always exposes the WS.
+            config.gateway.enabled = True
 
 
 def _load_profile(profile_name: str, project_root: Path) -> dict[str, Any]:
@@ -1514,15 +1546,32 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         config_path = Path(config_path)
 
     if not config_path.exists():
-        return Config(project_root=config_path.parent)
+        # Hosted first boot may lack /data/config.yaml until the entrypoint
+        # seeds it — still apply cloud clamps so nuclear cannot sneak in.
+        root = (
+            _hosted_code_root()
+            if os.environ.get("ELOPHANTO_CLOUD") == "1"
+            else config_path.parent
+        )
+        config = Config(project_root=root)
+        _apply_env_overrides(config)
+        return config
 
     with open(config_path) as f:
         raw = yaml.safe_load(f) or {}
 
-    # Resolve distribution profile: CLI flag > config file value
-    profile_name = profile or raw.get("profile", "")
+    # Resolve distribution profile: CLI flag > env > config file value
+    # Hosted profiles live in the image code root, not the data volume.
+    profile_search_root = (
+        _hosted_code_root()
+        if os.environ.get("ELOPHANTO_CLOUD") == "1"
+        else config_path.parent
+    )
+    profile_name = (
+        profile or os.environ.get("ELOPHANTO_PROFILE", "") or raw.get("profile", "")
+    )
     if profile_name:
-        profile_data = _load_profile(profile_name, config_path.parent)
+        profile_data = _load_profile(profile_name, profile_search_root)
         _apply_profile_overrides(raw, profile_data)
 
     # Parse agent section
@@ -2333,7 +2382,11 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         ),
         authority=authority_config,
         profile=profile_name,
-        project_root=config_path.parent,
+        project_root=(
+            _hosted_code_root()
+            if os.environ.get("ELOPHANTO_CLOUD") == "1"
+            else config_path.parent
+        ),
     )
 
     _apply_env_overrides(config)

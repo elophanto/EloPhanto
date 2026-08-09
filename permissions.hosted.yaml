@@ -1,0 +1,17 @@
+# permissions.hosted.yaml
+# Merged / used as Hosted allowlist. ask survives everything; nuclear absent.
+# Empty allowlist semantics for money destinations are enforced in payment tools.
+version: 1
+tool_overrides:
+  shell_execute: ask
+  execute_code: ask
+  self_modify_source: ask
+  self_create_plugin: ask
+  wallet_export: ask
+  crypto_transfer: ask
+  crypto_swap: ask
+  browser_eval: ask
+  email_send: ask
+  email_reply: ask
+disabled_tools:
+  - wallet_export

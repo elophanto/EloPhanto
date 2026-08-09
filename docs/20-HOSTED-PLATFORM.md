@@ -1,62 +1,99 @@
-# EloPhanto — Hosted Platform & Desktop App
+# EloPhanto — Hosted Platform
 
-> **Status: Spec** — Hybrid distribution strategy: desktop app (free, local-first) + cloud instances (pro, always-on) at elophanto.com.
+> **Status: Active product direction** — EloPhanto Hosted is the default for
+> normal users (always-on managed instance). EloPhanto Open (`./install.sh` →
+> `./setup.sh` → `./start.sh`) remains fully supported for operators who want
+> CLI / TUI / `nuclear` on their own machine.
+>
+> Runtime enforcement lives in `core/hosted.py` (`ELOPHANTO_CLOUD=1`).
+> Provisioning: `python -m cloud.provision`. Desktop-VM recipe:
+> [`proposals/HOSTED-DESKTOP.md`](proposals/HOSTED-DESKTOP.md).
+
+## Thesis
+
+Most people will never self-host a Python agent. **Hosted** removes install
+friction and laptop-sleep failure. **Open** stays the beloved power path —
+not deprecated, not demoted, just not the acquisition funnel.
+
+**Custody honesty:** Hosted is **managed custody**. Never market it as
+self-custody. Open keeps vault-on-your-metal.
+
+## SKUs (near-term)
+
+| SKU | Price (design partners) | What |
+| --- | --- | --- |
+| **EloPhanto Hosted** | €149/mo + LLM pass-through (3-mo prepay) | Single-tenant always-on box, web + Telegram, one wedge workflow |
+| **EloPhanto Open** | Free under PolyForm NC; commercial license separately | Full CLI/TUI/mind/`nuclear` on your machine |
+| **Proof sprint / hire** | See hire page | Bounded 72h workflow proof — still available |
+
+List price after design partners: ~€199/mo. Hard floor €99 only for friends & family — never public list.
+
+**Week-1 wedge:** always-on outbound + inbox triage with hard stops. Not wallets, not ABE, not nuclear.
+
+## Hosted trust laws (non-negotiable)
+
+Enforced when `ELOPHANTO_CLOUD=1`:
+
+| Law | Behavior |
+| --- | --- |
+| L0 Honesty | Custody label in settings / status |
+| L1 Nuclear | Absent — max `full_auto`; CRITICAL always asks |
+| L2 Money | Payments off by default; spend freeze owner command |
+| L3 Shell | `shell_execute` / self-modify forced `ask` via `permissions.hosted.yaml` |
+| L4 Browser | Dedicated fresh profile (not daily-driver Chrome) |
+| L6 Approvals | CRITICAL always asks |
+| L7 Auth | Gateway refuses to bind without `ELOPHANTO_GATEWAY_TOKEN` |
+| L8 Kill | `owner_kill` / `owner_spend_freeze` / `owner_spend_unfreeze` gateway commands |
 
 ## Context
 
-EloPhanto has 16 phases implemented: 90+ tools, browser automation, 4 channel adapters, skills marketplace with security, crypto payments, email, identity, document analysis, and an autonomous goal loop. The open-source repo is feature-rich but requires Python 3.12+, Node.js, and terminal comfort to run.
-
-The problem: **most potential users will never self-host**. Open source captures developers, but the real market is anyone who wants a personal AI agent. A hosted version removes the installation barrier entirely while keeping the local-first option for developers and privacy-conscious users.
+The open-source repo is feature-rich but requires Python 3.12+, Node.js, and
+terminal comfort. Hosted captures everyone else. Open captures operators.
 
 ### Market Reality
 
-- Open source AI agent tools are proliferating — dev mindshare is fragmented
 - Self-hosting limits adoption to technical users
-- Always-on agents (Telegram/Discord/Slack bots, scheduled tasks) require a running machine — most users don't have a server
-- Hosted = recurring revenue, which funds continued development
-- Desktop app = zero hosting cost for free tier, builds install base
+- Always-on agents require a machine that stays awake — most laptops sleep
+- Hosted = recurring revenue that funds Open development
+- Open remains the escape hatch and contributor path
 
-## Strategy: Hybrid Model
-
-Two distribution channels, one product:
+## Strategy: Hosted default + Open forever
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     elophanto.com                            │
 ├──────────────────────┬──────────────────────────────────────┤
 │                      │                                       │
-│   DESKTOP APP        │   CLOUD PLATFORM                     │
-│   (Free)             │   (Pro — $X/month)                   │
+│   ELOPHANTO HOSTED   │   ELOPHANTO OPEN                      │
+│   (default product)  │   (operators / self-host)             │
 │                      │                                       │
-│   Download & run     │   Sign up → get your own agent       │
-│   Everything local   │   Always-on 24/7                     │
-│   Your machine       │   Isolated container per user        │
-│   Your data          │   Web dashboard                      │
-│   Works offline      │   All channels always connected      │
-│   Channels need      │   Scheduled tasks run unattended     │
-│     app running      │   Automatic updates                  │
+│   Apply → provision  │   git clone → ./install.sh            │
+│   Always-on 24/7     │   ./start.sh [--web] [--daemon]       │
+│   Isolated instance  │   CLI · TUI · mind · nuclear          │
+│   Web + Telegram     │   Your metal · your vault             │
+│   Managed custody    │   Self-custody possible               │
+│   nuclear ABSENT     │   Full permission ladder              │
 │                      │                                       │
-│   Tauri (Rust+Web)   │   Fly.io Machines                   │
-│   Mac / Windows /    │   Supabase Auth                      │
-│     Linux            │   Stripe Billing                     │
+│   Fly / desktop VM   │   Local process                       │
+│   Stripe design pts  │   PolyForm NC + commercial license    │
 │                      │                                       │
 ├──────────────────────┴──────────────────────────────────────┤
 │   Same agent core · Same web UI · Same gateway protocol     │
-│   Export/import between local ↔ cloud                        │
+│   Export/import between Open ↔ Hosted (roadmap)              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Why this wins on all three axes:**
+**Why this wins:**
 
-| Criterion | Desktop App | Cloud Platform |
-|-----------|-------------|---------------|
-| **Adoption** | Zero friction for developers — download, run, done | Zero friction for everyone else — sign up, configure, go |
-| **Security** | Best possible — everything stays on your machine | Per-user container isolation — own vault, own data, own network |
-| **Scalability** | Costs us nothing — users provide their own compute | Pay-per-user — only paying subscribers use cloud resources |
+| Criterion | Hosted | Open |
+|-----------|--------|------|
+| **Adoption** | Sign up / apply — no Python | Full power for people who already clone repos |
+| **Security model** | Managed custody + hard brakes | Best possible for operators who want metal |
+| **Always-on** | Yes | Only if their machine stays awake |
 
 ---
 
-## Desktop App
+## Desktop App (optional later)
 
 ### Technology: Tauri
 
@@ -65,6 +102,10 @@ Tauri over Electron because:
 - **Rust backend** — native performance, better security sandbox
 - Uses system webview instead of bundled Chromium
 - Better memory footprint for an always-running agent
+
+> Note: a free local Tauri app is **not** the Hosted acquisition SKU.
+> Laptop sleep still kills always-on. Ship Tauri only as a Companion
+> thin client (approvals + status) after Hosted design partners work.
 
 ### Architecture
 

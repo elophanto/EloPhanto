@@ -22,6 +22,9 @@ interface ProviderInfo {
 interface SettingsData {
   agent_name: string;
   permission_mode: string;
+  allowed_permission_modes?: string[];
+  hosted?: boolean;
+  custody_label?: string | null;
   providers: ProviderInfo[];
   vault_unlocked: boolean;
   vault_keys: string[];
@@ -190,6 +193,7 @@ export function SettingsPage() {
               saveStatus={saveStatus}
               onSave={saveConfig}
             />
+            {settings.hosted ? <OwnerBrakesSection /> : null}
             <ProvidersSection
               settings={settings}
               saveStatus={saveStatus}
@@ -228,6 +232,55 @@ export function SettingsPage() {
   );
 }
 
+// ---- Owner brakes (Hosted) ----
+
+function OwnerBrakesSection() {
+  return (
+    <section>
+      <SectionTitle>Owner brakes</SectionTitle>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Permanent controls. Kill stops the agent and freezes spend. These
+        survive dismissing the dashboard welcome card.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-destructive"
+          onClick={() => {
+            if (
+              window.confirm(
+                "Kill the agent now? Stops work, freezes spend, cancels in-flight tasks."
+              )
+            ) {
+              gateway.sendCommand("owner_kill");
+            }
+          }}
+        >
+          Kill agent
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:border-foreground/20"
+          onClick={() => {
+            if (window.confirm("Freeze all payment / wallet tools?")) {
+              gateway.sendCommand("owner_spend_freeze");
+            }
+          }}
+        >
+          Freeze spend
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:border-foreground/20"
+          onClick={() => gateway.sendCommand("owner_spend_unfreeze")}
+        >
+          Unfreeze spend
+        </button>
+      </div>
+    </section>
+  );
+}
+
 // ---- Identity section ----
 
 function IdentitySection({
@@ -250,10 +303,24 @@ function IdentitySection({
     setMode(settings.permission_mode);
   }, [settings.agent_name, settings.permission_mode]);
 
+  // Hosted: never fall back to a list that includes nuclear.
+  const modes = settings.hosted
+    ? settings.allowed_permission_modes?.length
+      ? settings.allowed_permission_modes
+      : ["ask_always", "smart_auto", "full_auto"]
+    : settings.allowed_permission_modes?.length
+      ? settings.allowed_permission_modes
+      : [...PERMISSION_MODES];
+
   return (
     <section>
       <SectionTitle>Identity</SectionTitle>
       <div className="space-y-3 mt-3">
+        {settings.hosted && settings.custody_label ? (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+            {settings.custody_label}
+          </p>
+        ) : null}
         <div>
           <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
             Agent Name
@@ -267,9 +334,14 @@ function IdentitySection({
         <div>
           <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
             Permission Mode
+            {settings.hosted ? (
+              <span className="ml-2 normal-case tracking-normal text-muted-foreground/80">
+                (nuclear unavailable on Hosted)
+              </span>
+            ) : null}
           </label>
-          <div className="mt-1 flex gap-2">
-            {PERMISSION_MODES.map((m) => (
+          <div className="mt-1 flex flex-wrap gap-2">
+            {modes.map((m) => (
               <button
                 key={m}
                 onClick={() => setMode(m)}

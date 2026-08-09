@@ -758,16 +758,20 @@ class Gateway:
 
         # --- Auth check ---
         if self._auth_token:
-            # Expect token in first message, Sec-WebSocket-Protocol header,
-            # or query string (?token=...).
+            # Expect exact token via query (?token=...) or Authorization Bearer.
             token_ok = False
-            # Check query string (ws://host:port/?token=xxx)
             req = getattr(websocket, "request", None)
             if req:
+                from urllib.parse import parse_qs, urlparse
+
                 path = getattr(req, "path", "") or ""
-                if f"token={self._auth_token}" in path:
-                    token_ok = True
-                # Check Authorization header
+                try:
+                    qs = parse_qs(urlparse(path).query)
+                    got = (qs.get("token") or [None])[0]
+                    if got is not None and got == self._auth_token:
+                        token_ok = True
+                except Exception:
+                    token_ok = False
                 headers = getattr(req, "headers", {})
                 auth_header = (
                     headers.get("Authorization", "") if hasattr(headers, "get") else ""
@@ -1573,7 +1577,15 @@ class Gateway:
 
     # Commands that modify secrets or agent config — require OWNER authority.
     _OWNER_ONLY_COMMANDS: frozenset[str] = frozenset(
-        {"vault_set", "config_update", "schedule_delete", "schedule_toggle"}
+        {
+            "vault_set",
+            "config_update",
+            "schedule_delete",
+            "schedule_toggle",
+            "owner_kill",
+            "owner_spend_freeze",
+            "owner_spend_unfreeze",
+        }
     )
 
     async def _handle_command(
@@ -2725,6 +2737,132 @@ class Gateway:
                     ).to_json()
                 )
 
+        elif command in (
+            "owner_kill",
+            "owner_spend_freeze",
+            "owner_spend_unfreeze",
+            "hosted_status",
+        ):
+            import json as _json
+
+            from core.hosted import custody_banner, is_hosted
+            from core.kill_switch import (
+                clear_spend_freeze,
+                hard_stop,
+                is_spend_frozen,
+                is_stopped,
+                resolve_data_dir,
+                write_spend_freeze,
+            )
+
+            config = getattr(self._agent, "_config", None)
+            if not config:
+                await client.websocket.send(
+                    error_message("No config loaded", session_id).to_json()
+                )
+                return
+            data_dir = resolve_data_dir(config)
+
+            if command == "hosted_status":
+                payload = {
+                    "hosted_status": {
+                        "hosted": is_hosted(),
+                        "custody_label": custody_banner(),
+                        "stopped": is_stopped(data_dir),
+                        "spend_frozen": is_spend_frozen(data_dir),
+                        "permission_mode": getattr(
+                            config, "permission_mode", "ask_always"
+                        ),
+                    }
+                }
+                await client.websocket.send(
+                    response_message(
+                        session_id, _json.dumps(payload), done=True
+                    ).to_json()
+                )
+                return
+
+            if command == "owner_kill":
+                result = await hard_stop(
+                    data_dir=data_dir,
+                    db=getattr(self._agent, "_db", None),
+                    cancel_goals=True,
+                    cancel_schedules=True,
+                    kill_interventions=True,
+                )
+                write_spend_freeze(data_dir)
+                # Cancel every in-flight chat / run task — STOP alone is soft.
+                cancelled_tasks = 0
+                for task in list(self._active_chat_tasks.values()):
+                    if task and not task.done():
+                        task.cancel()
+                        cancelled_tasks += 1
+                for task in list(self._inflight_run_tasks.values()):
+                    if task and not task.done():
+                        task.cancel()
+                        cancelled_tasks += 1
+                mind = getattr(self._agent, "_autonomous_mind", None)
+                if mind is not None and getattr(mind, "is_running", False):
+                    try:
+                        if hasattr(mind, "pause"):
+                            mind.pause()
+                        elif hasattr(mind, "notify_user_interaction"):
+                            mind.notify_user_interaction()
+                    except Exception:
+                        pass
+                await client.websocket.send(
+                    response_message(
+                        session_id,
+                        _json.dumps(
+                            {
+                                "owner_kill": {
+                                    "ok": True,
+                                    "sentinel": result.sentinel_path,
+                                    "cancelled_goals": result.cancelled_goals,
+                                    "cancelled_tasks": cancelled_tasks,
+                                    "spend_frozen": True,
+                                }
+                            }
+                        ),
+                        done=True,
+                    ).to_json()
+                )
+                return
+
+            if command == "owner_spend_freeze":
+                created = write_spend_freeze(data_dir)
+                await client.websocket.send(
+                    response_message(
+                        session_id,
+                        _json.dumps(
+                            {
+                                "owner_spend_freeze": {
+                                    "ok": True,
+                                    "newly_frozen": created,
+                                }
+                            }
+                        ),
+                        done=True,
+                    ).to_json()
+                )
+                return
+
+            cleared = clear_spend_freeze(data_dir)
+            await client.websocket.send(
+                response_message(
+                    session_id,
+                    _json.dumps(
+                        {
+                            "owner_spend_unfreeze": {
+                                "ok": True,
+                                "was_frozen": cleared,
+                            }
+                        }
+                    ),
+                    done=True,
+                ).to_json()
+            )
+
         elif command == "settings_get":
             # Return current settings state for the Settings UI
             import json as _json
@@ -2785,13 +2923,26 @@ class Gateway:
                         }
                     )
 
+            from core.hosted import (
+                allowed_permission_modes,
+                clamp_permission_mode,
+                custody_banner,
+                is_hosted,
+            )
+
+            raw_mode = config.permission_mode if config else "ask_always"
+            safe_mode = clamp_permission_mode(raw_mode)
+            if config and raw_mode != safe_mode:
+                config.permission_mode = safe_mode
+
             payload = _json.dumps(
                 {
                     "settings": {
                         "agent_name": config.agent_name if config else "EloPhanto",
-                        "permission_mode": (
-                            config.permission_mode if config else "ask_always"
-                        ),
+                        "permission_mode": safe_mode,
+                        "allowed_permission_modes": list(allowed_permission_modes()),
+                        "hosted": is_hosted(),
+                        "custody_label": custody_banner(),
                         "providers": providers_info,
                         "vault_unlocked": vault is not None,
                         "vault_keys": vault_keys,
@@ -2924,9 +3075,23 @@ class Gateway:
                 changed.append("agent_name")
 
             if "permission_mode" in args:
-                mode = str(args["permission_mode"])
-                if mode in ("ask_always", "smart_auto", "full_auto", "nuclear"):
-                    config.permission_mode = mode
+                from core.hosted import (
+                    allowed_permission_modes,
+                    clamp_permission_mode,
+                    nuclear_forbidden_reason,
+                )
+
+                mode = str(args["permission_mode"]).strip().lower()
+                if mode == "nuclear" and nuclear_forbidden_reason():
+                    await client.websocket.send(
+                        error_message(
+                            nuclear_forbidden_reason() or "nuclear forbidden",
+                            session_id,
+                        ).to_json()
+                    )
+                    return
+                if mode in allowed_permission_modes():
+                    config.permission_mode = clamp_permission_mode(mode)
                     changed.append("permission_mode")
 
             from core.config import ProviderConfig as _ProviderConfig2

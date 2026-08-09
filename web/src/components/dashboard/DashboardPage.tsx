@@ -17,6 +17,7 @@ import { useActivityStore } from "@/stores/activity";
 import { AgentCore } from "@/components/agent/AgentCore";
 import { Badge } from "@/components/ui/badge";
 import { MindFeedCompact } from "@/components/mind/MindFeed";
+import { HostedOnboarding } from "@/components/dashboard/HostedOnboarding";
 
 export function DashboardPage() {
   const { dashboard, dashboardLoading, fetchDashboard } = useDataStore();
@@ -34,6 +35,7 @@ export function DashboardPage() {
 
   return (
     <div className="flex h-full flex-col">
+      <HostedOnboarding />
       {/* Header */}
       <div className="border-b border-border/50 px-6 py-4">
         <div className="flex items-center justify-between">
