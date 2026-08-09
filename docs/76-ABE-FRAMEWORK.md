@@ -1357,10 +1357,37 @@ Create `tests/test_core/test_product_and_kpi_gap.py`:
 
 ---
 
-### Phase 5 — Board view
+### Phase 5 — Board view — VERIFIED 2026-05-27
+
+Original sketch:
 
 - `CompanyBoardPanel` in dashboard: revenue (sum `ledger where type='usd' direction='in'`), spend (sum `usd out`), runway (cash / 30-day burn), pipeline by stage (count `prospects group by stage`), last 5 role decisions (recent `resource_ledger` rows where `type='decision'`), blockers (goals where status='paused' or needs-input)
 - Company selector at top of dashboard; existing panels filter on selection
+
+#### Verification findings (deltas from the original sketch)
+
+Verification split the sketch across two surfaces instead of one panel.
+The sidebar is ~26 chars of usable content — revenue, spend, runway,
+pipeline-by-stage and the last five role decisions do not fit there, and
+cramming them in produces a panel nobody can read at a glance. The full
+board already existed as `elophanto company report <slug>`
+(`cli/company_cmd.py:_report`), so the panel became the *"is anything
+happening"* glance and the report stayed the deep view.
+
+| Original bullet | Verdict | Phase 5 action |
+|---|---|---|
+| `CompanyBoardPanel` with revenue/spend/runway/pipeline/decisions | Doesn't fit the sidebar budget | **SPLIT**: glance in the panel, full board in `company report` |
+| Blockers | Fits | **DO**: blocker count per row |
+| Company selector filtering every panel | Heavy + speculative | **DEFER**: the CLI already scopes by company (`elophanto company use`); cross-panel filtering needs every panel to become company-aware. **Trigger to revisit**: an operator actively running two companies from one dashboard. |
+
+**Shipped as `_CompaniesPanel`** (`cli/dashboard/app.py`), not
+`CompanyBoardPanel` — the class was renamed to match what it actually
+shows. Registered via `_register_panel("companies", _CompaniesPanel)`.
+Three lines per company, capped at four: slug, then trust / voice /
+strategy / blocker-count tags, then net over 7 days. Trust state is
+colour-coded to its gate meaning (learning orange = drafts only, trial
+amber = approved per call, operating green = autonomous). The web
+dashboard carries the same data in `web/src/components/companies/CompaniesPage.tsx`.
 
 ### Phase 6 — Multi-company isolation hardening — VERIFIED 2026-05-25
 
@@ -2191,7 +2218,8 @@ API) and `tests/test_tools/test_company_set_product.py`:
 
 ## Current Status
 
-**Last updated**: 2026-05-26
+**Last updated**: 2026-08-09 — all 11 planned phases shipped; work
+continues as organs (see "Next action when resuming" below).
 
 | Phase | Verification | Implementation |
 |---|---|---|
@@ -2200,7 +2228,7 @@ API) and `tests/test_tools/test_company_set_product.py`:
 | 2 — Roles as overlays | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 3 — CRM on existing tables | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 4 — Product config + arbiter rotation | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
-| 5 — Board view | ✅ done 2026-05-27 | ✅ done 2026-05-27 |
+| 5 — Board view | ✅ verified 2026-05-27 | ✅ done 2026-05-27 (as `_CompaniesPanel`) |
 | 6 — Multi-company isolation hardening | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 7 — Agent self-bootstraps its ABE | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
 | 8 — Chat-driven ABE management | ✅ done 2026-05-25 | ✅ done 2026-05-25 |
@@ -2401,12 +2429,16 @@ New skill `strategy-foundations` distills the agency principles
 at the full Phase 11 pipeline. 70 new tests; full 2452-test
 regression green; ruff clean.
 
-**Next action when resuming**: Phase 5 (board view) — the only
-remaining planned phase. Dashboard panel (`CompanyBoardPanel`)
-showing revenue/spend/runway/pipeline/role activity/blocked goals
-with a company selector. Read `cli/dashboard/app.py` for the panel
-pattern; the existing report logic in `cli/company_cmd.py:_report`
-is the data layer to lift into the panel.
+**Next action when resuming**: no planned phase remains. Phases 1-11
+are shipped and verified; Phase 5 landed 2026-05-27 as `_CompaniesPanel`
+(see that section for the scope split). ABE work continues as **organs**
+built on top of the phase foundation rather than as further phases:
+organ 1 is metabolism / the finance rail
+([80-ABE-FINANCE-RAIL.md](80-ABE-FINANCE-RAIL.md)), organ 2 is the market
+model ([81-COMPETITIVE-INTEL.md](81-COMPETITIVE-INTEL.md), shipped
+2026-08-07). Two deferrals from the phase work still carry live triggers:
+session `UNIQUE` rebuild and `roles.scope='company'` (Phase 6), plus the
+dashboard company selector (Phase 5).
 
 **When updating this doc**: bump the table above, add a one-line entry to
 a "Changelog" section if changes are non-obvious, and keep the design

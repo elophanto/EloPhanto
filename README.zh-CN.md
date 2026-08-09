@@ -59,7 +59,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
 
 把一门生意交给 EloPhanto，它会把它当作一个独立实体来经营，而不是一堆任务的集合。每家公司都拥有自己的产品定义、从你既有文字中提炼出的语气契约、客户线索管道、由它提出并交你审阅的战略方案，以及一本把智能体自身的认知开销计入公司成本的分类账本。竞品会依据已核验的证据打分，证据缺失之处留空。资金走的是真实的自托管通道。
 
-信任需要逐级挣得：在 `learning` 阶段，对外触达一律先出草稿交你审阅；晋级到 `trial` 或 `operating` 后，这些渠道才交由它自己运作。逐阶段构建并验证：[框架](docs/76-ABE-FRAMEWORK.md) · [资金通道](docs/80-ABE-FINANCE-RAIL.md) · [竞品情报](docs/81-COMPETITIVE-INTEL.md)
+信任需要逐级挣得：在 `learning` 阶段，对外触达一律先出草稿交你审阅；晋级到 `trial` 或 `operating` 后，这些渠道才交由它自己运作。十一个阶段，全部已交付并通过验证：[框架](docs/76-ABE-FRAMEWORK.md) · [资金通道](docs/80-ABE-FINANCE-RAIL.md) · [竞品情报](docs/81-COMPETITIVE-INTEL.md)
 
 ## 你醒来会看到什么
 

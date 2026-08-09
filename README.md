@@ -57,7 +57,7 @@ It reaches the world through 274 tools: a real browser (47 of them, driving your
 
 Point EloPhanto at a business and it operates it as a first-class entity rather than a folder of tasks. Each company gets its own product definition, a voice contract extracted from your existing writing, a prospect pipeline, a strategy plan it proposes for your review, and a typed ledger that counts the agent's own cognition as a cost of the business. Competitors get scored against verified evidence, with blanks left where evidence is missing. Money moves on a live self-custody rail.
 
-Trust is earned in stages: in `learning` it drafts outreach for your review, and promotion to `trial` or `operating` lets it run those channels itself. Built and verified phase by phase: [framework](docs/76-ABE-FRAMEWORK.md) · [finance rail](docs/80-ABE-FINANCE-RAIL.md) · [competitive intel](docs/81-COMPETITIVE-INTEL.md)
+Trust is earned in stages: in `learning` it drafts outreach for your review, and promotion to `trial` or `operating` lets it run those channels itself. Eleven phases, all shipped and verified: [framework](docs/76-ABE-FRAMEWORK.md) · [finance rail](docs/80-ABE-FINANCE-RAIL.md) · [competitive intel](docs/81-COMPETITIVE-INTEL.md)
 
 ## What you wake up to
 
