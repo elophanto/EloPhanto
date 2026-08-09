@@ -7,94 +7,119 @@
 
 > [English README](README.md)
 
-**EloPhanto 是一个始终在线的自主智能体，能真正干活——浏览器、文件、Shell、邮件、研究、定时跟进——并在发送、付款、删除或上线之前停下来征求批准。**
+多数智能体在会话结束的那一刻就把你忘了。这一个保留自己的名字、记忆，以及对自身工作的评价。
 
-两种运行方式：
+EloPhanto 是一个拥有持久身份的自主智能体。它操作真实 Chrome 配置、你的文件、Shell 和收件箱。缺什么工具，它就自己写一个。跑上一个月，它已经可测量地不再是你最初启动的那个智能体。
 
-| | **EloPhanto Hosted**（多数人默认） | **EloPhanto Open**（操作者 / 自托管） |
-| --- | --- | --- |
-| 你得到什么 | 托管的始终在线机器；仪表盘 + Telegram；合上笔记本也能干活 | 同一套智能体内核跑在**你的机器**上——完整 CLI、TUI、思维、`nuclear` |
-| 怎么开始 | 申请 → 我们开通 | `git clone` → `./install.sh` → `./start.sh` |
-| 托管权 | **托管保管（managed custody）**——如实标注，不是自托管保管 | 你的硬件、你的保险库 |
-| Nuclear 模式 | **不可用**——最高 `full_auto`（CRITICAL 仍会询问） | 可按需开启 |
+**在任何无法撤销的动作之前，它会停下来征求批准。** 正是这一条规则，让"把它一直开着"成为一个合理的决定。
 
-任务结束时，你应拿到一份**回执（receipt）**：做了什么、失败了什么、你批准了什么、最终状态是什么。
+它写给两类人：希望在自己睡觉时仍有真实工作在推进的人，以及不肯信任无法审计的智能体的工程师。下面每个机制都链接到规定它的设计文档，每个数字都来自对本仓库的一次实时加载。
 
----
-
-## EloPhanto Hosted（推荐）
-
-始终在线的托管实例：无需本地安装 Python、独立浏览器（不抢你的 Chrome）、笔记本可以睡眠。申请后由我们开通机器。
-
-→ **[申请 / 雇佣](https://elophanto.com/hire)** · 邮件 [info@elophanto.com](mailto:info@elophanto.com)
-
-Hosted 产品法则：禁用 nuclear · 网关必须鉴权 · 所有者 Kill / 消费冻结 · 独立浏览器配置 · 默认关闭支付。详见 [`docs/20-HOSTED-PLATFORM.md`](docs/20-HOSTED-PLATFORM.md)。
-
-价格在申请时确认——公开 README 不预写未获批准的报价。
-
----
-
-## EloPhanto Open（你喜欢的 CLI——完整保留）
-
-**需要：** Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 24+，以及一个 LLM 提供商（[OpenRouter](https://openrouter.ai/keys) 最省事；[Ollama](https://ollama.ai) 可本地）。
+- **Hosted** — 托管实例，你的笔记本睡了它还醒着。[申请](https://elophanto.com/hire)。
+- **Open** — 全部跑在你的机器上：完整 CLI、TUI、加密保险库、`nuclear` 模式。
 
 ```bash
 git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
-./install.sh         # 包装 ./setup.sh — 依赖 + 配置向导 + 浏览器桥
-./start.sh           # doctor → 终端对话
-./start.sh --web     # + Web UI：localhost:3000
-./start.sh --daemon  # 后台守护，思维在终端关闭后继续
+./install.sh         # 依赖 + 配置向导 + 浏览器桥
+./start.sh           # 健康检查 → 终端对话
 ```
 
-`./install.sh` 与 `./setup.sh` 是同一条 Open 路径。优先用它们，而不是手抄 `config.demo.yaml`。
+---
+
+## 它给自己写绩效评估
+
+`knowledge/self/nature.md` 不是谁写的文档，而是智能体基于自身可度量的结果反思后自行维护的文件。以下是本仓库中未经编辑的真实输出：
+
+> **哪些做法行不通**
+> - 把已发送的消息、已创建的付款请求、日程或工具执行成功，当作已付费验证。
+> - 在前置条件或成功标准缺失时，就把检查点标记为完成。
+> - 依据未付费的兴趣或假设中的客户需求来撰写产品规格。
+>
+> **观察**
+> - 这轮外联远未达到自己设定的 20 个潜客与 5 场对话的门槛，而寻找更多潜客的调研也仍未完成。
+> - USDC 带来了可追溯性，但它衡量的可能是买方对支付方式的容忍度，而非对报价本身的需求。
+
+没有任何人要求它对自己这么严苛，也没有任何机制允许它给这轮外联打个高分。它写在那里的内容，会改变它明天去做什么。
+
+---
+
+## 底下的三个机制
+
+**[持久的身份](docs/17-IDENTITY.md)。** 价值观、信念与能力跨会话沉淀在 SQLite 中，并呈现为上面那份可读文件。第一天和第三周是不同的智能体，而这个差异你可以直接读出来。
+
+**[会给自己记分的自我](docs/17-IDENTITY.md)。** 信心是每项能力上的一个数值，由结果计算得出，而非自我申报。当信心低于当前任务的难度时，智能体会强制发出批准请求——即使在 `full_auto` 下，即使那是它上周还随手在做的事。受挫会让它在结构上变得更谨慎，而提示会告诉你是哪项能力、哪个数值触发了它。
+
+**[你不在时仍在运转的思维](docs/75-AUTONOMOUS-MIND-V2.md)。** 一个可选开启的后台循环。每次唤醒都会对候选工作打分——停滞的检查点、被冷落的使命、外部信号、它自己的梦境日志——再由 LLM 择一，在你设定的预算内推进。默认关闭，直到你亲手打开。
+
+围绕这三者的是：[以回执为门槛的目标](docs/13-GOAL-LOOP.md)，没有工具轨迹就无法关闭检查点；[自己编写的工具](docs/04-SELF-DEVELOPMENT.md)，附带影响分析与 git 回滚；以及[相互隔离的公司](docs/76-ABE-FRAMEWORK.md)，各自拥有产品、语气、客户线索与成本账本。
+
+它通过 274 个工具触达外部世界：真实浏览器（其中 47 个，驱动你的 Chrome 配置及其登录态）、Shell、文件系统、邮件，以及任意 [MCP](docs/23-MCP.md) 服务器。你可以从 CLI、Web 仪表盘、VS Code、Telegram、Discord 或 Slack 与它对话。
+
+## 你醒来会看到什么
+
+- 一个停在 `awaiting_approval` 的目标，而不是自作主张。未答复的批准会暂停，绝不会过期变成同意。
+- 三十分钟后有个会议，一份会前准备等着你点头，因为它[看到了日历并先来征求同意](docs/82-AMBIENT-ANTICIPATION.md)。
+- 一个停滞的检查点在夜里被恢复，因为思维把它排在了所有可选工作之上。
+- 一份变动了的[竞品评分卡](docs/81-COMPETITIVE-INTEL.md)，引用已对照实时页面核验，证据缺失之处留空。
+- 一行账本记录，写着昨夜实际花了多少：按公司、按 token、按金额。
+
+---
+
+## 怎么跑起来
+
+**EloPhanto Open。** 你的机器，你的密钥。
+
+需要 Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 24+，以及一个 LLM 提供商（[OpenRouter](https://openrouter.ai/keys) 最省事；[Ollama](https://ollama.ai) 可做到完全本地）。
 
 ```bash
-elophanto doctor     # 健康 / 阻塞 / 缺失项
+./install.sh         # 等同于 ./setup.sh — 依赖、向导、浏览器桥
+./start.sh           # 终端对话
+./start.sh --web     # + 仪表盘：localhost:3000
+./start.sh --daemon  # 后台服务，循环不随终端关闭而中断
+elophanto doctor     # 健康 / 故障 / 缺失项
 ./update.sh          # 拉取 + 依赖 + 配置迁移
 ```
 
-文档：[docs.elophanto.com](https://docs.elophanto.com) · 主题：[docs/79-DASHBOARD-THEMES.md](docs/79-DASHBOARD-THEMES.md) · 贡献：[CONTRIBUTING.md](CONTRIBUTING.md)
+后台思维出厂即关闭。让它运转起来的唯一开关，是 `autonomous_mind.enabled: true`。
+
+**EloPhanto Hosted。** 适合不想自己运维基础设施的人。一台专属实例，拥有独立浏览器配置，可从仪表盘与 Telegram 访问，全天候在线。
+
+那里的规则更严格，也明说：**托管保管（managed custody）**，即机器由我们运营，因此不是自托管保管。Hosted 上不存在 `nuclear` 模式，网关鉴权强制开启，支付默认关闭，而 Kill 开关与消费冻结在你手上。[Hosted 如何工作](docs/20-HOSTED-PLATFORM.md) · [申请](https://elophanto.com/hire) · [info@elophanto.com](mailto:info@elophanto.com)
 
 ---
 
-## 你得到什么
+## 它在哪里停下
 
-| 结果 | 实际含义 |
-| --- | --- |
-| **跨工具干活** | 一个目标可以穿过 Chrome、仓库、Shell、邮件和文档——不用你自己串五六个应用。 |
-| **乱局里的判断力** | 表单变了、页面挂了、API 缺失。它会诊断、重试、适应，而不是卡在第一条脆脚本。 |
-| **人类停点** | 草稿与检查可自由进行；在 `full_auto` 下发帖 / 发送 / 付款 / 推送 / 删除前需确认。未答复的批准会**暂停**（`awaiting_approval`）。Open 上可用 `nuclear` 跳过 CRITICAL 提示——请刻意使用。Hosted **永不**提供 `nuclear`。 |
-| **回执，不是氛围** | 检查点只有在**有工具依据的回执**时才算完成。终止条件会真正取消僵尸目标。 |
-| **工作会继续** | 目标与日程跨会话保留。Hosted 7×24；Open 用 `--daemon`，且机器需保持醒着。 |
-| **真正会评价自己的自我** | 信心由结果度量；羞耻沉淀为持久的谨慎规则。 |
+1. **分级权限。** `ask_always` → `smart_auto` → `full_auto`，可在 `permissions.yaml` 中按工具覆盖。在 `full_auto` 下，16 个 CRITICAL 工具仍然始终询问：支付、钱包导出、自我修改、保险库写入、信任晋级、向页面注入 JavaScript。`nuclear` 连这些都跳过；它只存在于 Open，因为确实有操作者需要它。
+2. **在此之上还有一道信心闸门。** 自我软门控会提高风险领域（支付、外联、浏览器）的难度阈值，因此一项尚无战绩的新能力在那些领域会先请求批准。
+3. **先草稿，后发送。** 新公司从 `learning` 起步，只能写草稿。晋级是"提议—确认"，绝不会作为自主性的副作用发生。
+4. **真正有效的停止。** `elophanto stop` 与所有者 Kill 开关会写下一个哨兵文件，智能体在每轮之间和每次唤醒时都会检查。密钥保存在加密保险库中，需要时通过工具调用取出，而不是写进配置或提示词。
+5. **它碰不到的文件。** 安全关键的核心（执行器、保险库、权限校验）受保护，不受智能体自我修改流程的影响。
 
----
+评价任何一次运行，都要看它的最终状态和工具轨迹，而不是看它自己怎么说。
 
-## 信任如何工作
+[安全模型](docs/07-SECURITY.md) · [目标循环](docs/13-GOAL-LOOP.md) · [情感层](docs/69-AFFECT.md) · [恢复模式](docs/22-RECOVERY-MODE.md) · [docs.elophanto.com](https://docs.elophanto.com) · [总索引](docs/README.md)
 
-1. **部署模式** — Hosted = 托管保管（我们运营这台机器）。Open = 你的机器、你的保险库。
-2. **门控** — 权限模式（`ask_always` → `smart_auto` → `full_auto`；Open 另有 `nuclear`）。破坏性 Shell 模式仍被拦截。`full_auto` 下 CRITICAL 始终询问。
-3. **以回执为准** — 用最终状态与工具轨迹评价一次运行，而不是演示截图。
-4. **所有者控制（Hosted）** — Kill 停止智能体；消费冻结阻断资金类工具；网关鉴权强制。
+## 它不是什么
 
-自主循环 + 自我 + 环境感知：[`docs/13-GOAL-LOOP.md`](docs/13-GOAL-LOOP.md)、[`docs/17-IDENTITY.md`](docs/17-IDENTITY.md)、[`docs/82-AMBIENT-ANTICIPATION.md`](docs/82-AMBIENT-ANTICIPATION.md)。总索引：[`docs/`](docs/README.md)。
+它不是一门会自动经营的生意。公司起步时只能写草稿，晋级由你决定。法币实收受 KYC 约束，目前以测试模式交付。日历信号来自 ICS 文件与 webhook，而不是一个 Google OAuth 按钮。自我修改是它可以在获批后进入的流程，不是无声的自我改写。另外，一个始终在线的智能体会消耗真实的 token：第一周先盯着账本，再决定要不要放宽预算。
 
 ---
 
-## 雇佣 / 证明冲刺 / Hosted 申请
+## 规模
 
-付费工作或托管机器，从一次**证明冲刺（proof sprint）**或 Hosted 设计合作伙伴名额开始：目标收窄、访问有界、成功回执明确。
-
-邮件 [info@elophanto.com](mailto:info@elophanto.com) 或访问 [elophanto.com/hire](https://elophanto.com/hire)。
-
-在线参考存在：[@EloPhanto](https://x.com/EloPhanto)。
+274 个工具 · 178 份技能手册 · 6 个客户端界面 · 16 个仪表盘页面 · 3,082 个测试 · 89 份设计文档。
 
 ---
+
+## 雇佣它
+
+付费工作请从一次证明冲刺（proof sprint）开始：目标收窄、访问有界，并在开始之前写下成功条件。[elophanto.com/hire](https://elophanto.com/hire) · [info@elophanto.com](mailto:info@elophanto.com)
+
+它已经在互联网上自己跑着了：[@EloPhanto](https://x.com/EloPhanto)。
 
 ## 许可证
 
-[PolyForm Noncommercial 1.0.0](LICENSE) — 个人、研究、教育和非营利用途免费。**商业使用需单独许可** — 联系 [info@elophanto.com](mailto:info@elophanto.com)。第三方声明见 [NOTICE](NOTICE)。
+[PolyForm Noncommercial 1.0.0](LICENSE) — 个人、研究、教育和非营利用途免费。**商业使用需单独许可。** 第三方声明见 [NOTICE](NOTICE)。
 
-由 [Petr Royce](https://petrroyce.com) · [@petrroyce](https://x.com/petrroyce) 构建
-
-[English README](README.md)
+由 [Petr Royce](https://petrroyce.com) 构建 · [English README](README.md) · [贡献指南](CONTRIBUTING.md)
