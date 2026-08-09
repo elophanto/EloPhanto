@@ -9,7 +9,7 @@ Most agents forget you the moment the session ends. This one keeps a name, a mem
 
 EloPhanto is an autonomous agent with a persistent identity. It drives a real Chrome profile, your files, the shell, and your inbox. When it's missing a tool, it writes one. Run it for a month and it is not the agent you started with.
 
-**Before anything it can't take back, it stops and asks.** That one rule is what makes leaving it running sane.
+**Before it can spend money, touch credentials, or rewrite itself, it stops and asks.** That one rule is what makes leaving it running sane.
 
 Built for people who want real work happening while they sleep, and for engineers who won't trust an agent they can't audit. Every mechanism below links to the design doc that specifies it, and every number comes from a live load of this repo.
 
@@ -26,7 +26,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
 
 ## It writes its own performance review
 
-`knowledge/self/nature.md` is not documentation someone wrote. The agent maintains it by reflecting on its own measured outcomes. This is unedited output from this repository:
+Nobody writes `knowledge/self/nature.md`. The agent maintains it by reflecting on its own measured outcomes. A fresh install starts without one and fills it in as it works. Below is the current file from a live instance, quoted exactly:
 
 > **What Doesn't Work**
 > - Treating sent messages, created payment requests, schedules, or tool success as paid validation.
@@ -57,7 +57,7 @@ It reaches the world through 274 tools: a real browser (47 of them, driving your
 
 Point EloPhanto at a business and it operates it as a first-class entity rather than a folder of tasks. Each company gets its own product definition, a voice contract extracted from your existing writing, a prospect pipeline, a strategy plan it proposes for your review, and a typed ledger that counts the agent's own cognition as a cost of the business. Competitors get scored against verified evidence, with blanks left where evidence is missing. Money moves on a live self-custody rail.
 
-Trust is earned in stages: `learning` drafts everything for review, `trial` and `operating` let it send and sell on its own. Eleven shipped phases: [framework](docs/76-ABE-FRAMEWORK.md) · [finance rail](docs/80-ABE-FINANCE-RAIL.md) · [competitive intel](docs/81-COMPETITIVE-INTEL.md)
+Trust is earned in stages: in `learning` it drafts outreach for your review, and promotion to `trial` or `operating` lets it run those channels itself. Built and verified phase by phase: [framework](docs/76-ABE-FRAMEWORK.md) · [finance rail](docs/80-ABE-FINANCE-RAIL.md) · [competitive intel](docs/81-COMPETITIVE-INTEL.md)
 
 ## What you wake up to
 
@@ -106,7 +106,7 @@ Judge any run by its after-state and its tool trail, not by what it tells you it
 
 ## The fine print
 
-Autonomy here is graduated. A company earns its way from `learning` to `trial` to `operating`, and once it is operating it sends, sells, and spends on its own. Crypto is a live self-custody rail on Solana and Base; the Stripe fiat rail ships in test mode until you clear KYC and flip it. Calendar signals come from ICS files and webhooks rather than a Google OAuth button. Self-modification is a pipeline it enters under approval, never a silent rewrite. And an always-on agent costs real tokens, so watch the ledger for a week before you widen its budget.
+Autonomy here is graduated. A company earns its way from `learning` to `trial` to `operating`, and once it is operating it runs its own outreach and sales. Moving money stays a CRITICAL action that asks every time, in every mode except `nuclear`. Crypto is a live self-custody rail on Solana and Base; the Stripe fiat rail ships in test mode until you clear KYC and flip it. Calendar signals come from ICS files and webhooks rather than a Google OAuth button. Self-modification is a pipeline it enters under approval, never a silent rewrite. And an always-on agent costs real tokens, so watch the ledger for a week before you widen its budget.
 
 ---
 
