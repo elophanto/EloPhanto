@@ -20,15 +20,15 @@ self-custody. Open keeps vault-on-your-metal.
 
 ## SKUs (near-term)
 
-| SKU | Price (design partners) | What |
-| --- | --- | --- |
-| **EloPhanto Hosted** | €149/mo + LLM pass-through (3-mo prepay) | Single-tenant always-on box, web + Telegram, one wedge workflow |
-| **EloPhanto Open** | Free under PolyForm NC; commercial license separately | Full CLI/TUI/mind/`nuclear` on your machine |
-| **Proof sprint / hire** | See hire page | Bounded 72h workflow proof — still available |
+| SKU | What |
+| --- | --- |
+| **EloPhanto Hosted** | Single-tenant always-on box, web + Telegram; managed custody |
+| **EloPhanto Open** | Full CLI/TUI/mind/`nuclear` on your machine (PolyForm NC; commercial license separately) |
+| **Proof sprint / hire** | Bounded workflow proof — see hire page |
 
-List price after design partners: ~€199/mo. Hard floor €99 only for friends & family — never public list.
+**Pricing:** not fixed in this doc. Confirm with the founder before publishing list prices on the site or README. Internal GTM drafts (e.g. design-partner monthly) are proposals only until approved.
 
-**Week-1 wedge:** always-on outbound + inbox triage with hard stops. Not wallets, not ABE, not nuclear.
+**Week-1 focus (suggested, not committed):** one narrow always-on workflow with hard stops — not wallets, not ABE, not nuclear on Hosted.
 
 ## Hosted trust laws (non-negotiable)
 
@@ -105,7 +105,7 @@ Tauri over Electron because:
 
 > Note: a free local Tauri app is **not** the Hosted acquisition SKU.
 > Laptop sleep still kills always-on. Ship Tauri only as a Companion
-> thin client (approvals + status) after Hosted design partners work.
+> thin client (approvals + status) after Hosted is live with paying users.
 
 ### Architecture
 

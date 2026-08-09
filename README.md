@@ -22,11 +22,13 @@ When a job finishes, you should get a **receipt**: what it did, what failed, wha
 
 ## EloPhanto Hosted (recommended)
 
-No Python, no Chrome collision, laptop can sleep. Design partners: **€149/mo** + LLM pass-through (3-month prepay), one wedge workflow (outbound + inbox with hard stops).
+Always-on managed instance: no local Python setup, dedicated browser (no fighting your Chrome), laptop can sleep. Apply and we provision a box for you.
 
 → **[Apply / hire](https://elophanto.com/hire)** · email [info@elophanto.com](mailto:info@elophanto.com)
 
-Product laws (CI-enforced on Hosted): nuclear absent · gateway auth required · owner Kill / spend freeze · dedicated browser profile · payments off by default. Details: [`docs/20-HOSTED-PLATFORM.md`](docs/20-HOSTED-PLATFORM.md).
+Product laws on Hosted: nuclear absent · gateway auth required · owner Kill / spend freeze · dedicated browser profile · payments off by default. Details: [`docs/20-HOSTED-PLATFORM.md`](docs/20-HOSTED-PLATFORM.md).
+
+Pricing is set when you apply — not listed here until you confirm terms.
 
 ---
 

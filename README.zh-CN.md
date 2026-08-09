@@ -24,11 +24,13 @@
 
 ## EloPhanto Hosted（推荐）
 
-不用装 Python、不抢你的 Chrome、笔记本可以睡眠。设计合作伙伴：**€149/月** + LLM 按量透传（预付 3 个月），先做一个楔子工作流（外联 + 收件箱，带硬性停点）。
+始终在线的托管实例：无需本地安装 Python、独立浏览器（不抢你的 Chrome）、笔记本可以睡眠。申请后由我们开通机器。
 
 → **[申请 / 雇佣](https://elophanto.com/hire)** · 邮件 [info@elophanto.com](mailto:info@elophanto.com)
 
-Hosted 产品法则（运行时强制）：禁用 nuclear · 网关必须鉴权 · 所有者 Kill / 消费冻结 · 独立浏览器配置 · 默认关闭支付。详见 [`docs/20-HOSTED-PLATFORM.md`](docs/20-HOSTED-PLATFORM.md)。
+Hosted 产品法则：禁用 nuclear · 网关必须鉴权 · 所有者 Kill / 消费冻结 · 独立浏览器配置 · 默认关闭支付。详见 [`docs/20-HOSTED-PLATFORM.md`](docs/20-HOSTED-PLATFORM.md)。
+
+价格在申请时确认——公开 README 不预写未获批准的报价。
 
 ---
 

@@ -60,9 +60,8 @@ function HostedApplyForm() {
     name: "",
     email: "",
     company: "",
-    wedge: "Always-on outbound + inbox triage with hard stops",
+    use_case: "",
     telegram: "",
-    llm_spend_eur: "",
     notes: "",
     custody_ack: false,
   });
@@ -75,7 +74,7 @@ function HostedApplyForm() {
       return;
     }
     setBusy(true);
-    const payload = { ...form, sku: "elophanto-hosted-design-partner" };
+    const payload = { ...form, sku: "elophanto-hosted" };
     try {
       localStorage.setItem(
         "elophanto.hosted.apply",
@@ -112,16 +111,15 @@ function HostedApplyForm() {
       `Name: ${form.name}`,
       `Email: ${form.email}`,
       `Company: ${form.company}`,
-      `Wedge: ${form.wedge}`,
+      `Use case: ${form.use_case}`,
       `Telegram: ${form.telegram}`,
-      `LLM spend €/mo: ${form.llm_spend_eur}`,
       `Custody ack: yes (managed custody)`,
       `Notes: ${form.notes}`,
       "",
-      "SKU: EloPhanto Hosted design partner · €149/mo + LLM pass-through",
+      "SKU: EloPhanto Hosted — please quote pricing",
     ].join("\n");
     window.location.href = `mailto:${email}?subject=${encodeURIComponent(
-      "EloPhanto Hosted design partner — apply"
+      "EloPhanto Hosted — apply"
     )}&body=${encodeURIComponent(body)}`;
     setSubmitted(true);
     setBusy(false);
@@ -132,9 +130,8 @@ function HostedApplyForm() {
       <div className="rounded-lg border border-primary/30 bg-primary/10 p-6">
         <h3 className="font-semibold">Application captured.</h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Design partners are reviewed manually. Expect a reply within 2 business
-          days with checkout (€149/mo, 3-month prepay) and box ETA. Managed
-          custody — nuclear is unavailable on Hosted.
+          We’ll reply with fit, pricing, and next steps. Hosted is managed
+          custody — nuclear is unavailable.
         </p>
       </div>
     );
@@ -168,14 +165,9 @@ function HostedApplyForm() {
       <Input
         className="md:col-span-2"
         required
-        placeholder="Wedge job (default: outbound + inbox)"
-        value={form.wedge}
-        onChange={(e) => setForm({ ...form, wedge: e.target.value })}
-      />
-      <Input
-        placeholder="Current LLM spend €/mo (approx)"
-        value={form.llm_spend_eur}
-        onChange={(e) => setForm({ ...form, llm_spend_eur: e.target.value })}
+        placeholder="What should the agent do for you?"
+        value={form.use_case}
+        onChange={(e) => setForm({ ...form, use_case: e.target.value })}
       />
       <textarea
         className="min-h-24 rounded-md border bg-background px-3 py-2 text-sm md:col-span-2"
@@ -199,8 +191,7 @@ function HostedApplyForm() {
       ) : null}
       <div className="md:col-span-2">
         <Button type="submit" size="lg" disabled={busy}>
-          {busy ? "Submitting…" : "Apply for Hosted (€149/mo design partner)"}{" "}
-          <ArrowRight />
+          {busy ? "Submitting…" : "Apply for Hosted"} <ArrowRight />
         </Button>
       </div>
     </form>
@@ -224,10 +215,8 @@ export function HirePage() {
               </h1>
               <p className="max-w-2xl text-lg text-muted-foreground md:text-xl">
                 EloPhanto Hosted is a managed box that runs your agent 24/7 with
-                receipts and hard stop-points. Design partners: €149/mo + LLM
-                pass-through, one wedge workflow (outbound + inbox). Prefer the
-                terminal? EloPhanto Open keeps the full CLI — clone the repo and
-                run ./install.sh.
+                receipts and hard stop-points. Prefer the terminal? EloPhanto
+                Open keeps the full CLI — clone the repo and run ./install.sh.
               </p>
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button size="lg" onClick={() => scrollTo("apply-hosted")}>
@@ -278,8 +267,8 @@ export function HirePage() {
               Apply — EloPhanto Hosted
             </h2>
             <p className="mt-3 text-muted-foreground">
-              €149/mo design partner · 3-month prepay · LLM pass-through · box
-              live ≤72h after payment. Open path stays free under PolyForm NC.
+              Tell us what you need. We’ll reply with fit, pricing, and how we
+              provision your box. Open stays free under PolyForm NC.
             </p>
           </div>
           <Card>
@@ -370,8 +359,8 @@ export function HirePage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <p>
-                <strong className="text-foreground">€149/mo Hosted</strong>{" "}
-                design partner (managed box).
+                <strong className="text-foreground">Hosted</strong> — managed
+                always-on box; pricing confirmed when you apply.
               </p>
               <p>
                 <strong className="text-foreground">$149 diagnostic</strong> for

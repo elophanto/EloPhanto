@@ -485,20 +485,23 @@ async def _handle_request(
             data = json.loads(request_body)
         except json.JSONDecodeError:
             return 400, {"error": "invalid json"}
-        required = ("name", "email", "wedge")
+        required = ("name", "email", "use_case")
         missing = [k for k in required if not str(data.get(k, "")).strip()]
         if missing:
-            return 400, {"error": f"missing: {', '.join(missing)}"}
+            # Back-compat: older clients sent "wedge"
+            if "use_case" in missing and str(data.get("wedge", "")).strip():
+                missing = [k for k in missing if k != "use_case"]
+            if missing:
+                return 400, {"error": f"missing: {', '.join(missing)}"}
+        use_case = str(data.get("use_case") or data.get("wedge") or "")[:2000]
         record = {
             "ts": time.time(),
-            "sku": "elophanto-hosted-design-partner",
-            "price_eur": 149,
+            "sku": "elophanto-hosted",
             "name": str(data.get("name", ""))[:200],
             "email": str(data.get("email", ""))[:200],
             "company": str(data.get("company", ""))[:200],
-            "wedge": str(data.get("wedge", ""))[:2000],
+            "use_case": use_case,
             "telegram": str(data.get("telegram", ""))[:120],
-            "llm_spend_eur": str(data.get("llm_spend_eur", ""))[:40],
             "notes": str(data.get("notes", ""))[:2000],
             "custody_ack": bool(data.get("custody_ack")),
         }
@@ -512,19 +515,18 @@ async def _handle_request(
         with out_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
         logger.info(
-            "Hosted apply: %s <%s> wedge=%s",
+            "Hosted apply: %s <%s> use_case=%s",
             record["name"],
             record["email"],
-            record["wedge"][:80],
+            record["use_case"][:80],
         )
         return 201, {
             "ok": True,
             "message": (
-                "Application received. Design partners are reviewed manually; "
-                "expect a reply within 2 business days with checkout + box ETA."
+                "Application received. We will reply with fit, pricing, "
+                "and next steps."
             ),
             "sku": record["sku"],
-            "price_eur": 149,
         }
 
     elif path == "/stripe/webhook":

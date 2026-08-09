@@ -60,7 +60,7 @@ See [`20-HOSTED-PLATFORM.md`](20-HOSTED-PLATFORM.md) and [`proposals/HOSTED-DESK
 - Gateway auth token required (fail-closed)
 - `nuclear` **unavailable**
 - Owner Kill + spend freeze via gateway commands
-- Design partner pricing: €149/mo + LLM pass-through (see Hosted doc)
+- Pricing: confirm with founder before publishing; see Hosted doc (no fixed public list price yet)
 
 Provisioning API: `python -m cloud.provision` (mints vault password + gateway token).
 
