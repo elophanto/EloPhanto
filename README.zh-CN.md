@@ -51,9 +51,15 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
 
 **[你不在时仍在运转的思维](docs/75-AUTONOMOUS-MIND-V2.md)。** 一个可选开启的后台循环。每次唤醒都会对候选工作打分——停滞的检查点、被冷落的使命、外部信号、它自己的梦境日志——再由 LLM 择一，在你设定的预算内推进。默认关闭，直到你亲手打开。
 
-围绕这三者的是：[以回执为门槛的目标](docs/13-GOAL-LOOP.md)，没有工具轨迹就无法关闭检查点；[自己编写的工具](docs/04-SELF-DEVELOPMENT.md)，附带影响分析与 git 回滚；以及[相互隔离的公司](docs/76-ABE-FRAMEWORK.md)，各自拥有产品、语气、客户线索与成本账本。
+围绕这三者的是：[以回执为门槛的目标](docs/13-GOAL-LOOP.md)，没有工具轨迹就无法关闭检查点；以及[自己编写的工具](docs/04-SELF-DEVELOPMENT.md)，附带影响分析与 git 回滚。
 
 它通过 274 个工具触达外部世界：真实浏览器（其中 47 个，驱动你的 Chrome 配置及其登录态）、Shell、文件系统、邮件，以及任意 [MCP](docs/23-MCP.md) 服务器。你可以从 CLI、Web 仪表盘、VS Code、Telegram、Discord 或 Slack 与它对话。
+
+## 它能经营一家公司
+
+把一门生意交给 EloPhanto，它会把它当作一个独立实体来经营，而不是一堆任务的集合。每家公司都拥有自己的产品定义、从你既有文字中提炼出的语气契约、客户线索管道、由它提出并交你审阅的战略方案，以及一本把智能体自身的认知开销计入公司成本的分类账本。竞品会依据已核验的证据打分，证据缺失之处留空。资金走的是真实的自托管通道。
+
+信任需要逐级挣得：`learning` 阶段一切先出草稿交你审阅，`trial` 与 `operating` 则允许它自己发信、自己成交。已交付十一个阶段：[框架](docs/76-ABE-FRAMEWORK.md) · [资金通道](docs/80-ABE-FINANCE-RAIL.md) · [竞品情报](docs/81-COMPETITIVE-INTEL.md)
 
 ## 你醒来会看到什么
 
@@ -100,9 +106,9 @@ elophanto doctor     # 健康 / 故障 / 缺失项
 
 [安全模型](docs/07-SECURITY.md) · [目标循环](docs/13-GOAL-LOOP.md) · [情感层](docs/69-AFFECT.md) · [恢复模式](docs/22-RECOVERY-MODE.md) · [docs.elophanto.com](https://docs.elophanto.com) · [总索引](docs/README.md)
 
-## 它不是什么
+## 细则
 
-它不是一门会自动经营的生意。公司起步时只能写草稿，晋级由你决定。法币实收受 KYC 约束，目前以测试模式交付。日历信号来自 ICS 文件与 webhook，而不是一个 Google OAuth 按钮。自我修改是它可以在获批后进入的流程，不是无声的自我改写。另外，一个始终在线的智能体会消耗真实的 token：第一周先盯着账本，再决定要不要放宽预算。
+这里的自主性是逐级获得的。一家公司要从 `learning` 一路挣到 `trial`、再到 `operating`；一旦进入 operating，它就会自己发信、自己成交、自己花钱。加密货币是 Solana 与 Base 上的真实自托管通道；Stripe 法币通道则以测试模式交付，直到你完成 KYC 并手动切换。日历信号来自 ICS 文件与 webhook，而不是一个 Google OAuth 按钮。自我修改是它在获批后进入的流程，绝不会是无声的改写。另外，一个始终在线的智能体会消耗真实的 token，先盯一周账本，再决定要不要放宽预算。
 
 ---
 

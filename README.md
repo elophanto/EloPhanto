@@ -49,9 +49,15 @@ Nothing instructed it to be that hard on itself, and nothing lets it grade the c
 
 **[A mind that runs while you're gone.](docs/75-AUTONOMOUS-MIND-V2.md)** An opt-in background loop. Each wakeup scores candidate work — stalled checkpoints, neglected missions, external signals, its own dream journal — and an LLM picks one to pursue inside your budget. It stays off until you turn it on.
 
-Around those sit [receipt-gated goals](docs/13-GOAL-LOOP.md) that cannot close a checkpoint without a tool trail, [self-authored tools](docs/04-SELF-DEVELOPMENT.md) with impact analysis and git rollback, and [isolated companies](docs/76-ABE-FRAMEWORK.md) that each carry their own product, voice, prospect pipeline, and cost ledger.
+Around those sit [receipt-gated goals](docs/13-GOAL-LOOP.md) that cannot close a checkpoint without a tool trail, and [self-authored tools](docs/04-SELF-DEVELOPMENT.md) with impact analysis and git rollback.
 
 It reaches the world through 274 tools: a real browser (47 of them, driving your Chrome profile and its logged-in sessions), the shell, the filesystem, email, and any [MCP](docs/23-MCP.md) server. You talk to it from the CLI, a web dashboard, VS Code, Telegram, Discord, or Slack.
+
+## It can run a company
+
+Point EloPhanto at a business and it operates it as a first-class entity rather than a folder of tasks. Each company gets its own product definition, a voice contract extracted from your existing writing, a prospect pipeline, a strategy plan it proposes for your review, and a typed ledger that counts the agent's own cognition as a cost of the business. Competitors get scored against verified evidence, with blanks left where evidence is missing. Money moves on a live self-custody rail.
+
+Trust is earned in stages: `learning` drafts everything for review, `trial` and `operating` let it send and sell on its own. Eleven shipped phases: [framework](docs/76-ABE-FRAMEWORK.md) · [finance rail](docs/80-ABE-FINANCE-RAIL.md) · [competitive intel](docs/81-COMPETITIVE-INTEL.md)
 
 ## What you wake up to
 
@@ -98,9 +104,9 @@ Judge any run by its after-state and its tool trail, not by what it tells you it
 
 [Security model](docs/07-SECURITY.md) · [goal loop](docs/13-GOAL-LOOP.md) · [affect](docs/69-AFFECT.md) · [recovery](docs/22-RECOVERY-MODE.md) · [docs.elophanto.com](https://docs.elophanto.com) · [full index](docs/README.md)
 
-## What it isn't
+## The fine print
 
-It is not a business that runs itself. Companies start in drafts-only and you promote them. Live fiat payments are KYC-gated and ship in test mode. Calendar signals come from ICS files and webhooks, not a Google OAuth button. Self-modification is a pipeline it can choose to enter under approval, not silent self-rewriting. And an always-on agent costs real tokens: watch the ledger for the first week before you widen its budget.
+Autonomy here is graduated. A company earns its way from `learning` to `trial` to `operating`, and once it is operating it sends, sells, and spends on its own. Crypto is a live self-custody rail on Solana and Base; the Stripe fiat rail ships in test mode until you clear KYC and flip it. Calendar signals come from ICS files and webhooks rather than a Google OAuth button. Self-modification is a pipeline it enters under approval, never a silent rewrite. And an always-on agent costs real tokens, so watch the ledger for a week before you widen its budget.
 
 ---
 
