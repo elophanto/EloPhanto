@@ -89,4 +89,4 @@ Use the GitHub issue templates for bug reports and feature requests. Include:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache License 2.0.
+By contributing, you agree that your contributions will be licensed under [PolyForm Noncommercial 1.0.0](LICENSE), the same licence as the rest of the project. Commercial use of EloPhanto requires a separate licence — contact [info@elophanto.com](mailto:info@elophanto.com).
