@@ -89,10 +89,25 @@ class TestCapabilitiesCounts:
         )
 
     def test_skill_count_matches(self, doc: str) -> None:
-        loaded = SkillManager(PROJECT_ROOT / "skills").discover()
-        assert (
-            f"## Skills ({loaded})" in doc
-        ), f"capabilities.md must state '## Skills ({loaded})'"
+        """The doc counts the skills this repo *ships*, not local installs.
+
+        A developer can symlink a skill into ``skills/`` for their own use —
+        the agent loads it, but it is not repo content and must not force a
+        doc edit or fail CI, where the symlink does not exist. Symlinked
+        entries are therefore excluded from the count on both sides.
+        """
+        skills_dir = PROJECT_ROOT / "skills"
+        loaded = SkillManager(skills_dir).discover()
+        symlinked = sum(
+            1
+            for d in skills_dir.iterdir()
+            if d.is_symlink() and (d / "SKILL.md").exists()
+        )
+        shipped = loaded - symlinked
+        assert f"## Skills ({shipped})" in doc, (
+            f"capabilities.md must state '## Skills ({shipped})' "
+            f"({loaded} loaded, {symlinked} symlinked local install(s) excluded)"
+        )
 
     def test_provider_count_matches(self, doc: str) -> None:
         config = load_config(str(PROJECT_ROOT / "config.demo.yaml"))

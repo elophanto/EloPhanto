@@ -367,7 +367,7 @@ Read-only chain queries: `solana_balance`, `solana_token_info`,
 
 ## Skills — `skills` (3)
 
-`skill_list`, `skill_read`, `skill_promote`. **181 skills load** from
+`skill_list`, `skill_read`, `skill_promote`. **180 skills load** from
 `skills/`; see the Skills section below.
 
 ## Documents — `documents` (3)
@@ -447,7 +447,7 @@ All channels connect through the WebSocket gateway
 Smart tool profiles route the right tool subset per task type.
 Provider-level `tool_deny` and `max_tools` handle compatibility.
 
-## Skills (181)
+## Skills (180)
 
 Solana ecosystem (DeFi, NFTs, infra, dev, security), agency-agents
 (engineering, design, marketing, product, PM, support, testing,

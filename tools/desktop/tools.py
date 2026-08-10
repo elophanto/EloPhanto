@@ -776,8 +776,22 @@ def create_desktop_tools() -> list[BaseTool]:
     """Create all desktop tool instances.
 
     The _desktop_controller dependency is injected later by the agent.
+
+    Registration is deliberately platform-independent. ``desktop_osascript``
+    and ``desktop_accessibility`` are macOS-only, but both already refuse
+    with a clear "only available on macOS" at execute time, so gating
+    registration as well bought nothing and cost consistency: the tool
+    catalog — and therefore ``capabilities.md``, the agent's own self-model —
+    differed between a developer's Mac and a Linux host, and the doc could
+    only ever be accurate on one of them.
+
+    This matches how every other conditionally-usable tool here behaves:
+    ``gmail`` and ``gcal`` register without a Google account and say so when
+    called; ``video_generate`` registers without an API token. A tool that
+    explains why it cannot run is more useful than one that silently is not
+    there.
     """
-    tools: list[BaseTool] = [
+    return [
         DesktopConnectTool(),
         DesktopScreenshotTool(),
         DesktopClickTool(),
@@ -787,9 +801,6 @@ def create_desktop_tools() -> list[BaseTool]:
         DesktopCursorTool(),
         DesktopShellTool(),
         DesktopFileTool(),
+        DesktopOsascriptTool(),
+        DesktopAccessibilityTool(),
     ]
-    # macOS-only tools
-    if sys.platform == "darwin":
-        tools.append(DesktopOsascriptTool())
-        tools.append(DesktopAccessibilityTool())
-    return tools
