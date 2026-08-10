@@ -170,6 +170,112 @@ class TestBuildScorecard:
         assert card["weight_total_pct"] == pytest.approx(70.0)
 
 
+class TestThinEvidenceCannotOutrank:
+    """Integrity rule 3: a high score on a sliver of the model is not a lead.
+
+    ``normalized_pct`` rescales to the weight actually scored, which is the
+    right comparable number but has a sharp edge — one 40%-weight dimension
+    scored 5/5 normalizes to 100.0. Ranked naively, the brand nobody has
+    finished measuring tops the board pack. These pin the guard.
+    """
+
+    def test_thin_brand_does_not_outrank_fully_measured_one(self) -> None:
+        subjects = [
+            WatchSubject(subject_id="full", name="Fully Measured"),
+            WatchSubject(subject_id="thin", name="Barely Looked At"),
+        ]
+        card = build_scorecard(
+            subjects,
+            _dims(),
+            {
+                # every dimension scored, middling result
+                "full": {"d1": _score("d1", 3), "d2": _score("d2", 3)},
+                # one 40%-weight dimension, perfect result -> normalizes to 100
+                "thin": {"d2": _score("d2", 5)},
+            },
+        )
+        by_name = {r["name"]: r for r in card["rows"]}
+
+        # The thin brand really does normalize higher...
+        assert by_name["Barely Looked At"]["overall"][
+            "normalized_pct"
+        ] == pytest.approx(100.0)
+        assert by_name["Fully Measured"]["overall"]["normalized_pct"] == pytest.approx(
+            60.0
+        )
+        # ...and is still not allowed to hold the rank.
+        assert by_name["Fully Measured"]["rank"] == 1
+        assert by_name["Barely Looked At"]["rank"] is None
+        assert by_name["Barely Looked At"]["provisional"] is True
+        assert card["rows"][0]["name"] == "Fully Measured"
+
+    def test_provisional_row_keeps_its_numbers_and_explains_itself(self) -> None:
+        card = build_scorecard(
+            [WatchSubject(subject_id="thin", name="Thin")],
+            _dims(),
+            {"thin": {"d2": _score("d2", 5)}},
+        )
+        row = card["rows"][0]
+        # Suppressing the score would be its own dishonesty — only the rank
+        # is withheld, and the reason is stated.
+        assert row["overall"]["normalized_pct"] == pytest.approx(100.0)
+        assert row["evidence_weight_pct"] == pytest.approx(40.0)
+        assert "40%" in row["provisional_reason"]
+        assert "Games" in row["provisional_reason"]  # names what is missing
+
+    def test_meeting_the_threshold_earns_a_rank(self) -> None:
+        card = build_scorecard(
+            [WatchSubject(subject_id="a", name="A")],
+            _dims(),
+            {"a": {"d1": _score("d1", 4)}},  # 60% of weight — over the bar
+        )
+        row = card["rows"][0]
+        assert row["evidence_weight_pct"] == pytest.approx(60.0)
+        assert row["provisional"] is False
+        assert row["rank"] == 1
+
+    def test_threshold_is_tunable_for_deliberately_narrow_studies(self) -> None:
+        card = build_scorecard(
+            [WatchSubject(subject_id="thin", name="Thin")],
+            _dims(),
+            {"thin": {"d2": _score("d2", 5)}},
+            rank_threshold_pct=10.0,
+        )
+        assert card["rows"][0]["rank"] == 1
+        assert card["rows"][0]["provisional"] is False
+
+    def test_no_evidence_stays_unranked_and_is_not_called_provisional_thin(
+        self,
+    ) -> None:
+        card = build_scorecard(
+            [WatchSubject(subject_id="none", name="Nothing")], _dims(), {}
+        )
+        row = card["rows"][0]
+        assert row["rank"] is None
+        assert row["provisional"] is True
+        # No score to qualify, so no thin-evidence reason is invented.
+        assert "provisional_reason" not in row
+
+    def test_ranks_are_contiguous_when_a_thin_brand_sits_between(self) -> None:
+        subjects = [
+            WatchSubject(subject_id="a", name="A"),
+            WatchSubject(subject_id="thin", name="Thin"),
+            WatchSubject(subject_id="b", name="B"),
+        ]
+        card = build_scorecard(
+            subjects,
+            _dims(),
+            {
+                "a": {"d1": _score("d1", 5), "d2": _score("d2", 5)},
+                "thin": {"d2": _score("d2", 5)},
+                "b": {"d1": _score("d1", 2), "d2": _score("d2", 2)},
+            },
+        )
+        ranked = [(r["name"], r["rank"]) for r in card["rows"] if r["rank"] is not None]
+        # 1 and 2 — no gap left behind by the skipped provisional row.
+        assert ranked == [("A", 1), ("B", 2)]
+
+
 # ── Seed pack integrity ─────────────────────────────────────────────────
 
 
@@ -473,20 +579,27 @@ class TestSnapshotsAndStaleness:
     async def test_snapshot_roundtrip_and_diff(self, wm) -> None:
         subj, dim = await _seeded(wm)
         await wm.add_evidence(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, subcriterion="welcome", claim="x",
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            subcriterion="welcome",
+            claim="x",
         )
         await wm.set_score(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, score=2,
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            score=2,
         )
         snap = await wm.take_snapshot("c1", label="baseline")
         assert snap
         assert (await wm.list_snapshots("c1"))[0]["label"] == "baseline"
 
         await wm.set_score(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, score=5,
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            score=5,
         )
         diff = await wm.diff_since_snapshot("c1")
         assert diff is not None
@@ -510,8 +623,10 @@ class TestSnapshotsAndStaleness:
     async def test_fresh_evidence_is_not_stale(self, wm) -> None:
         subj, dim = await _seeded(wm)
         await wm.add_evidence(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, claim="just observed",
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            claim="just observed",
         )
         assert await wm.staleness("c1") == []
 
@@ -522,8 +637,11 @@ class TestSnapshotsAndStaleness:
         subj, dim = await _seeded(wm)  # dimension defaults to monthly (30d)
         old = (datetime.now(UTC) - timedelta(days=90)).isoformat()
         await wm.add_evidence(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, claim="ancient", observed_at=old,
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            claim="ancient",
+            observed_at=old,
         )
         gaps = await wm.staleness("c1")
         assert len(gaps) == 1
@@ -534,8 +652,11 @@ class TestSnapshotsAndStaleness:
     async def test_evidence_export_resolves_names(self, wm) -> None:
         subj, dim = await _seeded(wm)
         await wm.add_evidence(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, claim="c", source_url="https://e.example",
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            claim="c",
+            source_url="https://e.example",
         )
         rows = await wm.evidence_with_names("c1")
         assert rows[0]["subject"] == "Rival" and rows[0]["dimension"] == "Promos"
@@ -554,12 +675,16 @@ class TestXlsxExport:
         await wm.add_subject(name="Unscored", company_id="c1")
         dim = await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
         await wm.add_evidence(
-            company_id="c1", subject_id=scored.subject_id,
-            dimension_id=dim.dimension_id, claim="x",
+            company_id="c1",
+            subject_id=scored.subject_id,
+            dimension_id=dim.dimension_id,
+            claim="x",
         )
         await wm.set_score(
-            company_id="c1", subject_id=scored.subject_id,
-            dimension_id=dim.dimension_id, score=4,
+            company_id="c1",
+            subject_id=scored.subject_id,
+            dimension_id=dim.dimension_id,
+            score=4,
         )
 
         out = tmp_path / "card.xlsx"
@@ -610,17 +735,23 @@ class TestBoardReportTool:
     async def test_without_router_it_ships_facts_and_says_so(self, wm) -> None:
         subj, dim = await _seeded(wm)
         await wm.add_evidence(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, claim="x",
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            claim="x",
         )
         await wm.set_score(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, score=2,
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            score=2,
         )
         await wm.take_snapshot("c1", label="base")
         await wm.set_score(
-            company_id="c1", subject_id=subj.subject_id,
-            dimension_id=dim.dimension_id, score=5,
+            company_id="c1",
+            subject_id=subj.subject_id,
+            dimension_id=dim.dimension_id,
+            score=5,
         )
         t = await self._tool(wm)  # no router injected
         res = await t.execute({"company_id": "c1", "take_snapshot": False})
@@ -709,7 +840,10 @@ class TestExcerptVerification:
         text = html_to_text(_PAGE)
         claims = [
             {"claim": "real", "excerpt": "Minimum purchase is $4.99 per package."},
-            {"claim": "made up", "excerpt": "We offer a 200% cashback guarantee always"},
+            {
+                "claim": "made up",
+                "excerpt": "We offer a 200% cashback guarantee always",
+            },
             {"claim": "too short", "excerpt": "Welcome"},
             {"claim": "", "excerpt": "Minimum purchase is $4.99 per package."},
         ]
@@ -768,16 +902,16 @@ class TestWatchObserveTool:
         return t
 
     @pytest.mark.asyncio
-    async def test_only_verifiable_claims_are_persisted(
-        self, wm, monkeypatch
-    ) -> None:
+    async def test_only_verifiable_claims_are_persisted(self, wm, monkeypatch) -> None:
         import core.watch_observe as wo
 
         subj = await wm.add_subject(
             name="Rival", company_id="c1", url="https://rival.example"
         )
         await wm.upsert_dimension(
-            name="Promos", company_id="c1", weight_pct=100,
+            name="Promos",
+            company_id="c1",
+            weight_pct=100,
             subcriteria=[{"name": "welcome", "weight_pct": 100}],
         )
         text = wo.html_to_text(_PAGE)
@@ -847,10 +981,18 @@ class TestProxyPool:
         from core.config import ProxyConfig
 
         p = ProxyConfig(
-            enabled=True, type="http", host="default.example", port=1,
+            enabled=True,
+            type="http",
+            host="default.example",
+            port=1,
             pool=[
-                {"state": "TX", "host": "tx.example", "port": 8080,
-                 "username": "u", "password": "p"},
+                {
+                    "state": "TX",
+                    "host": "tx.example",
+                    "port": 8080,
+                    "username": "u",
+                    "password": "p",
+                },
                 {"state": "CA", "host": "ca.example", "port": 8081},
             ],
         )
@@ -869,9 +1011,10 @@ class TestProxyPool:
     def test_disabled_proxy_means_direct(self) -> None:
         from core.config import ProxyConfig
 
-        assert ProxyConfig(enabled=False, host="d.example", port=1).request_proxy_url(
-            "TX"
-        ) == ""
+        assert (
+            ProxyConfig(enabled=False, host="d.example", port=1).request_proxy_url("TX")
+            == ""
+        )
 
     def test_pool_works_even_when_single_proxy_disabled(self) -> None:
         from core.config import ProxyConfig
@@ -900,7 +1043,9 @@ class TestWatchQueueTool:
         await wm.add_subject(name="Never", company_id="c1")
         dim = await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
         await wm.add_evidence(
-            company_id="c1", subject_id=s1.subject_id, dimension_id=dim.dimension_id,
+            company_id="c1",
+            subject_id=s1.subject_id,
+            dimension_id=dim.dimension_id,
             claim="old",
             observed_at=(datetime.now(UTC) - timedelta(days=99)).isoformat(),
         )
@@ -1060,7 +1205,10 @@ class TestLinkDiscovery:
         from core.watch_observe import discover_links
 
         assert discover_links("", "https://b.example") == []
-        assert discover_links("<a href='mailto:x@y.z'>terms</a>", "https://b.example") == []
+        assert (
+            discover_links("<a href='mailto:x@y.z'>terms</a>", "https://b.example")
+            == []
+        )
 
 
 class _AnalyzeRouter:
@@ -1074,7 +1222,11 @@ class _AnalyzeRouter:
         if "You score one brand" in system:
             return SimpleNamespace(
                 content=_json.dumps(
-                    {"score": 4, "rationale": "strong welcome offer", "provisional": True}
+                    {
+                        "score": 4,
+                        "rationale": "strong welcome offer",
+                        "provisional": True,
+                    }
                 )
             )
         return SimpleNamespace(
@@ -1120,9 +1272,8 @@ class TestWatchAnalyzeTool:
     ) -> None:
         import core.watch_observe as wo
 
-        page = (
-            "Get 57,500 Gold Coins on your first purchase today. "
-            + ("Play hundreds of games. " * 40)
+        page = "Get 57,500 Gold Coins on your first purchase today. " + (
+            "Play hundreds of games. " * 40
         )
 
         async def fake_collect(start_url, **kw):
@@ -1130,13 +1281,15 @@ class TestWatchAnalyzeTool:
 
         monkeypatch.setattr(wo, "collect_pages", fake_collect)
 
-        await wm.add_subject(
-            name="Rival", company_id="c1", url="https://rival.example"
-        )
+        await wm.add_subject(name="Rival", company_id="c1", url="https://rival.example")
         await wm.upsert_dimension(
-            name="Promos", company_id="c1", weight_pct=100,
-            subcriteria=[{"name": "welcome", "weight_pct": 50},
-                         {"name": "ongoing", "weight_pct": 50}],
+            name="Promos",
+            company_id="c1",
+            weight_pct=100,
+            subcriteria=[
+                {"name": "welcome", "weight_pct": 50},
+                {"name": "ongoing", "weight_pct": 50},
+            ],
         )
 
         res = await (await self._tool(wm)).execute(
@@ -1169,7 +1322,9 @@ class TestWatchAnalyzeTool:
         import core.watch_observe as wo
 
         async def fake_collect(start_url, **kw):
-            return [{"url": start_url, "text": "x" * 900, "error": None, "method": "http"}]
+            return [
+                {"url": start_url, "text": "x" * 900, "error": None, "method": "http"}
+            ]
 
         monkeypatch.setattr(wo, "collect_pages", fake_collect)
         await wm.upsert_dimension(name="Promos", company_id="c1", weight_pct=100)
@@ -1199,7 +1354,9 @@ class TestWatchAnalyzeTool:
         import core.watch_observe as wo
 
         async def dead(start_url, **kw):
-            return [{"url": start_url, "text": "", "error": "HTTP 403", "method": "http"}]
+            return [
+                {"url": start_url, "text": "", "error": "HTTP 403", "method": "http"}
+            ]
 
         monkeypatch.setattr(wo, "collect_pages", dead)
         await wm.add_subject(name="Rival", company_id="c1", url="https://r.example")

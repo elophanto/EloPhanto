@@ -21,10 +21,10 @@ what evidence, and **what changed since last month**. That is the difference
 between a one-off report and an operating capability — and it is what a
 recurring competitor-analysis engagement actually buys.
 
-## The two rules
+## The three rules
 
-Both are enforced in code, not prompt, because the analysis is worthless if
-they can be talked around.
+All three are enforced in code, not prompt, because the analysis is worthless
+if they can be talked around.
 
 **1. A missing datapoint is never a bad score.** `watch_score` refuses to score
 a dimension that has no evidence. The honest representation of "we don't know"
@@ -35,6 +35,27 @@ the score and never fold into it.
 **2. Evidence is append-only.** A correction or re-observation writes a new row
 and supersedes the old one. Nothing is overwritten, so a month-over-month diff
 reflects what genuinely changed rather than what got edited.
+
+**3. Thin evidence cannot hold a rank.** `normalized_pct` rescales to the
+weight actually scored — the right comparable figure, with a sharp edge: a
+brand with one 4%-weight dimension scored 5/5 normalizes to **100.0** and
+would otherwise sit top of the board pack above a rival measured on all
+twelve. That reads as "market leader" when the truth is "we looked at one
+thing". So a subject earns a rank only once its scored weight reaches
+`rank_threshold_pct` (default **50%** of total weight); below that it is
+`provisional`, sorted after every ranked brand and carrying `rank: None`,
+exactly like a subject with no evidence at all.
+
+The score is never suppressed — a provisional row still shows its normalized
+figure, its `evidence_weight_pct`, and which dimensions are missing. Only the
+*claim to a position* is withheld, because the rank is the number a reader
+trusts without checking the footnote. It is marked at the number itself
+(`100.0†`) in the scorecard and board report, and as a `Status` column in the
+client workbook — a caveat that lives only in a notes row travels nowhere once
+a client sorts the sheet or copies a row out.
+
+Set `rank_threshold_pct` per call when a market is deliberately scored on a
+narrow slice.
 
 ## Data model
 
@@ -62,7 +83,8 @@ reported together:
 - `normalized_pct` — raw rescaled to the weight actually scored; the only
   figure comparable between brands with different coverage
 
-Reporting both makes thin evidence impossible to mistake for strength.
+Reporting both makes thin evidence impossible to mistake for strength — and
+rule 3 stops it claiming a rank while nobody is reading the second number.
 
 **Alternative views** re-weight the *same* scores to answer different
 questions — `customer_proposition` (games, promos, loyalty, packages, RTP,

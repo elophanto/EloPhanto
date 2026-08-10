@@ -150,6 +150,14 @@ class WatchScore:
 
 # ── Pure scoring math ───────────────────────────────────────────────────
 
+# Minimum share of total dimension weight a subject must have scored before
+# it is allowed to carry a rank. 50% is the point at which "we measured most
+# of this brand" becomes defensible in front of a client; below it the
+# normalized score is still shown, but as a provisional figure rather than a
+# league position. Override per call when a market is deliberately scored on
+# a narrow slice.
+_RANK_THRESHOLD_PCT = 50.0
+
 
 def weighted_points(score: float | None, weight_pct: float) -> float:
     """Weighted contribution of one dimension: ``(score / 5) x weight``.
@@ -253,11 +261,27 @@ def build_scorecard(
     scores_by_subject: dict[str, dict[str, WatchScore]],
     *,
     views: tuple[str, ...] = ("customer_proposition", "transition_priority"),
+    rank_threshold_pct: float = _RANK_THRESHOLD_PCT,
 ) -> dict[str, Any]:
     """Full scorecard: every subject scored on the base weighting + each view.
 
     Ranked by ``normalized_pct`` so brands with partial evidence still place
     honestly. Subjects with nothing scored sort last rather than at zero.
+
+    **Thin evidence does not win.** ``normalized_pct`` rescales to the weight
+    actually scored, which is the right comparable figure but has a sharp
+    edge: a brand with one 4%-weight dimension scored 5/5 normalizes to
+    100.0 and would otherwise outrank a brand measured on all twelve. In a
+    board pack that reads as "this is the market leader" when the truth is
+    "we looked at one thing". So a subject is only *ranked* once its scored
+    weight reaches ``rank_threshold_pct`` of the total; below that it is
+    marked ``provisional`` and sorted after every ranked brand, carrying
+    ``rank: None`` exactly like a subject with no evidence at all.
+
+    The scores themselves are never suppressed — a provisional row still
+    shows its normalized figure, coverage, and which dimensions are missing.
+    Only the claim to a rank is withheld, because that is the number a
+    reader trusts without checking the footnote.
     """
     rows: list[dict[str, Any]] = []
     for subj in subjects:
@@ -292,14 +316,39 @@ def build_scorecard(
         }
         rows.append(row)
 
+    # Evidence sufficiency, computed against the same total the weights sum
+    # to, so a part-built dimension set cannot make every brand provisional.
+    total_weight = sum(float(d.weight_pct) for d in dimensions)
+    for r in rows:
+        overall = r["overall"]
+        scored_w = float(overall.get("scored_weight_pct") or 0.0)
+        share = (scored_w / total_weight * 100.0) if total_weight > 0 else 0.0
+        r["evidence_weight_pct"] = round(share, 1)
+        r["provisional"] = (
+            overall["normalized_pct"] is None or share < rank_threshold_pct
+        )
+        if r["provisional"] and overall["normalized_pct"] is not None:
+            r["provisional_reason"] = (
+                f"scored on {share:.0f}% of total dimension weight "
+                f"(needs {rank_threshold_pct:.0f}% to rank); "
+                f"missing: {', '.join(overall['unscored_dimensions'][:4])}"
+                + ("…" if len(overall["unscored_dimensions"]) > 4 else "")
+            )
+
     rows.sort(
         key=lambda r: (
+            r["provisional"],
             r["overall"]["normalized_pct"] is None,
             -(r["overall"]["normalized_pct"] or 0.0),
         )
     )
-    for i, r in enumerate(rows, 1):
-        r["rank"] = i if r["overall"]["normalized_pct"] is not None else None
+    rank = 0
+    for r in rows:
+        if r["provisional"]:
+            r["rank"] = None
+            continue
+        rank += 1
+        r["rank"] = rank
 
     total_w = round(sum(float(d.weight_pct) for d in dimensions), 2)
     return {

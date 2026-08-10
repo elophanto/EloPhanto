@@ -701,6 +701,10 @@ class WatchScorecardTool(_WatchToolBase):
         for r in card["rows"]:
             o = r["overall"]
             score = "—" if o["normalized_pct"] is None else f"{o['normalized_pct']:.1f}"
+            # A provisional score is marked at the number itself. A footnote
+            # is not enough — the figure gets quoted on its own.
+            if r.get("provisional") and o["normalized_pct"] is not None:
+                score += "†"
             cp = r["views"].get("customer_proposition", {}).get("normalized_pct")
             tp = r["views"].get("transition_priority", {}).get("normalized_pct")
             lines.append(
@@ -709,6 +713,17 @@ class WatchScorecardTool(_WatchToolBase):
                 f"| {'—' if tp is None else f'{tp:.1f}'} "
                 f"| {o['coverage_pct']:.0f}% | {o['confidence']} |"
             )
+        provisional = [
+            r
+            for r in card["rows"]
+            if r.get("provisional") and r["overall"]["normalized_pct"] is not None
+        ]
+        if provisional:
+            lines += ["", "**† Provisional — not ranked:**"]
+            lines += [
+                f"- {r['name']}: {r.get('provisional_reason', 'insufficient evidence')}"
+                for r in provisional
+            ]
         note = (
             "\nScores are normalised to the weight actually scored; '—' means no "
             "evidence yet, never a weak result. Coverage shows the evidence gap."
@@ -983,11 +998,29 @@ class WatchBoardReportTool(_WatchToolBase):
             cp = r["views"].get("customer_proposition", {}).get("normalized_pct")
             tp = r["views"].get("transition_priority", {}).get("normalized_pct")
             fmt = lambda v: "—" if v is None else f"{v:.1f}"  # noqa: E731
+            overall_txt = fmt(o["normalized_pct"])
+            if r.get("provisional") and o["normalized_pct"] is not None:
+                overall_txt += "†"
             lines.append(
                 f"| {r['rank'] or '—'} | {r['name']}{' *(us)*' if r['is_self'] else ''} "
-                f"| {fmt(o['normalized_pct'])} | {fmt(cp)} | {fmt(tp)} "
+                f"| {overall_txt} | {fmt(cp)} | {fmt(tp)} "
                 f"| {o['coverage_pct']:.0f}% |"
             )
+        board_provisional = [
+            r
+            for r in card["rows"][:15]
+            if r.get("provisional") and r["overall"]["normalized_pct"] is not None
+        ]
+        if board_provisional:
+            lines += [
+                "",
+                "† Provisional: scored on too little of the model to hold a rank. "
+                "The figure is real; the standing is not yet earned.",
+            ]
+            lines += [
+                f"- **{r['name']}** — {r.get('provisional_reason', '')}"
+                for r in board_provisional
+            ]
         lines.append("")
 
         # ── Material changes + judgement ──

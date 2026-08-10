@@ -88,6 +88,7 @@ def render_scorecard_xlsx(
             "Coverage %",
             "Confidence",
             "Scored weight %",
+            "Status",
         ]
     )
     ws.append(header)
@@ -113,6 +114,16 @@ def render_scorecard_xlsx(
             overall.get("coverage_pct"),
             overall.get("confidence", ""),
             overall.get("scored_weight_pct"),
+            # Spelled out in the sheet itself. A client filters and sorts
+            # this file; a caveat that lives only in the notes row travels
+            # nowhere once a column is sorted or a row is copied out.
+            (
+                "Provisional — not ranked"
+                if r.get("provisional") and overall.get("normalized_pct") is not None
+                else (
+                    "No evidence" if overall.get("normalized_pct") is None else "Ranked"
+                )
+            ),
         ]
         ws.append(row)
         if r.get("is_self"):
