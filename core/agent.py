@@ -1369,6 +1369,24 @@ class Agent:
                     hid,
                     getattr(self._config, "agent_name", "Operator"),
                 )
+                # Resolved once, outside the loop. It does not depend on the
+                # loop variable, and closing over a name that is rebound each
+                # iteration is a trap even when — as here — every iteration
+                # assigns the same object: the closure reads the variable at
+                # call time, not at definition time, so the day this becomes
+                # per-tool the bug is silent and the goal lands on the wrong
+                # manager.
+                _goal_mgr = getattr(self, "_goal_manager", None)
+                _create_goal_fn = None
+                if _goal_mgr is not None and hasattr(_goal_mgr, "create_goal"):
+
+                    async def _cg(
+                        text: str, source: str = "", _gm: Any = _goal_mgr
+                    ) -> Any:
+                        return await _gm.create_goal(text)
+
+                    _create_goal_fn = _cg
+
                 for _tname in (
                     "ambient_intervention_list",
                     "ambient_intervention_decide",
@@ -1385,13 +1403,8 @@ class Agent:
                             mind = getattr(self, "_autonomous_mind", None)
                             if mind is not None:
                                 _t._inject_event = mind.inject_event
-                            gm = getattr(self, "_goal_manager", None)
-                            if gm is not None and hasattr(gm, "create_goal"):
-
-                                async def _cg(text: str, source: str = "") -> Any:
-                                    return await gm.create_goal(text)
-
-                                _t._create_goal = _cg
+                            if _create_goal_fn is not None:
+                                _t._create_goal = _create_goal_fn
                 for _tname in (
                     "ambient_presence_report",
                     "ambient_household_show",

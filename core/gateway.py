@@ -203,6 +203,9 @@ class Gateway:
         # Set by gateway_cmd when the WhatsApp channel runs in cloud mode,
         # so POST /hooks/whatsapp can route inbound messages to it.
         self._whatsapp_adapter: Any = None
+        # Set by gateway_cmd when the voice channel is enabled, so audio
+        # arriving from a paired node can be handed to it.
+        self._voice_adapter: Any = None
 
     @property
     def url(self) -> str:
@@ -890,7 +893,11 @@ class Gateway:
                 path = getattr(req, "path", "") or ""
                 try:
                     qs = parse_qs(urlparse(path).query)
-                    got = (qs.get("token") or [None])[0]
+                    # Kept as None-when-absent rather than defaulting to "",
+                    # so an empty configured token can never be matched by a
+                    # request that supplied no token at all.
+                    supplied = qs.get("token") or []
+                    got = supplied[0] if supplied else None
                     if got is not None and got == self._auth_token:
                         token_ok = True
                 except Exception:
@@ -2942,7 +2949,11 @@ class Gateway:
             data_dir = resolve_data_dir(config)
 
             if command == "hosted_status":
-                payload = {
+                # Named apart from the `payload` used elsewhere in this
+                # handler, which holds an already-serialized str. Reusing one
+                # name for both the dict and its JSON is what made the types
+                # unreadable here.
+                status_payload = {
                     "hosted_status": {
                         "hosted": is_hosted(),
                         "custody_label": custody_banner(),
@@ -2955,13 +2966,16 @@ class Gateway:
                 }
                 await client.websocket.send(
                     response_message(
-                        session_id, _json.dumps(payload), done=True
+                        session_id, _json.dumps(status_payload), done=True
                     ).to_json()
                 )
                 return
 
             if command == "owner_kill":
-                result = await hard_stop(
+                # `stop_result` rather than `result`: the same handler binds
+                # `result` to a plain dict in the mind-control branch, so a
+                # StopResult here made every attribute access below unverifiable.
+                stop_result = await hard_stop(
                     data_dir=data_dir,
                     db=getattr(self._agent, "_db", None),
                     cancel_goals=True,
@@ -2995,8 +3009,8 @@ class Gateway:
                             {
                                 "owner_kill": {
                                     "ok": True,
-                                    "sentinel": result.sentinel_path,
-                                    "cancelled_goals": result.cancelled_goals,
+                                    "sentinel": stop_result.sentinel_path,
+                                    "cancelled_goals": stop_result.cancelled_goals,
                                     "cancelled_tasks": cancelled_tasks,
                                     "spend_frozen": True,
                                 }

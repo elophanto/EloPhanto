@@ -101,6 +101,14 @@ class InterventionManager:
         proposal: dict[str, Any],
     ) -> Intervention:
         strength = self._validate_strength(strength)
+        # Declared up front to match _insert's signature. Without this the
+        # types are inferred from whichever branch runs first, and the
+        # mapping branch — which legitimately yields None — reads as a
+        # violation of a `str` that was never intended to be required.
+        company_id: str
+        household_id: str | None
+        signal_id: str | None
+        person_id: str | None
         if isinstance(signal, AmbientSignal):
             company_id = signal.company_id
             household_id = signal.household_id

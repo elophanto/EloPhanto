@@ -110,14 +110,16 @@ class Preference:
     created_at: str = ""
 
     def render(self) -> str:
-        prefix = {
+        # Keyed by str, not PreferenceKind: `kind` is stored as a plain str
+        # (it round-trips through SQLite), and PreferenceKind is a StrEnum, so
+        # its members are valid str keys. Annotating as dict[str, str] lets
+        # the lookup type-check without a cast at the call site.
+        prefixes: dict[str, str] = {
             PreferenceKind.ALWAYS: "Always",
             PreferenceKind.NEVER: "Never",
             PreferenceKind.FACT: "Fact",
-        }.get(
-            self.kind, "Prefers"
-        )  # type: ignore[arg-type]
-        line = f"- {prefix}: {self.directive}"
+        }
+        line = f"- {prefixes.get(self.kind, 'Prefers')}: {self.directive}"
         if self.provenance == Provenance.AGENT:
             line += "  [inferred — confirm before relying on it]"
         return line
@@ -414,13 +416,13 @@ class PreferenceStore:
         if not prefs:
             return ""
 
-        order = {
+        order: dict[str, int] = {
             PreferenceKind.NEVER: 0,
             PreferenceKind.ALWAYS: 1,
             PreferenceKind.PREFERENCE: 2,
             PreferenceKind.FACT: 3,
         }
-        prefs.sort(key=lambda p: (order.get(p.kind, 9), -p.id))  # type: ignore[arg-type]
+        prefs.sort(key=lambda p: (order.get(p.kind, 9), -p.id))
 
         lines = [p.render() for p in prefs[:_MAX_INJECTED]]
         return (

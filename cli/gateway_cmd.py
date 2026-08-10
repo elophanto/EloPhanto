@@ -199,9 +199,9 @@ async def _run_gateway(
 
     if cloud_mode and not auth_token:
         console.print(
-            f"  [bold red]Hosted refuse-start:[/] ELOPHANTO_GATEWAY_TOKEN "
-            f"(or gateway.auth_token_ref) is required when ELOPHANTO_CLOUD=1. "
-            f"Refusing to bind 0.0.0.0 without auth."
+            "  [bold red]Hosted refuse-start:[/] ELOPHANTO_GATEWAY_TOKEN "
+            "(or gateway.auth_token_ref) is required when ELOPHANTO_CLOUD=1. "
+            "Refusing to bind 0.0.0.0 without auth."
         )
         return
 
