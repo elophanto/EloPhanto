@@ -1,0 +1,110 @@
+# EloPhanto — scope declaration (demo)
+#
+# Copy to `data/owned_scope.yaml` and edit. `data/` is gitignored, so this
+# file never leaves your machine.
+#
+#     cp owned_scope.demo.yaml data/owned_scope.yaml
+#
+# ---------------------------------------------------------------------------
+# WHAT THIS IS
+# ---------------------------------------------------------------------------
+# Once the agent holds your credentials, it can reach endpoints that are not
+# yours to change. Nothing in ordinary permission checking tells those apart:
+# "cancel my appointment" and "cancel someone else's" are the same shape of
+# request, made with the same token, against the same host. Permission modes
+# answer "may this caller drive the agent?" — they never answer "is this
+# target the operator's to modify?"
+#
+# This file answers that second question. It is the difference between an
+# assistant and an incident.
+#
+# The rule it enforces (core/scope_guard.py):
+#
+#            │ read │ write │ destructive
+#   ─────────┼──────┼───────┼─────────────
+#   owned    │ run  │ run   │ ask
+#   declared │ run  │ ask   │ REFUSE
+#   unknown  │ run  │ ask   │ REFUSE
+#
+# Destructive actions against anything not declared below are **refused, not
+# prompted**. That is deliberate: an approval dialog is not an authorization
+# to destroy a third party's data, and approval fatigue makes "yes" the
+# default answer to the twentieth prompt of the day.
+#
+# An empty file is safe — it simply means nothing is owned yet, so every
+# destructive external call is refused. Start there and add hosts as you
+# need them.
+#
+# Manage from the CLI instead of editing by hand if you prefer:
+#     elophanto oauth scope                          # show current
+#     elophanto oauth scope --add-owned api.mygym.com
+#     elophanto oauth scope --remove-owned api.mygym.com
+# ---------------------------------------------------------------------------
+
+
+# Systems and accounts that are YOURS. The agent may write to these without
+# asking, and may take destructive actions after confirming.
+#
+# Declare a host only if you genuinely control the account behind it. Owning
+# `api.mygym.example` means "I have an account there and the agent acts as
+# me" — it does NOT mean the agent may touch other members' records. Paths
+# that address another person (`/users/8813/...` rather than `/users/me/...`)
+# stay refused even on an owned host.
+#
+# A bare domain also covers its subdomains. Globs work.
+owned:
+  # - api.mygym.example          # my gym's booking API
+  # - "*.mycompany.com"          # everything I run
+  # - api.trello.com             # SaaS where the account is mine
+
+
+# Systems you have explicitly marked as somebody else's. Functionally the
+# same as leaving a host undeclared — this list exists so you can record the
+# decision, which matters when you or a teammate revisits it in six months
+# and wonders whether the omission was deliberate.
+third_party:
+  # - api.competitor.example
+  # - api.partner.example
+
+
+# ---------------------------------------------------------------------------
+# AUTHORIZATIONS — how legitimate authorized testing stays possible
+# ---------------------------------------------------------------------------
+# Sometimes you ARE authorized to act against a system you do not own: a
+# client engagement, a staging environment, a contracted penetration test.
+# Rather than switching the guard off, record the authorization. The guard
+# then permits exactly the declared scope and nothing beyond it, and still
+# confirms before each action.
+#
+# Every field earns its place:
+#   target        — host the authorization covers (globs allowed)
+#   scope         — "METHOD[,METHOD] /path-glob". An EMPTY scope covers
+#                   NOTHING; a blank authorization is not a blank cheque.
+#   authorized_by — who granted it, and under what. This is the field you
+#                   will want if anyone ever asks why the agent did that.
+#   expires       — ISO date. Past its expiry the authorization stops
+#                   applying; engagements end, and access should end with them.
+#
+# If you find yourself wanting a wildcard here covering someone else's
+# production system, that is the signal to stop and get something in writing
+# instead of editing this file.
+authorizations:
+  # - target: staging.client.example
+  #   scope: "GET,POST,DELETE /api/test-fixtures/*"
+  #   authorized_by: "Jane Doe, CTO — engagement contract #4417"
+  #   expires: "2026-12-31"
+  #   note: "Fixtures only. Production and customer records are out of scope."
+
+
+# ---------------------------------------------------------------------------
+# Policy knobs live in config.yaml under `scope:`, not here. Defaults:
+#
+#   scope:
+#     enabled: true
+#     foreign_write: ask         # allow | ask | deny
+#     foreign_destructive: deny  # allow | ask | deny  ← leave this at deny
+#     owned_destructive: ask
+#     strict_unknown: false
+#
+# See docs/84-ACTION-LAYER.md.
+# ---------------------------------------------------------------------------

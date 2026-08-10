@@ -278,12 +278,72 @@ class Skill:
     # empty (no constraint).
     requires_tools: list[str] = field(default_factory=list)
     fallback_for_tools: list[str] = field(default_factory=list)
+    # Runnable-integration contract. A skill that drives an external CLI
+    # or REST API is only useful when its binaries are on PATH and its
+    # credentials are resolvable; declaring that here turns a prose
+    # playbook into something the agent can check before promising it.
+    #
+    #     ---
+    #     requires:
+    #       bins: [curl, jq]
+    #       any_bins: [gh, hub]
+    #       env: [TRELLO_API_KEY, TRELLO_TOKEN]
+    #       credentials: [trello]
+    #     primary_env: TRELLO_API_KEY
+    #     install:
+    #       brew: jq
+    #       npm: "@example/cli"
+    #     ---
+    requires_bins: list[str] = field(default_factory=list)
+    requires_any_bins: list[str] = field(default_factory=list)
+    requires_env: list[str] = field(default_factory=list)
+    requires_credentials: list[str] = field(default_factory=list)
+    primary_env: str = ""
+    install: dict[str, str] = field(default_factory=dict)
 
     @property
     def location(self) -> str:
         return str(self.path / "SKILL.md")
 
-    def is_available(self, available_tools: set[str] | None) -> bool:
+    def missing_requirements(self) -> list[str]:
+        """Which declared prerequisites are not satisfied on this host.
+
+        Returns human-readable strings so the caller can tell the operator
+        exactly what to install or export. Empty list means ready to run.
+        """
+        import os
+        import shutil
+
+        missing: list[str] = []
+        for binary in self.requires_bins:
+            if not shutil.which(binary):
+                hint = self._install_hint(binary)
+                missing.append(f"binary '{binary}' not on PATH{hint}")
+        if self.requires_any_bins and not any(
+            shutil.which(b) for b in self.requires_any_bins
+        ):
+            missing.append(
+                "none of these binaries are on PATH: "
+                + ", ".join(self.requires_any_bins)
+            )
+        for var in self.requires_env:
+            if not os.environ.get(var):
+                missing.append(f"environment variable '{var}' is not set")
+        return missing
+
+    def _install_hint(self, binary: str) -> str:
+        if not self.install:
+            return ""
+        parts = [f"{mgr}: {pkg}" for mgr, pkg in self.install.items()]
+        return f" (install via {'; '.join(parts)})" if parts else ""
+
+    def is_available(
+        self,
+        available_tools: set[str] | None,
+        *,
+        check_host: bool = False,
+        available_credentials: set[str] | None = None,
+    ) -> bool:
         """Whether this skill should appear in the catalog right now.
 
         Rules (degrade open — unknown means show):
@@ -297,6 +357,12 @@ class Skill:
             is loaded. The fallback recipe is only relevant when the
             primary tool isn't available — e.g. a "use curl to scrape
             X" skill should disappear when ``http_get`` is loaded.
+          - ``check_host`` (opt-in): also hide when a declared binary or
+            environment variable is absent. Off by default because the
+            PATH probe costs a stat per binary and most callers only
+            want the cheap tool-level filter.
+          - ``available_credentials``: when supplied, hide skills whose
+            declared credential slugs are not configured.
           - Otherwise: available.
         """
         if available_tools is None:
@@ -307,6 +373,11 @@ class Skill:
         if self.fallback_for_tools:
             if any(t in available_tools for t in self.fallback_for_tools):
                 return False
+        if available_credentials is not None and self.requires_credentials:
+            if not all(c in available_credentials for c in self.requires_credentials):
+                return False
+        if check_host and self.missing_requirements():
+            return False
         return True
 
 
@@ -801,20 +872,72 @@ class SkillManager:
                 if t.strip().strip('"').strip("'")
             ]
 
-        # Try YAML frontmatter first (--- block at top of file)
+        requires_bins: list[str] = []
+        requires_any_bins: list[str] = []
+        requires_env: list[str] = []
+        requires_credentials: list[str] = []
+        primary_env = ""
+        install: dict[str, str] = {}
+
+        def _as_str_list(value: Any) -> list[str]:
+            if isinstance(value, str):
+                return [value] if value.strip() else []
+            if isinstance(value, list):
+                return [str(v).strip() for v in value if str(v).strip()]
+            return []
+
+        # Try YAML frontmatter first (--- block at top of file).
         fm_match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
         if fm_match:
             fm_block = fm_match.group(1)
-            for fm_line in fm_block.splitlines():
-                fm_line = fm_line.strip()
-                if fm_line.startswith("description:"):
-                    description = fm_line.split(":", 1)[1].strip().strip('"').strip("'")
-                elif fm_line.startswith("triggers:"):
-                    triggers.extend(_parse_inline_list(fm_line.split(":", 1)[1]))
-                elif fm_line.startswith("requires_tools:"):
-                    requires_tools = _parse_inline_list(fm_line.split(":", 1)[1])
-                elif fm_line.startswith("fallback_for_tools:"):
-                    fallback_for_tools = _parse_inline_list(fm_line.split(":", 1)[1])
+            fm: dict[str, Any] = {}
+            try:
+                import yaml
+
+                loaded = yaml.safe_load(fm_block)
+                if isinstance(loaded, dict):
+                    fm = loaded
+            except Exception as exc:
+                # A malformed block must not lose the skill — fall through
+                # to the line parser, which handles the flat inline forms.
+                logger.debug("Skill %r frontmatter is not valid YAML: %s", name, exc)
+
+            if fm:
+                if fm.get("description"):
+                    description = str(fm["description"]).strip()
+                triggers.extend(_as_str_list(fm.get("triggers")))
+                requires_tools = _as_str_list(fm.get("requires_tools"))
+                fallback_for_tools = _as_str_list(fm.get("fallback_for_tools"))
+                primary_env = str(fm.get("primary_env", "") or "").strip()
+                raw_requires = fm.get("requires")
+                if isinstance(raw_requires, dict):
+                    requires_bins = _as_str_list(raw_requires.get("bins"))
+                    requires_any_bins = _as_str_list(raw_requires.get("any_bins"))
+                    requires_env = _as_str_list(raw_requires.get("env"))
+                    requires_credentials = _as_str_list(raw_requires.get("credentials"))
+                elif isinstance(raw_requires, list):
+                    # Shorthand: `requires: [curl, jq]` means binaries.
+                    requires_bins = _as_str_list(raw_requires)
+                raw_install = fm.get("install")
+                if isinstance(raw_install, dict):
+                    install = {
+                        str(k): str(v) for k, v in raw_install.items() if v is not None
+                    }
+            else:
+                for fm_line in fm_block.splitlines():
+                    fm_line = fm_line.strip()
+                    if fm_line.startswith("description:"):
+                        description = (
+                            fm_line.split(":", 1)[1].strip().strip('"').strip("'")
+                        )
+                    elif fm_line.startswith("triggers:"):
+                        triggers.extend(_parse_inline_list(fm_line.split(":", 1)[1]))
+                    elif fm_line.startswith("requires_tools:"):
+                        requires_tools = _parse_inline_list(fm_line.split(":", 1)[1])
+                    elif fm_line.startswith("fallback_for_tools:"):
+                        fallback_for_tools = _parse_inline_list(
+                            fm_line.split(":", 1)[1]
+                        )
 
         # Extract description from the first ## Description section
         desc_match = re.search(
@@ -882,4 +1005,10 @@ class SkillManager:
             verify_checks=verify_checks,
             requires_tools=requires_tools,
             fallback_for_tools=fallback_for_tools,
+            requires_bins=requires_bins,
+            requires_any_bins=requires_any_bins,
+            requires_env=requires_env,
+            requires_credentials=requires_credentials,
+            primary_env=primary_env,
+            install=install,
         )

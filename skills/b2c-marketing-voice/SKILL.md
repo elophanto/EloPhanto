@@ -1,6 +1,6 @@
 ---
 name: b2c-marketing-voice
-description: Anti-slop principles for B2C social posts and outreach. Use BEFORE drafting an email, X post, or prospect message so the body reads like a person, not an LLM. Pairs with the Phase 10 voice contract (data/companies/<slug>/voice.yaml) — this skill is the meta-principles; voice.yaml is the per-company specifics. Distilled from public marketing patterns (jackfriks/b2c-marketing on ClawHub) — not a copy.
+description: Anti-slop principles for B2C social posts and outreach. Use BEFORE drafting an email, X post, or prospect message so the body reads like a person, not an LLM. Pairs with the Phase 10 voice contract (data/companies/<slug>/voice.yaml) — this skill is the meta-principles; voice.yaml is the per-company specifics. Distilled from public marketing patterns — not a copy.
 license: MIT
 metadata:
   author: petr-royce

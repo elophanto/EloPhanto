@@ -223,6 +223,9 @@ async def _run_gateway(
 
     await gateway.start()
     agent._gateway = gateway  # Enable scheduled task notifications
+    # Companion-device tools need the gateway's node registry, which only
+    # exists once the gateway is constructed.
+    agent._inject_node_deps()
     # Re-inject kill-switch deps now that the gateway is live so the
     # agent_stop LLM tool can find the in-flight run-tasks dict.
     agent._inject_kill_switch_deps()
@@ -336,6 +339,77 @@ async def _run_gateway(
                 adapters_started.append("slack")
         except Exception as e:
             console.print(f"  [{_C_WARN}]Slack: {e}[/]")
+
+    # Start Signal adapter if enabled (signal-cli, no vault needed —
+    # the linked device holds its own credentials).
+    if cfg.signal.enabled:
+        try:
+            from channels.signal_adapter import SignalAdapter
+
+            sg = SignalAdapter(
+                account=cfg.signal.account,
+                config=cfg.signal,
+                gateway_url=gw_url,
+            )
+            adapter_instances.append(sg)
+            adapter_tasks.append(asyncio.create_task(sg.start()))
+            adapters_started.append("signal")
+        except Exception as e:
+            console.print(f"  [{_C_WARN}]Signal: {e}[/]")
+
+    # Start iMessage adapter if enabled (macOS only)
+    if cfg.imessage.enabled:
+        try:
+            from channels.imessage_adapter import IMessageAdapter
+
+            im = IMessageAdapter(config=cfg.imessage, gateway_url=gw_url)
+            adapter_instances.append(im)
+            adapter_tasks.append(asyncio.create_task(im.start()))
+            adapters_started.append("imessage")
+        except Exception as e:
+            console.print(f"  [{_C_WARN}]iMessage: {e}[/]")
+
+    # Start WhatsApp adapter if enabled. Cloud mode needs the Meta token
+    # from the vault; bridge mode runs a local linked-device process.
+    if cfg.whatsapp.enabled:
+        try:
+            from channels.whatsapp_adapter import WhatsAppAdapter
+
+            token = ""
+            if cfg.whatsapp.mode == "cloud" and agent._vault:
+                token = agent._vault.get(cfg.whatsapp.access_token_ref) or ""
+            wa = WhatsAppAdapter(
+                config=cfg.whatsapp,
+                access_token=token,
+                gateway_url=gw_url,
+            )
+            adapter_instances.append(wa)
+            adapter_tasks.append(asyncio.create_task(wa.start()))
+            adapters_started.append("whatsapp")
+            # Cloud mode is webhook-fed; hand the gateway a reference so
+            # POST /hooks/whatsapp can route into this adapter.
+            if cfg.whatsapp.mode == "cloud":
+                gateway._whatsapp_adapter = wa
+        except Exception as e:
+            console.print(f"  [{_C_WARN}]WhatsApp: {e}[/]")
+
+    # Start the voice channel if enabled
+    if getattr(cfg, "voice_channel", None) and cfg.voice_channel.enabled:
+        try:
+            from channels.voice_adapter import VoiceAdapter
+            from core.speech import engine_from_config
+
+            va = VoiceAdapter(
+                config=cfg.voice_channel,
+                speech=engine_from_config(cfg, vault=agent._vault),
+                gateway_url=gw_url,
+            )
+            adapter_instances.append(va)
+            adapter_tasks.append(asyncio.create_task(va.start()))
+            adapters_started.append("voice")
+            gateway._voice_adapter = va
+        except Exception as e:
+            console.print(f"  [{_C_WARN}]Voice: {e}[/]")
 
     # Show status panel
     tool_count = len(agent._registry.list_tools())

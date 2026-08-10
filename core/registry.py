@@ -160,6 +160,44 @@ class ToolRegistry:
         self.register(VaultLookupTool())
         self.register(VaultSetTool())
 
+        # Authenticated HTTP — the generic third-party action surface.
+        # Guarded by core/net_policy (SSRF), core/scope_guard (is this
+        # target mine to change?), and core/credentials (the model never
+        # sees the secret). See docs/86-CREDENTIAL-BROKER.md.
+        from tools.http import HttpRequestTool
+
+        self.register(HttpRequestTool())
+
+        # Google Workspace over user OAuth — real inbox, real calendar.
+        # Registered unconditionally; each returns a "connect your account"
+        # error until `elophanto oauth login google` has been run, which is
+        # a better failure than the tool being invisible.
+        from tools.google import GmailTool, GoogleCalendarTool
+
+        self.register(GmailTool())
+        self.register(GoogleCalendarTool())
+
+        # Companion devices — camera, screen, location, speech on the
+        # operator's phone/laptop. Sensitive capabilities stay gated by
+        # config allowlist AND a CRITICAL approval. See core/nodes.py.
+        from tools.nodes import NodeInvokeTool, NodeListTool
+
+        self.register(NodeListTool())
+        self.register(NodeInvokeTool())
+
+        # Media: understand what arrived (voice notes, recordings,
+        # screenshots) and generate video/music. Generation is metered, so
+        # both generators are CRITICAL.
+        from tools.media import (
+            MediaUnderstandTool,
+            MusicGenerateTool,
+            VideoGenerateTool,
+        )
+
+        self.register(MediaUnderstandTool())
+        self.register(VideoGenerateTool())
+        self.register(MusicGenerateTool())
+
         # Godmode tool (Pliny's G0DM0D3)
         from tools.system.godmode_tool import GodmodeActivateTool
 
@@ -460,6 +498,17 @@ class ToolRegistry:
         from tools.user.profile_tool import UserProfileViewTool
 
         self.register(UserProfileViewTool())
+
+        # Standing preferences — stated directives, superseded in place.
+        # Separate from the inferred profile above: observations are
+        # evidence, directives are instructions. See core/preferences.py.
+        from tools.user.preference_tool import (
+            PreferenceListTool,
+            PreferenceRecordTool,
+        )
+
+        self.register(PreferenceRecordTool())
+        self.register(PreferenceListTool())
 
         # Email tools
         from tools.email.create_inbox_tool import EmailCreateInboxTool

@@ -1040,6 +1040,186 @@ class MCPConfig:
 
 
 @dataclass
+class NodesConfig:
+    """Companion devices that lend the agent senses.
+
+    ``allowed_capabilities`` maps a node id (or ``"*"`` for all nodes) to
+    the sensitive capabilities it may run. Camera, screen, microphone,
+    location, SMS and shell are never invokable unless listed here —
+    a device advertising a capability is not the same as the operator
+    consenting to it being used::
+
+        nodes:
+          allowed_capabilities:
+            "*": [location.get]
+            phone-abc123: [camera.snap, screen.snapshot]
+    """
+
+    enabled: bool = True
+    allowed_capabilities: dict[str, list[str]] = field(default_factory=dict)
+
+
+@dataclass
+class VoiceChannelConfig:
+    """Spoken conversation: speech in, speech out."""
+
+    enabled: bool = False
+    stt_provider: str = "openai"  # openai | local_whisper
+    stt_model: str = "whisper-1"
+    tts_provider: str = "openai"  # openai | elevenlabs | say (macOS)
+    tts_model: str = "tts-1"
+    tts_voice: str = "alloy"
+    api_key_ref: str = "openai_api_key"  # vault key
+    # Spoken confirmation is required before high-impact actions: voice is
+    # a lossy channel and a misheard command must not send money or mail.
+    confirm_high_impact: bool = True
+
+
+@dataclass
+class LoopDetectionConfig:
+    """Per-run repetition guard.
+
+    Counts identical (tool, arguments, result) triples and escalates:
+    warn, then block that call, then end the run. Catches a stuck agent
+    long before ``max_steps`` would.
+    """
+
+    enabled: bool = True
+    warn_at: int = 2
+    block_at: int = 3
+    abort_at: int = 4
+
+
+@dataclass
+class SignalConfig:
+    """Signal channel (via signal-cli as a linked device).
+
+    ``allowed_numbers`` defaults to empty and that means *closed*: a linked
+    device sends as the operator, so an open default would let any stranger
+    who can message them drive the agent.
+    """
+
+    enabled: bool = False
+    account: str = ""  # the linked phone number, e.g. "+420..."
+    allowed_numbers: list[str] = field(default_factory=list)
+    signal_cli_path: str = "signal-cli"
+
+
+@dataclass
+class IMessageConfig:
+    """iMessage channel (macOS only; needs Full Disk Access)."""
+
+    enabled: bool = False
+    allowed_handles: list[str] = field(default_factory=list)
+    poll_seconds: float = 3.0
+
+
+@dataclass
+class WhatsAppConfig:
+    """WhatsApp channel — Meta Cloud API, or a local Baileys-style bridge."""
+
+    enabled: bool = False
+    mode: str = "cloud"  # cloud | bridge
+    allowed_numbers: list[str] = field(default_factory=list)
+    # cloud mode
+    phone_number_id: str = ""
+    access_token_ref: str = "whatsapp_access_token"
+    verify_token: str = ""  # echoed back on Meta's webhook handshake
+    # bridge mode
+    bridge_command: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CredentialPolicyConfig:
+    """Access policy for one credential slug.
+
+    ``mode``: ``auto`` (no prompt), ``approve`` (ask the operator, the
+    default), or ``deny``. ``grant_ttl_seconds`` turns a single approval
+    into a standing grant for that window so a multi-call workflow does
+    not prompt on every request.
+    """
+
+    mode: str = "approve"
+    grant_ttl_seconds: int = 0
+
+
+@dataclass
+class CredentialsConfig:
+    """Third-party credential broker settings.
+
+    Note this is *not* where LLM provider keys live — those stay in the
+    ``llm.providers`` section and are read by the router. This section
+    governs secrets the agent wields against external services on the
+    operator's behalf.
+
+    ``bindings`` maps a friendly slug to a reference the broker resolves::
+
+        credentials:
+          bindings:
+            trello: "vault:trello#token"
+            gym: "env:GYM_API_TOKEN"
+            gcal: "oauth:google"
+          policies:
+            gym: {mode: approve, grant_ttl_seconds: 900}
+    """
+
+    default_mode: str = "approve"
+    bindings: dict[str, str] = field(default_factory=dict)
+    policies: dict[str, CredentialPolicyConfig] = field(default_factory=dict)
+
+
+@dataclass
+class ScopeConfig:
+    """Self-owned-scope guard settings.
+
+    Governs whether a target is the operator's to modify. Defaults are
+    deliberately strict on the one case that cannot be undone: destructive
+    actions against systems the operator has not declared as theirs are
+    refused outright rather than prompted, because an approval dialog is
+    not an authorization to destroy a third party's data.
+    """
+
+    enabled: bool = True
+    foreign_write: str = "ask"  # allow | ask | deny
+    foreign_destructive: str = "deny"  # allow | ask | deny
+    owned_destructive: str = "ask"  # allow | ask | deny
+    strict_unknown: bool = False
+
+
+@dataclass
+class NetworkConfig:
+    """Outbound network policy for agent-initiated HTTP."""
+
+    allow_hosts: list[str] = field(default_factory=list)
+    deny_hosts: list[str] = field(default_factory=list)
+    allowlist_only: bool = False
+    allow_private_network: bool = False
+    max_redirects: int = 5
+    timeout_seconds: float = 30.0
+
+
+@dataclass
+class OAuthProviderConfig:
+    """One OAuth2 provider the agent can hold user tokens for."""
+
+    client_id: str = ""
+    client_secret: str = ""
+    auth_url: str = ""
+    token_url: str = ""
+    scopes: list[str] = field(default_factory=list)
+    redirect_port: int = 8765
+    audience: str = ""
+
+
+@dataclass
+class OAuthConfig:
+    """User-service OAuth2 settings (Gmail, Calendar, Drive, …)."""
+
+    enabled: bool = False
+    providers: dict[str, OAuthProviderConfig] = field(default_factory=dict)
+
+
+@dataclass
 class SelfLearningPrivacyConfig:
     """Privacy controls for self-learning data collection."""
 
@@ -1268,6 +1448,12 @@ class Config:
     hub: HubConfig = field(default_factory=HubConfig)
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     slack: SlackConfig = field(default_factory=SlackConfig)
+    loop_detection: LoopDetectionConfig = field(default_factory=LoopDetectionConfig)
+    nodes: NodesConfig = field(default_factory=NodesConfig)
+    voice_channel: VoiceChannelConfig = field(default_factory=VoiceChannelConfig)
+    signal: SignalConfig = field(default_factory=SignalConfig)
+    imessage: IMessageConfig = field(default_factory=IMessageConfig)
+    whatsapp: WhatsAppConfig = field(default_factory=WhatsAppConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     documents: DocumentConfig = field(default_factory=DocumentConfig)
     goals: GoalsConfig = field(default_factory=GoalsConfig)
@@ -1280,6 +1466,10 @@ class Config:
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
+    credentials: CredentialsConfig = field(default_factory=CredentialsConfig)
+    scope: ScopeConfig = field(default_factory=ScopeConfig)
+    network: NetworkConfig = field(default_factory=NetworkConfig)
+    oauth: OAuthConfig = field(default_factory=OAuthConfig)
     self_learning: SelfLearningConfig = field(default_factory=SelfLearningConfig)
     swarm: SwarmConfig = field(default_factory=lambda: SwarmConfig())
     autonomous_mind: AutonomousMindConfig = field(default_factory=AutonomousMindConfig)
@@ -2120,6 +2310,122 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         servers=mcp_servers,
     )
 
+    nodes_raw = raw.get("nodes", {}) or {}
+    nodes_config = NodesConfig(
+        enabled=bool(nodes_raw.get("enabled", True)),
+        allowed_capabilities={
+            str(k): [str(c) for c in (v or [])]
+            for k, v in (nodes_raw.get("allowed_capabilities") or {}).items()
+        },
+    )
+
+    vc_raw = raw.get("voice_channel", {}) or {}
+    voice_channel_config = VoiceChannelConfig(
+        enabled=bool(vc_raw.get("enabled", False)),
+        stt_provider=str(vc_raw.get("stt_provider", "openai") or "openai"),
+        stt_model=str(vc_raw.get("stt_model", "whisper-1") or "whisper-1"),
+        tts_provider=str(vc_raw.get("tts_provider", "openai") or "openai"),
+        tts_model=str(vc_raw.get("tts_model", "tts-1") or "tts-1"),
+        tts_voice=str(vc_raw.get("tts_voice", "alloy") or "alloy"),
+        api_key_ref=str(vc_raw.get("api_key_ref", "openai_api_key")),
+        confirm_high_impact=bool(vc_raw.get("confirm_high_impact", True)),
+    )
+
+    ld_raw = raw.get("loop_detection", {}) or {}
+    loop_detection_config = LoopDetectionConfig(
+        enabled=bool(ld_raw.get("enabled", True)),
+        warn_at=int(ld_raw.get("warn_at", 2) or 2),
+        block_at=int(ld_raw.get("block_at", 3) or 3),
+        abort_at=int(ld_raw.get("abort_at", 4) or 4),
+    )
+
+    # Parse the personal-messaging channels. Allowlists stay empty by
+    # default; each adapter treats empty as closed rather than open.
+    signal_raw = raw.get("signal", {}) or {}
+    signal_config = SignalConfig(
+        enabled=bool(signal_raw.get("enabled", False)),
+        account=str(signal_raw.get("account", "")),
+        allowed_numbers=[str(n) for n in (signal_raw.get("allowed_numbers") or [])],
+        signal_cli_path=str(signal_raw.get("signal_cli_path", "signal-cli")),
+    )
+
+    imessage_raw = raw.get("imessage", {}) or {}
+    imessage_config = IMessageConfig(
+        enabled=bool(imessage_raw.get("enabled", False)),
+        allowed_handles=[str(h) for h in (imessage_raw.get("allowed_handles") or [])],
+        poll_seconds=float(imessage_raw.get("poll_seconds", 3.0) or 3.0),
+    )
+
+    whatsapp_raw = raw.get("whatsapp", {}) or {}
+    whatsapp_config = WhatsAppConfig(
+        enabled=bool(whatsapp_raw.get("enabled", False)),
+        mode=str(whatsapp_raw.get("mode", "cloud") or "cloud"),
+        allowed_numbers=[str(n) for n in (whatsapp_raw.get("allowed_numbers") or [])],
+        phone_number_id=str(whatsapp_raw.get("phone_number_id", "")),
+        access_token_ref=str(
+            whatsapp_raw.get("access_token_ref", "whatsapp_access_token")
+        ),
+        verify_token=str(whatsapp_raw.get("verify_token", "")),
+        bridge_command=[str(c) for c in (whatsapp_raw.get("bridge_command") or [])],
+    )
+
+    # Parse credentials section (third-party secret broker).
+    cred_raw = raw.get("credentials", {}) or {}
+    cred_policies: dict[str, CredentialPolicyConfig] = {}
+    for slug, pol in (cred_raw.get("policies") or {}).items():
+        if isinstance(pol, str):
+            cred_policies[slug] = CredentialPolicyConfig(mode=pol)
+        elif isinstance(pol, dict):
+            cred_policies[slug] = CredentialPolicyConfig(
+                mode=str(pol.get("mode", "approve")),
+                grant_ttl_seconds=int(pol.get("grant_ttl_seconds", 0) or 0),
+            )
+    credentials_config = CredentialsConfig(
+        default_mode=str(cred_raw.get("default_mode", "approve") or "approve"),
+        bindings={str(k): str(v) for k, v in (cred_raw.get("bindings") or {}).items()},
+        policies=cred_policies,
+    )
+
+    # Parse scope section (self-owned-scope guard).
+    scope_raw = raw.get("scope", {}) or {}
+    scope_config = ScopeConfig(
+        enabled=scope_raw.get("enabled", True),
+        foreign_write=str(scope_raw.get("foreign_write", "ask") or "ask"),
+        foreign_destructive=str(scope_raw.get("foreign_destructive", "deny") or "deny"),
+        owned_destructive=str(scope_raw.get("owned_destructive", "ask") or "ask"),
+        strict_unknown=bool(scope_raw.get("strict_unknown", False)),
+    )
+
+    # Parse network section (outbound HTTP policy).
+    net_raw = raw.get("network", {}) or {}
+    network_config = NetworkConfig(
+        allow_hosts=[str(h) for h in (net_raw.get("allow_hosts") or [])],
+        deny_hosts=[str(h) for h in (net_raw.get("deny_hosts") or [])],
+        allowlist_only=bool(net_raw.get("allowlist_only", False)),
+        allow_private_network=bool(net_raw.get("allow_private_network", False)),
+        max_redirects=int(net_raw.get("max_redirects", 5) or 5),
+        timeout_seconds=float(net_raw.get("timeout_seconds", 30.0) or 30.0),
+    )
+
+    # Parse oauth section (user-service OAuth2).
+    oauth_raw = raw.get("oauth", {}) or {}
+    oauth_providers: dict[str, OAuthProviderConfig] = {}
+    for prov_name, prov in (oauth_raw.get("providers") or {}).items():
+        prov = prov or {}
+        oauth_providers[prov_name] = OAuthProviderConfig(
+            client_id=str(prov.get("client_id", "")),
+            client_secret=str(prov.get("client_secret", "")),
+            auth_url=str(prov.get("auth_url", "")),
+            token_url=str(prov.get("token_url", "")),
+            scopes=[str(s) for s in (prov.get("scopes") or [])],
+            redirect_port=int(prov.get("redirect_port", 8765) or 8765),
+            audience=str(prov.get("audience", "")),
+        )
+    oauth_config = OAuthConfig(
+        enabled=bool(oauth_raw.get("enabled", False)),
+        providers=oauth_providers,
+    )
+
     # Parse self_learning section
     sl_raw = raw.get("self_learning", {})
     sl_privacy_raw = sl_raw.get("privacy", {})
@@ -2366,6 +2672,16 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         telemetry=telemetry_config,
         proxy=proxy_config,
         mcp=mcp_config,
+        loop_detection=loop_detection_config,
+        nodes=nodes_config,
+        voice_channel=voice_channel_config,
+        signal=signal_config,
+        imessage=imessage_config,
+        whatsapp=whatsapp_config,
+        credentials=credentials_config,
+        scope=scope_config,
+        network=network_config,
+        oauth=oauth_config,
         self_learning=self_learning_config,
         swarm=swarm_config,
         autonomous_mind=autonomous_mind_config,

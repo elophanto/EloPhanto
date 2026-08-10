@@ -519,6 +519,148 @@ slack:
   app_token_ref: "slack_app_token"
   allowed_channels: []
 
+# --- Personal messaging channels (docs/85-REACH-AND-MEMORY.md) ---
+#
+# These three differ from the bot channels above in a way that matters:
+# Signal and iMessage send AS YOU, not as a bot. There is no separate
+# identity anyone can tell apart from you. So their allowlists are
+# default-CLOSED — an empty list refuses every inbound message rather than
+# accepting all of them. Put your own number in to switch the channel on.
+
+signal:                                   # via signal-cli as a linked device
+  enabled: false
+  account: ""                             # your number, e.g. "+420123456789"
+  allowed_numbers: []                     # EMPTY = closed. ["+420123456789"]
+  signal_cli_path: "signal-cli"
+  # Setup: brew install signal-cli && signal-cli link -n "EloPhanto"
+
+imessage:                                 # macOS only
+  enabled: false
+  allowed_handles: []                     # EMPTY = closed. numbers or Apple IDs
+  poll_seconds: 3.0
+  # Needs Full Disk Access for the process running the gateway, or it
+  # cannot read ~/Library/Messages/chat.db and will refuse to start.
+
+whatsapp:
+  enabled: false
+  mode: cloud                             # cloud (Meta official) | bridge (local)
+  allowed_numbers: []                     # EMPTY = closed
+  # cloud mode — needs a Meta Business account; inbound arrives at
+  # POST /hooks/whatsapp, so the gateway must be reachable (a tunnel is fine)
+  phone_number_id: ""
+  access_token_ref: "whatsapp_access_token"   # vault key
+  verify_token: ""                        # echoed on Meta's webhook handshake
+  # bridge mode — a local process speaking newline-delimited JSON on stdio
+  # (typically Baileys). Works with a personal number, no Business account,
+  # at the cost of an unofficial library.
+  bridge_command: []                      # e.g. ["node", "whatsapp-bridge.js"]
+
+voice_channel:                            # spoken conversation
+  enabled: false
+  stt_provider: openai                    # openai | local_whisper
+  stt_model: whisper-1
+  tts_provider: openai                    # openai | elevenlabs | say (macOS)
+  tts_model: tts-1
+  tts_voice: alloy
+  api_key_ref: "openai_api_key"           # vault key; falls back to llm.providers.openai
+  confirm_high_impact: true               # require a fresh SPOKEN yes before
+                                          # sending, spending, or deleting.
+                                          # Recognition is lossy and rooms have
+                                          # other people in them — an approval a
+                                          # mis-transcription can satisfy is not
+                                          # an approval. Leave this on.
+
+# --- Companion devices (nodes) ---
+#
+# A node is a phone or laptop that lends the agent senses: camera, screen,
+# location, microphone. It is not a chat channel — nodes answer capability
+# invocations, they do not hold conversations.
+#
+# A device ADVERTISING a capability is not consent to use it. Sensitive
+# capabilities must be listed here AND they confirm on every call. The
+# difference between an assistant and a surveillance device is entirely
+# whether the camera can fire without asking.
+
+nodes:
+  enabled: true
+  allowed_capabilities: {}
+    # "*": [location.get]                 # every connected device
+    # phone-abc123: [camera.snap, screen.snapshot]
+  # Gated by default: camera.*, screen.*, mic.record, location.get,
+  # sms.send, contacts.search, shell.run, computer.act
+
+# --- Action layer: credentials, scope, network (docs/84-ACTION-LAYER.md) ---
+
+credentials:
+  # Third-party secrets the agent WIELDS on your behalf. Not LLM provider
+  # keys — those stay in llm.providers above and are read by the router.
+  # Keeping the two separate is deliberate.
+  #
+  # The model never sees a value. It names a slug; the broker resolves it,
+  # the secret travels as an opaque sentinel through params and logs, and is
+  # substituted in only at the socket.
+  default_mode: approve                   # auto | approve | deny
+  bindings: {}
+    # gym: "env:GYM_API_TOKEN"
+    # trello: "vault:trello#token"
+    # gcal: "oauth:google"
+  policies: {}
+    # gym: {mode: approve, grant_ttl_seconds: 900}
+    #   grant_ttl_seconds turns one approval into a standing grant for that
+    #   window, so a six-call booking flow prompts once instead of six times.
+
+scope:
+  # "Is this target mine to change?" — the axis permission modes never cover.
+  # Hosts you own are declared in data/owned_scope.yaml (see
+  # owned_scope.demo.yaml for a documented template).
+  enabled: true
+  foreign_write: ask                      # allow | ask | deny
+  foreign_destructive: deny               # leave at deny. An approval dialog
+                                          # is not an authorization to destroy
+                                          # a third party's data.
+  owned_destructive: ask
+  strict_unknown: false                   # true = treat undeclared as third-party
+
+network:
+  # Outbound policy for agent-initiated HTTP. Loopback, RFC1918, link-local
+  # (incl. 169.254.169.254 cloud metadata), CGNAT and multicast are blocked
+  # by default, and re-checked on every redirect hop.
+  allow_hosts: []                         # break-glass, e.g. ["nas.local"]
+  deny_hosts: []
+  allowlist_only: false                   # true = ONLY allow_hosts reachable
+  allow_private_network: false            # true = disable the internal-range block
+  max_redirects: 5
+  timeout_seconds: 30.0
+
+# --- User-service OAuth (Gmail, Calendar, …) ---
+#
+# A delegated grant on YOUR account, not a pasted API key. Connect once with
+# `elophanto oauth login google`; revoke any time from your Google account.
+# The refresh token stays in the vault and is never handed to the model.
+# Endpoints are built in for google, microsoft, github — supply a client_id.
+
+oauth:
+  enabled: false
+  providers: {}
+    # google:
+    #   client_id: "....apps.googleusercontent.com"
+    #   client_secret: "..."              # omit for PKCE-only clients
+    #   redirect_port: 8765
+    #   scopes:                           # narrowest set that does the job
+    #     - https://www.googleapis.com/auth/gmail.modify
+    #     - https://www.googleapis.com/auth/calendar
+
+# --- Autonomy guard ---
+
+loop_detection:
+  # Identical tool + arguments + RESULT repeating means the agent is not
+  # learning from what it is doing. Catches a stuck run long before
+  # max_steps would, and long before the bill does.
+  enabled: true
+  warn_at: 2                              # tell the model it is repeating
+  block_at: 3                             # block that specific call
+  abort_at: 4                             # end the run
+
 # --- Payments ---
 
 payments:

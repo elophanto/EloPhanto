@@ -570,6 +570,32 @@ class Executor:
 
         callback = approval_callback or self._approval_callback
         override = self._tool_overrides.get(tool.name)
+
+        # Per-call permission override. Tools whose risk depends on their
+        # arguments (http_request: GET vs DELETE, owned host vs foreign)
+        # raise or lower their own tier here. A broken classifier must not
+        # be able to block work, so failures fall back to the static tier.
+        effective_level = tool.permission_level
+        try:
+            dynamic = tool.dynamic_permission_level(params)
+            # Only honour a genuine PermissionLevel. A tool that returns
+            # anything else (a bug, a mock, a stale string) must not be able
+            # to slip past the CRITICAL gate by making the comparisons below
+            # silently false — an unrecognised value keeps the static tier.
+            if isinstance(dynamic, PermissionLevel):
+                effective_level = dynamic
+            elif dynamic is not None:
+                logger.warning(
+                    "%s.dynamic_permission_level returned %r (%s), not a "
+                    "PermissionLevel — keeping the static tier %s",
+                    tool.name,
+                    dynamic,
+                    type(dynamic).__name__,
+                    effective_level,
+                )
+        except Exception as e:  # pragma: no cover — defensive
+            logger.debug("dynamic_permission_level failed for %s: %s", tool.name, e)
+
         from core.hosted import clamp_permission_mode, is_hosted
 
         # Hosted L1: never honor nuclear even if config was smuggled in.
@@ -604,16 +630,16 @@ class Executor:
         if override == "auto":
             # Explicit per-tool auto still wins — except CRITICAL, which
             # is never auto under non-nuclear modes.
-            if tool.permission_level == PermissionLevel.CRITICAL:
+            if effective_level == PermissionLevel.CRITICAL:
                 return await _ask()
             return True
 
         # SAFE tools always run.
-        if tool.permission_level == PermissionLevel.SAFE:
+        if effective_level == PermissionLevel.SAFE:
             return True
 
         # CRITICAL always asks — even under full_auto (docs + plan).
-        if tool.permission_level == PermissionLevel.CRITICAL:
+        if effective_level == PermissionLevel.CRITICAL:
             return await _ask()
 
         # Ego soft-gate: when confidence says decline (or caution rule
@@ -623,7 +649,7 @@ class Executor:
         if (
             soft_gate_on
             and self._ego_manager is not None
-            and tool.permission_level
+            and effective_level
             in (
                 PermissionLevel.MODERATE,
                 PermissionLevel.CRITICAL,
@@ -696,4 +722,26 @@ class Executor:
             return (
                 f"Move {params.get('source', '?')} → {params.get('destination', '?')}"
             )
+        if tool.name == "http_request":
+            method = str(params.get("method", "GET") or "GET").upper()
+            url = params.get("url", "?")
+            line = f"{method} {url}"
+            if params.get("credential"):
+                line += f"\nAuthenticating as: {params['credential']}"
+            if params.get("reason"):
+                line += f"\nReason: {params['reason']}"
+            # Surface the ownership verdict — the operator is being asked
+            # precisely because the target may not be theirs.
+            guard = getattr(tool, "_scope_guard", None)
+            if guard is not None:
+                try:
+                    from urllib.parse import urlparse
+
+                    verdict = guard.assess(
+                        str(url), method, urlparse(str(url)).path or "/"
+                    )
+                    line += f"\nTarget scope: {verdict.scope} — {verdict.reason}"
+                except Exception:
+                    pass
+            return line
         return f"Execute {tool.name}"

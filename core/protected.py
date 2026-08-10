@@ -16,6 +16,21 @@ PROTECTED_PATHS: set[str] = {
     "core/registry.py",
     "core/log_setup.py",
     "permissions.yaml",
+    # The gates themselves. Without these the agent can edit the code that
+    # decides whether it needs approval, whether it may be stopped, and
+    # whether a checkpoint may close — which is the same as having no gate.
+    "core/ego.py",
+    "core/trust_gate.py",
+    "core/kill_switch.py",
+    "core/checkpoint_receipt.py",
+    "core/goal_runner.py",
+    # The action-layer gates. These decide whether a secret is released,
+    # whether a target is the operator's to change, and whether an address
+    # may be reached at all. An agent that can edit them can authorise its
+    # own third-party writes and read its own credentials in the clear.
+    "core/credentials.py",
+    "core/scope_guard.py",
+    "core/net_policy.py",
 }
 
 PROTECTED_PREFIXES: tuple[str, ...] = ("core/protected",)

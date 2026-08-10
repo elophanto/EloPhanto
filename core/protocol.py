@@ -38,6 +38,14 @@ class MessageType(StrEnum):
         "identify_response"  # Either side: "verified / refused / conflict"
     )
 
+    # Nodes — companion devices (phone, laptop, headless box) that connect
+    # as peripherals rather than as chat channels. The model stays on the
+    # gateway; the node exposes capabilities (camera, screen, location,
+    # speech) that the agent invokes over this same socket. See core/nodes.py.
+    NODE_REGISTER = "node_register"  # Node → Gateway: here is what I can do
+    NODE_INVOKE = "node_invoke"  # Gateway → Node: run this capability
+    NODE_RESULT = "node_result"  # Node → Gateway: here is the outcome
+
     # Bidirectional
     STATUS = "status"
     ERROR = "error"
@@ -349,5 +357,64 @@ def identify_response_message(
             "reason": reason,
             "trust_level": trust_level,
             "challenge": challenge_b64,
+        },
+    )
+
+
+def node_register_message(
+    node_id: str,
+    node_name: str,
+    platform: str,
+    capabilities: list[dict[str, Any]],
+) -> GatewayMessage:
+    """Announce a companion device and the capabilities it offers.
+
+    ``capabilities`` is a list of ``{"name": ..., "description": ...,
+    "params": {...}}`` descriptors. The gateway turns them into invokable
+    entries the agent can reach through the ``node_invoke`` tool.
+    """
+    return GatewayMessage(
+        type=MessageType.NODE_REGISTER,
+        data={
+            "node_id": node_id,
+            "node_name": node_name,
+            "platform": platform,
+            "capabilities": capabilities,
+        },
+    )
+
+
+def node_invoke_message(
+    node_id: str,
+    capability: str,
+    params: dict[str, Any] | None = None,
+    request_id: str = "",
+) -> GatewayMessage:
+    """Ask a node to run one of its capabilities."""
+    return GatewayMessage(
+        type=MessageType.NODE_INVOKE,
+        data={
+            "node_id": node_id,
+            "capability": capability,
+            "params": params or {},
+            "request_id": request_id,
+        },
+    )
+
+
+def node_result_message(
+    request_id: str,
+    success: bool,
+    result: dict[str, Any] | None = None,
+    error: str = "",
+) -> GatewayMessage:
+    """Return the outcome of a node capability invocation."""
+    return GatewayMessage(
+        type=MessageType.NODE_RESULT,
+        data={
+            "request_id": request_id,
+            "success": success,
+            "result": result or {},
+            "error": error,
         },
     )

@@ -1734,7 +1734,7 @@ cta_style: "soft — one line, no link spam"
 
 **Draft tool integration**. `email_draft` / `outreach_draft` / `post_draft` (Phase 9) call `voice_lint` on the body BEFORE writing the draft file. On fail: return `ToolResult(success=False, error=...)` with the violations rendered into the error string. The LLM sees the error in the next planning cycle (verified at [core/agent.py:3850-3945](core/agent.py#L3850-L3945)) and revises naturally — no orchestration code, no garbage drafts on disk. Missing `voice.yaml` = lint always passes (fail-soft) so companies without a voice contract aren't blocked.
 
-**New skill** `b2c-marketing-voice` (inspired by ClawHub `jackfriks/b2c-marketing`, distilled to a local SKILL.md): the *meta*-prompt that tells the LLM what "good hook / bad hook" looks like before it drafts. Loaded automatically when active company has channel=`twitter` or `linkedin`. Distilled principles:
+**New skill** `b2c-marketing-voice` (inspired by public marketing patterns, distilled to a local SKILL.md): the *meta*-prompt that tells the LLM what "good hook / bad hook" looks like before it drafts. Loaded automatically when active company has channel=`twitter` or `linkedin`. Distilled principles:
 - Another person + conflict + "showed them" + changed mind beats self-focused claims.
 - Concrete object/screenshot/number beats abstraction.
 - "POV:" framing puts reader inside the scene.
@@ -1756,7 +1756,7 @@ cta_style: "soft — one line, no link spam"
 - `core/voice.py` (~200 LOC): `Voice` dataclass + `VoiceManager` (loads/caches `data/companies/<slug>/voice.yaml`, provides `lint(body, channel) -> LintResult`).
 - `tools/voice/extract_tool.py`, `tools/voice/show_tool.py`, `tools/voice/lint_tool.py` (~300 LOC total, SAFE permission, CORE tier).
 - `tools/voice/__init__.py` re-exports.
-- `skills/b2c-marketing-voice/SKILL.md` (~100 LOC distilled from ClawHub `jackfriks/b2c-marketing` — hook/CTA principles, anti-patterns).
+- `skills/b2c-marketing-voice/SKILL.md` (~100 LOC distilled from public marketing patterns — hook/CTA principles, anti-patterns).
 
 **Edits**:
 - [core/agent.py](core/agent.py): construct `self._voice_manager` in `__init__` before `_inject_company_deps`; add voice tools to the tool-name tuple in `_inject_company_deps` with `hasattr(tool, "_voice_manager")` guards.

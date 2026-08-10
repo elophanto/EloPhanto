@@ -526,15 +526,18 @@ class TestPhaseCInterruptCheckpoint:
             )
 
         assert response.steps_taken >= 2
-        # The synthetic mid-turn message must appear in the step-2 messages.
+        # The synthetic mid-turn message must appear in the step-2 messages,
+        # framed as steering: a message that arrives mid-run is a correction,
+        # so it is presented as superseding the current approach rather than
+        # as extra background the model can fold in and ignore.
         synth = [
             m
             for m in captured_messages_at_step2
-            if m.get("role") == "user"
-            and "user added mid-turn" in str(m.get("content", ""))
+            if m.get("role") == "user" and "[STEER" in str(m.get("content", ""))
         ]
         assert len(synth) == 1
         assert "wait, do Y instead" in synth[0]["content"]
+        assert "superseding" in synth[0]["content"]
 
 
 # ---------------------------------------------------------------------------

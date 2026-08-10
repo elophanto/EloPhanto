@@ -190,11 +190,17 @@ class TestPersonalityShapeDoesNotCrashContext:
         )
         # Must not raise
         ctx = await im.build_identity_context()
-        # And the personality should appear as-is, plus the ABE block
-        # should still land (the whole point of the fix is keeping the
-        # rest of the prompt intact when one field is the wrong shape).
-        assert "thoughtful, careful" in ctx
+        # The point of the fix is that the REST of the prompt survives a
+        # wrongly-shaped field: <self_model> and the ABE block still land.
+        assert "<self_model>" in ctx
         assert "<abe_framework>" in ctx
+        assert "EloPhanto" in ctx
+        # Free-text personality is deliberately NOT injected here (see
+        # `build_identity_context` — lived stance comes from
+        # personality_rules via who_are_you / personality_lint; injecting
+        # both was silent dual authority). Pinned so a well-meaning
+        # re-add has to argue with this assertion first.
+        assert "thoughtful, careful" not in ctx
 
 
 class TestCanonicalSourceToolDescriptions:

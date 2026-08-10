@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**274 tools across 35 groups.** Every count below is the live
+**284 tools across 39 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -108,7 +108,7 @@ suppresses the signal.
 | `agent_stop` | — | Halt at the next safe checkpoint |
 | `godmode_activate` | — | Elevated operator mode |
 
-## Identity & Personality — `identity` (12)
+## Identity & Personality — `identity` (14)
 
 `who_are_you` compiles a cite-checked self-description from active
 personality rules, nuclear scenes, runtime facts, and current ego
@@ -120,6 +120,14 @@ evidence rather than freestyled.
 `personality_rule_propose`, `personality_rule_confirm`,
 `personality_lint`, `user_profile_view`, `who_are_you`, plus TOTP:
 `totp_enroll`, `totp_generate`, `totp_list`, `totp_delete`.
+
+`preference_record` and `preference_list` hold the operator's *stated*
+standing directives, which is a different thing from the inferred
+profile above: observations are evidence, directives are instructions.
+A new directive on the same subject supersedes the old one in place, so
+the agent never carries two contradictory standing orders. Directives
+derived from content the agent merely read are marked untrusted and are
+never auto-injected. See `core/preferences.py`.
 
 `personality_rule_confirm` is CRITICAL.
 
@@ -239,6 +247,59 @@ Dual provider: AgentMail cloud or SMTP/IMAP. Attachments up to 25 MB.
 Under a company in `learning`, live sending is refused and the gate
 points at `email_draft`.
 
+## Gmail — `email` (1)
+
+`gmail` works the operator's real inbox over their own OAuth grant —
+`search` (Gmail query syntax), `read`, `send`, `reply`, `archive`,
+`mark_read`, `labels`. Connect with `elophanto oauth login google`.
+Reads are SAFE; `send` and `reply` are CRITICAL, because outbound mail
+is irreversible and goes out in the operator's name.
+
+## Companion Devices — `nodes` (2)
+
+`node_list` and `node_invoke` reach the operator's paired phone or laptop:
+camera, screen capture, location, speech. A device advertising a
+capability is not the same as consent to use it — camera, screen,
+microphone, location, SMS and shell stay unavailable unless the operator
+lists them under `nodes.allowed_capabilities`, and `node_invoke`
+escalates to CRITICAL for any of them. See `core/nodes.py`.
+
+## Media — `media` (3)
+
+`media_understand` reads what arrived: transcribes voice notes and video
+(via the shared speech engine, local Whisper or hosted), and describes
+images through the configured vision model. Use it instead of asking the
+user to retype something they already sent.
+
+`video_generate` and `music_generate` create media through Replicate.
+Both are CRITICAL — each call is metered spend, and a silent retry bills
+twice.
+
+## Authenticated HTTP — `http` (1)
+
+`http_request` calls any REST API, authenticated, and is the preferred
+way to take real action on an external service — faster and more
+reliable than driving the browser through a UI, and unlike `curl` via
+`shell_execute` it never puts a secret on a command line or in the
+transcript.
+
+Three layers sit between the model and the socket:
+
+- **Network policy** (`core/net_policy.py`) blocks loopback, RFC1918,
+  link-local/cloud-metadata, and odd ports, and re-checks every redirect
+  hop so an SSRF chain cannot walk through.
+- **Scope guard** (`core/scope_guard.py`) classifies the *target*:
+  destructive calls against systems the operator has not declared as
+  theirs in `data/owned_scope.yaml` are refused outright, not prompted.
+  Manage it with `elophanto oauth scope`.
+- **Credential broker** (`core/credentials.py`) resolves a slug under
+  operator policy, passes the secret as an opaque sentinel through params
+  and logs, and substitutes it only at the moment the request is built.
+
+Permission level moves with the call: GET/HEAD/OPTIONS are SAFE, writes
+to declared-owned systems MODERATE, and anything destructive or
+foreign-targeted CRITICAL.
+
 ## Swarm — `swarm` (6)
 
 External coding agents (Claude Code, Codex, Gemini) on isolated git
@@ -306,7 +367,7 @@ Read-only chain queries: `solana_balance`, `solana_token_info`,
 
 ## Skills — `skills` (3)
 
-`skill_list`, `skill_read`, `skill_promote`. **178 skills load** from
+`skill_list`, `skill_read`, `skill_promote`. **181 skills load** from
 `skills/`; see the Skills section below.
 
 ## Documents — `documents` (3)
@@ -321,10 +382,16 @@ Read-only chain queries: `solana_balance`, `solana_token_info`,
 | `create_database` | — | Provision a Supabase PostgreSQL database |
 | `deployment_status` | safe | Check live deployments |
 
-## Scheduling — `scheduling` (2)
+## Scheduling — `scheduling` (3)
 
 `schedule_task`, `schedule_list`. Cron plus a direct-tool fast path that
 runs without an LLM call.
+
+`gcal` reads and manages the operator's real Google Calendar (list,
+create, update, delete, freebusy) over their own OAuth grant — connect it
+with `elophanto oauth login google`. Deleting an event and creating one
+with attendees are both CRITICAL: they mail everyone invited, so they
+confirm even under `full_auto`.
 
 ## Jobs — `jobs` (2)
 
@@ -380,7 +447,7 @@ All channels connect through the WebSocket gateway
 Smart tool profiles route the right tool subset per task type.
 Provider-level `tool_deny` and `max_tools` handle compatibility.
 
-## Skills (178)
+## Skills (181)
 
 Solana ecosystem (DeFi, NFTs, infra, dev, security), agency-agents
 (engineering, design, marketing, product, PM, support, testing,
@@ -414,17 +481,36 @@ See `docs/14-SELF-LEARNING.md` and `docs/48-LEARNING-ENGINE.md`.
 ## Permission spine
 
 Modes: `ask_always` → `smart_auto` → `full_auto` → `nuclear`
-(Open only; absent on Hosted). Under `full_auto`, **16 CRITICAL tools
+(Open only; absent on Hosted). Under `full_auto`, **18 CRITICAL tools
 always ask**: `crypto_transfer`, `crypto_swap`, `fiat_issue_card`,
 `wallet_export`, `vault_set`, `self_create_plugin`, `self_modify_source`,
 `self_rollback`, `company_trust_set`, `company_purge`, `browser_eval`,
 `browser_inject`, `browser_close`, `ambient_intervention_decide`,
-`ambient_intervention_execute`, `personality_rule_confirm`.
+`ambient_intervention_execute`, `personality_rule_confirm`,
+`video_generate`, `music_generate`.
+
+Some tools move tier per call rather than sitting at one. `http_request`
+is SAFE for a GET and CRITICAL for a DELETE against a system the operator
+has not declared as theirs; `gmail` is SAFE to read and CRITICAL to send;
+`gcal` is CRITICAL when deleting an event or inviting attendees;
+`node_invoke` is CRITICAL for any capability that can watch or listen to
+the operator. The seam is `BaseTool.dynamic_permission_level`, which the
+executor consults before the static tier — and which falls back to the
+static tier if a tool returns anything that is not a `PermissionLevel`,
+so a classification bug cannot open a gate.
 
 The ego soft-gate adds a second brake: when per-capability confidence
 sits below the task's difficulty, it forces an approval prompt even
 under `full_auto`, naming the capability and the numbers. Switchable
 via `ego.soft_gate`.
+
+The scope guard adds a third, on a different axis: the others ask "may
+this caller do this?", it asks "is this target the operator's to
+change?". Destructive actions against systems not declared in
+`data/owned_scope.yaml` are refused rather than prompted — an approval
+dialog is not an authorization to destroy a third party's data. Genuine
+authorized testing is expressed by recording who authorized it and the
+agreed scope. See `core/scope_guard.py`.
 
 ## Security
 

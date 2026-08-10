@@ -58,6 +58,13 @@ bridge/*/data/
 # Web dashboard
 web/node_modules/
 web/dist/
+
+# Hosted Node runtime
+elophanto_nodejs/node_modules/
+elophanto_nodejs/**/node_modules/
+elophanto_nodejs/**/dist/
+elophanto_nodejs/.env
+elophanto_nodejs/.env.local
 # TypeScript incremental build cache — regenerated on every build,
 # pure churn in git status.
 *.tsbuildinfo
@@ -139,3 +146,8 @@ GROK.md
 JOB-SUBMISSION.md
 AGENT_PROGRAM.md
 AGENT_PROTOCOL.md
+
+# Private strategy docs — never pushed
+/_private/
+
+/elophanto_nodejs/

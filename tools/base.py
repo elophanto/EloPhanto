@@ -132,6 +132,23 @@ class BaseTool(abc.ABC):
         """Permission tier for this tool."""
         ...
 
+    def dynamic_permission_level(
+        self, params: dict[str, Any]
+    ) -> PermissionLevel | None:
+        """Per-call permission override, or None to use ``permission_level``.
+
+        Some tools span a wide risk range depending on their arguments —
+        ``http_request`` doing a GET against a public API is not the same
+        act as the same tool issuing a DELETE against an undeclared host.
+        A single static tier would either over-prompt on the safe case or
+        under-gate the dangerous one, so the executor consults this hook
+        first and falls back to the static property when it returns None.
+
+        Must never raise: the executor treats an exception here as "no
+        override" rather than letting a classification bug block work.
+        """
+        return None
+
     @abc.abstractmethod
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         """Execute the tool with validated parameters."""

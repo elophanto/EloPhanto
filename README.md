@@ -51,7 +51,7 @@ Nothing instructed it to be that hard on itself, and nothing lets it grade the c
 
 Around those sit [receipt-gated goals](docs/13-GOAL-LOOP.md) that cannot close a checkpoint without a tool trail, and [self-authored tools](docs/04-SELF-DEVELOPMENT.md) with impact analysis and git rollback.
 
-It reaches the world through 274 tools: a real browser (47 of them, driving your Chrome profile and its logged-in sessions), the shell, the filesystem, email, and any [MCP](docs/23-MCP.md) server. You talk to it from the CLI, a web dashboard, VS Code, Telegram, Discord, or Slack.
+It reaches the world through 284 tools: a real browser (47 of them, driving your Chrome profile and its logged-in sessions), the shell, the filesystem, your inbox and calendar, any REST API, and any [MCP](docs/23-MCP.md) server. Authenticated calls go through a [credential broker](docs/84-ACTION-LAYER.md) that hands the model a placeholder and substitutes the real secret at the socket, so a token never enters the transcript. You talk to it from the CLI, a web dashboard, VS Code, Telegram, Discord, Slack, Signal, iMessage, WhatsApp, or out loud.
 
 ## It can run a company
 
@@ -94,11 +94,13 @@ The rules there are stricter, and stated plainly: **managed custody**, meaning w
 
 ## Where it stops
 
-1. **Graduated permission.** `ask_always` → `smart_auto` → `full_auto`, with per-tool overrides in `permissions.yaml`. Under `full_auto`, sixteen CRITICAL tools still always ask: payments, wallet export, self-modification, vault writes, trust promotion, JavaScript injected into a page. `nuclear` waives even those. It exists only in Open, because some operators want it.
-2. **A confidence gate on top of that.** The ego soft-gate raises difficulty for risky domains (payments, outreach, browser), so a fresh capability asks for approval there until it has earned a track record.
-3. **Drafts before sends.** A new company starts in `learning` and can only write drafts. Promotion is propose-then-confirm, and it is never a side effect of autonomy.
-4. **A stop that works.** `elophanto stop` and the owner Kill switch write a sentinel the agent checks between rounds and wakeups. Secrets stay in an encrypted vault, retrieved by tool call when needed rather than pasted into config or prompts.
-5. **Files it cannot touch.** The safety-critical core (executor, vault, permission checks) is protected against the agent's own self-modification pipeline.
+1. **Graduated permission.** `ask_always` → `smart_auto` → `full_auto`, with per-tool overrides in `permissions.yaml`. Under `full_auto`, eighteen CRITICAL tools still always ask: payments, wallet export, self-modification, vault writes, trust promotion, JavaScript injected into a page, outbound mail. Some tools move tier per call rather than sitting at one — an HTTP `GET` is safe, the same tool issuing a `DELETE` is not. `nuclear` waives the prompts. It exists only in Open, because some operators want it.
+2. **A boundary on whose systems it will change.** Reads are free. Writes to systems you have not declared as yours ask first. Destructive calls against them are *refused*, not prompted — an approval dialog is not an authorization to delete a third party's data, and approval fatigue makes "yes" the default answer. Authorized testing stays possible by recording who authorized it and the agreed scope. [The action layer](docs/84-ACTION-LAYER.md).
+3. **A confidence gate on top of that.** The ego soft-gate raises difficulty for risky domains (payments, outreach, browser), so a fresh capability asks for approval there until it has earned a track record.
+4. **Drafts before sends.** A new company starts in `learning` and can only write drafts. Promotion is propose-then-confirm, and it is never a side effect of autonomy.
+5. **A stop that works.** `elophanto stop` and the owner Kill switch write a sentinel the agent checks between rounds and wakeups. Secrets stay in an encrypted vault, retrieved by tool call when needed rather than pasted into config or prompts.
+6. **Files it cannot touch.** The safety-critical core (executor, vault, permission checks) is protected against the agent's own self-modification pipeline.
+7. **A run that stops repeating itself.** Identical tool, arguments, and result three times over is not persistence, it is a loop — so it warns, then blocks that call, then ends the run, long before the step ceiling would.
 
 Judge any run by its after-state and its tool trail, not by what it tells you it did.
 
@@ -106,13 +108,13 @@ Judge any run by its after-state and its tool trail, not by what it tells you it
 
 ## The fine print
 
-Autonomy here is graduated. A company earns its way from `learning` to `trial` to `operating`, and once it is operating it runs its own outreach and sales. Moving money stays a CRITICAL action that asks every time, in every mode except `nuclear`. Crypto is a live self-custody rail on Solana and Base; the Stripe fiat rail ships in test mode until you clear KYC and flip it. Calendar signals come from ICS files and webhooks rather than a Google OAuth button. Self-modification is a pipeline it enters under approval, never a silent rewrite. And an always-on agent costs real tokens, so watch the ledger for a week before you widen its budget.
+Autonomy here is graduated. A company earns its way from `learning` to `trial` to `operating`, and once it is operating it runs its own outreach and sales. Moving money stays a CRITICAL action that asks every time, in every mode except `nuclear`. Crypto is a live self-custody rail on Solana and Base; the Stripe fiat rail ships in test mode until you clear KYC and flip it. Gmail and Calendar run on your own OAuth grant, which you connect once with `elophanto oauth login google` and can revoke from your Google account; the refresh token stays in the vault and is never handed to the model. Sending mail and cancelling an event with guests both confirm first, because both are irreversible and go out in your name. Signal and iMessage send *as you* rather than as a bot, so their allowlists start closed. A companion device can lend the agent a camera or a screen, but only for capabilities you list, and each of those asks every time. Self-modification is a pipeline it enters under approval, never a silent rewrite. And an always-on agent costs real tokens, so watch the ledger for a week before you widen its budget.
 
 ---
 
 ## Scale
 
-274 tools · 178 skill playbooks · 6 client surfaces · 16 dashboard pages · 3,082 tests · 89 design docs.
+284 tools · 181 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,275 tests · 91 design docs.
 
 ---
 

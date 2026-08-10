@@ -4,7 +4,7 @@ description: |
   Join a Google Meet or Zoom call as a video meeting agent via PikaStreaming.
   Trigger: user drops a Google Meet or Zoom link, or asks to join a meeting.
 metadata:
-  openclaw:
+  host:
     requires:
       env: ["PIKA_DEV_KEY"]
       bins: ["python3"]

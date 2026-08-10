@@ -22,6 +22,8 @@ from cli.init_cmd import init_cmd
 from cli.kid_cmd import kid_cmd
 from cli.mcp_cmd import mcp_cmd
 from cli.mission_cmd import mission_cmd
+from cli.oauth_cmd import oauth_cmd
+from cli.package_cmd import package_cmd
 from cli.polymarket_cmd import polymarket_cmd
 from cli.role_cmd import role_cmd
 from cli.rollback_cmd import rollback_cmd
@@ -84,6 +86,8 @@ cli.add_command(chat_cmd, "chat")
 cli.add_command(gateway_cmd, "gateway")
 cli.add_command(schedule_cmd, "schedule")
 cli.add_command(vault_cmd, "vault")
+cli.add_command(oauth_cmd, "oauth")
+cli.add_command(package_cmd, "package")
 cli.add_command(rollback_cmd, "rollback")
 cli.add_command(telegram_cmd, "telegram")
 cli.add_command(skills_cmd, "skills")

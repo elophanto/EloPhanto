@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -75,11 +75,25 @@ class TestLifecycle:
                 }
             )
         )
+        # Values are proposal-gated: awakening may *suggest* them, but they
+        # are queued for confirmation rather than silently written. Attach a
+        # personality manager so the proposal path is observable.
+        im._personality_manager = MagicMock()
+
         identity = await im.load_or_create()
         assert identity.display_name == "Phantom"
         assert identity.creator == "EloPhanto"  # Always immutable
-        assert "accuracy" in identity.values
+        assert identity.purpose == "Help users"
         assert identity.initial_thoughts == "I am curious."
+
+        # Not written straight onto the identity...
+        assert identity.values == []
+        # ...but not dropped either — queued as a proposal for the operator.
+        im._personality_manager.write_identity_field_proposal.assert_called_once()
+        kwargs = im._personality_manager.write_identity_field_proposal.call_args.kwargs
+        assert kwargs["field_name"] == "values"
+        assert kwargs["value"] == ["accuracy", "persistence"]
+        assert kwargs["trigger"] == "first_awakening"
 
     @pytest.mark.asyncio
     async def test_first_awakening_failure_falls_back(

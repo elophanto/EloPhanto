@@ -213,7 +213,7 @@ Pass via `reasoning.effort`. Valid values: `none`, `minimal`, `low`,
 `medium`, `high`, `xhigh`.
 
 **Per-model clamping** — different models accept different ranges (rules
-extracted from openclaw). Apply client-side before sending:
+extracted from a third-party TypeScript client). Apply client-side before sending:
 
 | Model | Clamping rule |
 |---|---|
@@ -519,8 +519,8 @@ if __name__ == "__main__":
 5. **The `originator` header is required.** We use `codex_cli_rs` (matches what
    the official CLI sends). Other values may or may not work.
 6. **Image input works** via `input_image` content parts on user messages,
-   even though the openclaw reference (where we pulled the wire format from)
-   only documented text. Tested working on `gpt-5.5`.
+   even though the third-party reference client (where we pulled the wire
+   format from) only documented text. Tested working on `gpt-5.5`.
 7. **Token rotation**: refresh responses sometimes include a new
    `refresh_token`. Persist it back to `auth.json` or you'll lose the chain.
 8. **5-min cache miss**: the access token's JWT exp is short. Check `exp`
@@ -532,8 +532,6 @@ if __name__ == "__main__":
 
 - [openai/codex](https://github.com/openai/codex) — official Codex CLI source. Read
   `codex-rs/backend-client/`, `codex-rs/login/`, `codex-rs/model-provider-info/`.
-- [openclaw/openclaw](https://github.com/openclaw/openclaw) — TypeScript client
-  that already wraps this auth path; see also its `pi-ai` dependency.
 - [OpenAI Responses API docs](https://platform.openai.com/docs/api-reference/responses) —
   the wire format reference (the platform endpoint is `api.openai.com/v1/responses`,
   but the schema is the same).

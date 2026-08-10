@@ -490,7 +490,15 @@ class KnowledgeSearchTool(BaseTool):
             )
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [item for _, item in scored[:limit]]
+        # Relevance ordering alone returns near-duplicate chunks of the same
+        # document, which reads to the model as corroboration. Drop verbatim
+        # repeats, then MMR over a wider candidate pool so the k results
+        # cover distinct ground. See core/rerank.py.
+        from core.rerank import dedupe_near_identical, mmr_rerank
+
+        candidates = [item for _, item in scored[: max(limit * 4, limit)]]
+        candidates = dedupe_near_identical(candidates)
+        return mmr_rerank(candidates, limit=limit)
 
     async def _keyword_search(
         self, query: str, scope: str, limit: int
@@ -566,7 +574,11 @@ class KnowledgeSearchTool(BaseTool):
             )
 
         results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:limit]
+        from core.rerank import dedupe_near_identical, mmr_rerank
+
+        return mmr_rerank(
+            dedupe_near_identical(results[: max(limit * 4, limit)]), limit=limit
+        )
 
     def _recency_boost(self, indexed_at: str) -> float:
         """Boost score for recently indexed chunks."""

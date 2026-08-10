@@ -363,6 +363,20 @@ def _extract_path(tc: dict[str, Any]) -> str | None:
         return None
 
 
+def _parse_tool_args(tc: dict[str, Any]) -> dict[str, Any]:
+    """Parsed arguments of a tool call, or ``{}`` when unparseable.
+
+    Used by loop detection, which needs the same arguments the executor
+    saw so an identical call fingerprints identically.
+    """
+    try:
+        args = tc.get("function", {}).get("arguments", "{}")
+        parsed = json.loads(args) if isinstance(args, str) else args
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
 # Tool-name → capability domain — canonical map lives in core.ego.
 from core.ego import CAPABILITY_DOMAINS, capability_for_tool
 
@@ -660,6 +674,22 @@ class Agent:
         self._user_profile_manager: Any = (
             None  # UserProfileManager, set during initialize
         )
+        # Durable operator directives (core/preferences.py). Distinct from
+        # the profile manager: that infers, this records what was stated.
+        self._preference_store: Any = None  # PreferenceStore, set during initialize
+        # Per-run repetition guard. Constructed eagerly (it is pure state,
+        # no I/O) and reset at the top of every run.
+        from core.loop_detect import LoopDetector
+
+        self._loop_detector = LoopDetector(
+            enabled=getattr(getattr(config, "loop_detection", None), "enabled", True),
+            warn_at=getattr(getattr(config, "loop_detection", None), "warn_at", 2),
+            block_at=getattr(getattr(config, "loop_detection", None), "block_at", 3),
+            abort_at=getattr(getattr(config, "loop_detection", None), "abort_at", 4),
+        )
+        self._credential_broker: Any = None  # CredentialBroker, set during initialize
+        self._scope_guard: Any = None  # ScopeGuard, set during initialize
+        self._oauth_store: Any = None  # OAuthTokenStore, set during initialize
         self._gateway: Any = None  # Gateway instance, set by gateway_cmd/chat_cmd
         self._learner: Any = None  # LessonExtractor, set during initialize
 
@@ -951,6 +981,14 @@ class Agent:
 
         # Inject vault into vault tool (if vault was unlocked)
         self._inject_vault_deps()
+
+        # Credential broker + scope guard + network policy for the
+        # authenticated-HTTP action layer. Must come after the vault so
+        # the broker can read through to it.
+        self._inject_http_deps()
+
+        # Speech + media tools (also vault-dependent).
+        self._inject_media_deps()
 
         # Inject vault + identity into TOTP tools
         self._inject_totp_deps()
@@ -1429,6 +1467,22 @@ class Agent:
                 logger.info("User profile system ready")
             except Exception as e:
                 logger.warning(f"User profile setup failed: {e}")
+
+        # Standing preferences. Deliberately not gated on identity.enabled —
+        # an operator who turned off inferred profiling still expects
+        # "never push without asking" to be honoured.
+        try:
+            from core.preferences import PreferenceStore
+
+            self._preference_store = PreferenceStore(self._db)
+            await self._preference_store.initialize()
+            for _pref_tool in ("preference_record", "preference_list"):
+                _t = self._registry.get(_pref_tool)
+                if _t is not None:
+                    _t._preference_store = self._preference_store
+            logger.info("Preference store ready")
+        except Exception as e:
+            logger.warning(f"Preference store setup failed: {e}")
 
         # Initialize payments system
         if self._config.payments.enabled:
@@ -2130,6 +2184,107 @@ class Agent:
             tool = self._registry.get(tool_name)
             if tool and self._vault:
                 tool._vault = self._vault
+
+    def _inject_http_deps(self) -> None:
+        """Build the credential broker + scope guard and wire the HTTP layer.
+
+        The broker reads through to the vault (never copies secrets out of
+        it), the scope guard loads the operator's ownership declaration
+        from ``data/owned_scope.yaml``, and both are handed to every tool
+        that can reach an external service.
+        """
+        try:
+            from core.credentials import CredentialBroker, broker_from_config
+            from core.net_policy import policy_from_config as net_from_config
+            from core.scope_guard import ScopeGuard
+            from core.scope_guard import policy_from_config as scope_from_config
+        except Exception as e:  # pragma: no cover — defensive
+            logger.warning("HTTP action layer unavailable: %s", e)
+            return
+
+        # OAuth token store — user-service grants (Gmail, Calendar, …).
+        # Encrypted into the vault when one is unlocked; the store warns
+        # and falls back to a 0600 file otherwise so a fresh install works.
+        oauth_store: Any = None
+        try:
+            from core.oauth import store_from_config
+
+            oauth_store = store_from_config(self._config, vault=self._vault)
+            self._oauth_store = oauth_store
+        except Exception as e:
+            logger.warning("OAuth token store unavailable: %s", e)
+
+        view = broker_from_config(self._config)
+        broker = CredentialBroker(
+            vault=self._vault,
+            db=self._db,
+            oauth_store=oauth_store,
+            policies={slug: policy for slug, policy in view.policies.items()},
+            default_mode=view.default_mode,
+            project_root=self._config.project_root,
+        )
+        # Approvals route through the same callback the executor uses, so
+        # a credential prompt reaches whichever channel the operator is on.
+        broker.set_approval_callback(self._executor._approval_callback)
+        self._credential_broker = broker
+
+        scope_view = scope_from_config(self._config)
+        data_dir = self._config.project_root / "data"
+        guard = (
+            ScopeGuard.load(data_dir, policy=scope_view.policy)
+            if scope_view.enabled
+            else None
+        )
+        self._scope_guard = guard
+
+        net_policy = net_from_config(self._config)
+
+        for tool_name in ("http_request", "gmail", "gcal"):
+            tool = self._registry.get(tool_name)
+            if tool is None:
+                continue
+            tool._broker = broker
+            tool._scope_guard = guard
+            tool._net_policy = net_policy
+            tool._bindings = dict(view.bindings)
+            if oauth_store is not None:
+                tool._token_store = oauth_store
+
+    def _inject_media_deps(self) -> None:
+        """Wire the speech engine, router, and vault into the media tools."""
+        speech: Any = None
+        try:
+            from core.speech import engine_from_config
+
+            speech = engine_from_config(self._config, vault=self._vault)
+        except Exception as e:
+            logger.debug("Speech engine unavailable: %s", e)
+
+        understand = self._registry.get("media_understand")
+        if understand is not None:
+            understand._speech = speech
+            understand._router = self._router
+            understand._config = self._config
+
+        for tool_name in ("video_generate", "music_generate"):
+            tool = self._registry.get(tool_name)
+            if tool is not None:
+                tool._vault = self._vault
+                tool._config = self._config
+
+    def _inject_node_deps(self) -> None:
+        """Point the node tools at the gateway's device registry.
+
+        Called after the gateway is attached; without one there are no
+        connected devices, and the tools report that rather than failing.
+        """
+        registry = getattr(self._gateway, "_node_registry", None)
+        if registry is None:
+            return
+        for tool_name in ("node_list", "node_invoke"):
+            tool = self._registry.get(tool_name)
+            if tool is not None:
+                tool._node_registry = registry
 
     def _inject_scheduler_deps(self) -> None:
         """Inject scheduler into scheduling tools."""
@@ -3638,6 +3793,27 @@ class Agent:
         except Exception:
             pass
 
+        # Standing preferences — directives the operator stated, which
+        # outrank inferred profile signals and so are appended after them.
+        # Untrusted-provenance entries are excluded by the store itself, so
+        # a prompt-injected page cannot write the agent's standing orders.
+        try:
+            if self._preference_store is not None and session is not None:
+                user_key = f"{session.channel}:{session.user_id}"
+                # Point the preference tools at whoever is talking, so a
+                # directive recorded from Telegram doesn't land on the CLI user.
+                for _pref_tool in ("preference_record", "preference_list"):
+                    _t = self._registry.get(_pref_tool)
+                    if _t is not None:
+                        _t._current_user_key = user_key
+                block = await self._preference_store.render_block(user_key)
+                if block:
+                    user_context = (
+                        f"{user_context}\n\n{block}" if user_context else block
+                    )
+        except Exception as e:
+            logger.debug("preference block skipped: %s", e)
+
         logger.info("[TIMING] pre-loop context: %.2fs", _time.monotonic() - _ctx_start)
 
         # Build system prompt with XML-structured sections, skills, and knowledge
@@ -3961,7 +4137,14 @@ class Agent:
         _MAX_VERIFICATION_ROUNDS = 2
 
         stagnation_reason = ""
+        # Loop-detection state is per-run: a scheduled job that legitimately
+        # repeats an action every hour must not inherit last run's counters.
+        self._loop_detector.reset()
+        loop_notice = ""
+        loop_abort = False
         while step < hard_limit:
+            if loop_abort:
+                break
             # Phase C: fold mid-turn user messages into context BEFORE the
             # next plan call. Operator may have sent a correction while
             # we were running tools; pick it up at this decision boundary
@@ -3970,15 +4153,24 @@ class Agent:
             if session is not None and hasattr(session, "has_pending_messages"):
                 if session.has_pending_messages():
                     for _pending in session.drain_pending_messages():
+                        # A message arriving mid-run is usually a correction,
+                        # not extra background. Framing it as steering makes
+                        # the model treat it as superseding the current
+                        # approach instead of appending it to a plan the
+                        # operator was trying to interrupt.
                         messages.append(
                             {
                                 "role": "user",
-                                "content": f"[user added mid-turn: {_pending}]",
+                                "content": (
+                                    f"[STEER — the user sent this while you were "
+                                    f"working; treat it as superseding your "
+                                    f"current approach where the two conflict]: "
+                                    f"{_pending}"
+                                ),
                             }
                         )
                         logger.info(
-                            "[phase-c] folded mid-turn user message into "
-                            "context: %s",
+                            "[steer] folded mid-turn user message into " "context: %s",
                             _pending[:80],
                         )
 
@@ -4439,6 +4631,29 @@ class Agent:
                     else:
                         consecutive_errors = 0
 
+                    # Loop detection: identical (tool, args, result) triple
+                    # repeating means the agent is not learning from what it
+                    # is doing. Warn, then block, then end the run — long
+                    # before max_steps would. See core/loop_detect.py.
+                    try:
+                        _loop_signal = self._loop_detector.record(
+                            tc["function"]["name"],
+                            _parse_tool_args(tc),
+                            exec_result.result,
+                        )
+                    except Exception as _loop_exc:  # pragma: no cover
+                        logger.debug("loop detection skipped: %s", _loop_exc)
+                        _loop_signal = None
+
+                    if _loop_signal is not None and _loop_signal.verdict != "ok":
+                        loop_notice = _loop_signal.message
+                        if _loop_signal.should_stop_run:
+                            stagnation_reason = (
+                                f"loop detected on {_loop_signal.tool_name} "
+                                f"(x{_loop_signal.count})"
+                            )
+                            loop_abort = True
+
                     _screenshot_path = None
                     _elements_text = ""
 
@@ -4493,6 +4708,25 @@ class Agent:
                         tool_content = json.dumps(raw_result)
                     else:
                         tool_content = json.dumps({"error": "No result returned"})
+
+                    # Surface the loop verdict to the model inside the tool
+                    # result itself, so the next planning step reads it in
+                    # the same place it reads the outcome.
+                    if loop_notice:
+                        try:
+                            _payload = json.loads(tool_content)
+                            if isinstance(_payload, dict):
+                                _payload["loop_warning"] = loop_notice
+                                tool_content = json.dumps(_payload)
+                            else:
+                                tool_content = json.dumps(
+                                    {"result": _payload, "loop_warning": loop_notice}
+                                )
+                        except (json.JSONDecodeError, TypeError):
+                            tool_content = json.dumps(
+                                {"result": tool_content, "loop_warning": loop_notice}
+                            )
+                        loop_notice = ""
 
                     messages.append(
                         {

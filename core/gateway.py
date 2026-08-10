@@ -188,6 +188,22 @@ class Gateway:
         self._webhook_auth_token: str | None = None  # resolved during start
         self._heartbeat_engine: Any = None  # set by agent initialization
 
+        # Companion devices (phone/laptop) that lend the agent a camera,
+        # a screen, or a microphone. Registry is built even when no node
+        # has connected, so the tools can report "none connected" rather
+        # than "unsupported". See core/nodes.py.
+        self._node_registry: Any = None
+        try:
+            from core.nodes import registry_from_config
+
+            self._node_registry = registry_from_config(config)
+        except Exception as e:  # pragma: no cover — defensive
+            logger.warning("Node registry unavailable: %s", e)
+
+        # Set by gateway_cmd when the WhatsApp channel runs in cloud mode,
+        # so POST /hooks/whatsapp can route inbound messages to it.
+        self._whatsapp_adapter: Any = None
+
     @property
     def url(self) -> str:
         scheme = "wss" if self._tls_enabled() else "ws"
@@ -399,6 +415,14 @@ class Gateway:
         from websockets.datastructures import Headers
         from websockets.http11 import Response
 
+        # WhatsApp Cloud API webhook. Handled before the generic checks
+        # because Meta authenticates differently: a hub.verify_token echo
+        # on the GET handshake and an HMAC signature on POSTs, never a
+        # bearer token. It is gated on the adapter existing rather than on
+        # webhooks.enabled, so enabling the channel is enough.
+        if request.path.split("?")[0] == "/hooks/whatsapp":
+            return self._webhook_whatsapp(request)
+
         # Check if webhooks are enabled
         if not self._webhook_config or not self._webhook_config.enabled:
             body = json.dumps({"error": "webhooks disabled"}).encode()
@@ -459,6 +483,105 @@ class Gateway:
             return Response(
                 404, "Not Found", Headers({"Content-Type": "application/json"}), body
             )
+
+    def _webhook_whatsapp(self, request: Any) -> Any:
+        """GET/POST /hooks/whatsapp — Meta Cloud API webhook.
+
+        GET is Meta's one-time subscription handshake (echo the challenge
+        when the verify token matches). POST delivers messages, signed with
+        HMAC-SHA256 over the raw body using the app secret.
+        """
+        from urllib.parse import parse_qs, urlparse
+
+        from websockets.datastructures import Headers
+        from websockets.http11 import Response
+
+        adapter = getattr(self, "_whatsapp_adapter", None)
+        if adapter is None:
+            body = json.dumps({"error": "whatsapp channel not running"}).encode()
+            return Response(
+                404, "Not Found", Headers({"Content-Type": "application/json"}), body
+            )
+
+        cfg = getattr(adapter, "_cfg", None)
+        verify_token = str(getattr(cfg, "verify_token", "") or "")
+
+        # Subscription handshake.
+        query = parse_qs(urlparse(request.path).query)
+        mode = (query.get("hub.mode") or [""])[0]
+        if mode == "subscribe":
+            challenge = (query.get("hub.challenge") or [""])[0]
+            token = (query.get("hub.verify_token") or [""])[0]
+            if not verify_token or token != verify_token:
+                logger.warning("WhatsApp webhook verification failed (bad token)")
+                return Response(
+                    403, "Forbidden", Headers({"Content-Type": "text/plain"}), b""
+                )
+            logger.info("WhatsApp webhook verified")
+            return Response(
+                200,
+                "OK",
+                Headers({"Content-Type": "text/plain"}),
+                challenge.encode(),
+            )
+
+        raw_body = getattr(request, "body", b"") or b""
+        if len(raw_body) > 1_000_000:
+            return Response(
+                413, "Payload Too Large", Headers({"Content-Type": "text/plain"}), b""
+            )
+
+        # Signature check. Meta signs with the *app secret*; when the
+        # operator has not configured one we refuse rather than trust an
+        # unauthenticated POST that can drive the agent.
+        app_secret = str(getattr(cfg, "verify_token", "") or "")
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        if app_secret and signature:
+            import hashlib
+            import hmac
+
+            expected = (
+                "sha256="
+                + hmac.new(
+                    app_secret.encode("utf-8"), raw_body, hashlib.sha256
+                ).hexdigest()
+            )
+            if not hmac.compare_digest(expected, signature):
+                logger.warning("WhatsApp webhook signature mismatch — dropping")
+                return Response(
+                    403, "Forbidden", Headers({"Content-Type": "text/plain"}), b""
+                )
+        elif app_secret:
+            logger.warning("WhatsApp webhook POST arrived unsigned — dropping")
+            return Response(
+                403, "Forbidden", Headers({"Content-Type": "text/plain"}), b""
+            )
+
+        try:
+            payload = json.loads(raw_body) if raw_body else {}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return Response(
+                400, "Bad Request", Headers({"Content-Type": "text/plain"}), b""
+            )
+
+        try:
+            from channels.whatsapp_adapter import parse_cloud_webhook
+
+            for message in parse_cloud_webhook(payload):
+                self._schedule_async(
+                    adapter.handle_inbound(
+                        sender=message["sender"],
+                        chat_id=message["chat_id"],
+                        text=message["text"],
+                        name=message.get("name", ""),
+                    )
+                )
+        except Exception as e:
+            logger.error("WhatsApp webhook processing failed: %s", e)
+
+        # Meta retries anything that is not a prompt 200, so acknowledge
+        # first and let processing happen on our own loop.
+        return Response(200, "OK", Headers({"Content-Type": "text/plain"}), b"")
 
     def _webhook_wake(self, payload: dict[str, Any]) -> Any:
         """POST /hooks/wake — ingest ambient signal + trigger heartbeat."""
@@ -858,6 +981,10 @@ class Gateway:
             self._clients.pop(client_id, None)
             for subs in self._session_clients.values():
                 subs.discard(client_id)
+            # Drop any nodes this connection was hosting, so the agent
+            # doesn't keep offering a camera that walked out of the room.
+            if self._node_registry is not None:
+                self._node_registry.unregister_connection(websocket)
             logger.info("Client disconnected: %s", client_id[:8])
 
     async def _route_message(
@@ -881,6 +1008,8 @@ class Gateway:
             MessageType.STATUS: self._handle_status,
             MessageType.CAPABILITY_REQUEST: self._handle_capability_request,
             MessageType.IDENTIFY: self._handle_identify,
+            MessageType.NODE_REGISTER: self._handle_node_register,
+            MessageType.NODE_RESULT: self._handle_node_result,
         }
 
         handler = handlers.get(msg.type)  # type: ignore[call-overload]
@@ -890,6 +1019,55 @@ class Gateway:
             await client.websocket.send(
                 error_message(f"Unknown message type: {msg.type}").to_json()
             )
+
+    async def _handle_node_register(
+        self, client: ClientConnection, msg: GatewayMessage
+    ) -> None:
+        """A companion device announcing itself and its capabilities.
+
+        Registration records what the device *offers*; whether the agent
+        may invoke any given capability is decided by the registry against
+        the operator's allowlist, not by the device's own claim.
+        """
+        if self._node_registry is None:
+            await client.websocket.send(
+                error_message("Node support is not enabled on this gateway.").to_json()
+            )
+            return
+
+        node_id = str(msg.data.get("node_id", "")) or client.client_id
+        node = self._node_registry.register(
+            node_id=node_id,
+            name=str(msg.data.get("node_name", "")),
+            platform=str(msg.data.get("platform", "unknown")),
+            capabilities=list(msg.data.get("capabilities") or []),
+            connection=client.websocket,
+        )
+        permitted = self._node_registry.permitted_capabilities(node_id)
+        await client.websocket.send(
+            status_message(
+                "node_registered",
+                {
+                    "node_id": node.node_id,
+                    "permitted_capabilities": permitted,
+                    "offered_capabilities": sorted(node.capabilities),
+                },
+            ).to_json()
+        )
+
+    async def _handle_node_result(
+        self, client: ClientConnection, msg: GatewayMessage
+    ) -> None:
+        """A node returning the outcome of an invocation."""
+        if self._node_registry is None:
+            return
+        request_id = str(msg.data.get("request_id", ""))
+        if not request_id:
+            return
+        delivered = self._node_registry.resolve_result(request_id, dict(msg.data))
+        if not delivered:
+            # Usually a late answer to a request that already timed out.
+            logger.debug("Node result for unknown/expired request %s", request_id[:8])
 
     def _peer_verification_check(self, client: ClientConnection) -> tuple[bool, str]:
         """Decide whether a client may send sensitive messages (CHAT,
