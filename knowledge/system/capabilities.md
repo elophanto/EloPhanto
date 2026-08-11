@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**286 tools across 40 groups.** Every count below is the live
+**287 tools across 40 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -98,7 +98,7 @@ calibration, coaching, and meeting-presence declarations.
 CRITICAL. Interventions are capped per day and refusable; a denial
 suppresses the signal.
 
-## System — `system` (12)
+## System — `system` (13)
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
@@ -113,8 +113,18 @@ suppresses the signal.
 | `vault_lookup` | safe | Look up credentials from the encrypted vault |
 | `vault_set` | critical | Store a credential in the encrypted vault |
 | `tool_discover` | safe | Find a tool by capability |
+| `runtime_status` | safe | What is running on its own, and how to stop each one |
 | `agent_stop` | — | Halt at the next safe checkpoint |
 | `godmode_activate` | — | Elevated operator mode |
+
+`runtime_status` is CORE and exists because the spawn-tier status tools
+(`swarm_status`, `kid_list`, `organization_status`) cannot see the loops that
+start themselves — the goal runner, which resumes an active goal on every
+startup, the heartbeat, the autonomous mind, and the scheduler. Reporting
+"nothing is running" from the spawn tiers alone was false while the goal
+runner sat mid-checkpoint. Call it before any claim about execution state.
+Every loop it reports carries the command that stops it: a status report the
+operator cannot act on is half an answer.
 
 ## Identity & Personality — `identity` (14)
 
@@ -411,7 +421,7 @@ Read-only chain queries: `solana_balance`, `solana_token_info`,
 
 ## Skills — `skills` (3)
 
-`skill_list`, `skill_read`, `skill_promote`. **181 skills load** from
+`skill_list`, `skill_read`, `skill_promote`. **182 skills load** from
 `skills/`; see the Skills section below.
 
 ## Documents — `documents` (3)
@@ -491,7 +501,7 @@ All channels connect through the WebSocket gateway
 Smart tool profiles route the right tool subset per task type.
 Provider-level `tool_deny` and `max_tools` handle compatibility.
 
-## Skills (181)
+## Skills (182)
 
 Solana ecosystem (DeFi, NFTs, infra, dev, security), agency-agents
 (engineering, design, marketing, product, PM, support, testing,

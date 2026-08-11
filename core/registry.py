@@ -198,6 +198,13 @@ class ToolRegistry:
         self.register(VideoGenerateTool())
         self.register(MusicGenerateTool())
 
+        # Truthful "what is running" surface. CORE tier: the goal runner and
+        # heartbeat resume themselves, so this question must be answerable
+        # under every profile. See tools/system/runtime_status_tool.py.
+        from tools.system.runtime_status_tool import RuntimeStatusTool
+
+        self.register(RuntimeStatusTool())
+
         # Godmode tool (Pliny's G0DM0D3)
         from tools.system.godmode_tool import GodmodeActivateTool
 

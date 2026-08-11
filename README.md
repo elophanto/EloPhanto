@@ -51,7 +51,7 @@ Nothing instructed it to be that hard on itself, and nothing lets it grade the c
 
 Around those sit [receipt-gated goals](docs/13-GOAL-LOOP.md) that cannot close a checkpoint without a tool trail, and [self-authored tools](docs/04-SELF-DEVELOPMENT.md) with impact analysis and git rollback.
 
-It reaches the world through 286 tools: a real browser (47 of them, driving your Chrome profile and its logged-in sessions), the shell, the filesystem, your inbox and calendar, any REST API, and any [MCP](docs/23-MCP.md) server. Authenticated calls go through a [credential broker](docs/84-ACTION-LAYER.md) that hands the model a placeholder and substitutes the real secret at the socket, so a token never enters the transcript. You talk to it from the CLI, a web dashboard, VS Code, Telegram, Discord, Slack, Signal, iMessage, WhatsApp, or out loud.
+It reaches the world through 287 tools: a real browser (47 of them, driving your Chrome profile and its logged-in sessions), the shell, the filesystem, your inbox and calendar, any REST API, and any [MCP](docs/23-MCP.md) server. Authenticated calls go through a [credential broker](docs/84-ACTION-LAYER.md) that hands the model a placeholder and substitutes the real secret at the socket, so a token never enters the transcript. You talk to it from the CLI, a web dashboard, VS Code, Telegram, Discord, Slack, Signal, iMessage, WhatsApp, or out loud.
 
 ## It can run a company
 
@@ -115,7 +115,7 @@ Autonomy here is graduated. A company earns its way from `learning` to `trial` t
 
 ## Scale
 
-286 tools · 181 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,342 tests · 92 design docs.
+287 tools · 182 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,352 tests · 92 design docs.
 
 ---
 

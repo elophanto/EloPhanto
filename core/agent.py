@@ -1048,6 +1048,11 @@ class Agent:
         if delegate_tool is not None:
             delegate_tool._agent = self
 
+        # runtime_status reads the live loop handles off the agent.
+        _rs = self._registry.get("runtime_status")
+        if _rs is not None:
+            _rs._agent = self
+
         # Panel tools share the same self-reference. They additionally need
         # the registry so judges can be given a read-only view of it — a
         # reviewer that can edit its subject is not a reviewer.
