@@ -84,7 +84,7 @@ elophanto doctor     # what's healthy, broken, or missing
 ./update.sh          # pull + deps + config migrate
 ```
 
-The background mind ships disabled. Setting `autonomous_mind.enabled: true` is the only thing that starts it.
+The background mind ships disabled. Setting `autonomous_mind.enabled: true` starts it — and the agent cannot start it for you: asking to run unattended is a CRITICAL action that prompts, so "continue my current task" is never sufficient reason to override a setting you chose.
 
 **EloPhanto Hosted.** For when you'd rather not run infrastructure. A dedicated instance with its own browser profile, reachable from the dashboard and Telegram, awake around the clock.
 
@@ -116,7 +116,7 @@ Autonomy here is graduated. A company earns its way from `learning` to `trial` t
 
 ## Scale
 
-287 tools · 182 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,352 tests · 92 design docs.
+287 tools · 182 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,361 tests · 92 design docs.
 
 ---
 

@@ -307,6 +307,22 @@ concealing it is not, and being told without a lever to act is worse.
 | `stop --cancel-goals` | also cancels active goals |
 | `elophanto resume` | clears the sentinel |
 
+### The agent may not switch its own autonomy on
+
+`autonomous_mind.enabled` sits in `PROTECTED_CONFIG_KEYS` so the agent cannot
+turn autonomy *off*. That protection was one-directional, and the missing
+direction is the expensive one: `set_next_wakeup` called `mind.start()`
+whenever the loop was stopped, so the agent booted its own unattended loop
+mid-goal — reason `"Continue the active private writing-learning goal"` —
+while the operator had `enabled: false`.
+
+Scheduling the next cycle and starting the loop are now separate acts.
+Adjusting the interval of a running mind stays SAFE. Starting a mind the
+operator disabled requires `start_if_stopped: true`, which is CRITICAL and
+prompts. That keeps "turn on autonomous mode" working from chat — the
+operator approves it — while removing the path where wanting to continue its
+own work is sufficient reason to override a setting they chose.
+
 ## Self-Development Security
 
 ### Dependency Auditing
