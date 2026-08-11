@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Default profile definitions: profile_name -> set of groups
 DEFAULT_PROFILES: dict[str, set[str]] = {
     "minimal": {"system", "knowledge", "data", "skills"},
-    "coding": {"system", "knowledge", "data", "skills", "selfdev", "goals"},
+    "coding": {"system", "knowledge", "data", "skills", "selfdev", "goals", "panel"},
     "browsing": {"system", "knowledge", "data", "skills", "browser"},
     "desktop_profile": {"system", "knowledge", "data", "skills", "desktop"},
     "comms": {"system", "knowledge", "data", "skills", "comms", "identity"},
@@ -65,6 +65,17 @@ DEFAULT_PROFILES: dict[str, set[str]] = {
         # visibility requirement as the ABE groups above — without this
         # the watch_* tools can't be reached during planning tasks.
         "watch",
+        # Action layer + judge panels (docs/84, docs/86). Same PROFILE-tier
+        # visibility trap as the ABE / missions / watch entries above, and
+        # the reason it keeps recurring is that registering a tool and
+        # exposing it are separate steps with nothing tying them together.
+        # `tests/test_core/test_tool_profiles.py` now fails if any
+        # PROFILE-tier group is missing from `full`, so the next one is
+        # caught before it ships instead of on a live log.
+        "http",
+        "email",
+        "nodes",
+        "panel",
     },
     # Research-shaped work (competitor analysis, market scans) needs the
     # market model alongside browsing + extraction.
@@ -76,6 +87,8 @@ DEFAULT_PROFILES: dict[str, set[str]] = {
         "browser",
         "documents",
         "watch",
+        "http",
+        "panel",
     },
     # Default for task_type=planning (agent loop + autonomous mind).
     # Richer than coding, thinner than `full`: ABE + missions + browser
@@ -101,6 +114,15 @@ DEFAULT_PROFILES: dict[str, set[str]] = {
         "missions",
         "prospecting",
         "watch",
+        "http",
+        "email",
+        "nodes",
+        "panel",
+        # NOT "media": the prompt diet deliberately keeps it out of planning
+        # (pinned by test_prompt_diet). media_understand is reachable under
+        # `full` or via tool_discover. Worth revisiting if inbound voice
+        # notes become common in normal chat — that is an operator call
+        # about schema size, not something to flip in passing.
     },
 }
 
