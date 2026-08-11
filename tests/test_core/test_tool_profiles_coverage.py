@@ -38,31 +38,16 @@ def registry() -> ToolRegistry:
     return reg
 
 
-# Groups whose PROFILE-tier tools are currently unreachable, recorded so the
-# ratchet below fails on NEW breakage rather than on this backlog. Every entry
-# is a shipped feature the LLM cannot presently call:
-#
-#   ambient    (16) — the whole anticipation organ, docs/82 + docs/83
-#   polymarket (10) — prediction-market trading
-#   solana      (4) — on-chain read tools
-#   jobs        (2) — job record/verify
-#   affect      (1) — affect_record_event
-#
-# Exposing them is a live behaviour and cost decision for the operator
-# (Polymarket in particular places trades), so it is deliberately not made
-# here. Shrink this set; never grow it.
-KNOWN_UNREACHABLE_GROUPS: set[str] = {
-    "affect",
-    "ambient",
-    "jobs",
-    "polymarket",
-    "solana",
-}
+# Empty, and it should stay that way. It briefly held ambient / polymarket /
+# solana / jobs / affect — 33 tools of shipped, documented features that the
+# LLM could never call. Shrink this set; never grow it.
+KNOWN_UNREACHABLE_GROUPS: set[str] = set()
 
-# Group names referenced by a profile that no tool actually uses. Harmless —
-# they widen nothing — but they are rename drift, and a typo in a *new* entry
-# would look identical, so they are pinned rather than ignored.
-KNOWN_STALE_PROFILE_GROUPS: set[str] = {"hub", "mind"}
+# Groups declared only by conditionally-registered tools, so they are absent
+# from a registry built with the demo config while being perfectly valid in
+# a real one: `hub` needs hub.enabled, `mind` needs the autonomous mind.
+# Listed so the typo check below does not mistake a real group for a rename.
+CONDITIONALLY_REGISTERED_GROUPS: set[str] = {"hub", "mind"}
 
 
 class TestEveryProfileToolIsReachable:
@@ -101,7 +86,7 @@ class TestEveryProfileToolIsReachable:
         """A typo'd group name silently widens nothing — catch it here."""
         real = {t.group for t in registry.all_tools()}
         for profile_name, groups in DEFAULT_PROFILES.items():
-            unknown = sorted(groups - real - KNOWN_STALE_PROFILE_GROUPS)
+            unknown = sorted(groups - real - CONDITIONALLY_REGISTERED_GROUPS)
             assert not unknown, (
                 f"profile {profile_name!r} lists group(s) no tool uses: "
                 f"{unknown}. Either a rename left this behind or it is a typo."

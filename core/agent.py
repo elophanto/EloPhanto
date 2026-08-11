@@ -5819,8 +5819,16 @@ User message:
         logged — this must never block or break the main chat flow.
         """
         try:
-            prompt = self._DIRECTIVE_CLASSIFY_PROMPT.format(
-                user_message=user_message[:1000]
+            # Explicit replace, not str.format(): the template shows the model
+            # an example JSON object, and format() reads those literal braces
+            # as a replacement field. It raised
+            # KeyError: '"is_directive": true/false, ...' on every single call,
+            # before the LLM was ever reached — the broad `except Exception`
+            # below then logged it at DEBUG, so owner-directive detection has
+            # silently never run since it was added in 72fcc092. Replacement is
+            # immune to whatever braces the prompt grows next.
+            prompt = self._DIRECTIVE_CLASSIFY_PROMPT.replace(
+                "{user_message}", user_message[:1000]
             )
             response = await self._router.complete(
                 messages=[{"role": "user", "content": prompt}],
@@ -5877,9 +5885,18 @@ User message:
             logger.info("Auto-stored owner directive: %s -> %s", key, directive_text)
 
         except json.JSONDecodeError:
+            # Expected: small models drift off JSON. Nothing is broken.
             logger.debug("Directive classifier returned non-JSON: %s", text[:200])
         except Exception as e:
-            logger.debug("Directive detection failed (non-fatal): %s", e)
+            # WARNING, not DEBUG. A broad except at debug level is how this
+            # feature stayed dead for months: every call raised on a prompt
+            # template bug and nothing above debug ever said so. Non-fatal
+            # still means worth hearing about.
+            logger.warning(
+                "Directive detection failed (non-fatal, feature inactive): %s: %s",
+                type(e).__name__,
+                e,
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -76,6 +76,17 @@ DEFAULT_PROFILES: dict[str, set[str]] = {
         "email",
         "nodes",
         "panel",
+        # Shipped features whose groups were never listed anywhere, so every
+        # PROFILE-tier tool in them was unreachable: the anticipation organ
+        # (docs/82, docs/83), Polymarket's risk/analysis surface (none of
+        # which place trades — they are pre-trade checks, circuit breakers,
+        # calibration and mark-to-market), read-only Solana analytics, job
+        # record/verify, and affect_record_event.
+        "ambient",
+        "polymarket",
+        "solana",
+        "jobs",
+        "affect",
     },
     # Research-shaped work (competitor analysis, market scans) needs the
     # market model alongside browsing + extraction.
@@ -118,6 +129,17 @@ DEFAULT_PROFILES: dict[str, set[str]] = {
         "email",
         "nodes",
         "panel",
+        # Shipped features whose groups were never listed anywhere, so every
+        # PROFILE-tier tool in them was unreachable: the anticipation organ
+        # (docs/82, docs/83), Polymarket's risk/analysis surface (none of
+        # which place trades — they are pre-trade checks, circuit breakers,
+        # calibration and mark-to-market), read-only Solana analytics, job
+        # record/verify, and affect_record_event.
+        "ambient",
+        "polymarket",
+        "solana",
+        "jobs",
+        "affect",
         # NOT "media": the prompt diet deliberately keeps it out of planning
         # (pinned by test_prompt_diet). media_understand is reachable under
         # `full` or via tool_discover. Worth revisiting if inbound voice

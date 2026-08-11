@@ -748,3 +748,39 @@ class TestStopSentinel:
             assert agent._stop_file_present() is True
         finally:
             stop_path.unlink()
+
+
+class TestDirectiveClassifierPrompt:
+    """The classifier prompt must survive being built.
+
+    It shipped using ``str.format()`` while the template showed the model an
+    example JSON object. format() read those literal braces as a replacement
+    field and raised KeyError on every call, before the LLM was reached — and
+    a broad ``except Exception`` logged it at DEBUG, so owner-directive
+    detection silently never ran.
+    """
+
+    def test_prompt_builds_without_raising(self) -> None:
+        from core.agent import Agent
+
+        built = Agent._DIRECTIVE_CLASSIFY_PROMPT.replace(
+            "{user_message}", "never post on Reddit"
+        )
+        assert "never post on Reddit" in built
+        assert "{user_message}" not in built
+
+    def test_example_json_survives_into_the_prompt(self) -> None:
+        """The model needs to see the shape it must return."""
+        from core.agent import Agent
+
+        built = Agent._DIRECTIVE_CLASSIFY_PROMPT.replace("{user_message}", "hi")
+        assert '"is_directive"' in built
+        assert '"directive"' in built
+        assert '"key"' in built
+
+    def test_str_format_would_still_break_it(self) -> None:
+        """Pins *why* replace() is used, so nobody 'tidies' it back."""
+        from core.agent import Agent
+
+        with pytest.raises(KeyError):
+            Agent._DIRECTIVE_CLASSIFY_PROMPT.format(user_message="hi")

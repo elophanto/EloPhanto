@@ -22,6 +22,14 @@ Group names are load-bearing: a tool only reaches the LLM when its
 group is in the active profile's `allowed_groups` (or the tool is CORE).
 See `core/tool_profiles.py`.
 
+That rule has bitten this project repeatedly: a tool can be registered,
+documented, and unit-tested while its group sits in no profile, so the model
+is simply never offered it. Nine action-layer tools and 33 tools across the
+ambient / polymarket / solana / jobs / affect groups were unreachable that
+way. `tests/test_core/test_tool_profiles_coverage.py` now fails when any
+PROFILE-tier group is missing from `full`, so the next one is caught before
+it ships rather than by watching a live log.
+
 ## Browser — `browser` (47)
 
 Real Chrome automation over a Node.js bridge, using the operator's own
