@@ -1042,6 +1042,15 @@ class Agent:
         if delegate_tool is not None:
             delegate_tool._agent = self
 
+        # Panel tools share the same self-reference. They additionally need
+        # the registry so judges can be given a read-only view of it — a
+        # reviewer that can edit its subject is not a reviewer.
+        for _panel_tool in ("panel_review", "panel_refine"):
+            _pt = self._registry.get(_panel_tool)
+            if _pt is not None:
+                _pt._agent = self
+                _pt._registry = self._registry
+
         # Initialize EloPhantoHub (skill registry)
         if self._config.hub.enabled:
             _status("Loading EloPhantoHub")

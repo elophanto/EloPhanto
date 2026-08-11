@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**284 tools across 39 groups.** Every count below is the live
+**286 tools across 40 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -255,6 +255,42 @@ points at `email_draft`.
 Reads are SAFE; `send` and `reply` are CRITICAL, because outbound mail
 is irreversible and goes out in the operator's name.
 
+## Judge Panels — `panel` (2)
+
+Every other spawn tier — `delegate`, `swarm_*`, `org_*`, `kid_*` —
+dispatches work and aggregates what comes back. None of them judge the
+result, which is why the most common failure of agent work is the first
+draft returned as the answer: coherent, plausible, checked against
+nothing. Asking the model that wrote it whether it is good does not help.
+
+`panel_review` runs several INDEPENDENT judges over an artifact, each
+holding a different lens (correctness, failure modes, fidelity to a
+reference, completeness). No judge sees another's verdict — show them and
+they converge on the first opinion voiced, which is one reviewer wearing
+five hats. Returns per-lens scores and specific defects.
+
+`panel_refine` closes the loop: produce → judge → revise against the
+named objections → repeat until the bar is met or the round budget is
+spent. Use it for work that must stand comparison with a reference.
+
+Five rules are enforced in code rather than prompt, each blocking a way
+the loop degrades into theatre:
+
+- A rejection must cite a specific defect; "could be better" is
+  discarded and the veto with it, or the loop never terminates.
+- A blocking finding fails regardless of score — 4.6/5 with a security
+  hole is not a pass, and averages hide exactly the defects that matter.
+- The producer never grades its own work.
+- A malformed or missing verdict is an error, never a pass; silence must
+  not read as approval.
+- Hitting the round cap returns `converged: false` with the outstanding
+  findings. A loop that cannot fail is a delay, not a gate.
+
+Judges run with a read-only registry view: a reviewer that can edit its
+subject is not a reviewer, and one that can spawn reviewers is a fork
+bomb with opinions. `panel_refine` is MODERATE — several full agent runs
+per call is real spend. See `core/panel.py`.
+
 ## Companion Devices — `nodes` (2)
 
 `node_list` and `node_invoke` reach the operator's paired phone or laptop:
@@ -367,7 +403,7 @@ Read-only chain queries: `solana_balance`, `solana_token_info`,
 
 ## Skills — `skills` (3)
 
-`skill_list`, `skill_read`, `skill_promote`. **180 skills load** from
+`skill_list`, `skill_read`, `skill_promote`. **181 skills load** from
 `skills/`; see the Skills section below.
 
 ## Documents — `documents` (3)
@@ -447,7 +483,7 @@ All channels connect through the WebSocket gateway
 Smart tool profiles route the right tool subset per task type.
 Provider-level `tool_deny` and `max_tools` handle compatibility.
 
-## Skills (180)
+## Skills (181)
 
 Solana ecosystem (DeFi, NFTs, infra, dev, security), agency-agents
 (engineering, design, marketing, product, PM, support, testing,

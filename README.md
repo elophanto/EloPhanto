@@ -51,7 +51,7 @@ Nothing instructed it to be that hard on itself, and nothing lets it grade the c
 
 Around those sit [receipt-gated goals](docs/13-GOAL-LOOP.md) that cannot close a checkpoint without a tool trail, and [self-authored tools](docs/04-SELF-DEVELOPMENT.md) with impact analysis and git rollback.
 
-It reaches the world through 284 tools: a real browser (47 of them, driving your Chrome profile and its logged-in sessions), the shell, the filesystem, your inbox and calendar, any REST API, and any [MCP](docs/23-MCP.md) server. Authenticated calls go through a [credential broker](docs/84-ACTION-LAYER.md) that hands the model a placeholder and substitutes the real secret at the socket, so a token never enters the transcript. You talk to it from the CLI, a web dashboard, VS Code, Telegram, Discord, Slack, Signal, iMessage, WhatsApp, or out loud.
+It reaches the world through 286 tools: a real browser (47 of them, driving your Chrome profile and its logged-in sessions), the shell, the filesystem, your inbox and calendar, any REST API, and any [MCP](docs/23-MCP.md) server. Authenticated calls go through a [credential broker](docs/84-ACTION-LAYER.md) that hands the model a placeholder and substitutes the real secret at the socket, so a token never enters the transcript. You talk to it from the CLI, a web dashboard, VS Code, Telegram, Discord, Slack, Signal, iMessage, WhatsApp, or out loud.
 
 ## It can run a company
 
@@ -101,6 +101,7 @@ The rules there are stricter, and stated plainly: **managed custody**, meaning w
 5. **A stop that works.** `elophanto stop` and the owner Kill switch write a sentinel the agent checks between rounds and wakeups. Secrets stay in an encrypted vault, retrieved by tool call when needed rather than pasted into config or prompts.
 6. **Files it cannot touch.** The safety-critical core (executor, vault, permission checks) is protected against the agent's own self-modification pipeline.
 7. **A run that stops repeating itself.** Identical tool, arguments, and result three times over is not persistence, it is a loop — so it warns, then blocks that call, then ends the run, long before the step ceiling would.
+8. **Work that has to survive review.** [`panel_refine`](docs/86-JUDGE-PANELS.md) spawns independent judges, each holding a different lens, and revises against their specific objections until the work clears a bar. A rejection that cites no defect is discarded, so it terminates; a blocking defect fails regardless of score, so a high average cannot bury it; and failing to converge is reported as failure rather than dressed up as done.
 
 Judge any run by its after-state and its tool trail, not by what it tells you it did.
 
@@ -114,7 +115,7 @@ Autonomy here is graduated. A company earns its way from `learning` to `trial` t
 
 ## Scale
 
-284 tools · 180 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,275 tests · 91 design docs.
+286 tools · 181 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,323 tests · 92 design docs.
 
 ---
 

@@ -749,6 +749,14 @@ class ToolRegistry:
         # In-process delegation tier — third tier between tool_call and
         # the heavy spawn tools (swarm_spawn / kid_spawn / org_spawn /
         # agent_connect). DEFERRED so it's not on the default surface.
+        # Judge panels — the quality-gated tier. Every other spawn surface
+        # dispatches and aggregates; these converge, revising against
+        # independent critique until the work clears a bar. See core/panel.py.
+        from tools.panel import PanelRefineTool, PanelReviewTool
+
+        self.register(PanelReviewTool())
+        self.register(PanelRefineTool())
+
         from tools.delegate.delegate_tool import DelegateTool
 
         self.register(DelegateTool())

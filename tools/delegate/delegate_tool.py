@@ -27,6 +27,15 @@ Hard rules baked in:
   bypass the queue (they're sub-tasks of the holder). They still go
   through ``LLM_BURST`` / ``BROWSER`` semaphores so rate-limit and
   resource math stay correct.
+- Subagents run concurrently, ``_MAX_CONCURRENCY`` at a time. The shared
+  semaphores above already bound real resource use, so the cap here is
+  about queue fairness rather than safety: one delegate call fanning out
+  ten ways must not starve everything else in the process.
+
+This tier dispatches and aggregates. It does not judge the result — for
+work that has to clear a quality bar, see ``panel_refine`` in
+``tools/panel/``, which reviews and revises until independent lenses
+accept it.
 """
 
 from __future__ import annotations
@@ -58,6 +67,10 @@ _EXCLUDED_PREFIXES: tuple[str, ...] = (
 _DEFAULT_TIMEOUT_SECONDS = 600.0
 _DEFAULT_MAX_TASKS = 10
 _DEFAULT_MAX_ITERATIONS = 25
+# Concurrent subagents per delegate call. The shared LLM_BURST / BROWSER
+# semaphores already bound real resource use; this bounds how much of the
+# queue one call may occupy so peers are not starved.
+_MAX_CONCURRENCY = 4
 
 
 def _build_excluded_set(all_tool_names: list[str]) -> set[str]:
@@ -111,9 +124,10 @@ class DelegateTool(BaseTool):
                 "tasks": {
                     "type": "array",
                     "description": (
-                        "List of sub-tasks to delegate. Each is run as an "
-                        "isolated subagent. Sequential in v1; parallel "
-                        f"execution coming. Max {_DEFAULT_MAX_TASKS} per call."
+                        "List of sub-tasks to delegate. Each runs as an "
+                        "isolated subagent, up to "
+                        f"{_MAX_CONCURRENCY} at a time. "
+                        f"Max {_DEFAULT_MAX_TASKS} per call."
                     ),
                     "items": {
                         "type": "object",
@@ -199,29 +213,29 @@ class DelegateTool(BaseTool):
         all_names = [t.name for t in self._agent._registry.all_tools()]
         excluded = _build_excluded_set(all_names)
 
-        results: list[dict[str, Any]] = []
-        for i, task in enumerate(tasks):
+        # Fan out concurrently. The subagents already contend correctly on
+        # the shared LLM_BURST / BROWSER semaphores, so the wall-clock win is
+        # real while rate-limit and resource math stay exactly as they were.
+        # A local cap keeps one delegate call from starving the rest of the
+        # process — the semaphores bound the work, this bounds the queue.
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
+
+        async def _run_one(i: int, task: Any) -> dict[str, Any]:
             if not isinstance(task, dict):
-                results.append(
-                    {
-                        "index": i,
-                        "goal": "",
-                        "success": False,
-                        "error": "task entry must be a dict with 'goal'",
-                    }
-                )
-                continue
+                return {
+                    "index": i,
+                    "goal": "",
+                    "success": False,
+                    "error": "task entry must be a dict with 'goal'",
+                }
             goal = (task.get("goal") or "").strip()
             if not goal:
-                results.append(
-                    {
-                        "index": i,
-                        "goal": "",
-                        "success": False,
-                        "error": "missing 'goal'",
-                    }
-                )
-                continue
+                return {
+                    "index": i,
+                    "goal": "",
+                    "success": False,
+                    "error": "missing 'goal'",
+                }
 
             context = (task.get("context") or "").strip()
             try:
@@ -233,53 +247,68 @@ class DelegateTool(BaseTool):
 
             prompt = goal if not context else f"Context:\n{context}\n\nTask:\n{goal}"
 
-            try:
-                response = await asyncio.wait_for(
-                    self._agent.run_isolated(
-                        prompt,
-                        excluded_tool_names=excluded,
-                        max_steps_override=max_iter,
-                    ),
-                    timeout=timeout,
-                )
-            except TimeoutError:
-                logger.warning(
-                    "delegate: subagent %d timed out after %.1fs (goal=%.80r)",
-                    i,
-                    timeout,
-                    goal,
-                )
-                results.append(
-                    {
+            async with semaphore:
+                try:
+                    response = await asyncio.wait_for(
+                        self._agent.run_isolated(
+                            prompt,
+                            excluded_tool_names=excluded,
+                            max_steps_override=max_iter,
+                        ),
+                        timeout=timeout,
+                    )
+                except TimeoutError:
+                    logger.warning(
+                        "delegate: subagent %d timed out after %.1fs (goal=%.80r)",
+                        i,
+                        timeout,
+                        goal,
+                    )
+                    return {
                         "index": i,
                         "goal": goal,
                         "success": False,
                         "error": f"timed out after {timeout:.0f}s",
                     }
-                )
-                continue
-            except Exception as e:  # noqa: BLE001 — child failures must not kill peers
-                logger.exception("delegate: subagent %d crashed", i)
-                results.append(
-                    {
+                except Exception as e:  # noqa: BLE001 — a child must not kill its peers
+                    logger.exception("delegate: subagent %d crashed", i)
+                    return {
                         "index": i,
                         "goal": goal,
                         "success": False,
                         "error": f"crash: {e}",
                     }
-                )
-                continue
 
-            results.append(
-                {
-                    "index": i,
-                    "goal": goal,
-                    "success": True,
-                    "summary": response.content,
-                    "steps": response.steps_taken,
-                    "tools_used": list(set(response.tool_calls_made)),
-                }
-            )
+            return {
+                "index": i,
+                "goal": goal,
+                "success": True,
+                "summary": response.content,
+                "steps": response.steps_taken,
+                "tools_used": list(set(response.tool_calls_made)),
+            }
+
+        # return_exceptions keeps one unexpected failure from cancelling the
+        # siblings mid-flight; each is already caught above, this is the net.
+        gathered = await asyncio.gather(
+            *(_run_one(i, t) for i, t in enumerate(tasks)),
+            return_exceptions=True,
+        )
+        results: list[dict[str, Any]] = []
+        for i, item in enumerate(gathered):
+            if isinstance(item, BaseException):
+                logger.exception("delegate: subagent %d raised past its handler", i)
+                results.append(
+                    {
+                        "index": i,
+                        "goal": "",
+                        "success": False,
+                        "error": f"crash: {item}",
+                    }
+                )
+            else:
+                results.append(item)
+        results.sort(key=lambda r: r["index"])
 
         succeeded = sum(1 for r in results if r["success"])
         return ToolResult(
