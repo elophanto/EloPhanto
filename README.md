@@ -115,7 +115,7 @@ Autonomy here is graduated. A company earns its way from `learning` to `trial` t
 
 ## Scale
 
-286 tools · 181 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,323 tests · 92 design docs.
+286 tools · 181 skill playbooks · 10 client surfaces · 16 dashboard pages · 3,325 tests · 92 design docs.
 
 ---
 

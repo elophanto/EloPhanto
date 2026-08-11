@@ -687,6 +687,9 @@ class Agent:
             block_at=getattr(getattr(config, "loop_detection", None), "block_at", 3),
             abort_at=getattr(getattr(config, "loop_detection", None), "abort_at", 4),
         )
+        # Guards run_isolated, whose save-mutate-restore of shared instance
+        # state is only correct one call at a time. See run_isolated.
+        self._isolated_run_lock = asyncio.Lock()
         self._credential_broker: Any = None  # CredentialBroker, set during initialize
         self._scope_guard: Any = None  # ScopeGuard, set during initialize
         self._oauth_store: Any = None  # OAuthTokenStore, set during initialize
@@ -3609,6 +3612,42 @@ class Agent:
         completion lands as ``satisfaction`` in the parent's affect
         state, exactly as if the parent had done the work itself.
         """
+        # Serialize isolated runs. Everything below is save-mutate-restore on
+        # SHARED instance attributes, which is only correct one call at a
+        # time. Concurrently, the second caller saves the first's swapped-in
+        # state instead of the parent's, both then read whichever was written
+        # last, and the final restore leaves the parent holding a subagent's
+        # history. The registry swap makes it a safety bug rather than merely
+        # a correctness one: that filter is what hides payment and spawn tools
+        # from subagents, and a leaked unfiltered view hands them back.
+        #
+        # The lock is the honest fix for the current design. Real parallel
+        # subagents need this state moved off the instance (contextvars or a
+        # per-call context object) — until then, callers that gather()
+        # queue here rather than corrupt each other.
+        # Created lazily as well as in __init__: agents built via __new__
+        # (tests, and any partial-construction path) still get the guarantee
+        # rather than an AttributeError at the moment it matters.
+        lock = getattr(self, "_isolated_run_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._isolated_run_lock = lock
+
+        async with lock:
+            return await self._run_isolated_locked(
+                goal,
+                excluded_tool_names=excluded_tool_names,
+                max_steps_override=max_steps_override,
+            )
+
+    async def _run_isolated_locked(
+        self,
+        goal: str,
+        *,
+        excluded_tool_names: set[str] | None = None,
+        max_steps_override: int | None = None,
+    ) -> AgentResponse:
+        """The body of :meth:`run_isolated`, held under the isolation lock."""
         # Save parent state ---------------------------------------------------
         saved_history = self._conversation_history
         saved_memory = self._working_memory
@@ -3616,6 +3655,12 @@ class Agent:
         saved_registry = self._registry
         saved_on_step = self._on_step
         saved_task_total = self._router.cost_tracker.task_total
+        # Loop detection is per-run state. Without its own detector a
+        # subagent's reset() wipes the parent's counters, and sibling
+        # subagents legitimately reading the same file look like one agent
+        # repeating itself — which at four occurrences aborts the run.
+        # getattr-guarded so a partially-constructed Agent still works.
+        saved_loop_detector = getattr(self, "_loop_detector", None)
 
         # Per-call isolated state --------------------------------------------
         from core.memory import WorkingMemory
@@ -3631,6 +3676,15 @@ class Agent:
         self._working_memory = isolated_memory
         self._activated_tools = isolated_activated
         self._on_step = None  # silence subagent steps from parent's UI
+        if saved_loop_detector is not None:
+            from core.loop_detect import LoopDetector
+
+            self._loop_detector = LoopDetector(
+                enabled=saved_loop_detector.enabled,
+                warn_at=saved_loop_detector.warn_at,
+                block_at=saved_loop_detector.block_at,
+                abort_at=saved_loop_detector.abort_at,
+            )
 
         try:
             return await self.run(
@@ -3646,6 +3700,8 @@ class Agent:
             self._activated_tools = saved_activated
             self._registry = saved_registry
             self._on_step = saved_on_step
+            if saved_loop_detector is not None:
+                self._loop_detector = saved_loop_detector
             # Roll subagent cost up into parent's per-task budget so the
             # parent's within_budget check after delegation reflects the
             # full spend.

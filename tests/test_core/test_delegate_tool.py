@@ -481,3 +481,86 @@ class TestRunIsolatedSemantics:
         await agent.run_isolated("x", excluded_tool_names=None)
         # Registry was NOT wrapped — same object as parent's.
         assert seen_registry[0] is parent_registry
+
+
+class TestConcurrentIsolationSafety:
+    """run_isolated swaps SHARED instance state, so concurrent callers must
+    not interleave.
+
+    Regression: making delegate concurrent turned this into live corruption —
+    the second caller saved the first's swapped-in state instead of the
+    parent's, both read whichever was written last, and the parent was left
+    holding a subagent's history. The registry swap made it a safety bug too:
+    that filter is what hides payment and spawn tools from subagents.
+    """
+
+    @pytest.mark.asyncio
+    async def test_concurrent_run_isolated_does_not_interleave(self) -> None:
+        import asyncio
+
+        from core.agent import Agent
+
+        agent = Agent.__new__(Agent)
+        parent_history: list[Any] = [{"role": "user", "content": "parent"}]
+        agent._conversation_history = parent_history
+        agent._working_memory = MagicMock()
+        agent._activated_tools = {"parent_tool"}
+        agent._registry = _make_inner_registry(["a"])
+        agent._on_step = None
+        agent._router = MagicMock()
+        agent._router.cost_tracker.task_total = 0.0
+
+        seen: list[tuple[str, int]] = []
+
+        async def fake_run(goal: str, **kwargs: Any) -> Any:
+            # Mutate then yield, so an unguarded peer would observe this one.
+            agent._conversation_history.append({"role": "assistant", "content": goal})
+            await asyncio.sleep(0.01)
+            seen.append((goal, len(agent._conversation_history)))
+            return MagicMock(content="ok", steps_taken=1, tool_calls_made=[])
+
+        agent.run = fake_run  # type: ignore[method-assign]
+
+        await asyncio.gather(
+            *(agent.run_isolated(f"sub{i}") for i in range(4))
+        )
+
+        # Each subagent saw exactly its own single message — no sibling's.
+        assert all(depth == 1 for _, depth in seen), seen
+        # And the parent's history survives untouched.
+        assert agent._conversation_history is parent_history
+        assert agent._conversation_history == [{"role": "user", "content": "parent"}]
+
+    @pytest.mark.asyncio
+    async def test_subagent_gets_its_own_loop_detector(self) -> None:
+        from core.agent import Agent
+        from core.loop_detect import LoopDetector
+
+        agent = Agent.__new__(Agent)
+        agent._conversation_history = []
+        agent._working_memory = MagicMock()
+        agent._activated_tools = set()
+        agent._registry = _make_inner_registry(["a"])
+        agent._on_step = None
+        agent._router = MagicMock()
+        agent._router.cost_tracker.task_total = 0.0
+
+        parent_detector = LoopDetector()
+        agent._loop_detector = parent_detector
+        parent_detector.record("file_read", {"p": "/x"}, MagicMock(success=True))
+
+        inner: list[Any] = []
+
+        async def fake_run(goal: str, **kwargs: Any) -> Any:
+            inner.append(agent._loop_detector)
+            return MagicMock(content="ok", steps_taken=1, tool_calls_made=[])
+
+        agent.run = fake_run  # type: ignore[method-assign]
+        await agent.run_isolated("sub")
+
+        # The subagent ran on a fresh detector, not the parent's counters...
+        assert inner[0] is not parent_detector
+        assert inner[0].distinct_calls == 0
+        # ...and the parent's survived the round trip intact.
+        assert agent._loop_detector is parent_detector
+        assert parent_detector.distinct_calls == 1

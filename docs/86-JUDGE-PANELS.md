@@ -114,12 +114,30 @@ unvalidated, not that it is bad.
 promised "fan out N **parallel** sub-tasks". It now runs its subagents
 concurrently, four at a time.
 
-The concurrency cap is about queue fairness, not safety — the shared
+Concurrent subagents serialize inside `run_isolated` (see below); the cap
+here is about queue fairness — the shared
 `LLM_BURST` / `BROWSER` semaphores already bound real resource use, so this
 only stops one ten-way delegation from starving everything else in the
 process. Results are gathered with `return_exceptions=True` and re-sorted by
 index, so one crashing subagent cannot cancel its siblings and callers still
 get results in the order they asked for them.
+
+**`run_isolated` serializes.** It swaps shared instance attributes —
+conversation history, working memory, activated tools, the *filtered
+registry* — and restores them in a `finally`. That is only correct one call
+at a time: concurrently, the second caller saves the first's swapped-in state
+instead of the parent's, both read whichever landed last, and the parent is
+left holding a subagent's history. The registry swap makes it a safety bug
+rather than merely a correctness one, since that filter is what hides payment
+and spawn tools from subagents.
+
+A lock inside `run_isolated` is the honest fix for the current design: callers
+that `gather()` queue rather than corrupt each other. Genuine parallel
+subagents need this state moved off the instance — contextvars or a per-call
+context object — which is a larger change than this tier warranted. Subagents
+also now get their own `LoopDetector`, so a sibling's reset cannot wipe the
+parent's counters and four siblings legitimately reading the same file no
+longer look like one agent repeating itself.
 
 ## Files
 
