@@ -131,13 +131,25 @@ left holding a subagent's history. The registry swap makes it a safety bug
 rather than merely a correctness one, since that filter is what hides payment
 and spawn tools from subagents.
 
-A lock inside `run_isolated` is the honest fix for the current design: callers
-that `gather()` queue rather than corrupt each other. Genuine parallel
-subagents need this state moved off the instance — contextvars or a per-call
-context object — which is a larger change than this tier warranted. Subagents
-also now get their own `LoopDetector`, so a sibling's reset cannot wipe the
-parent's counters and four siblings legitimately reading the same file no
-longer look like one agent repeating itself.
+The state now lives in a `contextvars.ContextVar` (`core/agent_isolation.py`)
+rather than on the instance. asyncio copies the current context into every
+Task it creates, and `gather` wraps each coroutine in a Task — so a subagent's
+view is private *by construction* rather than by careful save/restore
+bookkeeping. The six affected attributes are properties that read through the
+contextvar, so the ~150 existing `self._X` references in the agent loop keep
+working untouched and resolve per-task for free.
+
+Subagents get their own `LoopDetector` too: sharing the parent's meant a
+sibling's `reset()` wiped its counters, and four siblings legitimately reading
+the same file counted as one agent repeating itself — which at four
+occurrences aborts the run.
+
+Cost needed the same treatment. `_run_with_history` calls `reset_task()` on
+entry to *every* run, so with a shared counter each subagent zeroed the
+parent's accumulated spend and concurrent ones erased its budget accounting
+outright. Per-task spend now accrues into the isolated context and rolls into
+the parent on exit — a bare `+=` with no await between read and write, so no
+sibling's contribution is lost. `daily_total` stays genuinely global.
 
 ## Files
 

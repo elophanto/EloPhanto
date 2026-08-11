@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 import litellm
 
+from core.agent_isolation import current_isolation
 from core.config import Config
 from core.provider_tracker import ProviderEvent, ProviderTracker, detect_truncation
 
@@ -96,7 +97,14 @@ class CostTracker:
         task_type: str = "unknown",
     ) -> None:
         self.daily_total += cost
-        self.task_total += cost
+        # Per-task spend accrues to whichever run owns it. A subagent bills
+        # its own isolated total; the parent bills this instance. Rolled up
+        # when the subagent exits — see Agent.run_isolated.
+        _state = current_isolation()
+        if _state is not None:
+            _state.cost_task_total += cost
+        else:
+            self.task_total += cost
         self.total_input_tokens += input_tokens
         self.total_output_tokens += output_tokens
         record = {
@@ -112,10 +120,29 @@ class CostTracker:
         self._pending_records.append(record)
 
     def reset_task(self) -> None:
-        self.task_total = 0.0
+        """Zero the per-task total for whichever run is asking.
+
+        ``_run_with_history`` calls this on entry to every run, subagents
+        included. Without the isolation check a subagent would zero the
+        parent's accumulated spend, and concurrent siblings would do it
+        repeatedly.
+        """
+        state = current_isolation()
+        if state is not None:
+            state.cost_task_total = 0.0
+        else:
+            self.task_total = 0.0
+
+    @property
+    def effective_task_total(self) -> float:
+        """Per-task spend for the current run — the subagent's, or ours."""
+        state = current_isolation()
+        return state.cost_task_total if state is not None else self.task_total
 
     def within_budget(self, daily_limit: float, task_limit: float) -> bool:
-        return self.daily_total < daily_limit and self.task_total < task_limit
+        return (
+            self.daily_total < daily_limit and self.effective_task_total < task_limit
+        )
 
     async def flush(self, db: Any) -> None:
         """Persist pending records to the llm_usage table.

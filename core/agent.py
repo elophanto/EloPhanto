@@ -74,6 +74,12 @@ class StatusCallback(Protocol):
     def __call__(self, message: str) -> None: ...
 
 
+from core.agent_isolation import (
+    IsolationState,
+    current_isolation,
+    enter_isolation,
+    exit_isolation,
+)
 from core.browser_executor import STATE_CHANGING_TOOLS, BrowserExecutionState
 from core.config import Config
 from core.database import Database
@@ -687,9 +693,6 @@ class Agent:
             block_at=getattr(getattr(config, "loop_detection", None), "block_at", 3),
             abort_at=getattr(getattr(config, "loop_detection", None), "abort_at", 4),
         )
-        # Guards run_isolated, whose save-mutate-restore of shared instance
-        # state is only correct one call at a time. See run_isolated.
-        self._isolated_run_lock = asyncio.Lock()
         self._credential_broker: Any = None  # CredentialBroker, set during initialize
         self._scope_guard: Any = None  # ScopeGuard, set during initialize
         self._oauth_store: Any = None  # OAuthTokenStore, set during initialize
@@ -3587,6 +3590,104 @@ class Agent:
                     _time.monotonic() - _hold_start,
                 )
 
+    # ── Per-task isolated state ─────────────────────────────────────
+    #
+    # These six are private to a single run. A subagent must see its own,
+    # concurrently with its siblings and with the parent. Rather than swap
+    # them on the instance (only safe one call at a time — see
+    # core/agent_isolation.py), each reads through a contextvar that asyncio
+    # copies into every Task. Every existing `self._X` reference in the agent
+    # loop keeps working and resolves per-task for free.
+    #
+    # Assignments made outside an isolated run (including in __init__) fall
+    # through to the `_base_*` slots, which is the parent's state.
+
+    @property
+    def _conversation_history(self) -> list[dict[str, Any]]:
+        state = current_isolation()
+        return (
+            state.conversation_history
+            if state is not None
+            else self._base_conversation_history
+        )
+
+    @_conversation_history.setter
+    def _conversation_history(self, value: list[dict[str, Any]]) -> None:
+        state = current_isolation()
+        if state is not None:
+            state.conversation_history = value
+        else:
+            self._base_conversation_history = value
+
+    @property
+    def _working_memory(self) -> Any:
+        state = current_isolation()
+        return state.working_memory if state is not None else self._base_working_memory
+
+    @_working_memory.setter
+    def _working_memory(self, value: Any) -> None:
+        state = current_isolation()
+        if state is not None:
+            state.working_memory = value
+        else:
+            self._base_working_memory = value
+
+    @property
+    def _activated_tools(self) -> set[str]:
+        state = current_isolation()
+        return (
+            state.activated_tools if state is not None else self._base_activated_tools
+        )
+
+    @_activated_tools.setter
+    def _activated_tools(self, value: set[str]) -> None:
+        state = current_isolation()
+        if state is not None:
+            state.activated_tools = value
+        else:
+            self._base_activated_tools = value
+
+    @property
+    def _registry(self) -> Any:
+        state = current_isolation()
+        return state.registry if state is not None else self._base_registry
+
+    @_registry.setter
+    def _registry(self, value: Any) -> None:
+        state = current_isolation()
+        if state is not None:
+            state.registry = value
+        else:
+            self._base_registry = value
+
+    @property
+    def _on_step(self) -> Any:
+        state = current_isolation()
+        return state.on_step if state is not None else self._base_on_step
+
+    @_on_step.setter
+    def _on_step(self, value: Any) -> None:
+        state = current_isolation()
+        if state is not None:
+            state.on_step = value
+        else:
+            self._base_on_step = value
+
+    @property
+    def _loop_detector(self) -> Any:
+        state = current_isolation()
+        if state is not None and state.loop_detector is not None:
+            return state.loop_detector
+        return self._base_loop_detector
+
+    @_loop_detector.setter
+    def _loop_detector(self, value: Any) -> None:
+        state = current_isolation()
+        if state is not None:
+            state.loop_detector = value
+        else:
+            self._base_loop_detector = value
+
     async def run_isolated(
         self,
         goal: str,
@@ -3604,88 +3705,55 @@ class Agent:
         identity. ``is_user_input=False`` so the user-correction regex
         doesn't pattern-match the parent's delegated goal text.
 
-        Cost rollup: ``CostTracker.task_total`` is preserved across the
-        boundary — the subagent starts fresh at 0 (its own per-task
-        budget check) and on completion its total is added to the
-        parent's. ``daily_total`` accumulates throughout (unified
-        budget). Affect events fire normally — each clean subagent
-        completion lands as ``satisfaction`` in the parent's affect
-        state, exactly as if the parent had done the work itself.
+        Cost rollup: subagent spend accumulates into the same
+        ``CostTracker.task_total`` as the parent rather than starting fresh,
+        so one delegation is bounded by a single per-task budget instead of
+        by N of them. Under concurrency that is also the only unambiguous
+        reading of "per task". ``daily_total`` accumulates throughout. Affect
+        events fire normally — each clean subagent completion lands as
+        ``satisfaction`` in the parent's affect state, exactly as if the
+        parent had done the work itself.
+
+        Concurrency: safe. Isolated state lives in a contextvar that asyncio
+        copies into every Task, so siblings spawned with ``gather`` cannot see
+        or clobber each other's history, memory, activated tools, filtered
+        registry, or loop counters. See ``core/agent_isolation.py`` for why
+        the previous swap-on-instance approach could not be.
         """
-        # Serialize isolated runs. Everything below is save-mutate-restore on
-        # SHARED instance attributes, which is only correct one call at a
-        # time. Concurrently, the second caller saves the first's swapped-in
-        # state instead of the parent's, both then read whichever was written
-        # last, and the final restore leaves the parent holding a subagent's
-        # history. The registry swap makes it a safety bug rather than merely
-        # a correctness one: that filter is what hides payment and spawn tools
-        # from subagents, and a leaked unfiltered view hands them back.
-        #
-        # The lock is the honest fix for the current design. Real parallel
-        # subagents need this state moved off the instance (contextvars or a
-        # per-call context object) — until then, callers that gather()
-        # queue here rather than corrupt each other.
-        # Created lazily as well as in __init__: agents built via __new__
-        # (tests, and any partial-construction path) still get the guarantee
-        # rather than an AttributeError at the moment it matters.
-        lock = getattr(self, "_isolated_run_lock", None)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._isolated_run_lock = lock
-
-        async with lock:
-            return await self._run_isolated_locked(
-                goal,
-                excluded_tool_names=excluded_tool_names,
-                max_steps_override=max_steps_override,
-            )
-
-    async def _run_isolated_locked(
-        self,
-        goal: str,
-        *,
-        excluded_tool_names: set[str] | None = None,
-        max_steps_override: int | None = None,
-    ) -> AgentResponse:
-        """The body of :meth:`run_isolated`, held under the isolation lock."""
-        # Save parent state ---------------------------------------------------
-        saved_history = self._conversation_history
-        saved_memory = self._working_memory
-        saved_activated = self._activated_tools
-        saved_registry = self._registry
-        saved_on_step = self._on_step
-        saved_task_total = self._router.cost_tracker.task_total
-        # Loop detection is per-run state. Without its own detector a
-        # subagent's reset() wipes the parent's counters, and sibling
-        # subagents legitimately reading the same file look like one agent
-        # repeating itself — which at four occurrences aborts the run.
-        # getattr-guarded so a partially-constructed Agent still works.
-        saved_loop_detector = getattr(self, "_loop_detector", None)
-
-        # Per-call isolated state --------------------------------------------
         from core.memory import WorkingMemory
 
-        isolated_history: list[dict[str, Any]] = []
-        isolated_memory = WorkingMemory()
-        # New activated set so the subagent's tool_discover calls don't
-        # leak into the parent's surface.
-        isolated_activated: set[str] = set()
+        registry = self._registry
         if excluded_tool_names:
-            self._registry = _FilteredRegistry(saved_registry, excluded_tool_names)
-        self._conversation_history = isolated_history
-        self._working_memory = isolated_memory
-        self._activated_tools = isolated_activated
-        self._on_step = None  # silence subagent steps from parent's UI
-        if saved_loop_detector is not None:
+            registry = _FilteredRegistry(registry, excluded_tool_names)
+
+        # Loop detection is per-run. Sharing the parent's meant a subagent's
+        # reset() wiped the parent's counters, and siblings legitimately
+        # reading the same file counted as one agent repeating itself — which
+        # at four occurrences aborts the run.
+        base_detector = getattr(self, "_base_loop_detector", None)
+        detector: Any = None
+        if base_detector is not None:
             from core.loop_detect import LoopDetector
 
-            self._loop_detector = LoopDetector(
-                enabled=saved_loop_detector.enabled,
-                warn_at=saved_loop_detector.warn_at,
-                block_at=saved_loop_detector.block_at,
-                abort_at=saved_loop_detector.abort_at,
+            detector = LoopDetector(
+                enabled=base_detector.enabled,
+                warn_at=base_detector.warn_at,
+                block_at=base_detector.block_at,
+                abort_at=base_detector.abort_at,
             )
 
+        state = IsolationState(
+            conversation_history=[],
+            working_memory=WorkingMemory(),
+            # Fresh activated set so the subagent's tool_discover calls don't
+            # leak into the parent's surface.
+            activated_tools=set(),
+            registry=registry,
+            on_step=None,  # silence subagent steps from the parent's UI
+            loop_detector=detector,
+        )
+
+        token = enter_isolation(state)
         try:
             return await self.run(
                 goal,
@@ -3693,21 +3761,13 @@ class Agent:
                 is_user_input=False,
             )
         finally:
-            subagent_task_total = self._router.cost_tracker.task_total
-            # Restore parent state ------------------------------------------
-            self._conversation_history = saved_history
-            self._working_memory = saved_memory
-            self._activated_tools = saved_activated
-            self._registry = saved_registry
-            self._on_step = saved_on_step
-            if saved_loop_detector is not None:
-                self._loop_detector = saved_loop_detector
-            # Roll subagent cost up into parent's per-task budget so the
-            # parent's within_budget check after delegation reflects the
-            # full spend.
-            self._router.cost_tracker.task_total = (
-                saved_task_total + subagent_task_total
-            )
+            exit_isolation(token)
+            # Roll the subagent's spend into the parent's per-task total so
+            # the parent's own budget check reflects the full delegation.
+            # A bare += on a float, outside the isolated context and with no
+            # await between read and write, so concurrent siblings cannot
+            # lose each other's contribution.
+            self._router.cost_tracker.task_total += state.cost_task_total
 
     async def _run_with_history(
         self,
@@ -4340,7 +4400,7 @@ class Agent:
             ):
                 stagnation_reason = (
                     f"budget exceeded "
-                    f"(task=${self._router.cost_tracker.task_total:.2f})"
+                    f"(task=${self._router.cost_tracker.effective_task_total:.2f})"
                 )
                 logger.warning("Stagnation: %s", stagnation_reason)
                 break
@@ -4617,7 +4677,7 @@ class Agent:
 
                 if self._on_task_complete:
                     try:
-                        cost = self._router.cost_tracker.task_total
+                        cost = self._router.cost_tracker.effective_task_total
                         await self._on_task_complete(goal, final_content, step, cost)
                     except Exception:
                         pass

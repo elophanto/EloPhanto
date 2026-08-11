@@ -365,7 +365,9 @@ class TestRunIsolatedSemantics:
         parent_activated: set[str] = {"prev_activated"}
         parent_registry = _make_inner_registry(["a", "kid_spawn"])
         parent_on_step = MagicMock()
-        cost_tracker = MagicMock()
+        from core.router import CostTracker
+
+        cost_tracker = CostTracker()
         cost_tracker.task_total = 1.5
         router = MagicMock()
         router.cost_tracker = cost_tracker
@@ -390,7 +392,7 @@ class TestRunIsolatedSemantics:
             assert agent._activated_tools == set()
             assert isinstance(agent._registry, _FilteredRegistry)
             assert agent._on_step is None
-            cost_tracker.task_total = 0.7  # subagent spend
+            cost_tracker.record("p", "m", 0, 0, 0.7)  # subagent spend
             return AgentResponse(content="done", steps_taken=4)
 
         agent.run = _fake_run  # type: ignore[method-assign]
@@ -419,7 +421,9 @@ class TestRunIsolatedSemantics:
         parent_history: list[Any] = [{"role": "user", "content": "parent"}]
         parent_memory = MagicMock()
         parent_registry = _make_inner_registry(["a"])
-        cost_tracker = MagicMock()
+        from core.router import CostTracker
+
+        cost_tracker = CostTracker()
         cost_tracker.task_total = 1.5
         router = MagicMock()
         router.cost_tracker = cost_tracker
@@ -434,7 +438,7 @@ class TestRunIsolatedSemantics:
         async def _fake_run(
             goal: str, *, max_steps_override: int, is_user_input: bool
         ) -> AgentResponse:
-            cost_tracker.task_total = 0.3
+            cost_tracker.record("p", "m", 0, 0, 0.3)
             raise RuntimeError("boom")
 
         agent.run = _fake_run  # type: ignore[method-assign]
@@ -564,3 +568,51 @@ class TestConcurrentIsolationSafety:
         # ...and the parent's survived the round trip intact.
         assert agent._loop_detector is parent_detector
         assert parent_detector.distinct_calls == 1
+
+
+class TestConcurrentCostAccounting:
+    """Per-task spend must survive concurrent subagents.
+
+    ``_run_with_history`` calls ``reset_task()`` on entry to every run. With a
+    shared counter that meant each subagent zeroed the parent's accumulated
+    spend, and four concurrent ones erased its budget accounting entirely.
+    """
+
+    @pytest.mark.asyncio
+    async def test_concurrent_subagent_spend_rolls_up_without_loss(self) -> None:
+        import asyncio
+
+        from core.agent import Agent
+        from core.router import CostTracker
+
+        tracker = CostTracker()
+        tracker.task_total = 1.0  # the parent has already spent
+
+        agent = Agent.__new__(Agent)
+        agent._conversation_history = []
+        agent._working_memory = MagicMock()
+        agent._activated_tools = set()
+        agent._registry = _make_inner_registry(["a"])
+        agent._on_step = None
+        agent._loop_detector = None
+        agent._router = MagicMock()
+        agent._router.cost_tracker = tracker
+
+        async def fake_run(goal: str, **kwargs: Any) -> Any:
+            # Exactly what a real run does on entry.
+            tracker.reset_task()
+            tracker.record("p", "m", 0, 0, 0.25)
+            await asyncio.sleep(0.01)
+            # Each subagent sees only its own spend against its own budget.
+            assert tracker.effective_task_total == pytest.approx(0.25)
+            return MagicMock(content="ok", steps_taken=1, tool_calls_made=[])
+
+        agent.run = fake_run  # type: ignore[method-assign]
+
+        await asyncio.gather(*(agent.run_isolated(f"sub{i}") for i in range(4)))
+
+        # Parent keeps its own spend, plus every subagent's — none lost to a
+        # sibling's reset, none double-counted.
+        assert tracker.task_total == pytest.approx(1.0 + 4 * 0.25)
+        # Daily total is genuinely global and unaffected by isolation.
+        assert tracker.daily_total == pytest.approx(4 * 0.25)
