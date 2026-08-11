@@ -2200,6 +2200,40 @@ class EloPhantoDashboard(App):
             )
             self._repaint_panel("panel-agent")
 
+        elif event == "goal_checkpoint_failed":
+            title = msg.data.get("checkpoint_title", "")
+            order = msg.data.get("checkpoint_order", "")
+            reason = msg.data.get("reason", "")
+            attempts = int(msg.data.get("attempts") or 1)
+            # A repeat is the part worth surfacing: one failure is work,
+            # the third in a row is a loop the operator should look at.
+            repeat = f" [{_WARN}](attempt {attempts})[/]" if attempts > 1 else ""
+            self._add_event(
+                f"[black on {_WARN}] ✗ CP {order} [/] [{_DIM}]{title[:40]}[/]",
+                tag="AGT",
+            )
+            chat = self.query_one("#chat", RichLog)
+            chat.write(
+                f"  [{_WARN}]✗[/] [{_DIM}]checkpoint {order}:[/] "
+                f"[{_BRIGHT}]{title[:100]}[/]{repeat}\n"
+                f"    [{_DIM}]{reason[:160]}[/]"
+            )
+            self._repaint_panel("panel-agent")
+
+        elif event == "goal_revised":
+            revision = msg.data.get("revision", 1)
+            max_rev = msg.data.get("max_revisions", 3)
+            reason = msg.data.get("reason", "")
+            self._add_event(
+                f"[black on {_WARN}] ↺ REVISED {revision}/{max_rev} [/]", tag="AGT"
+            )
+            chat = self.query_one("#chat", RichLog)
+            chat.write(
+                f"  [{_WARN}]↺[/] [{_DIM}]plan revision {revision}/{max_rev} "
+                f"without progress:[/] [{_BRIGHT}]{reason[:160]}[/]"
+            )
+            self._repaint_panel("panel-agent")
+
         elif event == "goal_completed":
             goal = msg.data.get("goal", "")
             self._state.current_goal = ""

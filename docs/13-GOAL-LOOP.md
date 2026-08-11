@@ -22,7 +22,8 @@ This pairs with the metabolism signal (the `[COMPANY]` state line shows net incl
 | --- | --- |
 | **Approval pause-not-deny** | Timeout → re-ping once → goal/checkpoint `awaiting_approval`. Never silent deny, never soft-auto-approve. Operator yes resumes the same checkpoint. See `core/approval_wait.py`. |
 | **Kill criterion evaluation** | After checkpoint success/fail and on validate failure, numeric evidence (tool/SoR counts + age) can cancel the goal. Short `[kill_grace]` window allows undo. |
-| **Tool-grounded receipts** | `verify_checkpoint_receipt` must pass before `mark_checkpoint_complete`. Quantitative claims with empty tool trail fail closed. |
+| **Tool-grounded receipts** | `verify_checkpoint_receipt` must pass before `mark_checkpoint_complete`. Quantitative claims with empty tool trail fail closed. **Percentages are proportions, not counts** — see below. |
+| **No-progress guard** | Three consecutive evaluations calling for revision pauses the goal. Only a *goal-level* evaluation finding the goal on track resets the counter. |
 | **CRITICAL always-ask** | Under `full_auto` / per-tool `auto`, `PermissionLevel.CRITICAL` still asks. Use `permission_mode: nuclear` to skip CRITICAL prompts too (only `tool_overrides: ask` still forces a prompt). |
 | **GoalRunner context isolation** | `start_goal` clears inherited `in_agent_loop` so background goal work cannot skip `AGENT_LOOP` and run concurrent with Mind (2026-08-08 hang). |
 | **AGENT_LOOP hold ceiling** | `agent.max_agent_loop_seconds` (default 7200) cancels a wedged holder so REL always fires; chat cannot block forever behind a hung cycle. |
@@ -31,6 +32,41 @@ This pairs with the metabolism signal (the `[COMPANY]` state line shows net incl
 | **Instinct extract** | After a receipt-gated complete, optional few-shot instinct candidates (never force-applied). |
 
 Tests: `tests/test_core/test_autonomy_hardening.py`.
+
+### Two ways a goal used to loop forever, silently
+
+Both were found by reading a 7-hour log on 2026-08-11, because neither
+surfaced anywhere else.
+
+**A percentage is not a count.** The receipt gate pulled every number out of
+the success criteria and demanded each appear literally in the tool
+evidence. `"A manifest covers 100% of discovered files"` yielded `100`, but
+a run that genuinely covered all 37 files wrote *"37"* into the trail —
+never `100`. Any criterion whose only number was a percentage was therefore
+unsatisfiable, and the checkpoint could never pass however well the work was
+done. One goal spent three hours failing the same receipt and escaped only
+by rewriting the criterion to drop the "100%" wording — routing around the
+gate rather than satisfying it. Percentages are now separated from counts:
+a proportion requires the evidence to contain *some* count (you cannot
+claim a fraction of a set you never enumerated), while counts still need a
+word-boundary match. The count rule stays deliberately lenient — one
+grounded count is enough — because it is a smell test for soft-completion,
+and a stricter rule refuses honest work over phrasing, which is the failure
+that caused the loop in the first place.
+
+**The no-progress guard was dead code.** `revisions_without_progress` reset
+on every *completed checkpoint*, but evaluation only runs after two
+checkpoints complete — so each evaluation was preceded by two resets and the
+counter read `1/3` forever. `_MAX_REVISIONS_WITHOUT_PROGRESS = 3` was
+unreachable and the pause branch had never once executed. One goal revised
+13 times across 2 hours and 55 completed checkpoints, every log line saying
+`1/3`, and stopped only when the wall-clock budget cap tripped. The two
+senses of "progress" disagree, and checkpoint-level was the wrong one: a
+goal can tick off checkpoints indefinitely while going nowhere.
+
+Tests: `tests/test_core/test_checkpoint_receipt_percent.py`,
+`tests/test_core/test_goal_stall_guard.py`,
+`tests/test_core/test_goal_failure_events.py`.
 
 ## How Goal Creation is Triggered
 
@@ -165,9 +201,18 @@ Two XML sections are added to the system prompt via `build_system_prompt()`:
 
 ### Protocol Events
 
-Six `EventType` values for gateway event propagation:
+Eight `EventType` values for gateway event propagation:
 
-- `GOAL_STARTED`, `GOAL_CHECKPOINT_COMPLETE`, `GOAL_COMPLETED`, `GOAL_FAILED`, `GOAL_PAUSED`, `GOAL_RESUMED`
+- `GOAL_STARTED`, `GOAL_CHECKPOINT_COMPLETE`, `GOAL_CHECKPOINT_FAILED`, `GOAL_REVISED`, `GOAL_COMPLETED`, `GOAL_FAILED`, `GOAL_PAUSED`, `GOAL_RESUMED`
+
+Only successes used to be broadcast. Receipt-gate refusals, checkpoint
+timeouts and plan revisions were `logger.warning` only, so from any channel
+a goal failing the same checkpoint for the fifth time looked exactly like a
+goal thinking — the operator's only way to find out was to read the log
+file. `GOAL_CHECKPOINT_FAILED` carries `reason` and `attempts` (one failure
+is work; the third in a row is a loop), and `GOAL_REVISED` carries
+`revision`/`max_revisions` so a plan going in circles is visible while it
+happens rather than afterwards.
 
 ### Skill
 
@@ -249,7 +294,7 @@ Each LLM call increments `goal.llm_calls_used`. Before every call, `check_budget
 | `core/registry.py` | Goal tool registration |
 | `core/database.py` | goals + goal_checkpoints DDL |
 | `core/config.py` | GoalsConfig dataclass (includes background execution safety limits) |
-| `core/protocol.py` | Goal event types (6 events) |
+| `core/protocol.py` | Goal event types (8 events) |
 | `cli/gateway_cmd.py` | GoalRunner gateway wiring + startup resume |
 | `cli/goals_cmd.py` | `elophanto goals` CLI (list / show / cancel / pause / delete) |
 | `tests/test_core/test_goal_runner.py` | GoalRunner tests (12 tests) |
@@ -260,7 +305,7 @@ When the autonomous mind is enabled (`autonomous_mind.enabled: true`), it coordi
 
 - **Goal resumption**: The mind's priority stack places active goals at the top. On wakeup, if a goal has a pending checkpoint, the mind resumes it instead of starting independent work.
 - **Pause/resume symmetry**: Both the goal runner and the mind pause on user interaction (`notify_user_interaction()`) and resume on task completion (`notify_task_complete()`). They share the same lifecycle pattern.
-- **Event feedback**: Goal lifecycle events (checkpoint complete, goal complete, goal failed) are broadcast through the gateway. The mind sees these as pending events on its next wakeup cycle.
+- **Event feedback**: Goal lifecycle events (checkpoint complete *and failed*, plan revised, goal complete, goal failed) are broadcast through the gateway. The mind sees these as pending events on its next wakeup cycle.
 - **History isolation**: Both systems isolate their conversation history from user chat — saving, clearing, and restoring `_conversation_history` around each execution cycle.
 
 See `26-AUTONOMOUS-MIND.md` for the full autonomous mind design.

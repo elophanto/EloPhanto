@@ -18,6 +18,16 @@ _QUANT_RE = re.compile(
     r"customer|commit|loi|pilot|order|click|star|follower))"
 )
 _NUMBER_RE = re.compile(r"\b(\d{1,7})\b")
+# A percentage is a *proportion*, not a count, and cannot be checked by
+# looking for its digits in the evidence. "A manifest covers 100% of
+# discovered files" is satisfied by a trail reading "found 37 files, wrote
+# 37 entries" — the digits 100 never appear anywhere. Counting percentages
+# as counts made any criterion whose only number was a percentage
+# unsatisfiable, so the checkpoint could never pass however well the agent
+# did the work. Observed 2026-08-11: one goal spent three hours failing the
+# same receipt, and escaped only by rewriting the criterion to drop the
+# "100%" wording — routing around the gate rather than satisfying it.
+_PERCENT_RE = re.compile(r"\d{1,3}(?:\.\d+)?\s*%")
 
 
 @dataclass(frozen=True)
@@ -89,26 +99,33 @@ def verify_checkpoint_receipt(
         or "paying" in criteria.lower()
         or re.search(r"\b\d+\b", criteria)
     ):
-        nums = [int(n) for n in _NUMBER_RE.findall(criteria)]
+        # Take percentages out before reading counts, so "100%" never
+        # becomes a demand for the literal digits 100 in the evidence.
+        percents = _PERCENT_RE.findall(criteria)
+        counts = [int(n) for n in _NUMBER_RE.findall(_PERCENT_RE.sub(" ", criteria))]
         # Ignore years / huge IDs.
-        nums = [n for n in nums if 1 <= n <= 100_000]
-        if nums:
-            missing = []
-            for n in nums:
-                # Accept exact digit or evidence that mentions the count.
-                if str(n) not in grounded:
-                    missing.append(n)
-            if missing and not any(re.search(rf"\b{n}\b", grounded) for n in nums):
+        counts = [n for n in counts if 1 <= n <= 100_000]
+
+        if counts:
+            # Deliberately lenient: one grounded count is enough. This is a
+            # smell test for soft-completion, not a proof of the claim, and
+            # a stricter rule would refuse honest work over phrasing —
+            # which is the failure that produced the three-hour loop.
+            if not any(re.search(rf"\b{n}\b", grounded) for n in counts):
                 return ReceiptVerdict(
                     False,
                     f"quantitative criteria {criteria!r} not grounded in tool/SoR "
-                    f"evidence (missing counts {missing})",
+                    f"evidence (no count from {counts} appears)",
                 )
-            # Soft pass if at least one claimed number appears.
-            if all(str(n) not in grounded for n in nums):
+        if percents and not counts:
+            # A proportion over a set can only be claimed by someone who
+            # enumerated the set, and enumerating leaves a number in the
+            # trail. Require that, or the proportion stated literally.
+            if not re.search(r"\d", grounded):
                 return ReceiptVerdict(
                     False,
-                    f"no claimed count from {nums} found in tool/SoR evidence",
+                    f"proportion criteria {criteria!r} not grounded — evidence "
+                    f"contains no counts at all, so nothing was enumerated",
                 )
 
     # Qualitative: require overlap tokens from criteria in grounded text,

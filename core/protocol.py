@@ -67,6 +67,10 @@ class EventType(StrEnum):
     NOTIFICATION = "notification"
     GOAL_STARTED = "goal_started"
     GOAL_CHECKPOINT_COMPLETE = "goal_checkpoint_complete"
+    # Only successes used to be broadcast, so a goal failing the same
+    # checkpoint for the fifth time looked exactly like a goal thinking.
+    GOAL_CHECKPOINT_FAILED = "goal_checkpoint_failed"
+    GOAL_REVISED = "goal_revised"
     GOAL_COMPLETED = "goal_completed"
     GOAL_FAILED = "goal_failed"
     GOAL_PAUSED = "goal_paused"

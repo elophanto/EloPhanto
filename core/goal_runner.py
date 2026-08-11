@@ -216,14 +216,23 @@ class GoalRunner:
         start_time = time.monotonic()
         checkpoints_since_eval = 0
         # Revision-without-progress counter. Increments on every
-        # revise_plan call; resets every time a checkpoint actually
-        # completes. If we revise more than this many times without
-        # ANY forward progress, the plan is producing self-
-        # contradictory revisions (observed on AlphaScala 2026-05-20:
-        # 4+ revisions in 4h, each saying "Day 1 incomplete BUT
-        # checkpoint 8 says Day 1 is already verified") and grinding
-        # the loop further is pure cost. Pause the goal so the
-        # operator can inspect or supersede.
+        # revise_plan call; resets when an evaluation finds the goal
+        # actually on track. If we revise this many times without
+        # goal-level progress, the plan is producing self-contradictory
+        # revisions (observed on AlphaScala 2026-05-20: 4+ revisions in
+        # 4h, each saying "Day 1 incomplete BUT checkpoint 8 says Day 1
+        # is already verified") and grinding the loop further is pure
+        # cost. Pause the goal so the operator can inspect or supersede.
+        #
+        # It used to reset on every completed checkpoint, which made it
+        # dead: evaluation runs only after two checkpoints complete, and
+        # each of those completions zeroed the counter — so it read 1/3
+        # forever and the pause below never once fired. The two senses of
+        # "progress" disagree, and checkpoint-level was the wrong one:
+        # a goal can tick off checkpoints indefinitely while going
+        # nowhere. Observed 2026-08-11: 13 revisions and 55 completed
+        # checkpoints over two hours, every log line saying 1/3, stopped
+        # only by the wall-clock budget cap.
         revisions_without_progress = 0
         _MAX_REVISIONS_WITHOUT_PROGRESS = 3
 
@@ -313,7 +322,6 @@ class GoalRunner:
 
                 if success:
                     checkpoints_since_eval += 1
-                    revisions_without_progress = 0
                     await self._broadcast_event(
                         EventType.GOAL_CHECKPOINT_COMPLETE,
                         {
@@ -347,7 +355,11 @@ class GoalRunner:
                     goal = await self._gm.get_goal(goal_id)
                     if goal:
                         evaluation = await self._gm.evaluate_progress(goal)
-                        if evaluation.revision_needed:
+                        if not evaluation.revision_needed:
+                            # The only thing that counts as progress here:
+                            # an evaluation that finds the goal on track.
+                            revisions_without_progress = 0
+                        else:
                             revisions_without_progress += 1
                             logger.info(
                                 "Goal %s needs revision (%d/%d without progress): %s",
@@ -356,16 +368,25 @@ class GoalRunner:
                                 _MAX_REVISIONS_WITHOUT_PROGRESS,
                                 evaluation.reason,
                             )
+                            await self._broadcast_event(
+                                EventType.GOAL_REVISED,
+                                {
+                                    "goal_id": goal_id,
+                                    "revision": revisions_without_progress,
+                                    "max_revisions": _MAX_REVISIONS_WITHOUT_PROGRESS,
+                                    "reason": evaluation.reason,
+                                },
+                            )
                             if (
                                 revisions_without_progress
-                                > _MAX_REVISIONS_WITHOUT_PROGRESS
+                                >= _MAX_REVISIONS_WITHOUT_PROGRESS
                             ):
                                 await self._pause_goal(
                                     goal_id,
                                     f"Plan revised {revisions_without_progress} "
-                                    f"times without any checkpoint completing — "
-                                    f"likely self-contradictory revisions. "
-                                    f"Operator should inspect, supersede, or cancel.",
+                                    f"times without goal-level progress — likely "
+                                    f"self-contradictory revisions. Operator "
+                                    f"should inspect, supersede, or cancel.",
                                 )
                                 return
                             await self._gm.revise_plan(goal, evaluation.reason)
@@ -488,6 +509,9 @@ class GoalRunner:
                     checkpoint.order,
                     f"receipt_gate: {verdict.reason}",
                 )
+                await self._broadcast_checkpoint_failed(
+                    goal, checkpoint, f"receipt gate: {verdict.reason}"
+                )
                 return False
 
             await self._gm.mark_checkpoint_complete(
@@ -566,6 +590,9 @@ class GoalRunner:
                 )
                 await self._gm.mark_checkpoint_failed(
                     goal.goal_id, checkpoint.order, "Checkpoint timed out"
+                )
+                await self._broadcast_checkpoint_failed(
+                    goal, checkpoint, "timed out"
                 )
                 return False
             logger.error(
@@ -700,6 +727,27 @@ class GoalRunner:
             "UPDATE goal_checkpoints SET status = 'pending' "
             "WHERE goal_id = ? AND checkpoint_order = ?",
             (goal_id, order),
+        )
+
+    async def _broadcast_checkpoint_failed(
+        self, goal: Any, checkpoint: Any, reason: str
+    ) -> None:
+        """Tell the operator a checkpoint failed, and how many times.
+
+        Successes were broadcast and failures were not, so from any channel
+        a goal failing the same checkpoint for the fifth time was
+        indistinguishable from a goal thinking. The attempt count is the
+        part that matters — one failure is work, five is a loop.
+        """
+        await self._broadcast_event(
+            EventType.GOAL_CHECKPOINT_FAILED,
+            {
+                "goal_id": goal.goal_id,
+                "checkpoint_order": checkpoint.order,
+                "checkpoint_title": checkpoint.title,
+                "reason": reason,
+                "attempts": getattr(checkpoint, "attempts", 0) + 1,
+            },
         )
 
     async def _broadcast_event(

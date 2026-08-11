@@ -170,6 +170,8 @@ class CLIAdapter(ChannelAdapter):
         elif event in (
             "goal_started",
             "goal_checkpoint_complete",
+            "goal_checkpoint_failed",
+            "goal_revised",
             "goal_completed",
             "goal_failed",
             "goal_paused",
@@ -373,6 +375,27 @@ class CLIAdapter(ChannelAdapter):
             order = data.get("checkpoint_order", "")
             console.print(
                 f"  [black on {_C_SUCCESS}] \u2713 CHECKPOINT {order} [/] {title}"
+            )
+        elif event == "goal_checkpoint_failed":
+            title = data.get("checkpoint_title", "")
+            order = data.get("checkpoint_order", "")
+            reason = data.get("reason", "")
+            attempts = data.get("attempts", 1)
+            # Repeats are the signal worth reading \u2014 one failure is work,
+            # the third in a row is a loop the operator should look at.
+            repeat = f" [{_C_WARN}](attempt {attempts})[/]" if attempts > 1 else ""
+            console.print(
+                f"  [black on {_C_WARN}] \u2717 CHECKPOINT {order} [/] {title[:60]}"
+                f"{repeat}\n    [{_C_DIM}]{reason[:150]}[/]"
+            )
+        elif event == "goal_revised":
+            revision = data.get("revision", 1)
+            max_rev = data.get("max_revisions", 3)
+            reason = data.get("reason", "")
+            console.print(
+                f"  [black on {_C_WARN}] \u21ba REVISED [/] [{_C_DIM}]({goal_id})[/]"
+                f"  plan revision {revision}/{max_rev} without progress"
+                f"\n    [{_C_DIM}]{reason[:150]}[/]"
             )
         elif event == "goal_completed":
             console.print(
