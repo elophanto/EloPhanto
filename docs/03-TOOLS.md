@@ -345,8 +345,9 @@ Controls how many seconds until the autonomous mind's next think cycle. The LLM 
 
 - **Permission**: `safe`
 - **Input**: `seconds` (integer, 60-3600 — clamped to config min/max), `reason` (string, optional)
-- **Output**: `next_wakeup_seconds` (integer), `reason` (string)
+- **Output**: `next_wakeup_seconds` (integer or `null`), `reason` (string), `running` (bool), `note` (string, only when stopped)
 - **Behavior**: Sets `_next_wakeup_sec` on the AutonomousMind instance. Shorter intervals (60-120s) for active monitoring, longer (600-1800s) when idle.
+- **Cannot start the mind.** When the mind is stopped it schedules nothing, returns `next_wakeup_seconds: null`, and says so. It used to call `mind.start()`, which let the agent switch on its own autonomy mid-goal while the operator had it disabled — see [07-SECURITY.md](07-SECURITY.md#the-agent-may-not-switch-its-own-autonomy-on).
 
 #### `update_scratchpad`
 

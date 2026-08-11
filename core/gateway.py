@@ -1773,6 +1773,16 @@ class Gateway:
         }
     )
 
+    def _autonomy_enabled(self) -> bool:
+        """Is `autonomous_mind.enabled` set? Not: does the mind object exist.
+
+        Both start paths used to guard on the object, which is constructed at
+        boot whatever the flag says — so neither guard ever fired. Off means
+        off, and this is the thing that says so.
+        """
+        cfg = getattr(getattr(self._agent, "_config", None), "autonomous_mind", None)
+        return bool(cfg and cfg.enabled)
+
     async def _handle_command(
         self, client: ClientConnection, msg: GatewayMessage
     ) -> None:
@@ -1886,8 +1896,17 @@ class Gateway:
         elif command == "mind":
             mind = getattr(self._agent, "_autonomous_mind", None)
             sub = (msg.data.get("args") or {}).get("subcommand", "").strip()
+            # The AutonomousMind object is constructed at boot regardless of
+            # the flag, so `not mind` was never true and this branch never
+            # fired — `/mind start` could start a mind the operator had
+            # disabled. Check the setting the message actually names.
             if not mind:
                 text = "Autonomous mind is not enabled. Set `autonomous_mind.enabled: true` in config.yaml."
+            elif sub == "start" and not self._autonomy_enabled():
+                text = (
+                    "Autonomous mode is off. Set `autonomous_mind.enabled: true` "
+                    "in config.yaml and restart — there is no in-band override."
+                )
             elif sub == "stop":
                 await mind.cancel()
                 text = "Autonomous mind stopped."
@@ -1992,6 +2011,13 @@ class Gateway:
 
             if not mind:
                 result["error"] = "Autonomous mind is not enabled"
+            elif action == "start" and not self._autonomy_enabled():
+                # Same wrong-guard bug as the /mind command above: the object
+                # always exists, so this start button ignored the setting.
+                result["error"] = (
+                    "Autonomous mode is off. Set autonomous_mind.enabled: true "
+                    "in config.yaml and restart."
+                )
             elif action == "start":
                 if mind.is_running:
                     result = {"ok": True, "message": "Already running"}

@@ -467,6 +467,18 @@ class AutonomousMind:
 
     async def start(self) -> bool:
         """Launch the autonomous mind background task."""
+        # The switch is enforced here, at the one place that actually
+        # starts the loop, so no caller can be the exception. Callers used
+        # to carry this check themselves and two of them got it wrong —
+        # both gateway guards tested whether this object existed, and it is
+        # always constructed. Off means off, from every direction.
+        if not self._config.enabled:
+            logger.warning(
+                "Refusing to start autonomous mind: autonomous_mind.enabled "
+                "is false. Only the operator can change that, in config.yaml."
+            )
+            return False
+
         if self.is_running:
             logger.warning("Autonomous mind already running")
             return False

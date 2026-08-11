@@ -468,6 +468,11 @@ A dedicated slash command to inspect mind state on demand:
 
 This works on all channels — CLI, Telegram (`/mind`), Discord (`/mind`), Slack (`/mind`).
 
+`/mind stop` and `/mind` (status) always work. `/mind start` only works when
+`autonomous_mind.enabled: true` — the switch is the operator's, and there is
+no in-band way around it. See
+[07-SECURITY.md](07-SECURITY.md#the-agent-may-not-switch-its-own-autonomy-on).
+
 ### Notification Levels
 
 Users can control how much mind activity they see:

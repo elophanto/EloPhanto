@@ -316,12 +316,34 @@ whenever the loop was stopped, so the agent booted its own unattended loop
 mid-goal — reason `"Continue the active private writing-learning goal"` —
 while the operator had `enabled: false`.
 
-Scheduling the next cycle and starting the loop are now separate acts.
-Adjusting the interval of a running mind stays SAFE. Starting a mind the
-operator disabled requires `start_if_stopped: true`, which is CRITICAL and
-prompts. That keeps "turn on autonomous mode" working from chat — the
-operator approves it — while removing the path where wanting to continue its
-own work is sufficient reason to override a setting they chose.
+**Off means off.** Not "off unless the agent asks nicely", and not "off unless
+someone clears an approval prompt" — a setting a sufficiently motivated caller
+can talk its way past is not a setting. `set_next_wakeup` now only paces a mind
+that is *already* running; when the mind is stopped it schedules nothing and
+says so. Turning autonomy on is a config change the operator makes
+deliberately, followed by a restart. There is no in-band path to it.
+
+Three routes could start a disabled mind, and all three are closed:
+
+| Route | Was | Now |
+|---|---|---|
+| `set_next_wakeup` | called `mind.start()` whenever the loop was stopped | paces a running mind only; no start path at all |
+| `/mind start` | guarded on `if not mind` | guarded on `autonomous_mind.enabled` |
+| dashboard start button | guarded on `if not mind` | guarded on `autonomous_mind.enabled` |
+
+Both gateway guards read whether the `AutonomousMind` *object* existed. It is
+constructed at boot regardless of the flag, so those branches never fired and
+their "not enabled" message was unreachable — the guard tested object lifetime
+where it meant to test a setting. Checking the flag itself is the fix; checking
+that a thing exists is never a check on whether it is permitted.
+
+Three call sites each carrying the check is three chances to get it wrong, and
+two of them had. So `AutonomousMind.start()` now refuses on its own when the
+flag is false, at the one place that actually creates the loop task — no
+caller, present or future, is the exception. `resume_on_startup()` already
+checked, and still does. Stopping is never gated: `/mind stop`, the dashboard
+stop button and `stop --hard` all work regardless, because off is a floor and
+not a lock. `tests/test_core/test_gateway_mind_guard.py` pins all four paths.
 
 ## Self-Development Security
 
