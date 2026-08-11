@@ -228,7 +228,7 @@ sudo apt install -y nodejs
 - **Read [01-PROJECT-OVERVIEW.md](01-PROJECT-OVERVIEW.md)** — Understand architecture
 - **`elophanto help`** — Task-oriented cheat-sheet (`config`, `run`, `goals`, `vault`, `abe`, ...)
 - **Explore tools** — Run `./start.sh` and type "list tools"
-- **Try skills** — Run `./start.sh skills list` to see 120+ bundled skills
+- **Try skills** — Run `./start.sh skills list` to see 182 bundled skills
 - **Join community** — Star repo on GitHub, report issues, contribute
 
 ---

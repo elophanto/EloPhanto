@@ -211,6 +211,102 @@ auto_approve:
 
 The user can customize these rules. The rules themselves require user approval to modify (even the agent can't change permission rules without asking).
 
+## Self-Owned Scope Guard
+
+Permission modes answer *"may this caller drive the agent?"*. They never
+answer *"is this target the operator's to change?"* — and once the agent holds
+credentials, those are different questions. Cancelling your own booking and
+cancelling a stranger's are the same shape of request, made with the same
+token, against the same host.
+
+`core/scope_guard.py` adds the missing axis. It classifies the **target** of
+an action (owned / third-party / unknown) and crosses it with how reversible
+the action is (read / write / destructive):
+
+|            | read | write | destructive |
+|------------|------|-------|-------------|
+| owned      | run  | run   | ask         |
+| declared   | run  | ask   | **refuse**  |
+| unknown    | run  | ask   | **refuse**  |
+| *foreign account path* | run | ask | **refuse, no prompt** |
+
+Destructive actions against systems not declared in `data/owned_scope.yaml`
+are **refused rather than prompted**. That is deliberate: an approval dialog
+is not an authorization to destroy a third party's data, and approval fatigue
+makes "yes" the default answer to the twentieth prompt of the day.
+
+"Destructive" is not just `DELETE` — plenty of APIs delete via `POST`, so
+paths containing delete/revoke/ban/refund count too. "Foreign account" is a
+path addressing another person's record (`/users/8813/…` rather than
+`/users/me/…`).
+
+Legitimate authorized testing stays possible by recording who authorized it
+and the agreed scope under `authorizations`, rather than by switching the
+guard off. An empty or absent file is safe: nothing is owned, so every
+destructive external call is refused. Template: `owned_scope.demo.yaml`.
+Manage with `elophanto oauth scope`. Full detail: [84](84-ACTION-LAYER.md).
+
+## Credential Broker
+
+The vault stores secrets; the broker governs how they are *used*. It exists
+because `vault_lookup` hands the plaintext to the model, which puts it in the
+transcript, the logs, and the next prompt.
+
+`core/credentials.py` resolves a slug under per-item policy (`auto` /
+`approve` / `deny`, with optional TTL grants so a six-call workflow prompts
+once) and returns a `SecretString` whose `str()` and `repr()` are redacted.
+The value travels through tool params as an opaque sentinel
+(`«cred:ab12cd34»`) and is substituted in **at the socket and nowhere else**.
+Responses are scrubbed on the way back, in case a service echoes the token.
+Every resolve — granted, denied, or auto — is written to `credential_audit`
+with the caller's stated reason. Values are never logged.
+
+No approval callback means no credential: failing closed is the only safe
+default, since silently granting would make the policy a lie.
+
+This is separate from LLM provider keys, which stay in `config.yaml` under
+`llm.providers` and are read by the router. Keeping the two apart is
+intentional — one is the agent's own key, the other is a credential it wields
+against a third party on the operator's behalf.
+
+## Outbound Network Policy
+
+`core/net_policy.py` blocks loopback, RFC1918, link-local (including
+`169.254.169.254`, the cloud metadata endpoint), CGNAT, multicast and the
+IPv6 equivalents, and unwraps IPv4-mapped / 6to4 / NAT64 addresses so the same
+target cannot be smuggled through a different encoding. Hostnames are resolved
+before the decision, which closes the DNS-rebinding shape.
+
+Redirects are followed **by hand**, re-validating every hop — httpx's own
+redirect handling resolves the next hop without consulting policy, which is
+exactly the hole an SSRF chain walks through. `Authorization` and `Cookie` are
+dropped on cross-origin redirect.
+
+If a fetched page instructs the agent to call one of these addresses, that is
+prompt injection, and the refusal message says so.
+
+## Telling the Operator What Is Running
+
+A control surface the operator cannot see is not a control surface.
+
+The spawn-tier status tools (`swarm_status`, `kid_list`,
+`organization_status`) do not see the loops that start themselves: the goal
+runner — which resumes an active goal on **every startup** — the heartbeat,
+the autonomous mind, and the scheduler. Reporting "nothing is running" from
+the spawn tiers alone was false while the goal runner sat mid-checkpoint.
+
+`runtime_status` (CORE tier, so it survives every profile trim) reports all of
+them with live state, plus the kill-switch state, and carries the exact stop
+command for each. Auto-resume is intended behaviour for a persistent agent;
+concealing it is not, and being told without a lever to act is worse.
+
+| Command | Effect |
+|---|---|
+| `stop` | cancels the current run, this session only |
+| `stop --hard` | writes the STOP sentinel; every loop halts at its next checkpoint |
+| `stop --cancel-goals` | also cancels active goals |
+| `elophanto resume` | clears the sentinel |
+
 ## Self-Development Security
 
 ### Dependency Auditing

@@ -26,13 +26,13 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 04 | [Self-Development Pipeline](04-SELF-DEVELOPMENT.md) | How agent builds and tests new capabilities |
 | 05 | [Knowledge System](05-KNOWLEDGE-SYSTEM.md) | Markdown knowledge base, indexing, retrieval, self-documentation |
 | 06 | [LLM Routing](06-LLM-ROUTING.md) | Multi-model strategy, provider config, cost management |
-| 07 | [Security Architecture](07-SECURITY.md) | Vault, permission modes (`ask_always` → `nuclear`), overrides, credential isolation, threat model |
+| 07 | [Security Architecture](07-SECURITY.md) | Vault, permission modes (`ask_always` → `nuclear`), the self-owned-scope guard (destructive-on-not-yours is refused, not prompted), the credential broker (sentinels, per-slug policy, audit), outbound SSRF policy, `runtime_status` + the stop levers, threat model |
 | 08 | [Browser Automation](08-BROWSER.md) | Node.js bridge, Playwright + stealth, profile mode, 47 browser tools, iframe extraction, editor detection |
 | 09 | [Project Structure](09-PROJECT-STRUCTURE.md) | Directory layout, tech stack, database schema, dependencies |
 | 10 | [Implementation Roadmap](10-ROADMAP.md) | 23-phase build plan with exit criteria for each phase |
 | 11 | [Telegram Integration](11-TELEGRAM.md) | Bot setup, commands, approvals, notifications, security |
 | 12 | [Installer & First-Run Setup](12-INSTALLER.md) | One-command install, setup wizard, platform support, updates |
-| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 157+ bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry, product launch/press/validation/TDD playbooks |
+| 13 | [Skills System](13-SKILLS.md) | SKILL.md convention, 182 bundled skills, 75 organization role templates, trigger matching, EloPhantoHub registry, product launch/press/validation/TDD playbooks |
 | 13b | [Autonomous Goal Loop](13-GOAL-LOOP.md) | Multi-phase goals, checkpoints, kill criteria, validate-first gate, receipt-gated complete, approval pause-not-deny, budget_paused |
 | 14 | [Self-Learning Model](14-SELF-LEARNING.md) | Custom model training pipeline, Unsloth, HuggingFace, automated dataset, continuous improvement (idea phase) |
 | 15 | [Agent Payments](15-PAYMENTS.md) | Fiat + crypto payments, spending limits, approval flow, audit trail |
@@ -55,7 +55,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 32 | [Agent Commune](32-AGENT-COMMUNE.md) | Social platform for AI agents, posts, comments, votes, reputation building |
 | 33 | [OSWorld](33-OSWORLD.md) | Desktop GUI agent benchmark, 369 tasks across Ubuntu/Windows/macOS |
 | 35 | [Replicate Image Generation](35-REPLICATE-IMAGE-GENERATION.md) | AI image generation via Replicate API |
-| 36 | [Tool Profiles](36-TOOL-PROFILES.md) | Dynamic tool filtering per request to stay within provider limits and reduce noise |
+| 36 | [Tool Profiles](36-TOOL-PROFILES.md) | Dynamic tool filtering per request. **Read the Reachability section before adding a tool** — declaring a group does not expose it, and that mistake has silently killed shipped features five times |
 | 37 | [Autonomous Experimentation](37-AUTONOMOUS-EXPERIMENTATION.md) | Autonomous overnight experiments, inspired by autoresearch |
 | 38 | [Cross-Session Search](38-SESSION-SEARCH.md) | FTS5-based full-text search across past conversation sessions |
 | 39 | [Code Execution Sandbox](39-CODE-EXECUTION-SANDBOX.md) | Sandboxed Python execution with RPC tool access for multi-step orchestration |
@@ -115,7 +115,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 
 **How it controls the browser**: A Node.js bridge spawns real Chrome (Playwright + stealth plugin) with the user's copied profile. In profile mode, existing sessions and cookies are preserved — no re-authentication needed. 47 browser tools cover navigation, clicking, typing, scrolling, screenshots, console/network inspection, and more.
 
-**How it learns best practices**: 181 bundled skills (SKILL.md files) teach the agent best practices for specific task types — Python, TypeScript, Next.js, Supabase, browser automation, UI design, marketing, project management, testing, spatial computing, and more. 75 organization role templates provide full persona definitions for specialist agents spawned via `organization_spawn`. Skills are loaded on-demand before starting a task. Install more from [ui-skills.com](https://www.ui-skills.com/), [anthropics/skills](https://github.com/anthropics/skills), EloPhantoHub (`elophanto skills hub search`), or any repo using the SKILL.md convention.
+**How it learns best practices**: 182 bundled skills (SKILL.md files) teach the agent best practices for specific task types — Python, TypeScript, Next.js, Supabase, browser automation, UI design, marketing, project management, testing, spatial computing, and more. 75 organization role templates provide full persona definitions for specialist agents spawned via `organization_spawn`. Skills are loaded on-demand before starting a task. Install more from [ui-skills.com](https://www.ui-skills.com/), [anthropics/skills](https://github.com/anthropics/skills), EloPhantoHub (`elophanto skills hub search`), or any repo using the SKILL.md convention.
 
 **How it scales work**: Spawn persistent specialist child agents via the Organization system, delegate tasks to coding swarms (Claude Code, Codex, Gemini CLI), run autonomous experiments overnight, deploy websites and databases from conversation, and execute sandboxed Python scripts with tool access for complex multi-step orchestration.
 

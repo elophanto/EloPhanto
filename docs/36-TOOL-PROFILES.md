@@ -1,8 +1,67 @@
 # EloPhanto — Tool Profiles
 
+> **Status: shipped.** The design below was a proposal; it is now the live
+> mechanism in `core/tool_profiles.py`. The tables in the proposal sections
+> are kept for the reasoning, but they no longer list every group — treat
+> `DEFAULT_PROFILES` as the source of truth and the "Reachability" section
+> immediately below as the operational rule.
+
+## Reachability — the trap this doc got wrong
+
+An earlier version of this document claimed:
+
+> Adding a new tool only requires declaring its group; profiles auto-include it.
+
+**That is false, and believing it has broken shipped features five times.**
+A PROFILE-tier tool reaches the LLM only when its `group` appears in the
+active profile's `allowed_groups`. Declaring a group does nothing on its own.
+Registering a tool and exposing it are separate steps, and nothing in the type
+system ties them together.
+
+The failure is silent and convincing: the tool imports, registers, passes its
+unit tests (which instantiate it directly and never touch profile filtering),
+appears in `capabilities.md`, and is simply never offered to the model. It
+looks exactly like a working feature until someone reads a live log and
+notices it is never called.
+
+Casualties before the guard existed: the ABE management tools, missions,
+prospecting, watch, then the entire action layer (`http_request`, `gmail`,
+`node_*`, `panel_*`), and 33 tools across `ambient` (the whole anticipation
+organ), `polymarket`, `solana`, `jobs` and `affect`.
+
+`tests/test_core/test_tool_profiles_coverage.py` now fails when:
+
+- a PROFILE-tier group is missing from `full`,
+- a profile names a group no tool declares,
+- a key tool drops out of the `planning` surface,
+- or `planning` grows past the provider-cap ceiling.
+
+**When you add a tool:** put its group in `full` (that is what makes it
+reachable at all), and in `planning` if the agent loop should reach it by
+default. `full` is the superset; `planning` is what the loop and the
+autonomous mind actually run under, so `full`-only means "reachable via
+tool_discover or an explicit profile", not "working".
+
+## Live profiles
+
+| Profile | Used for | Tools |
+|---|---|---|
+| `minimal` | `analysis`, `simple` task types | ~30 |
+| `coding` | code generation and review | 39 |
+| `browsing` | web research | — |
+| `research` | competitor analysis, market scans | 86 |
+| `planning` | **the agent loop and the autonomous mind** | 202 |
+| `full` | default fallback; the superset | 252 |
+
+`planning` is deliberately thinner than `full` — the prompt diet keeps
+desktop, swarm, org, mcp, social, media and payments out of it. Those stay
+reachable through `tool_discover`. `test_prompt_diet.py` pins that split, so
+widening it is a deliberate act rather than a drive-by.
+
+
 ## Problem
 
-EloPhanto exposes 284 tools to the LLM. Some providers enforce hard limits on the number of tools per request (e.g. OpenAI caps at 128). Even without a hard cap, sending every tool on every request wastes tokens and dilutes the model's attention — a coding task doesn't need payment tools, and a browser task doesn't need desktop tools.
+EloPhanto exposes 287 tools to the LLM. Some providers enforce hard limits on the number of tools per request (e.g. OpenAI caps at 128). Even without a hard cap, sending every tool on every request wastes tokens and dilutes the model's attention — a coding task doesn't need payment tools, and a browser task doesn't need desktop tools.
 
 ## Current Approach: Priority-Based Trimming
 
@@ -148,7 +207,7 @@ The router applies these in order:
 
 - **Token efficiency** — Models see only relevant tools, improving response quality
 - **Provider compatibility** — Stays under provider-specific limits without blind truncation
-- **Extensibility** — Adding a new tool only requires declaring its group; profiles auto-include it
+- **Extensibility** — Adding a new tool requires declaring its group AND adding that group to the profiles that should offer it. Profiles do NOT auto-include new groups; see "Reachability" above.
 - **Transparency** — Logs show which profile was activated and how many tools were sent
 
 ### Migration Path
