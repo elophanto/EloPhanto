@@ -100,10 +100,10 @@ class TestProxyConfigParsing:
             {
                 "enabled": True,
                 "type": "socks5",
-                "host": "86.109.84.59",
+                "host": "203.0.113.10",
                 "port": 12323,
-                "username": "14acbb4d2e0d2",
-                "password": "4376fd52bf",
+                "username": "proxy-user",
+                "password": "proxy-pass",
                 "bypass": ["*.internal", "example.com"],
                 "apply_to": ["browser", "web_search"],
             },
@@ -111,15 +111,15 @@ class TestProxyConfigParsing:
         loaded = load_config(path)
         assert loaded.proxy.enabled is True
         assert loaded.proxy.type == "socks5"
-        assert loaded.proxy.host == "86.109.84.59"
+        assert loaded.proxy.host == "203.0.113.10"
         assert loaded.proxy.port == 12323
-        assert loaded.proxy.username == "14acbb4d2e0d2"
-        assert loaded.proxy.password == "4376fd52bf"
+        assert loaded.proxy.username == "proxy-user"
+        assert loaded.proxy.password == "proxy-pass"
         assert loaded.proxy.bypass == ["*.internal", "example.com"]
         assert loaded.proxy.apply_to == ["browser", "web_search"]
         # And the URL builds correctly (no embedded creds — Playwright
         # passes username/password separately at launch)
-        assert loaded.proxy.proxy_url() == "socks5://86.109.84.59:12323"
+        assert loaded.proxy.proxy_url() == "socks5://203.0.113.10:12323"
 
     def test_invalid_type_falls_back_to_socks5(self, tmp_path: Path) -> None:
         path = self._write_config(

@@ -36,10 +36,10 @@ In `config.yaml`:
 proxy:
   enabled: true                  # off by default
   type: socks5                   # socks5 | http | https
-  host: 86.109.84.59             # provider host or IP
+  host: 203.0.113.10             # provider host or IP
   port: 12323                    # provider port
-  username: "14acbb4d2e0d2"      # plaintext — provider gives you these
-  password: "4376fd52bf"
+  username: "YOUR_PROXY_USERNAME"   # plaintext — provider gives you these
+  password: "YOUR_PROXY_PASSWORD"
   bypass:                        # additional domains to bypass
     - "*.example.com"            # (loopback + 100.64/10 tailnet auto-bypassed)
   apply_to: [browser]            # v1 honours 'browser' only
@@ -75,12 +75,12 @@ If `enabled: true` but the doctor row is `fail`, the agent will refuse to launch
    proxy:
      enabled: true
      type: socks5            # IPRoyal ISP exposes both http and socks5; socks5 is fine for Chrome
-     host: 86.109.84.59      # the IP/host they give you
+     host: 203.0.113.10      # the IP/host they give you
      port: 12323
-     username: "14acbb4d2e0d2"
-     password: "4376fd52bf"
+     username: "YOUR_PROXY_USERNAME"
+     password: "YOUR_PROXY_PASSWORD"
    ```
-6. `elophanto doctor` should now print the residential egress IP, e.g. *"egress 86.109.84.59 (AS11426 Charter Communications, US) via socks5://86.109.84.59:12323"*.
+6. `elophanto doctor` should now print the residential egress IP, e.g. *"egress 203.0.113.10 (AS11426 Charter Communications, US) via socks5://203.0.113.10:12323"*.
 
 ### Smartproxy (alternative, similar tier)
 

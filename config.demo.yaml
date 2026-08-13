@@ -410,7 +410,7 @@ telemetry:
 proxy:
   enabled: false
   type: socks5                   # socks5 | http | https
-  host: ""                       # e.g. 86.109.84.59
+  host: ""                       # e.g. 203.0.113.10
   port: 0                        # e.g. 12323
   username: ""                   # plaintext — IPRoyal/Smartproxy give you these
   password: ""
