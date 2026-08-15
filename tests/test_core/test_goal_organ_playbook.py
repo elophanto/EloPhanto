@@ -1,0 +1,83 @@
+"""Goal plans must name the organ's tools, not describe the work in prose.
+
+2026-08-15, the day's defining failure: every direct request collected
+evidence (2 and 8 `watch_analyze` calls), every goal-driven run collected
+nothing (0 calls across 28 goal-checkpoint executions). Perfect inverse
+correlation. The decomposer had never heard of `watch_analyze`, so it wrote
+checkpoints like "All 48 brand-dimension cells have a documented search
+result" — and the executor, handed prose with no tool anchor, improvised:
+20 skill_read, 15 file_read, 10 shell_execute, and a stale CSV from a
+previous run's workspace presented as this run's collection. The receipt
+gate refused it three times and the goal paused.
+
+Two prompts now carry the fix: the decomposer names the tool per checkpoint
+and states criteria against the organ's register, and the executor is told
+that collection means fetching from the live source in THIS run.
+"""
+
+from __future__ import annotations
+
+import re
+
+from core.goal_manager import _DECOMPOSE_SYSTEM
+from core.goal_runner import _CHECKPOINT_PROMPT
+
+
+def _flat(text: str) -> str:
+    return re.sub(r"\s+", " ", text).lower()
+
+
+class TestDecomposerKnowsTheWatchPipeline:
+    def test_the_rule_is_stated(self) -> None:
+        assert "USE THE ORGAN, NOT PROSE" in _DECOMPOSE_SYSTEM
+
+    def test_collection_names_watch_analyze_with_the_right_shape(self) -> None:
+        flat = _flat(_DECOMPOSE_SYSTEM)
+        assert "watch_analyze subject=<brand> save=false" in flat
+        assert "batch a few brands per checkpoint" in flat
+
+    def test_deliverables_are_one_consolidated_checkpoint(self) -> None:
+        flat = _flat(_DECOMPOSE_SYSTEM)
+        assert "watch_scorecard format=xlsx" in flat
+        assert "watch_board_report" in flat
+        assert "never one deliverable per brand" in flat
+
+    def test_criteria_anchor_to_the_register_not_files(self) -> None:
+        flat = _flat(_DECOMPOSE_SYSTEM)
+        assert "the register is the system of record; a file is not" in flat
+        assert "watch_evidence holds rows dated today" in flat
+        assert "never file counts" in flat
+
+    def test_it_carries_the_incident(self) -> None:
+        assert "zero fetches" in _flat(_DECOMPOSE_SYSTEM)
+        assert "2026-08-15" in _DECOMPOSE_SYSTEM
+
+
+class TestExecutorPrefersTheOrgan:
+    def test_names_the_pipeline_tools(self) -> None:
+        flat = _flat(_CHECKPOINT_PROMPT)
+        for tool in ("watch_analyze", "watch_score", "watch_scorecard",
+                     "watch_board_report", "watch_executive_deck"):
+            assert tool in flat, f"{tool} missing from the checkpoint prompt"
+
+    def test_forbids_satisfying_collection_from_old_files(self) -> None:
+        flat = _flat(_CHECKPOINT_PROMPT)
+        assert "fetching from the live source during this execution" in flat
+        assert "prior state, not this run's evidence" in flat
+
+    def test_explains_the_gate_so_the_model_stops_retrying_files(self) -> None:
+        """The failing run read the stale CSV harder on each retry. The
+        prompt now says why that can never pass."""
+        flat = _flat(_CHECKPOINT_PROMPT)
+        assert "receipt gate refuses" in flat
+        assert "reading old artifacts harder cannot pass" in flat
+
+    def test_validate_stage_rule_survives_the_edit(self) -> None:
+        assert "party will PAY" in _CHECKPOINT_PROMPT
+
+    def test_prompt_still_formats(self) -> None:
+        out = _CHECKPOINT_PROMPT.format(
+            goal="g", order=1, total=3, title="t", stage="scan",
+            description="d", criteria="c", context="ctx",
+        )
+        assert "g" in out and "ctx" in out

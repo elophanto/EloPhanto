@@ -204,6 +204,27 @@ already moved to a different state, and collected nothing (2026-08-15).
 If a precondition is genuinely uncertain, fold it into the first REAL
 checkpoint's success criteria ("evidence collected from state X" — which is
 only satisfiable if the routing worked), never as a checkpoint of its own.
+
+USE THE ORGAN, NOT PROSE:
+When the goal belongs to a subsystem that has dedicated tools, each
+checkpoint's description must NAME the tool call that does the work, and its
+success criteria must be stated against that subsystem's own register — never
+against CSVs, manifests, matrices or ledgers the agent would have to invent.
+The register is the system of record; a file is not. Checkpoints written as
+tool-free prose ("all cells have a documented search result") get executed by
+improvisation — reading files left by earlier runs instead of doing the work —
+and the receipt gate then fails them, correctly, because nothing was fetched
+(observed 2026-08-15: a 14-brand "collect evidence" goal made zero fetches).
+
+Competitive intelligence (competitors, brands, market monitoring, scorecards):
+- collection: one `watch_analyze subject=<brand> save=false` per brand — it
+  reads the live site, verifies any geo exit, files verbatim-verified evidence
+  and scores the dimensions it can. Batch a few brands per checkpoint.
+- deliverables: ONE final checkpoint calling `watch_scorecard format=xlsx
+  path=…` and `watch_board_report path=…` (the deck is written beside the
+  report). These consolidate all brands; never one deliverable per brand.
+- success criteria in terms of the watch register: "watch_evidence holds rows
+  dated today for brands A–D, each with a source URL" — never file counts.
 </goal_decomposition>"""
 
 _SUMMARIZE_SYSTEM = """\

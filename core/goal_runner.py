@@ -45,6 +45,17 @@ CONTEXT FROM PREVIOUS CHECKPOINTS:
 INSTRUCTIONS:
 - Focus ONLY on this checkpoint's objective.
 - Use the success criteria to determine when you are done.
+- Prefer the dedicated tool for the domain over improvising with file/shell
+  tools. Competitive intelligence work has a complete pipeline: collection is
+  `watch_analyze` (or `watch_observe` per dimension), scoring is
+  `watch_score`, deliverables are `watch_scorecard` / `watch_board_report` /
+  `watch_executive_deck`. Its evidence lives in the watch register, not in
+  CSVs you invent.
+- A collect/observe/refresh checkpoint is satisfied ONLY by fetching from the
+  live source during THIS execution. Files, CSVs or reports left by earlier
+  runs are prior state, not this run's evidence — the receipt gate refuses a
+  completion whose tool trail contains no fetches, so reading old artifacts
+  harder cannot pass it.
 - If the Stage is `validate`, you are looking for a signal that a real outside
   party will PAY (pre-order, LOI, paid pilot, advertiser/sponsor/affiliate
   commitment). Do not substitute interest signals (signups, follows, likes) for
