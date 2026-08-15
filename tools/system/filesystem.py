@@ -9,7 +9,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from core.protected import check_config_content, is_protected
+from core.protected import (
+    check_config_content,
+    check_config_edit,
+    is_protected,
+)
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -197,9 +201,21 @@ class FileWriteTool(BaseTool):
                 error=f"Cannot write to protected file: {file_path}",
             )
 
-        # Check for protected config keys when writing config.yaml
+        # Protected + immutable key checks when writing config.yaml. An edit
+        # is judged against what is on disk; only a brand-new file is judged
+        # on its content alone.
         if file_path.name == "config.yaml":
-            config_err = check_config_content(content)
+            current = ""
+            if file_path.exists():
+                try:
+                    current = file_path.read_text(encoding="utf-8")
+                except Exception:
+                    current = ""
+            config_err = (
+                check_config_edit(current, content)
+                if current
+                else check_config_content(content)
+            )
             if config_err:
                 return ToolResult(success=False, error=config_err)
 
@@ -458,6 +474,15 @@ class FilePatchTool(BaseTool):
             return ToolResult(
                 success=False, error="No changes — old and new text are identical."
             )
+
+        # file_write has checked config.yaml since the protected-keys guard
+        # was written; file_patch never did, so every protection on that file
+        # was one tool call away from irrelevant. Both write points now run
+        # the same checks. This is the single place a patch reaches disk.
+        if file_path.name == "config.yaml":
+            config_err = check_config_edit(original, patched)
+            if config_err:
+                return ToolResult(success=False, error=config_err)
 
         # Backup
         backup_path = file_path.with_suffix(file_path.suffix + ".bak")
