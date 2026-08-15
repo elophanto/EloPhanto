@@ -416,6 +416,13 @@ proxy:
   password: ""
   bypass: []                     # extra domains to skip — loopback + tailnet auto-bypassed
   apply_to: [browser]            # v1 only honours 'browser'; per-tool routing is Phase 2
+  state: ""                      # US state this exit comes out in, e.g. "NV", when the
+                                 # provider pins it (IPRoyal: password ends _state-nevada).
+                                 # Lets watch_observe geo_state=NV use it. Empty = unknown,
+                                 # and a specific-state request will refuse rather than
+                                 # stamp evidence with a state it was not collected from.
+  # pool:                        # optional per-state exits for watch_observe geo_state=…
+  #   - {state: TX, host: geo.example, port: 12321, username: u, password: "p_state-texas"}
 
 # Connect to external MCP servers — their tools appear alongside built-in tools.
 # Browse servers at https://mcpservers.org/

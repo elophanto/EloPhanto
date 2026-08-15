@@ -243,6 +243,21 @@ evidence `geo_state=TX`. The pool works independently of `proxy.enabled` —
 observing as a customer elsewhere is a separate concern from routing the
 agent's own browser traffic.
 
+If the single `proxy:` exit is itself pinned to a state (an IPRoyal residential
+password ending `_state-nevada`), declare it with `proxy.state: NV` and
+`geo_state=NV` uses it without a pool.
+
+**A state stamp is a provenance claim, and it has to be true.** A request for a
+specific state is served only by an exit that declares that state — a pool
+entry, or the single proxy with matching `proxy.state`. Otherwise
+`watch_observe` and `watch_analyze` **refuse**, and say how to fix it. They
+used to fall back to whatever the single proxy was, or with the proxy off, to
+the host's own connection, and stamp the state anyway — the register would
+have said "this is what a Nevada customer sees" about a page fetched from the
+operator's desk. Found 2026-08-15; `tests/test_core/test_watch_geo_provenance.py`
+pins the rule. Observing without `geo_state` is always allowed — it is a
+weaker claim, and the row says so (`geo_state=n/a`).
+
 ## Refresh cadence and staleness
 
 Every dimension declares a cadence (weekly / monthly / quarterly). A brand ×

@@ -1383,6 +1383,28 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         )
 
 
+def _no_exit_for_state(geo_state: str) -> ToolResult:
+    """Refuse rather than collect from the wrong place and stamp it right.
+
+    `geo_state` on an evidence row is a provenance claim — "this is what a
+    customer in Nevada sees". If no exit actually comes out in that state,
+    the honest options are to route there or to say so. Fetching from the
+    host's own location (or from a different state's exit) and writing "NV"
+    on it is neither, so it is not offered.
+    """
+    return ToolResult(
+        success=False,
+        error=(
+            f"No network exit for geo_state={geo_state}. Add a proxy.pool entry "
+            f"for {geo_state}, or — if the single proxy is pinned to that state "
+            f"(e.g. an IPRoyal password ending _state-…) — declare it with "
+            f"`proxy.state: {geo_state}` in config.yaml. Refusing to collect from "
+            "the host's own location and stamp the evidence with a state it was "
+            "not observed from. Omit geo_state to observe without a state claim."
+        ),
+    )
+
+
 class WatchObserveTool(_WatchToolBase):
     """Collect evidence from public pages — every claim proof-checked."""
 
@@ -1481,6 +1503,8 @@ class WatchObserveTool(_WatchToolBase):
         proxy_url = None
         if self._config is not None and getattr(self._config, "proxy", None):
             proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
+        if geo_state != "n/a" and not proxy_url:
+            return _no_exit_for_state(geo_state)
 
         subcriteria = [str(s.get("name", "")) for s in dim.subcriteria if s.get("name")]
         max_claims = int(params.get("max_claims") or 8)
@@ -1696,6 +1720,8 @@ class WatchAnalyzeTool(_WatchToolBase):
         proxy_url = None
         if self._config is not None and getattr(self._config, "proxy", None):
             proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
+        if geo_state != "n/a" and not proxy_url:
+            return _no_exit_for_state(geo_state)
 
         # ── 1. Read the site ──
         explicit = [str(u) for u in (params.get("urls") or []) if str(u).strip()]

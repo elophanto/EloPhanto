@@ -2622,6 +2622,20 @@ class Agent:
             if hasattr(tool, "_browser_manager"):
                 tool._browser_manager = self._browser_manager
 
+    def _network_scope(self) -> dict[str, Any] | None:
+        """What the proxy covers, for <runtime_state>. None when unconfigured."""
+        px = getattr(self._config, "proxy", None)
+        if px is None:
+            return None
+        if not px.enabled:
+            return {"proxy": False}
+        return {
+            "proxy": True,
+            "exit": f"{px.host}:{px.port}",
+            "state": getattr(px, "state", "") or "",
+            "scope": list(px.apply_to or ["browser"]),
+        }
+
     async def _seed_fiat_reconcile_schedules(self) -> None:
         """Auto-create a periodic reconcile schedule per fiat-rail company so
         received Stripe payments get recorded hands-off (ABE finance rail).
@@ -4066,6 +4080,7 @@ class Agent:
             active_processes=self._process_registry.count,
             max_processes=self._config.shell.max_concurrent_processes,
             provider_stats=self._router.provider_tracker.get_provider_stats(),
+            network=self._network_scope(),
         )
 
         # Autonomous mind context — scratchpad + recent actions for chat awareness

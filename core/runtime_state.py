@@ -11,6 +11,7 @@ See docs/27-SECURITY-HARDENING.md (Gap 3: Self-Identity Model).
 from __future__ import annotations
 
 from collections import Counter
+from typing import Any
 
 from tools.base import BaseTool, PermissionLevel
 
@@ -29,6 +30,7 @@ def build_runtime_state(
     active_processes: int = 0,
     max_processes: int = 10,
     provider_stats: dict[str, dict] | None = None,
+    network: dict[str, Any] | None = None,
 ) -> str:
     """Build the ``<runtime_state>`` XML block for the system prompt.
 
@@ -45,6 +47,10 @@ def build_runtime_state(
         active_processes: Number of active tracked processes.
         max_processes: Maximum concurrent processes allowed.
         provider_stats: Per-provider transparency stats (Gap 5). None to omit.
+        network: Proxy scope — ``{"proxy": bool, "exit": "host:port",
+            "state": "NV", "scope": ["browser"]}``. None to omit. Present so
+            the agent knows that only the listed tool groups exit through the
+            proxy; a shell curl showing the host IP proves nothing about it.
 
     Returns:
         XML string for injection into the system prompt.
@@ -97,6 +103,29 @@ def build_runtime_state(
             "  <providers>\n" + "\n".join(provider_lines) + "\n  </providers>\n"
         )
 
+    # Network / proxy scope. Observed 2026-08-15: with the proxy on, the
+    # agent verified its exit with a shell curl (direct — host IP), then with
+    # the browser (proxied — Nevada), saw two answers, and spent a checkpoint
+    # trying to reconcile them. Nothing in its prompt said which tools the
+    # proxy applies to. Now something does.
+    network_line = ""
+    if network:
+        if network.get("proxy"):
+            scope = ",".join(str(g) for g in (network.get("scope") or ["browser"]))
+            state = str(network.get("state") or "")
+            state_attr = f' state="{state}"' if state else ""
+            network_line = (
+                f'  <network proxy="on" exit="{network.get("exit", "")}"'
+                f'{state_attr} scope="{scope}">'
+                f"Only these tool groups exit through the proxy. shell/curl, "
+                f"http_request, web_search and API calls egress the host "
+                f"directly, so a curl that shows the host IP proves nothing "
+                f"about the proxy. To verify the exit, browser_navigate to one "
+                f"IP echo once; do not loop over checkers.</network>\n"
+            )
+        else:
+            network_line = '  <network proxy="off"/>\n'
+
     return (
         "<runtime_state>\n"
         f"{fp_line}\n"
@@ -106,6 +135,7 @@ def build_runtime_state(
         f'  <context mode="{context_mode}"/>\n'
         f"{storage_line}"
         f"{process_line}"
+        f"{network_line}"
         f"{providers_block}"
         "</runtime_state>"
     )

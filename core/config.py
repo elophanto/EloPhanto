@@ -824,6 +824,14 @@ class ProxyConfig:
     # 'browser' — other groups stay direct even if listed here.
     # Phase 2 will plumb per-tool routing.
     apply_to: list[str] = field(default_factory=lambda: ["browser"])
+    # Where the single exit above comes out, as a US state code ("NV"), when
+    # the provider pins it to one — e.g. an IPRoyal password ending in
+    # ``_state-nevada``. Lets ``request_proxy_url("NV")`` use this exit
+    # honestly. Empty means "unknown / not state-pinned", and a request for
+    # a specific state will then NOT fall back to it: evidence stamped with a
+    # state must have been collected from that state, and an unknown exit
+    # cannot promise that.
+    state: str = ""
     # Optional per-geography exits, for observing a site the way a customer in
     # a specific US state sees it — offers, availability and pricing vary by
     # state, so a single exit cannot answer "what does Texas see?".
@@ -846,8 +854,16 @@ class ProxyConfig:
 
         Unlike ``proxy_url`` — which feeds Chrome's ``--proxy-server`` and must
         omit credentials — httpx takes user:pass inline. Prefers the pool exit
-        for ``state``; falls back to the single configured proxy. Returns ""
-        when proxying is off or unconfigured, which callers treat as "direct".
+        for ``state``. Returns "" when proxying is off or unconfigured, which
+        callers treat as "direct".
+
+        A request for a *specific* state falls back to the single proxy only
+        when that proxy declares the same ``state``. It used to fall back
+        unconditionally, so ``request_proxy_url("NV")`` with no pool would
+        hand back whatever the single exit was — a Texas exit, or with the
+        proxy disabled, nothing at all — and the caller would stamp the
+        evidence "NV" regardless. That is a false provenance claim, which is
+        the one thing the evidence register exists to make impossible.
         """
         entry = self.exit_for_state(state)
         if entry is not None:
@@ -860,6 +876,10 @@ class ProxyConfig:
             pwd = str(entry.get("password") or "")
         else:
             if not self.enabled or not self.host or not self.port:
+                return ""
+            want = (state or "").strip().lower()
+            if want and want != "n/a" and want != (self.state or "").strip().lower():
+                # Asked for a state this exit does not (or cannot) promise.
                 return ""
             host, port, scheme = self.host, self.port, self.type
             user, pwd = self.username, self.password
@@ -2280,6 +2300,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         password=str(proxy_raw.get("password") or ""),
         bypass=[str(d) for d in proxy_bypass if isinstance(d, str)],
         apply_to=[str(g) for g in proxy_apply_to if isinstance(g, str)],
+        state=str(proxy_raw.get("state") or "").strip().upper(),
         pool=[e for e in (proxy_raw.get("pool") or []) if isinstance(e, dict)],
     )
 

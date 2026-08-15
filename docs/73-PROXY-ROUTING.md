@@ -43,7 +43,27 @@ proxy:
   bypass:                        # additional domains to bypass
     - "*.example.com"            # (loopback + 100.64/10 tailnet auto-bypassed)
   apply_to: [browser]            # v1 honours 'browser' only
+  state: ""                      # US state this exit is pinned to ("NV"), if any — see below
 ```
+
+`state` matters only if you use the competitive-intel organ's per-state
+observation (`watch_observe geo_state=NV`). Evidence stamped with a state is a
+provenance claim — "this is what a Nevada customer sees" — so the organ will
+only route a specific-state request through an exit that *declares* that
+state: a `proxy.pool` entry, or this single proxy with `state` set. With an
+IPRoyal residential password ending `_state-nevada`, set `state: NV`. If
+neither declares it, `watch_observe geo_state=NV` **refuses** rather than
+fetch from wherever this box sits and stamp it Nevada. See
+[81-COMPETITIVE-INTEL.md](81-COMPETITIVE-INTEL.md#per-state-observation).
+
+**Only Chrome is proxied.** A `curl` from the shell, `http_request`,
+`web_search` and every API call egress the host directly — by design (see
+*What stays direct*). So a curl to an IP echo will show the host's IP with the
+proxy on and working; it proves nothing about the proxy. The agent is told
+this in its `<runtime_state>` (`<network proxy="on" … scope="browser">`)
+because on 2026-08-15 it wasn't, checked both ways, got two different answers,
+and spent a checkpoint trying to reconcile them. To verify the exit, open an
+IP echo in the agent's browser once — or run `elophanto doctor`.
 
 Credentials sit directly in this section — same shape as every other API key in EloPhanto's config (`llm.providers.openrouter.api_key`, `polymarket.private_key`, etc.). `config.yaml` is gitignored by default; if your config sits on a multi-user box, lock it down with `chmod 600 config.yaml`.
 
@@ -111,6 +131,10 @@ If you're posting media-heavy threads or doing video-streaming via browser, band
 | Login still bouncing on X even with proxy enabled | Profile is fresh and Linux fingerprint is screaming "bot" even from residential IP | Import existing cookies from your Mac Chrome as a one-time onboarding (see [HOSTED-DESKTOP.md](proposals/HOSTED-DESKTOP.md) §5b). Once cookies are warm, X is much more lenient on subsequent IPs. |
 | Proxy bill scaling fast | Apps inside the desktop are using the proxy (manual browsing, downloads) | The Chrome instance the agent drives is the only one that uses the proxy — but if you manually launch Chrome from the noVNC desktop and browse YouTube, you're using your proxy bandwidth. Either be careful, or run a second Chrome profile manually with `--no-proxy-server`. |
 | Latency feels worse with proxy on | Expected — every page load now adds 100-300ms for the residential hop | Acceptable for agent automation. If you're using the noVNC desktop manually for non-automated browsing and the lag is annoying, launch a second Chrome instance with `--no-proxy-server` for personal use. |
+| Shell `curl ifconfig.me` shows the host IP with the proxy on | Expected — only Chrome routes; shell, `http_request`, `web_search` and API calls are direct | Verify with the agent's browser or `elophanto doctor`, not curl. |
+| Rotating residential IP changes every request; logins get flagged | Residential pay-as-you-go rotates per request unless a session is pinned | IPRoyal: append `_session-<8 chars>_lifetime-30m` (or `1h`, `24h`) to the password. |
+| `watch_observe geo_state=NV` refuses with "No network exit for geo_state" | Nothing declares a Nevada exit | Set `proxy.state: NV` if the single proxy is pinned there, or add a `proxy.pool` entry for NV. Don't just drop `geo_state` — that removes the state claim from the evidence. |
+| IPRoyal account gone after a lapse | Unrenewed accounts are deleted, not paused — and the credentials in config die with them | Prepay more than one cycle or set a reminder for day 28; keep the account email somewhere you'll find it. |
 
 ## Threat model
 

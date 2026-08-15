@@ -1000,13 +1000,26 @@ class TestProxyPool:
         assert p.request_proxy_url("TX") == "http://u:p@tx.example:8080"
         assert p.request_proxy_url("CA") == "http://ca.example:8081"
 
-    def test_falls_back_to_single_exit(self) -> None:
+    def test_falls_back_to_single_exit_only_when_it_declares_the_state(self) -> None:
+        """A request for TX must not be served by an exit of unknown state.
+
+        It used to be: no pool → whatever the single proxy was, stamped TX.
+        With the proxy off that was the host's own connection, stamped TX.
+        """
         from core.config import ProxyConfig
 
         p = ProxyConfig(enabled=True, type="http", host="d.example", port=3128)
         assert p.exit_for_state("TX") is None
-        assert p.request_proxy_url("TX") == "http://d.example:3128"
-        assert p.request_proxy_url("n/a") == "http://d.example:3128"
+        assert p.request_proxy_url("TX") == ""  # unknown state: refuse
+        assert p.request_proxy_url("n/a") == "http://d.example:3128"  # no claim: fine
+        assert p.request_proxy_url("") == "http://d.example:3128"
+
+        pinned = ProxyConfig(
+            enabled=True, type="http", host="d.example", port=3128, state="TX"
+        )
+        assert pinned.request_proxy_url("TX") == "http://d.example:3128"
+        assert pinned.request_proxy_url("tx") == "http://d.example:3128"
+        assert pinned.request_proxy_url("NV") == ""  # pinned elsewhere: refuse
 
     def test_disabled_proxy_means_direct(self) -> None:
         from core.config import ProxyConfig
