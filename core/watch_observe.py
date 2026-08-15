@@ -694,6 +694,27 @@ async def _egress_geo(proxy_url: str, *, timeout: float = 15.0) -> dict[str, Any
     return None
 
 
+# One verification covers a sweep, not one per brand. A 14-brand run through
+# the same exit does not need 14 proofs — and to an operator who has watched
+# an agent loop on IP-checker pages, a geo check before every brand is
+# indistinguishable from that loop. Successful verdicts are cached against
+# (proxy_url, state) for less than the sticky session's lifetime, so every
+# brand in the sweep fetches through the SAME verified session — which is
+# also stronger provenance: one exit IP across the whole register, not
+# fourteen. Failures are never cached on the HTTP path (each retry re-rolls
+# the exit, so the next attempt may legitimately land).
+_VERIFY_TTL_SECONDS = 900.0  # 15 min, safely under the 30m session lifetime
+_BROWSER_FAIL_TTL_SECONDS = 120.0  # brief: rotation may fix a wrong exit
+_exit_verify_cache: dict[tuple[str, str], tuple[float, str, dict[str, Any]]] = {}
+_browser_exit_cache: dict[str, tuple[float, bool, dict[str, Any]]] = {}
+
+
+def clear_exit_verification_cache() -> None:
+    """Drop all cached verdicts (tests, or an operator-forced re-check)."""
+    _exit_verify_cache.clear()
+    _browser_exit_cache.clear()
+
+
 async def verify_exit_state(
     proxy_url: str, state: str, *, attempts: int = 3,
 ) -> tuple[bool, str, dict[str, Any]]:
@@ -706,7 +727,16 @@ async def verify_exit_state(
     a non-pinnable URL gets one attempt, since retrying the same URL would
     check a different exit than the fetches use anyway.
     """
+    import time as _time
+
     want = (state or "").strip().upper()
+    cached = _exit_verify_cache.get((proxy_url, want))
+    if cached is not None:
+        expires, pinned_url, detail = cached
+        if _time.monotonic() < expires:
+            return True, pinned_url, {**detail, "cached": True}
+        del _exit_verify_cache[(proxy_url, want)]
+
     pinnable = is_session_pinnable(proxy_url)
     landed: list[dict[str, Any]] = []
     for attempt in range(attempts if pinnable else 1):
@@ -716,10 +746,17 @@ async def verify_exit_state(
             landed.append({"error": "geolocation unreachable"})
             continue
         if geo["state_code"] == want:
-            return True, candidate, {
+            detail = {
                 **geo, "verified": True, "session_pinned": pinnable,
                 "attempts": attempt + 1,
             }
+            if pinnable:
+                # Only a pinned session outlives this call, so only a pinned
+                # verdict is worth reusing.
+                _exit_verify_cache[(proxy_url, want)] = (
+                    _time.monotonic() + _VERIFY_TTL_SECONDS, candidate, detail,
+                )
+            return True, candidate, detail
         landed.append(geo)
         logger.info(
             "watch: exit verification miss %d/%d — asked %s, landed %s (%s)",
@@ -744,7 +781,15 @@ async def verify_browser_exit(
     """
     if browser_manager is None:
         return False, {"error": "browser unavailable"}
+    import time as _time
+
     want = (state or "").strip().upper()
+    cached = _browser_exit_cache.get(want)
+    if cached is not None:
+        expires, ok, detail = cached
+        if _time.monotonic() < expires:
+            return ok, {**detail, "cached": True}
+        del _browser_exit_cache[want]
     text, err = await fetch_page_via_browser(
         browser_manager, "https://ipwho.is/", max_chars=4000
     )
@@ -765,4 +810,11 @@ async def verify_browser_exit(
             "watch: browser exit is %s (%s), not %s — browser-fetched pages "
             "will not be stamped", parsed["state_code"], parsed["ip"], want,
         )
+    # Cache both verdicts: a pass for the sweep, a fail briefly — otherwise a
+    # wrong exit means one visible ipwho.is visit per brand, which is exactly
+    # the checker-loop optics this cache exists to end.
+    ttl = _VERIFY_TTL_SECONDS if ok else _BROWSER_FAIL_TTL_SECONDS
+    _browser_exit_cache[want] = (
+        _time.monotonic() + ttl, ok, {**parsed, "verified": ok},
+    )
     return ok, {**parsed, "verified": ok}

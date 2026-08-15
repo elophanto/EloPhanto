@@ -271,6 +271,13 @@ state-stamped collection, the organ therefore:
 3. **refuses** if it cannot prove the match — including when the geolocation
    services are unreachable. *Could not verify* never softens into *verified*.
 
+One proof covers a sweep: a successful verdict is cached for 15 minutes
+(under the sticky session's lifetime), so a 14-brand run checks once and every
+brand fetches through the same verified session — one exit IP across the whole
+register. HTTP-path failures are never cached (each retry re-rolls the exit);
+a wrong *browser* exit is cached for two minutes so a bad exit does not mean
+one visible geo-checker visit per brand.
+
 The address that passed is written to `exit_ip` on every row it produced, and
 appears as the last column of the workbook's Evidence sheet: the audit trail
 now answers "how do you know this is what Florida sees?" with an IP, not an

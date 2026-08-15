@@ -16,6 +16,14 @@ import pytest
 import core.watch_observe as wo
 
 
+@pytest.fixture(autouse=True)
+def _fresh_cache():
+    """Verdicts persist across calls by design; tests must not share them."""
+    wo.clear_exit_verification_cache()
+    yield
+    wo.clear_exit_verification_cache()
+
+
 class TestPinSession:
     def test_appends_a_sticky_token_to_a_geo_password(self) -> None:
         url = "http://u:pw_country-us_state-florida@geo.iproyal.com:12321"
@@ -128,3 +136,90 @@ class TestParsingGeo:
     def test_needs_both_ip_and_state(self) -> None:
         assert wo._parse_geo_fields("", "FL", "florida", "svc") is None
         assert wo._parse_geo_fields("1.2.3.4", "", "Atlantis", "svc") is None
+
+
+class TestOneProofCoversTheSweep:
+    """14 brands through one exit need one proof, not 14.
+
+    Also the optics: to an operator who has watched an agent loop on
+    IP-checker pages, a geo check before every brand is indistinguishable
+    from that loop ("WHY THE HELL IS IT CHECKING THE PROXY AGAIN").
+    """
+
+    @pytest.mark.asyncio
+    async def test_second_call_reuses_the_verified_session(self, monkeypatch) -> None:
+        calls = {"n": 0}
+
+        async def geo(proxy_url, **kw):
+            calls["n"] += 1
+            return {"ip": "72.1.1.1", "state_code": "FL", "state_name": "florida", "service": "x"}
+
+        monkeypatch.setattr(wo, "_egress_geo", geo)
+        url = "http://u:pw_state-florida@h:1"
+        ok1, pinned1, d1 = await wo.verify_exit_state(url, "FL")
+        ok2, pinned2, d2 = await wo.verify_exit_state(url, "FL")
+
+        assert ok1 and ok2
+        assert calls["n"] == 1, "the sweep re-proved an already-proven exit"
+        assert pinned2 == pinned1, "brands must share the verified session"
+        assert d2.get("cached") is True
+
+    @pytest.mark.asyncio
+    async def test_failures_are_not_cached_on_the_http_path(self, monkeypatch) -> None:
+        """Each retry re-rolls the exit, so the next call may honestly land."""
+        seq = [
+            {"ip": "1.1.1.1", "state_code": "VA", "state_name": "virginia", "service": "x"},
+            {"ip": "72.2.2.2", "state_code": "FL", "state_name": "florida", "service": "x"},
+        ]
+
+        async def geo(proxy_url, **kw):
+            return seq.pop(0)
+
+        monkeypatch.setattr(wo, "_egress_geo", geo)
+        url = "http://u:pw_state-florida@h:1"
+        ok1, _, _ = await wo.verify_exit_state(url, "FL", attempts=1)
+        ok2, _, _ = await wo.verify_exit_state(url, "FL", attempts=1)
+        assert ok1 is False and ok2 is True
+
+    @pytest.mark.asyncio
+    async def test_an_expired_verdict_is_reproven(self, monkeypatch) -> None:
+        calls = {"n": 0}
+
+        async def geo(proxy_url, **kw):
+            calls["n"] += 1
+            return {"ip": "72.1.1.1", "state_code": "FL", "state_name": "florida", "service": "x"}
+
+        monkeypatch.setattr(wo, "_egress_geo", geo)
+        url = "http://u:pw_state-florida@h:1"
+        await wo.verify_exit_state(url, "FL")
+        key = (url, "FL")
+        expires, pinned, detail = wo._exit_verify_cache[key]
+        wo._exit_verify_cache[key] = (0.0, pinned, detail)  # force expiry
+        await wo.verify_exit_state(url, "FL")
+        assert calls["n"] == 2
+
+    @pytest.mark.asyncio
+    async def test_a_different_state_is_a_different_proof(self, monkeypatch) -> None:
+        async def geo(proxy_url, **kw):
+            return {"ip": "72.1.1.1", "state_code": "FL", "state_name": "florida", "service": "x"}
+
+        monkeypatch.setattr(wo, "_egress_geo", geo)
+        await wo.verify_exit_state("http://u:pw_state-florida@h:1", "FL")
+        ok, _, _ = await wo.verify_exit_state("http://u:pw_state-texas@h:1", "TX", attempts=1)
+        assert ok is False  # FL verdict must not vouch for a TX claim
+
+    @pytest.mark.asyncio
+    async def test_browser_verdicts_cache_including_brief_failure(self, monkeypatch) -> None:
+        """A wrong browser exit must not mean one visible ipwho.is visit per
+        brand — that is the checker-loop optics this exists to end."""
+        calls = {"n": 0}
+
+        async def fake_browser(bm, url, **kw):
+            calls["n"] += 1
+            return ('{"ip": "9.9.9.9", "region_code": "VA", "region": "Virginia"}', None)
+
+        monkeypatch.setattr(wo, "fetch_page_via_browser", fake_browser)
+        ok1, _ = await wo.verify_browser_exit(object(), "FL")
+        ok2, d2 = await wo.verify_browser_exit(object(), "FL")
+        assert ok1 is False and ok2 is False
+        assert calls["n"] == 1 and d2.get("cached") is True
