@@ -189,3 +189,39 @@ class TestProgressStillResets:
         updated = await gm.get_goal(goal.goal_id)
         assert updated is not None
         assert updated.status == "completed", "guard fired on a goal making progress"
+
+
+class TestTimeoutEscalation:
+    """Regression 2026-08-15: a 4-brand watch batch needed ~25 min against a
+    fixed 10-min checkpoint budget. Every retry got the same 10 minutes, did
+    the same first 40% of the work, and died the same death — three attempts
+    of identical, guaranteed-to-fail work. Retries must get more room, the
+    escalation must cap (a truly stuck checkpoint still pauses the goal),
+    and a retry must be told to keep what previous attempts finished."""
+
+    def _runner(self, base: int = 600):
+        from types import SimpleNamespace
+
+        from core.goal_runner import GoalRunner
+
+        cfg = SimpleNamespace(max_time_per_checkpoint_seconds=base)
+        return GoalRunner.__new__(GoalRunner), cfg
+
+    def test_budget_grows_per_attempt_and_caps_at_4x(self) -> None:
+        runner, cfg = self._runner(600)
+        runner._config = cfg
+        assert runner._checkpoint_timeout(1) == 600.0
+        assert runner._checkpoint_timeout(2) == 1200.0
+        assert runner._checkpoint_timeout(3) == 1800.0
+        assert runner._checkpoint_timeout(4) == 2400.0
+        assert runner._checkpoint_timeout(9) == 2400.0  # capped
+        assert runner._checkpoint_timeout(0) == 600.0  # never below base
+
+    def test_retry_note_only_on_retries_and_keeps_finished_work(self) -> None:
+        from core.goal_runner import GoalRunner
+
+        assert GoalRunner._retry_note(1) == ""
+        note = GoalRunner._retry_note(2)
+        assert "attempt 2" in note
+        assert "ONLY the remainder" in note
+        assert "receipts count for THIS run" in note

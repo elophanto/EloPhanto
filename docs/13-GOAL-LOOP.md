@@ -227,13 +227,25 @@ goals:
   max_checkpoint_attempts: 3
   max_goal_attempts: 3
   max_llm_calls_per_goal: 200
-  max_time_per_checkpoint_seconds: 600    # per checkpoint
+  max_time_per_checkpoint_seconds: 600    # base per checkpoint (attempt 1)
   context_summary_max_tokens: 1500
   auto_continue: true                     # auto-resume active goals on startup
   max_total_time_per_goal_seconds: 7200   # 2 hours total per goal
   cost_budget_per_goal_usd: 5.0           # max cost before auto-pause
   pause_between_checkpoints_seconds: 2    # brief pause between checkpoints
 ```
+
+**Timeout escalation.** `max_time_per_checkpoint_seconds` is the budget for
+*attempt 1*; attempt N gets N× the base, capped at 4×. A retry that got the
+same budget as the attempt that just timed out would die the same death —
+observed 2026-08-15, when a four-brand analysis batch needing ~25 minutes
+burned all its attempts redoing the same first 10 minutes. On a timeout the
+failure message names the budget spent and the next attempt's budget, and the
+retry prompt tells the executor that work finished by earlier attempts is
+real: verify what already has receipts from this run and do only the
+remainder. The cap keeps the other half of the bargain — a checkpoint that
+cannot finish in 4× base still exhausts `max_checkpoint_attempts` and pauses
+the goal instead of holding it forever.
 
 ## Goal Lifecycle
 

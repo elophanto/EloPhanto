@@ -2111,6 +2111,13 @@ class WatchAnalyzeTool(_WatchToolBase):
                             shots[u] = got
                     if not shots and not shots_note:
                         shots_note = "capture failed on every page"
+            import logging
+
+            logging.getLogger(__name__).info(
+                "watch exhibits for %s: %s",
+                subj.name,
+                shots_note or f"{len(shots)} captured",
+            )
 
         # ── 2. Extract + verify, one model call per page across all dimensions ──
         dim_specs = [

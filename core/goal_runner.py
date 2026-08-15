@@ -192,9 +192,7 @@ class GoalRunner:
     def notify_user_interaction(self) -> None:
         """Signal that a user sent a message — pause after current checkpoint."""
         if self.is_running:
-            logger.info(
-                "User interaction detected, pausing goal after current checkpoint"
-            )
+            logger.info("User interaction detected, pausing goal after current checkpoint")
             self._stop_requested = True
 
     async def resume_on_startup(self) -> None:
@@ -256,9 +254,7 @@ class GoalRunner:
             while True:
                 # --- Pre-checkpoint safety checks ---
                 if self._stop_requested:
-                    await self._pause_goal(
-                        goal_id, "User interaction or pause requested"
-                    )
+                    await self._pause_goal(goal_id, "User interaction or pause requested")
                     return
 
                 # Refresh goal state
@@ -301,9 +297,7 @@ class GoalRunner:
                 # --- Founder-doctrine validate-first gate ---
                 gate_reason = await self._gm.validate_gate_reason(goal_id, checkpoint)
                 if gate_reason:
-                    handled = await self._handle_validate_gate(
-                        goal, checkpoint, gate_reason
-                    )
+                    handled = await self._handle_validate_gate(goal, checkpoint, gate_reason)
                     if handled == "stop":
                         return
                     if handled == "retry":
@@ -388,10 +382,7 @@ class GoalRunner:
                                     "reason": evaluation.reason,
                                 },
                             )
-                            if (
-                                revisions_without_progress
-                                >= _MAX_REVISIONS_WITHOUT_PROGRESS
-                            ):
+                            if revisions_without_progress >= _MAX_REVISIONS_WITHOUT_PROGRESS:
                                 await self._pause_goal(
                                     goal_id,
                                     f"Plan revised {revisions_without_progress} "
@@ -423,9 +414,40 @@ class GoalRunner:
     # Checkpoint execution
     # ------------------------------------------------------------------
 
+    def _checkpoint_timeout(self, attempt_no: int) -> float:
+        """The time budget for this attempt of a checkpoint.
+
+        A retry that gets the same budget as the attempt that just timed
+        out will die the same death — on 2026-08-15 a 4-brand analysis
+        batch needed ~25 minutes against a 10-minute budget and burned
+        every attempt doing the first 10 minutes over and over. Later
+        attempts get proportionally more room, capped at 4× the base so a
+        genuinely stuck checkpoint still pauses the goal instead of
+        holding it forever.
+        """
+        base = self._config.max_time_per_checkpoint_seconds
+        return float(min(base * max(1, attempt_no), base * 4))
+
+    @staticmethod
+    def _retry_note(attempt_no: int) -> str:
+        """Prompt addendum for retries: finished work is real, keep it."""
+        if attempt_no <= 1:
+            return ""
+        return (
+            f"\nRETRY NOTE (attempt {attempt_no}): a previous attempt of this "
+            "checkpoint ran out of time partway through. The work it "
+            "completed is real and its receipts count for THIS run — first "
+            "check which parts are already done (query the relevant store or "
+            "organ for rows created during this run), then do ONLY the "
+            "remainder. Redoing finished work is how the previous attempt "
+            "died.\n"
+        )
+
     async def _execute_checkpoint(self, goal: Goal, checkpoint: Any) -> bool:
         """Execute a single checkpoint via agent.run(). Returns True on success."""
         try:
+            attempt_no = int(getattr(checkpoint, "attempts", 0) or 0) + 1
+            timeout_s = self._checkpoint_timeout(attempt_no)
             await self._gm.mark_checkpoint_active(goal.goal_id, checkpoint.order)
 
             # Build focused prompt
@@ -439,6 +461,7 @@ class GoalRunner:
                 criteria=checkpoint.success_criteria,
                 context=goal.context_summary or "(no prior context)",
             )
+            prompt += self._retry_note(attempt_no)
 
             # Isolate conversation history — background runs must not pollute user chat
             saved_history = list(self._agent._conversation_history)
@@ -447,9 +470,7 @@ class GoalRunner:
             # Override approval callback for gateway broadcast
             prev_approval = self._agent._executor._approval_callback
             if self._gateway:
-                self._agent._executor.set_approval_callback(
-                    self._make_broadcast_approval()
-                )
+                self._agent._executor.set_approval_callback(self._make_broadcast_approval())
 
             # GoalRunner is BACKGROUND goal execution — must NOT acquire
             # AGENT_LOOP at USER priority. The previous `agent.run(prompt)`
@@ -475,9 +496,7 @@ class GoalRunner:
                         "status": "error" if error else "ok",
                         "error": error,
                         "summary": summarize_call(name, params or {}),
-                        "data": {
-                            k: str(v)[:200] for k, v in list((params or {}).items())[:8]
-                        },
+                        "data": {k: str(v)[:200] for k, v in list((params or {}).items())[:8]},
                     }
                 )
                 if prev_on_tool:
@@ -491,7 +510,7 @@ class GoalRunner:
             try:
                 response = await asyncio.wait_for(
                     self._agent.submit_task(TaskSource.GOAL, prompt),
-                    timeout=self._config.max_time_per_checkpoint_seconds,
+                    timeout=timeout_s,
                 )
             finally:
                 # Restore conversation history and approval callback
@@ -574,9 +593,7 @@ class GoalRunner:
             ):
                 # Unwrap from wait_for / submit_task wrappers.
                 pause_exc = (
-                    e
-                    if isinstance(e, ApprovalTimeoutPause)
-                    else e.__cause__  # type: ignore[assignment]
+                    e if isinstance(e, ApprovalTimeoutPause) else e.__cause__  # type: ignore[assignment]
                 )
                 tool = getattr(pause_exc, "tool_name", "?")
                 logger.warning(
@@ -594,16 +611,28 @@ class GoalRunner:
                 )
                 return False
             if isinstance(e, TimeoutError):
+                next_budget = int(self._checkpoint_timeout(attempt_no + 1))
                 logger.warning(
-                    "Checkpoint %d of goal %s timed out",
+                    "Checkpoint %d of goal %s timed out after %ds "
+                    "(attempt %d; next attempt gets %ds)",
                     checkpoint.order,
                     goal.goal_id,
+                    int(timeout_s),
+                    attempt_no,
+                    next_budget,
                 )
                 await self._gm.mark_checkpoint_failed(
-                    goal.goal_id, checkpoint.order, "Checkpoint timed out"
+                    goal.goal_id,
+                    checkpoint.order,
+                    f"Timed out after {int(timeout_s)}s (attempt "
+                    f"{attempt_no}). Next attempt gets {next_budget}s and "
+                    "is told to keep receipted work instead of redoing it.",
                 )
                 await self._broadcast_checkpoint_failed(
-                    goal, checkpoint, "timed out"
+                    goal,
+                    checkpoint,
+                    f"timed out after {int(timeout_s)}s "
+                    f"(attempt {attempt_no}; next gets {next_budget}s)",
                 )
                 return False
             logger.error(
@@ -612,9 +641,7 @@ class GoalRunner:
                 goal.goal_id,
                 e,
             )
-            await self._gm.mark_checkpoint_failed(
-                goal.goal_id, checkpoint.order, str(e)
-            )
+            await self._gm.mark_checkpoint_failed(goal.goal_id, checkpoint.order, str(e))
             return False
 
     # ------------------------------------------------------------------
@@ -630,16 +657,12 @@ class GoalRunner:
         )
         await self._pause_goal(goal.goal_id, tag, status="budget_paused")
 
-    async def _handle_validate_gate(
-        self, goal: Goal, checkpoint: Any, gate_reason: str
-    ) -> str:
+    async def _handle_validate_gate(self, goal: Goal, checkpoint: Any, gate_reason: str) -> str:
         """Handle validate-first block: kill / revise / reorder / stop.
 
         Returns ``stop`` (exit loop), ``retry`` (continue loop), or ``ok``.
         """
-        logger.warning(
-            "Goal %s blocked by validate gate: %s", goal.goal_id, gate_reason
-        )
+        logger.warning("Goal %s blocked by validate gate: %s", goal.goal_id, gate_reason)
 
         # Kill if criterion already met.
         killed, kill_reason = await self._gm.evaluate_kill_criterion(
@@ -691,9 +714,7 @@ class GoalRunner:
         """
         gateway = self._gateway
 
-        async def _approval(
-            tool_name: str, description: str, params: dict[str, Any]
-        ) -> bool:
+        async def _approval(tool_name: str, description: str, params: dict[str, Any]) -> bool:
             from core.approval_wait import wait_for_operator_approval
 
             return await wait_for_operator_approval(
@@ -717,9 +738,7 @@ class GoalRunner:
         except Exception as e:
             logger.warning("Failed to clear scratchpad: %s", e)
 
-    async def _pause_goal(
-        self, goal_id: str, reason: str, *, status: str = "paused"
-    ) -> None:
+    async def _pause_goal(self, goal_id: str, reason: str, *, status: str = "paused") -> None:
         """Pause a goal and broadcast the event.
 
         ``status`` may be ``paused``, ``awaiting_approval``, or
@@ -740,9 +759,7 @@ class GoalRunner:
             (goal_id, order),
         )
 
-    async def _broadcast_checkpoint_failed(
-        self, goal: Any, checkpoint: Any, reason: str
-    ) -> None:
+    async def _broadcast_checkpoint_failed(self, goal: Any, checkpoint: Any, reason: str) -> None:
         """Tell the operator a checkpoint failed, and how many times.
 
         Successes were broadcast and failures were not, so from any channel
@@ -761,13 +778,9 @@ class GoalRunner:
             },
         )
 
-    async def _broadcast_event(
-        self, event_type: EventType, data: dict[str, Any]
-    ) -> None:
+    async def _broadcast_event(self, event_type: EventType, data: dict[str, Any]) -> None:
         """Broadcast a goal event to all connected clients."""
         if self._gateway:
-            await self._gateway.broadcast(
-                event_message("", event_type, data), session_id=None
-            )
+            await self._gateway.broadcast(event_message("", event_type, data), session_id=None)
         else:
             logger.info("Goal event [%s]: %s", event_type, data)
