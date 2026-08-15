@@ -81,3 +81,41 @@ class TestExecutorPrefersTheOrgan:
             description="d", criteria="c", context="ctx",
         )
         assert "g" in out and "ctx" in out
+
+
+class TestRevisionsObeyTheSameRules:
+    """The mid-run reviser was the unguarded door.
+
+    2026-08-15, same day as the decomposer fix: the initial plan came out
+    clean (five checkpoints, all naming watch tools), then a mid-run
+    revision — whose prompt carried none of the rules — replaced "collect
+    the missing brands" with audit checkpoints ("Resolve the 451-versus-313
+    evidence-register discrepancy") and a 216KB reconciliation CSV, while
+    the missing brand stayed uncollected. Same bug, one door over.
+    """
+
+    def test_revise_carries_the_full_plan_rules(self) -> None:
+        from core.goal_manager import _PLAN_RULES, _REVISE_SYSTEM
+
+        assert _PLAN_RULES in _REVISE_SYSTEM
+
+    def test_decompose_and_revise_share_one_rules_block(self) -> None:
+        """Shared constant, not a copy — copies drift, and a drifted copy is
+        how this door was left unguarded the first time."""
+        from core.goal_manager import _DECOMPOSE_SYSTEM, _PLAN_RULES, _REVISE_SYSTEM
+
+        assert _PLAN_RULES in _DECOMPOSE_SYSTEM
+        assert _PLAN_RULES in _REVISE_SYSTEM
+
+    def test_revision_fixes_the_shortfall_not_the_bookkeeping(self) -> None:
+        from core.goal_manager import _REVISE_SYSTEM
+
+        flat = _flat(_REVISE_SYSTEM)
+        assert "a revision fixes the shortfall, not the bookkeeping" in flat
+        assert "watch_analyze for the 3 missing brands" in flat
+        assert "registers-of-the-" in flat  # no ledgers about ledgers
+
+    def test_validate_first_rule_survives(self) -> None:
+        from core.goal_manager import _REVISE_SYSTEM
+
+        assert "paying-party signal" in _REVISE_SYSTEM

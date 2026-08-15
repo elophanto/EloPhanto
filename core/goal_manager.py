@@ -132,6 +132,44 @@ class EvaluationResult:
 # LLM prompt templates
 # ---------------------------------------------------------------------------
 
+_PLAN_RULES = """\
+NO PLUMBING CHECKPOINTS:
+Every checkpoint must advance the user's goal, not confirm the agent's own
+setup. Do NOT create checkpoints that verify network routing, proxy exits, IP
+geolocation, credentials, API keys, tool availability, disk space or logged-in
+state. Those are preconditions the tools enforce themselves, and a tool that
+cannot meet one FAILS AND SAYS SO — that is the check. Writing it out as a
+checkpoint adds a way to fail without adding a way to succeed: asked for a
+competitor analysis, a plan whose checkpoint 1 was "verify the proxy exits in
+state X" spent three hours reloading IP-geolocation pages while the config had
+already moved to a different state, and collected nothing (2026-08-15).
+
+If a precondition is genuinely uncertain, fold it into the first REAL
+checkpoint's success criteria ("evidence collected from state X" — which is
+only satisfiable if the routing worked), never as a checkpoint of its own.
+
+USE THE ORGAN, NOT PROSE:
+When the goal belongs to a subsystem that has dedicated tools, each
+checkpoint's description must NAME the tool call that does the work, and its
+success criteria must be stated against that subsystem's own register — never
+against CSVs, manifests, matrices or ledgers the agent would have to invent.
+The register is the system of record; a file is not. Checkpoints written as
+tool-free prose ("all cells have a documented search result") get executed by
+improvisation — reading files left by earlier runs instead of doing the work —
+and the receipt gate then fails them, correctly, because nothing was fetched
+(observed 2026-08-15: a 14-brand "collect evidence" goal made zero fetches).
+
+Competitive intelligence (competitors, brands, market monitoring, scorecards):
+- collection: one `watch_analyze subject=<brand> save=false` per brand — it
+  reads the live site, verifies any geo exit, files verbatim-verified evidence
+  and scores the dimensions it can. Batch a few brands per checkpoint.
+- deliverables: ONE final checkpoint calling `watch_scorecard format=xlsx
+  path=…` and `watch_board_report path=…` (the deck is written beside the
+  report). These consolidate all brands; never one deliverable per brand.
+- success criteria in terms of the watch register: "watch_evidence holds rows
+  dated today for brands A–D, each with a source URL" — never file counts.
+"""
+
 _DECOMPOSE_SYSTEM = """\
 <goal_decomposition>
 You are the goal planning subsystem. Given a user's goal, decompose it into
@@ -190,41 +228,7 @@ Guidelines:
 - Keep each checkpoint achievable in 5-30 tool calls.
 - Avoid subjective criteria ("good quality") — use measurable ones ("3+ items found").
 
-NO PLUMBING CHECKPOINTS:
-Every checkpoint must advance the user's goal, not confirm the agent's own
-setup. Do NOT create checkpoints that verify network routing, proxy exits, IP
-geolocation, credentials, API keys, tool availability, disk space or logged-in
-state. Those are preconditions the tools enforce themselves, and a tool that
-cannot meet one FAILS AND SAYS SO — that is the check. Writing it out as a
-checkpoint adds a way to fail without adding a way to succeed: asked for a
-competitor analysis, a plan whose checkpoint 1 was "verify the proxy exits in
-state X" spent three hours reloading IP-geolocation pages while the config had
-already moved to a different state, and collected nothing (2026-08-15).
-
-If a precondition is genuinely uncertain, fold it into the first REAL
-checkpoint's success criteria ("evidence collected from state X" — which is
-only satisfiable if the routing worked), never as a checkpoint of its own.
-
-USE THE ORGAN, NOT PROSE:
-When the goal belongs to a subsystem that has dedicated tools, each
-checkpoint's description must NAME the tool call that does the work, and its
-success criteria must be stated against that subsystem's own register — never
-against CSVs, manifests, matrices or ledgers the agent would have to invent.
-The register is the system of record; a file is not. Checkpoints written as
-tool-free prose ("all cells have a documented search result") get executed by
-improvisation — reading files left by earlier runs instead of doing the work —
-and the receipt gate then fails them, correctly, because nothing was fetched
-(observed 2026-08-15: a 14-brand "collect evidence" goal made zero fetches).
-
-Competitive intelligence (competitors, brands, market monitoring, scorecards):
-- collection: one `watch_analyze subject=<brand> save=false` per brand — it
-  reads the live site, verifies any geo exit, files verbatim-verified evidence
-  and scores the dimensions it can. Batch a few brands per checkpoint.
-- deliverables: ONE final checkpoint calling `watch_scorecard format=xlsx
-  path=…` and `watch_board_report path=…` (the deck is written beside the
-  report). These consolidate all brands; never one deliverable per brand.
-- success criteria in terms of the watch register: "watch_evidence holds rows
-  dated today for brands A–D, each with a source URL" — never file counts.
+""" + _PLAN_RULES + """\
 </goal_decomposition>"""
 
 _SUMMARIZE_SYSTEM = """\
@@ -260,6 +264,20 @@ Return ONLY a JSON array of new checkpoint objects, each with:
 Start ordering from the next checkpoint number after the last completed one.
 Honor the validate-first rule: do not introduce a `build` checkpoint if no
 `validate` checkpoint has yet produced a paying-party signal.
+
+A REVISION FIXES THE SHORTFALL, NOT THE BOOKKEEPING:
+If the evaluation says work is incomplete (e.g. "collection done for 11 of 14
+brands"), the replacement checkpoint DOES the missing work with the named tool
+("watch_analyze for the 3 missing brands") — it does not audit, reconcile,
+freeze, or re-count what earlier checkpoints produced. Never introduce
+checkpoints about the run's own ledgers, discrepancies or registers-of-the-
+register: that is the plan folding in on itself (observed 2026-08-15 — a
+mid-run revision replaced "collect the missing brands" with three audit
+checkpoints and a 216KB reconciliation CSV, while the missing brand stayed
+uncollected). Revised checkpoints obey every rule below, same as the original
+plan.
+
+""" + _PLAN_RULES + """\
 </goal_revision>"""
 
 
