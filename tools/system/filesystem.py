@@ -639,7 +639,21 @@ class FileDeleteTool(BaseTool):
 
     @property
     def permission_level(self) -> PermissionLevel:
-        return PermissionLevel.DESTRUCTIVE
+        # CRITICAL, not DESTRUCTIVE — the difference is that DESTRUCTIVE runs
+        # unprompted under full_auto and CRITICAL asks, and this tool is the
+        # clearest case in the codebase for asking: it calls unlink() and
+        # rmtree() directly, with no trash, no backup and no undo, on paths
+        # the operator owns.
+        #
+        # The tiers had drifted away from actual danger. Under full_auto the
+        # agent could delete a directory tree without a word, while closing a
+        # browser window — reversible by the next navigate — stopped the run
+        # for approval (2026-08-15). Gating this costs nothing measurable:
+        # file_delete has never been called once across the project's logs,
+        # against 80 shell_execute calls in the same period.
+        #
+        # nuclear is the switch for wanting deletion unprompted.
+        return PermissionLevel.CRITICAL
 
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         target = Path(params["path"]).expanduser()

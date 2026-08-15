@@ -14,12 +14,30 @@ Every tool — built-in or self-created — must implement this interface:
 
 ### Permission Levels
 
-| Level | Description | Ask Always | Smart Auto | Full Auto |
-|---|---|---|---|---|
-| `safe` | Read-only, no side effects | Ask | Auto | Auto |
-| `moderate` | Writes data, creates files | Ask | Ask | Auto |
-| `destructive` | Deletes data, sends comms, modifies system | Ask | Ask | Auto |
-| `critical` | Irreversible system changes, core modification | Ask | Ask | Ask |
+| Level | Description | Ask Always | Smart Auto | Full Auto | Nuclear |
+|---|---|---|---|---|---|
+| `safe` | Read-only, no side effects | Ask | Auto | Auto | Auto |
+| `moderate` | Writes data, creates files | Ask | Ask | Auto | Auto |
+| `destructive` | Sends comms, spawns agents, modifies system | Ask | Ask | Auto | Auto |
+| `critical` | **No undo** — deletion, key export, self-modification, arbitrary code execution | Ask | Ask | **Ask** | Auto |
+
+**The tier is a claim about consequences, not about category.** The question
+is not how alarming a tool sounds but what it costs when it is wrong and
+nobody is watching — `full_auto` means an operator is *not* at the keyboard,
+so anything at CRITICAL will stall an unattended run until it times out.
+
+Two corrections on 2026-08-15 show both directions of the same drift.
+`browser_close` sat at CRITICAL and stopped a goal for approval nobody was
+there to give — a browser window the next `browser_navigate` reopens. Meanwhile
+`file_delete` sat at DESTRUCTIVE and so ran unprompted, calling `unlink()` and
+`rmtree()` on the operator's paths with no trash, no backup and no undo. The
+two were exactly backwards: the reversible act interrupted the run, and the
+irreversible one did not.
+
+The cost of gating is worth measuring rather than assuming. `file_delete` had
+never been called once across the project's logs when it was moved to CRITICAL,
+against 80 `shell_execute` calls in the same period — so the gate closed a real
+hole and stalls nothing.
 
 ## Built-in Tools
 
@@ -71,7 +89,9 @@ Stores a credential in the encrypted vault.
 
 Deletes a file or directory.
 
-- **Permission**: `destructive`
+- **Permission**: `critical` — asks even under `full_auto`. `unlink()` and
+  `rmtree()` are called directly: no trash, no backup, no undo. `nuclear` is
+  the mode for wanting deletion unprompted.
 - **Input**: `path` (string), `recursive` (boolean, default false for safety)
 - **Output**: `deleted` (boolean), `path` (string)
 

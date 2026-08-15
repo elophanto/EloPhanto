@@ -546,13 +546,17 @@ See `docs/14-SELF-LEARNING.md` and `docs/48-LEARNING-ENGINE.md`.
 ## Permission spine
 
 Modes: `ask_always` → `smart_auto` → `full_auto` → `nuclear`
-(Open only; absent on Hosted). Under `full_auto`, **17 CRITICAL tools
+(Open only; absent on Hosted). Under `full_auto`, **18 CRITICAL tools
 always ask**: `crypto_transfer`, `crypto_swap`, `fiat_issue_card`,
-`wallet_export`, `vault_set`, `self_create_plugin`, `self_modify_source`,
-`self_rollback`, `company_trust_set`, `company_purge`, `browser_eval`,
-`browser_inject`, `ambient_intervention_decide`,
-`ambient_intervention_execute`, `personality_rule_confirm`,
-`video_generate`, `music_generate`.
+`wallet_export`, `vault_set`, `file_delete`, `self_create_plugin`,
+`self_modify_source`, `self_rollback`, `company_trust_set`,
+`company_purge`, `browser_eval`, `browser_inject`,
+`ambient_intervention_decide`, `ambient_intervention_execute`,
+`personality_rule_confirm`, `video_generate`, `music_generate`.
+
+The tier tracks danger, not category. `file_delete` asks because unlink()
+and rmtree() have no undo; `browser_close` does not, because the next
+navigate reopens it.
 
 Some tools move tier per call rather than sitting at one. `http_request`
 is SAFE for a GET and CRITICAL for a DELETE against a system the operator

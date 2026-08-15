@@ -197,3 +197,43 @@ class TestFileWriteIsGuarded:
             }
         )
         assert res.success, res.error
+
+
+class TestTiersTrackDangerNotCategory:
+    """The permission tier is a claim about consequences, and it drifted.
+
+    2026-08-15, under `permission_mode: full_auto`: `browser_close` stopped a
+    run for approval — a window the next navigate reopens — while
+    `file_delete` called unlink() and rmtree() on the operator's paths
+    without a word, because DESTRUCTIVE auto-approves under full_auto and
+    CRITICAL does not. The two were exactly backwards.
+    """
+
+    def test_deleting_is_gated_and_closing_a_window_is_not(self) -> None:
+        from tools.base import PermissionLevel as PL
+        from tools.browser.tools import create_browser_tools
+        from tools.system.filesystem import FileDeleteTool
+
+        browser = {t.name: t for t in create_browser_tools()}
+        assert FileDeleteTool().permission_level == PL.CRITICAL, (
+            "file_delete has no undo — it must ask under full_auto"
+        )
+        assert browser["browser_close"].permission_level == PL.MODERATE, (
+            "closing the browser is reversible — it must not stop a run"
+        )
+
+    def test_delete_outranks_every_reversible_file_operation(self) -> None:
+        from tools.base import PermissionLevel as PL
+        from tools.system.filesystem import (
+            FileDeleteTool,
+            FilePatchTool,
+            FileWriteTool,
+        )
+
+        order = [PL.SAFE, PL.MODERATE, PL.DESTRUCTIVE, PL.CRITICAL]
+        delete = order.index(FileDeleteTool().permission_level)
+        for tool in (FileWriteTool(), FilePatchTool()):
+            assert order.index(tool.permission_level) < delete, (
+                f"{tool.name} is recoverable (it backs up) and must sit below "
+                "file_delete, which is not"
+            )
