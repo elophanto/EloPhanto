@@ -872,9 +872,10 @@ Return STRICT JSON:
 {"headline": str,
  "bullets": [str, ...],
  "exec": {"findings": [str, ...], "threats": [str, ...], "watch": [str, ...]},
- "titles": {"standings": str, "versus": str, "changes": str, "coverage": str},
- "commentary": {"standings": str, "versus": str, "changes": str,
-                "coverage": str, "glance": str},
+ "titles": {"standings": str, "versus": str, "dimensions": str,
+            "changes": str, "coverage": str},
+ "commentary": {"standings": str, "versus": str, "dimensions": str,
+                "changes": str, "coverage": str, "glance": str},
  "profiles": [{"brand": str, "title": str,
                "observations": [str, ...], "implications": [str, ...]}],
  "next_steps": [str, ...]}
@@ -891,7 +892,8 @@ Return STRICT JSON:
   ("High 5 leads a thin field"), never a label ("Standings overview").
   At most 10 words each.
 - commentary: one line per slide (max 22 words) telling the room what to take
-  from that slide. "glance" covers the headline-numbers slide.
+  from that slide. "glance" covers the headline-numbers slide; "dimensions"
+  covers the who-leads-each-dimension breakout.
 - profiles: one per brand listed in brand_facts EXCEPT ours, in the given
   order. For each brand:
   title – an action title about THAT brand's market position, max 10 words;
@@ -973,7 +975,7 @@ def _brand_facts(card: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[s
     for r in ranked:
         if not r.get("is_self"):
             picks.append(r["name"])
-        if len(picks) >= 4:
+        if len(picks) >= 8:
             break
     us = next((r["name"] for r in rows if r.get("is_self")), None)
     if us:
@@ -1066,7 +1068,7 @@ async def _narrate_for_deck(
             ],
             task_type="analysis",
             temperature=0.3,
-            max_tokens=2400,
+            max_tokens=4000,
         )
         text = (resp.content or "").strip()
         if text.startswith("```"):
@@ -1106,7 +1108,7 @@ async def _narrate_for_deck(
                     :3
                 ],
             },
-            "profiles": [pr for pr in profiles if pr["observations"]][:4],
+            "profiles": [pr for pr in profiles if pr["observations"]][:8],
             "titles": {
                 k: str(v).strip() for k, v in (data.get("titles") or {}).items() if str(v).strip()
             },

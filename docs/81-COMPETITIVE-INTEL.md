@@ -5,7 +5,7 @@
 > are **refused unless evidence backs them**. All four deliverables generate
 > from stored evidence: the executive scorecard (markdown or a four-sheet XLSX
 > workbook), month-over-month material-change detection, the board report, and
-> the executive deck (~16 board slides, .pptx).
+> the executive deck (.pptx — ~16 slides on a thin field, ~30 on a full one).
 > Collection is autonomous for public pages — with every claim's quote checked
 > against the live source before it is saved — driven by a cadence-based
 > refresh queue and recurring schedules.
@@ -169,13 +169,17 @@ room hears about the **market**, not the machinery: cover with the evidence
 basis; an executive summary in steering-committee form (key findings / key
 threats / watch next, three columns); the market at a glance; standings as a
 native bar chart with our brand in amber; our brand against the ranked
-leader, dimension by dimension (ahead / behind / not comparable yet); a
-**competitor deep-dive slide per key brand** — their scored dimensions as
-bars on the left, model-written *observations* (what the brand actually does:
-offers, payments, product) and *implications for us* on the right, with the
-storefront thumbnail beneath; **storefront exhibits** — clean browser
-captures of the sites as a visitor sees them, two per slide with brand, URL
-and capture date; market moves this period; implications and recommendations
+leader, dimension by dimension (ahead / behind / not comparable yet); **who
+leads each dimension** — the per-battleground breakout: top observed score,
+our score and the gap per weighted dimension, with provisional daggers
+carried into the cells and unmeasured never counted as a loss; a
+**competitor deep-dive slide per key brand (up to eight)** — their scored
+dimensions as bars on the left, model-written *observations* (what the brand
+actually does: offers, payments, product) and *implications for us* on the
+right, with the storefront thumbnail beneath; **storefront exhibits** —
+clean browser captures of every tracked brand's site as a visitor sees it,
+two per slide with brand, URL and capture date; market moves this period;
+implications and recommendations
 grouped by class; decisions required; and an appendix with evidence and
 confidence, the scores-by-dimension heatmap and the method. Charts are native
 PowerPoint objects, so the client can restyle or lift them.

@@ -363,7 +363,7 @@ class TestDeckShape:
         await _market(wm)
         res, _ = await _deck(wm, tmp_path, router=_DeckRouter())
         prs = Presentation(res.data["path"])
-        assert len(prs.slides) == 14
+        assert len(prs.slides) == 15
         W, H = prs.slide_width, prs.slide_height
         for sl in prs.slides:
             for sh in sl.shapes:
@@ -391,7 +391,9 @@ class TestDeckShape:
         titles = [s["text"] for s in slides if "Implications and recommendations" in s["text"]]
         assert len(titles) == 3  # 12 items, 5 per slide
         assert "(1/3)" in titles[0] and "(3/3)" in titles[2]
-        assert len(Presentation(res.data["path"]).slides) == 14
+        # 12 core + dimension-leaders + 2 extra judgement pages, no profiles
+        # (this router returns no profile section).
+        assert len(Presentation(res.data["path"]).slides) == 15
 
     @pytest.mark.asyncio
     async def test_extension_is_forced_to_pptx(self, wm, tmp_path) -> None:
@@ -677,3 +679,63 @@ class TestMarketFacingDeck:
         assert not cut.endswith("Flori")
         assert cut == cut.rstrip(" ·-–,;")
         assert _trim_words("short", 60) == "short"
+
+
+class TestDimensionLeaders:
+    """The per-dimension breakout: top observed score per battleground, our
+    gap, and the honesty marks carried into the cells."""
+
+    @pytest.mark.asyncio
+    async def test_leaders_ties_daggers_and_gaps(self, wm, tmp_path) -> None:
+        await _market(wm)
+        _res, slides = await _deck(wm, tmp_path)
+        sl = _slide(slides, "Who leads each dimension")
+        tbl = sl["table"]
+        rows = {
+            tbl.cell(r, 0).text.split("  ·  ")[0]: [
+                tbl.cell(r, c).text for c in range(len(tbl.columns))
+            ]
+            for r in range(1, len(tbl.rows))
+        }
+        # After the moves: us Promos 3, r1 dropped to 2, r2 has 2 → we lead.
+        promos = rows["Promos"]
+        assert "OurBrand (us)" in promos[1]
+        assert promos[4] == "we lead"
+        # Support: us 5, Thin Brand 5 (provisional overall) — a tie, and the
+        # provisional brand carries its dagger into the leader cell.
+        support = rows["Support"]
+        assert "OurBrand (us)" in support[1]
+        assert "Thin Brand †" in support[1]
+        assert support[4] == "we co-lead"
+        # Payments: us 4, r1 3, r2 2 → we lead outright at 4.
+        payments = rows["Payments"]
+        assert "OurBrand (us)" in payments[1]
+        assert payments[2] == "4" and payments[3] == "4"
+        # Trust: r1 4, r2 4, us 3 → behind by 1.
+        trust = rows["Trust"]
+        assert "OurBrand" not in trust[1]
+        assert "behind" in trust[4] and "1" in trust[4]
+        # Legend keeps the no-penalty rule on the slide.
+        assert "never counted as a loss" in sl["text"]
+
+    @pytest.mark.asyncio
+    async def test_slide_sits_between_versus_and_deep_dives(
+        self, wm, tmp_path
+    ) -> None:
+        await _market(wm)
+        _res, slides = await _deck(wm, tmp_path, router=_DeckRouter())
+        order = [
+            i for i, s in enumerate(slides)
+            if any(
+                k in s["text"]
+                for k in (
+                    "VERSUS THE LEADER",
+                    "Who leads each dimension",
+                    "COMPETITOR DEEP DIVE",
+                )
+            )
+        ]
+        texts = [slides[i]["text"] for i in order]
+        assert "VERSUS THE LEADER" in texts[0]
+        assert "Who leads each dimension" in texts[1]
+        assert "COMPETITOR DEEP DIVE" in texts[2]

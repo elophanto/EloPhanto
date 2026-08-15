@@ -835,6 +835,177 @@ def _slide_versus(
     _footer(s, deck_title, page)
 
 
+def _slide_dimension_leaders(
+    prs: Any,
+    card: dict[str, Any],
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+) -> None:
+    """Who leads each battleground: per weighted dimension, the top observed
+    score, our score, and the gap — the per-area breakout a steering
+    committee expects after the overall standings."""
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    title = (narrative.get("titles") or {}).get("dimensions") or "Who leads each dimension"
+    top = _header(
+        s,
+        "The battlegrounds",
+        title,
+        (narrative.get("commentary") or {}).get("dimensions", ""),
+    )
+    rows = card.get("rows", [])
+    dims = card.get("dimensions", [])[:12]
+    us = next((r for r in rows if r.get("is_self")), None)
+    if not dims or not rows:
+        _text(
+            s,
+            0.7,
+            top + 0.2,
+            11.9,
+            1.0,
+            "Nothing scored yet.",
+            size=15,
+            color=_BODY,
+        )
+        _footer(s, deck_title, page)
+        return
+
+    def brand_label(r: dict[str, Any]) -> str:
+        name = str(r["name"])
+        if r.get("is_self"):
+            name += " (us)"
+        if r.get("provisional") and r["overall"]["normalized_pct"] is not None:
+            name += " †"
+        return name
+
+    cols = ["Dimension", "Market leader", "Theirs", "Us", "Gap"]
+    widths = [3.4, 4.9, 0.85, 0.85, 1.9]
+    shape = s.shapes.add_table(
+        len(dims) + 1,
+        len(cols),
+        Inches(0.7),
+        Inches(top),
+        Inches(sum(widths)),
+        Inches(min(0.34 * (len(dims) + 1), 6.55 - top)),
+    )
+    tbl = shape.table
+    for ci, w in enumerate(widths):
+        tbl.columns[ci].width = Inches(w)
+
+    def cell_write(
+        r: int,
+        c: int,
+        text: str,
+        *,
+        bg: str,
+        fg: str = _INK,
+        bold: bool = False,
+        size: float = 9.5,
+    ) -> None:
+        cell = tbl.cell(r, c)
+        cell.text = text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _rgb(bg)
+        cell.margin_left = cell.margin_right = Inches(0.06)
+        cell.margin_top = cell.margin_bottom = Inches(0.02)
+        for p_ in cell.text_frame.paragraphs:
+            for run in p_.runs:
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.color.rgb = _rgb(fg)
+
+    for ci, name in enumerate(cols):
+        cell_write(0, ci, name, bg=_INK, fg=_WHITE, bold=True, size=10)
+    for ri, d in enumerate(dims, start=1):
+        dname = d["name"]
+        bg = _WHITE if ri % 2 else _CARD
+        scored = [
+            (r, float(r["dimensions"][dname]["score"]))
+            for r in rows
+            if r.get("dimensions", {}).get(dname, {}).get("score") is not None
+        ]
+        cell_write(
+            ri,
+            0,
+            f"{dname}  ·  {d.get('weight_pct', 0):g}%",
+            bg=bg,
+            bold=True,
+            size=9,
+        )
+        if not scored:
+            cell_write(ri, 1, "not yet observed", bg=bg, fg=_MUTED)
+            cell_write(ri, 2, "", bg=_GAP_BG)
+            cell_write(ri, 3, "", bg=_GAP_BG)
+            cell_write(ri, 4, "", bg=_GAP_BG)
+            continue
+        best = max(sc for _, sc in scored)
+        leaders = [r for r, sc in scored if sc == best]
+        names = ", ".join(brand_label(r) for r in leaders[:2])
+        if len(leaders) > 2:
+            names += f" +{len(leaders) - 2}"
+        we_lead = us is not None and any(r.get("is_self") for r in leaders)
+        cell_write(
+            ri,
+            1,
+            names,
+            bg=bg,
+            fg=_ACCENT if we_lead else _INK,
+            bold=we_lead,
+            size=9,
+        )
+        cell_write(ri, 2, f"{best:g}", bg=bg)
+        ours = us.get("dimensions", {}).get(dname, {}).get("score") if us is not None else None
+        if us is None:
+            cell_write(ri, 3, "—", bg=bg, fg=_MUTED)
+            cell_write(ri, 4, "—", bg=bg, fg=_MUTED)
+        elif ours is None:
+            cell_write(ri, 3, "", bg=_GAP_BG)
+            cell_write(ri, 4, "not measured", bg=bg, fg=_MUTED, size=8.5)
+        elif we_lead:
+            cell_write(ri, 3, f"{float(ours):g}", bg=bg, bold=True)
+            others = [sc for r, sc in scored if not r.get("is_self")]
+            margin = float(ours) - max(others) if others else None
+            label = "we lead" if margin is None or margin > 0 else "we co-lead"
+            cell_write(ri, 4, label, bg=bg, fg=_ACCENT, bold=True, size=8.5)
+        else:
+            delta = float(ours) - best
+            cell_write(ri, 3, f"{float(ours):g}", bg=bg)
+            cell_write(ri, 4, f"▼ {abs(delta):g} behind", bg=bg, size=8.5)
+    if len(card.get("dimensions", [])) > len(dims):
+        _text(
+            s,
+            0.7,
+            6.6,
+            11.9,
+            0.3,
+            f"First {len(dims)} of {len(card.get('dimensions', []))} dimensions "
+            "shown — the rest are in the workbook.",
+            size=9,
+            color=_MUTED,
+        )
+    _text(
+        s,
+        0.7,
+        6.85,
+        11.9,
+        0.25,
+        "Top observed score per dimension. † overall standing provisional. "
+        "A blank cell is unmeasured – never counted as a loss.",
+        size=9,
+        color=_MUTED,
+    )
+    _footer(s, deck_title, page)
+    _notes(
+        s,
+        "Per-dimension leaders use dimension scores directly; a brand whose "
+        "OVERALL is provisional can still hold a real top score on one "
+        "dimension it was actually measured on — the dagger carries that "
+        "context onto the slide.",
+    )
+
+
 def _slide_profile(
     prs: Any,
     row: dict[str, Any],
@@ -1618,11 +1789,13 @@ def render_executive_deck(
     page += 1
     _slide_versus(prs, card, narrative, page, deck_title)
     page += 1
+    _slide_dimension_leaders(prs, card, narrative, page, deck_title)
+    page += 1
 
     # Competitor deep dives — one slide per profiled brand, in the model's
     # order (the ranked leader first). Only brands that exist in the card.
     by_name = {r["name"]: r for r in rows}
-    for profile in (narrative.get("profiles") or [])[:4]:
+    for profile in (narrative.get("profiles") or [])[:8]:
         row = by_name.get(str(profile.get("brand") or ""))
         if row is None:
             continue
@@ -1649,7 +1822,7 @@ def render_executive_deck(
     for r in ordered_rows:
         for shot in shots.get(r["name"], [])[:1]:
             exhibit_items.append((r["name"], shot, bool(r.get("is_self"))))
-    exhibit_items = exhibit_items[:6]
+    exhibit_items = exhibit_items[:14]
     batches = [exhibit_items[i : i + 2] for i in range(0, len(exhibit_items), 2)]
     for bi, batch in enumerate(batches):
         _slide_exhibits(prs, batch, bi + 1, len(batches), page, deck_title)
