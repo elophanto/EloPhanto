@@ -973,6 +973,7 @@ class WatchManager:
                 "confidence": e.confidence,
                 "collector": e.collector,
                 "excerpt": e.excerpt,
+                "screenshot_path": e.screenshot_path,
                 "exit_ip": e.exit_ip,
             }
             for e in rows

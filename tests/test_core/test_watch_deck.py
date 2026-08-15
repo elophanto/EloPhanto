@@ -42,8 +42,19 @@ class _DeckRouter:
                 '"bullets": ["OurBrand ranks #1 at 75.0.", '
                 '"Rival One dropped a full point on Promos.", '
                 '"Two dimensions remain unobserved for Rival Two."], '
+                '"exec": {"findings": ["Rival One cut its welcome offer this period."], '
+                '"threats": ["Rival One still out-promos us on Promos."], '
+                '"watch": ["Watch Rival Two – Trust newly published."]}, '
                 '"titles": {"standings": "OurBrand leads a thin field"}, '
                 '"commentary": {"standings": "Amber is us – the lead is real but narrow."}, '
+                '"profiles": [{"brand": "Rival One", "title": "closing fast on promotions", '
+                '"observations": ["Runs a two-tier welcome offer with daily login bonuses."], '
+                '"implications": ["Our promo calendar needs a counter before Q4."]}, '
+                '{"brand": "Rival Two", "title": "newly transparent on licensing", '
+                '"observations": ["Publishes licensing and responsible-play pages."], '
+                '"implications": ["Table stakes are rising on trust."]}, '
+                '{"brand": "Not A Brand", "title": "hallucinated", '
+                '"observations": ["should be dropped"], "implications": []}], '
                 '"next_steps": ["Collect the unobserved brands"]}'
             )
         return _Resp(
@@ -130,11 +141,13 @@ def _slides(path: str) -> list[dict[str, Any]]:
         text = "\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame)
         chart = next((sh.chart for sh in sl.shapes if sh.has_chart), None)
         table = next((sh.table for sh in sl.shapes if sh.has_table), None)
+        pics = sum(1 for sh in sl.shapes if sh.shape_type == 13)  # PICTURE
         out.append(
             {
                 "text": text,
                 "chart": chart,
                 "table": table,
+                "pics": pics,
                 "notes": sl.notes_slide.notes_text_frame.text,
             }
         )
@@ -342,13 +355,15 @@ class TestEvidenceSlide:
 
 class TestDeckShape:
     @pytest.mark.asyncio
-    async def test_twelve_slides_all_within_bounds(self, wm, tmp_path) -> None:
+    async def test_all_slides_within_bounds(self, wm, tmp_path) -> None:
+        """12 core slides + one deep dive per real profiled competitor. The
+        hallucinated brand in the router's profiles must not get a slide."""
         from pptx import Presentation
 
         await _market(wm)
         res, _ = await _deck(wm, tmp_path, router=_DeckRouter())
         prs = Presentation(res.data["path"])
-        assert len(prs.slides) == 12
+        assert len(prs.slides) == 14
         W, H = prs.slide_width, prs.slide_height
         for sl in prs.slides:
             for sh in sl.shapes:
@@ -415,7 +430,7 @@ class TestBoardReportCanCarryTheDeck:
         assert res.data["deck_path"] == str(tmp_path / "deck.pptx")
         assert "deck_error" not in res.data
         slides = _slides(res.data["deck_path"])
-        assert "5 material changes" in _slide(slides, "material changes this period")["text"]
+        assert "5 material moves" in _slide(slides, "material moves this period")["text"]
         # …and the snapshot came after, so a follow-up diff is empty.
         assert (await wm.diff_since_snapshot("c1"))["material_count"] == 0
 
@@ -478,3 +493,187 @@ class TestRegistration:
         assert "deck" in props
         assert "Default true" in props["deck"]["description"]
         assert "executive deck" in WatchAnalyzeTool().description
+
+
+def _fake_png(path, w: int = 64, h: int = 40, rgb: tuple = (200, 60, 60)) -> str:
+    """A real (tiny) PNG so python-pptx can measure it. Named .jpg or .png —
+    pptx sniffs content, not extension."""
+    import struct
+    import zlib
+    from pathlib import Path
+
+    def chunk(typ: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data)) + typ + data
+            + struct.pack(">I", zlib.crc32(typ + data) & 0xFFFFFFFF)
+        )
+
+    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_bytes(png)
+    return str(path)
+
+
+class TestMarketFacingDeck:
+    """The deck talks about the market: exec zones, competitor deep dives,
+    storefront exhibits — and skips, never fakes, what it does not have."""
+
+    @pytest.mark.asyncio
+    async def test_exec_summary_reads_findings_threats_watch(self, wm, tmp_path) -> None:
+        await _market(wm)
+        _res, slides = await _deck(wm, tmp_path, router=_DeckRouter())
+        summary = _slide(slides, "Executive summary")
+        for zone in ("KEY FINDINGS", "KEY THREATS", "WATCH NEXT"):
+            assert zone in summary["text"]
+        assert "Rival One cut its welcome offer" in summary["text"]
+        assert "Rival One still out-promos us" in summary["text"]
+
+    @pytest.mark.asyncio
+    async def test_competitor_profiles_render_observations_and_implications(
+        self, wm, tmp_path
+    ) -> None:
+        await _market(wm)
+        _res, slides = await _deck(wm, tmp_path, router=_DeckRouter())
+        p1 = _slide(slides, "Rival One – closing fast on promotions")
+        assert "COMPETITOR DEEP DIVE" in p1["text"]
+        assert "two-tier welcome offer" in p1["text"]
+        assert "Implications for us".upper() in p1["text"].upper()
+        assert "Our promo calendar needs a counter" in p1["text"]
+        assert "written by the model" in p1["text"]
+        # The hallucinated brand was filtered before it reached a slide.
+        with pytest.raises(AssertionError):
+            _slide(slides, "hallucinated")
+
+    @pytest.mark.asyncio
+    async def test_facts_only_deck_has_no_profiles(self, wm, tmp_path) -> None:
+        await _market(wm)
+        _res, slides = await _deck(wm, tmp_path)  # no router
+        assert not any("COMPETITOR DEEP DIVE" in s["text"] for s in slides)
+
+    def test_exhibits_render_and_are_skipped_when_absent(self, tmp_path) -> None:
+        from core.watch_deck import render_executive_deck
+
+        card = {
+            "generated_at": "2026-08-15T20:00:00+00:00",
+            "weight_total_pct": 100.0,
+            "dimensions": [{"name": "Promos", "weight_pct": 100.0}],
+            "rows": [
+                {
+                    "name": "OurBrand", "is_self": True, "rank": 1,
+                    "provisional": False,
+                    "overall": {"normalized_pct": 80.0, "coverage_pct": 100.0},
+                    "dimensions": {"Promos": {"score": 4}},
+                },
+                {
+                    "name": "Rival One", "is_self": False, "rank": 2,
+                    "provisional": False,
+                    "overall": {"normalized_pct": 60.0, "coverage_pct": 100.0},
+                    "dimensions": {"Promos": {"score": 3}},
+                },
+            ],
+        }
+        shots = {
+            "OurBrand": [{
+                "path": _fake_png(tmp_path / "us.jpg"),
+                "url": "https://u.example", "observed_at": "2026-08-15T19:00:00",
+            }],
+            "Rival One": [{
+                "path": _fake_png(tmp_path / "r1.jpg", rgb=(60, 60, 200)),
+                "url": "https://r1.example", "observed_at": "2026-08-15T19:05:00",
+            }],
+        }
+        with_shots = render_executive_deck(
+            card, diff=None, judged=[], summary={"source": "facts"},
+            gaps=[], evidence_count=2, screenshots=shots,
+            path=tmp_path / "with.pptx",
+        )
+        slides = _slides(with_shots)
+        ex = _slide(slides, "storefronts as a visitor sees them")
+        assert ex["pics"] == 2
+        assert "OurBrand" in ex["text"] and "(us)" in ex["text"]
+        assert "captured 2026-08-15" in ex["text"]
+        assert "state-verified network exit" in ex["text"]
+
+        without = render_executive_deck(
+            card, diff=None, judged=[], summary={"source": "facts"},
+            gaps=[], evidence_count=2, path=tmp_path / "without.pptx",
+        )
+        assert not any(
+            "storefronts as a visitor sees them" in s["text"].casefold()
+            for s in _slides(without)
+        )
+
+    def test_profile_slide_carries_the_storefront_thumbnail(self, tmp_path) -> None:
+        from core.watch_deck import render_executive_deck
+
+        card = {
+            "generated_at": "2026-08-15T20:00:00+00:00",
+            "weight_total_pct": 100.0,
+            "dimensions": [{"name": "Promos", "weight_pct": 100.0}],
+            "rows": [{
+                "name": "Rival One", "is_self": False, "rank": 1,
+                "provisional": False,
+                "overall": {"normalized_pct": 60.0, "coverage_pct": 100.0},
+                "dimensions": {"Promos": {"score": 3}},
+            }],
+        }
+        summary = {
+            "source": "model",
+            "profiles": [{
+                "brand": "Rival One", "title": "the field's pace-setter",
+                "observations": ["Daily bonus wheel on the homepage."],
+                "implications": ["Sets the promo bar we are judged against."],
+            }],
+        }
+        out = render_executive_deck(
+            card, diff=None, judged=[], summary=summary, gaps=[],
+            evidence_count=1,
+            screenshots={"Rival One": [{
+                "path": _fake_png(tmp_path / "r1.jpg"),
+                "url": "https://r1.example", "observed_at": "2026-08-15",
+            }]},
+            path=tmp_path / "profile.pptx",
+        )
+        slides = _slides(out)
+        p1 = _slide(slides, "the field's pace-setter")
+        assert p1["pics"] == 1
+        assert "Storefront capture" in p1["text"]
+
+    def test_old_narrative_shape_still_renders(self, tmp_path) -> None:
+        """A summary dict from before exec/profiles existed must render the
+        bullets layout, not crash."""
+        from core.watch_deck import render_executive_deck
+
+        card = {
+            "generated_at": "2026-08-15T20:00:00+00:00",
+            "weight_total_pct": 100.0,
+            "dimensions": [{"name": "Promos", "weight_pct": 100.0}],
+            "rows": [],
+        }
+        out = render_executive_deck(
+            card, diff=None, judged=[],
+            summary={"headline": "Old shape", "bullets": ["Line one."],
+                     "titles": {}, "commentary": {}, "next_steps": [],
+                     "source": "facts"},
+            gaps=[], evidence_count=0, path=tmp_path / "old.pptx",
+        )
+        slides = _slides(out)
+        s = _slide(slides, "Old shape")
+        assert "Line one." in s["text"]
+
+    def test_eyebrows_cut_at_word_boundaries(self) -> None:
+        """The cover once shipped reading '…FLORI'."""
+        from core.watch_deck import _trim_words
+
+        label = "Canonical 14-brand register · 12 weighted dimensions · Florida exits"
+        cut = _trim_words(label, 60)
+        assert len(cut) <= 60
+        assert not cut.endswith("Flori")
+        assert cut == cut.rstrip(" ·-–,;")
+        assert _trim_words("short", 60) == "short"

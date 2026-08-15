@@ -29,9 +29,7 @@ logger = logging.getLogger(__name__)
 # page by chance and prove nothing.
 MIN_EXCERPT_CHARS = 20
 
-_SCRIPT_STYLE_RE = re.compile(
-    r"<(script|style|noscript|svg)\b[^>]*>.*?</\1>", re.I | re.S
-)
+_SCRIPT_STYLE_RE = re.compile(r"<(script|style|noscript|svg)\b[^>]*>.*?</\1>", re.I | re.S)
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
@@ -359,8 +357,7 @@ async def extract_claims_multi(
         return []
     payload = {
         "dimensions": [
-            {"name": d["name"], "subcriteria": d.get("subcriteria", [])}
-            for d in dimensions
+            {"name": d["name"], "subcriteria": d.get("subcriteria", [])} for d in dimensions
         ],
         "max_claims": max_claims,
         "page_text": page_text[:24000],
@@ -383,11 +380,9 @@ async def extract_claims_multi(
         data = _json.loads(text)
         claims = data.get("claims", []) if isinstance(data, dict) else []
         valid_names = {d["name"] for d in dimensions}
-        return [
-            c
-            for c in claims
-            if isinstance(c, dict) and c.get("dimension") in valid_names
-        ][:max_claims]
+        return [c for c in claims if isinstance(c, dict) and c.get("dimension") in valid_names][
+            :max_claims
+        ]
     except Exception as e:
         logger.warning("watch: multi-dimension extraction failed: %s", e)
         return []
@@ -465,6 +460,61 @@ async def _browser_html(browser_manager: Any, url: str) -> str:
     except Exception as e:
         logger.debug("watch: browser html for %s failed: %s", url, e)
         return ""
+
+
+async def capture_page_screenshot(
+    browser_manager: Any,
+    url: str,
+    out_path: str,
+    *,
+    navigate: bool = True,
+) -> str:
+    """File a clean storefront screenshot beside the claims it supports.
+
+    Navigates the real browser to ``url`` (unless the page is already open
+    and ``navigate=False``) and saves an unannotated JPEG to ``out_path``
+    via the bridge's ``browser_capture`` — no element boxes, no vision
+    pass. Returns the path written, or "" on any failure: a missing
+    exhibit is a gap, never an error that stops collection.
+    """
+    if browser_manager is None or not out_path:
+        return ""
+    try:
+        if navigate:
+            await browser_manager.call_tool("browser_navigate", {"url": url})
+        payload = await browser_manager.call_tool("browser_capture", {"path": out_path})
+        data = payload if isinstance(payload, dict) else {}
+        # Bridge results sometimes arrive wrapped ({"result": {...}}) or as
+        # JSON text; be liberal in what we accept.
+        if not data.get("success") and isinstance(data.get("result"), dict):
+            data = data["result"]
+        if not data.get("success"):
+            text = _result_text(payload)
+            if '"success": true' not in text and '"success":true' not in text:
+                logger.debug(
+                    "watch: screenshot of %s failed: %s",
+                    url,
+                    str(data.get("error") or text)[:200],
+                )
+                return ""
+        from pathlib import Path as _Path
+
+        return out_path if _Path(out_path).exists() else ""
+    except Exception as e:
+        logger.debug("watch: screenshot of %s failed: %s", url, e)
+        return ""
+
+
+def screenshot_filename(page_url: str, *, when: str = "") -> str:
+    """A stable, readable exhibit filename: ``YYYYMMDD-<page-slug>.jpg``."""
+    from datetime import UTC, datetime
+    from urllib.parse import urlparse
+
+    day = (when or datetime.now(UTC).strftime("%Y%m%d"))[:8]
+    parsed = urlparse(page_url)
+    slug_src = (parsed.path or "/").strip("/") or "home"
+    slug = re.sub(r"[^a-z0-9]+", "-", slug_src.lower()).strip("-")[:40] or "home"
+    return f"{day}-{slug}.jpg"
 
 
 SCORE_SYSTEM = """You score one brand on one dimension of a competitive analysis.
@@ -598,21 +648,57 @@ async def extract_claims(
 # state stamp: the observation is refused, never silently downgraded.
 
 US_STATES = {
-    "AL": "alabama", "AK": "alaska", "AZ": "arizona", "AR": "arkansas",
-    "CA": "california", "CO": "colorado", "CT": "connecticut",
-    "DE": "delaware", "FL": "florida", "GA": "georgia", "HI": "hawaii",
-    "ID": "idaho", "IL": "illinois", "IN": "indiana", "IA": "iowa",
-    "KS": "kansas", "KY": "kentucky", "LA": "louisiana", "ME": "maine",
-    "MD": "maryland", "MA": "massachusetts", "MI": "michigan",
-    "MN": "minnesota", "MS": "mississippi", "MO": "missouri",
-    "MT": "montana", "NE": "nebraska", "NV": "nevada",
-    "NH": "new hampshire", "NJ": "new jersey", "NM": "new mexico",
-    "NY": "new york", "NC": "north carolina", "ND": "north dakota",
-    "OH": "ohio", "OK": "oklahoma", "OR": "oregon", "PA": "pennsylvania",
-    "RI": "rhode island", "SC": "south carolina", "SD": "south dakota",
-    "TN": "tennessee", "TX": "texas", "UT": "utah", "VT": "vermont",
-    "VA": "virginia", "WA": "washington", "WV": "west virginia",
-    "WI": "wisconsin", "WY": "wyoming", "DC": "district of columbia",
+    "AL": "alabama",
+    "AK": "alaska",
+    "AZ": "arizona",
+    "AR": "arkansas",
+    "CA": "california",
+    "CO": "colorado",
+    "CT": "connecticut",
+    "DE": "delaware",
+    "FL": "florida",
+    "GA": "georgia",
+    "HI": "hawaii",
+    "ID": "idaho",
+    "IL": "illinois",
+    "IN": "indiana",
+    "IA": "iowa",
+    "KS": "kansas",
+    "KY": "kentucky",
+    "LA": "louisiana",
+    "ME": "maine",
+    "MD": "maryland",
+    "MA": "massachusetts",
+    "MI": "michigan",
+    "MN": "minnesota",
+    "MS": "mississippi",
+    "MO": "missouri",
+    "MT": "montana",
+    "NE": "nebraska",
+    "NV": "nevada",
+    "NH": "new hampshire",
+    "NJ": "new jersey",
+    "NM": "new mexico",
+    "NY": "new york",
+    "NC": "north carolina",
+    "ND": "north dakota",
+    "OH": "ohio",
+    "OK": "oklahoma",
+    "OR": "oregon",
+    "PA": "pennsylvania",
+    "RI": "rhode island",
+    "SC": "south carolina",
+    "SD": "south dakota",
+    "TN": "tennessee",
+    "TX": "texas",
+    "UT": "utah",
+    "VT": "vermont",
+    "VA": "virginia",
+    "WA": "washington",
+    "WV": "west virginia",
+    "WI": "wisconsin",
+    "WY": "wyoming",
+    "DC": "district of columbia",
 }
 _STATE_BY_NAME = {v: k for k, v in US_STATES.items()}
 
@@ -623,8 +709,7 @@ _GEO_TOKEN_RE = re.compile(r"_(?:country|state|region|city)-[a-z0-9-]+", re.I)
 _SESSION_TOKEN_RE = re.compile(r"_session-[a-z0-9]+", re.I)
 
 
-def pin_password(password: str, *, session: str | None = None,
-                 lifetime: str = "30m") -> str:
+def pin_password(password: str, *, session: str | None = None, lifetime: str = "30m") -> str:
     """Append a sticky-session token to a geo-targeted proxy password.
 
     The password-level primitive under :func:`pin_session`, exposed on its
@@ -639,8 +724,7 @@ def pin_password(password: str, *, session: str | None = None,
     return f"{password}_session-{sid}_lifetime-{lifetime}"
 
 
-def pin_session(proxy_url: str, *, session: str | None = None,
-                lifetime: str = "30m") -> str:
+def pin_session(proxy_url: str, *, session: str | None = None, lifetime: str = "30m") -> str:
     """Pin a geo-targeted proxy URL to one exit via a sticky-session token.
 
     Without this, every request may exit from a different address, and a geo
@@ -664,8 +748,7 @@ def pin_session(proxy_url: str, *, session: str | None = None,
         host = parts.hostname or ""
         port = f":{parts.port}" if parts.port else ""
         netloc = f"{username}:{new_password}@{host}{port}"
-        return urlunsplit((parts.scheme, netloc, parts.path, parts.query,
-                           parts.fragment))
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
     except Exception:
         return proxy_url
 
@@ -680,16 +763,21 @@ def is_session_pinnable(proxy_url: str) -> bool:
         return False
 
 
-def _parse_geo_fields(ip: str, state_code: str, state_name: str,
-                      service: str) -> dict[str, Any] | None:
+def _parse_geo_fields(
+    ip: str, state_code: str, state_name: str, service: str
+) -> dict[str, Any] | None:
     code = (state_code or "").strip().upper()
     name = (state_name or "").strip().lower()
     if not code and name in _STATE_BY_NAME:
         code = _STATE_BY_NAME[name]
     if not ip or not code:
         return None
-    return {"ip": ip, "state_code": code,
-            "state_name": US_STATES.get(code, name), "service": service}
+    return {
+        "ip": ip,
+        "state_code": code,
+        "state_name": US_STATES.get(code, name),
+        "service": service,
+    }
 
 
 async def _egress_geo(proxy_url: str, *, timeout: float = 15.0) -> dict[str, Any] | None:
@@ -701,11 +789,11 @@ async def _egress_geo(proxy_url: str, *, timeout: float = 15.0) -> dict[str, Any
     """
     import httpx
 
-    for url, kind in (("https://ipwho.is/", "ipwho.is"),
-                      ("https://ipinfo.io/json", "ipinfo.io")):
+    for url, kind in (("https://ipwho.is/", "ipwho.is"), ("https://ipinfo.io/json", "ipinfo.io")):
         try:
             async with httpx.AsyncClient(
-                proxy=proxy_url, timeout=timeout,
+                proxy=proxy_url,
+                timeout=timeout,
                 headers={"User-Agent": "Mozilla/5.0"},
             ) as client:
                 resp = await client.get(url)
@@ -718,11 +806,13 @@ async def _egress_geo(proxy_url: str, *, timeout: float = 15.0) -> dict[str, Any
                     parsed = _parse_geo_fields(
                         str(data.get("ip") or ""),
                         str(data.get("region_code") or ""),
-                        str(data.get("region") or ""), kind)
+                        str(data.get("region") or ""),
+                        kind,
+                    )
                 else:
                     parsed = _parse_geo_fields(
-                        str(data.get("ip") or ""), "",
-                        str(data.get("region") or ""), kind)
+                        str(data.get("ip") or ""), "", str(data.get("region") or ""), kind
+                    )
                 if parsed:
                     return parsed
         except Exception as e:
@@ -752,7 +842,10 @@ def clear_exit_verification_cache() -> None:
 
 
 async def verify_exit_state(
-    proxy_url: str, state: str, *, attempts: int = 3,
+    proxy_url: str,
+    state: str,
+    *,
+    attempts: int = 3,
 ) -> tuple[bool, str, dict[str, Any]]:
     """Prove the exit is in ``state`` before anything gets stamped with it.
 
@@ -783,30 +876,44 @@ async def verify_exit_state(
             continue
         if geo["state_code"] == want:
             detail = {
-                **geo, "verified": True, "session_pinned": pinnable,
+                **geo,
+                "verified": True,
+                "session_pinned": pinnable,
                 "attempts": attempt + 1,
             }
             if pinnable:
                 # Only a pinned session outlives this call, so only a pinned
                 # verdict is worth reusing.
                 _exit_verify_cache[(proxy_url, want)] = (
-                    _time.monotonic() + _VERIFY_TTL_SECONDS, candidate, detail,
+                    _time.monotonic() + _VERIFY_TTL_SECONDS,
+                    candidate,
+                    detail,
                 )
             return True, candidate, detail
         landed.append(geo)
         logger.info(
             "watch: exit verification miss %d/%d — asked %s, landed %s (%s)",
-            attempt + 1, attempts if pinnable else 1, want,
-            geo.get("state_code"), geo.get("ip"),
+            attempt + 1,
+            attempts if pinnable else 1,
+            want,
+            geo.get("state_code"),
+            geo.get("ip"),
         )
-    return False, proxy_url, {
-        "verified": False, "session_pinned": pinnable, "wanted": want,
-        "landed": landed,
-    }
+    return (
+        False,
+        proxy_url,
+        {
+            "verified": False,
+            "session_pinned": pinnable,
+            "wanted": want,
+            "landed": landed,
+        },
+    )
 
 
 async def verify_browser_exit(
-    browser_manager: Any, state: str,
+    browser_manager: Any,
+    state: str,
 ) -> tuple[bool, dict[str, Any]]:
     """Check where the agent's Chrome actually exits, for escalated pages.
 
@@ -826,9 +933,7 @@ async def verify_browser_exit(
         if _time.monotonic() < expires:
             return ok, {**detail, "cached": True}
         del _browser_exit_cache[want]
-    text, err = await fetch_page_via_browser(
-        browser_manager, "https://ipwho.is/", max_chars=4000
-    )
+    text, err = await fetch_page_via_browser(browser_manager, "https://ipwho.is/", max_chars=4000)
     if err or not text:
         return False, {"error": err or "no response from geolocation echo"}
     ip_m = re.search(r'"ip"\s*:?\s*"?((?:\d{1,3}\.){3}\d{1,3})', text)
@@ -837,21 +942,27 @@ async def verify_browser_exit(
     parsed = _parse_geo_fields(
         ip_m.group(1) if ip_m else "",
         code_m.group(1) if code_m else "",
-        name_m.group(1) if name_m else "", "ipwho.is (browser)")
+        name_m.group(1) if name_m else "",
+        "ipwho.is (browser)",
+    )
     if parsed is None:
         return False, {"error": "could not parse geolocation from browser page"}
     ok = parsed["state_code"] == want
     if not ok:
         logger.info(
-            "watch: browser exit is %s (%s), not %s — browser-fetched pages "
-            "will not be stamped", parsed["state_code"], parsed["ip"], want,
+            "watch: browser exit is %s (%s), not %s — browser-fetched pages will not be stamped",
+            parsed["state_code"],
+            parsed["ip"],
+            want,
         )
     # Cache both verdicts: a pass for the sweep, a fail briefly — otherwise a
     # wrong exit means one visible ipwho.is visit per brand, which is exactly
     # the checker-loop optics this cache exists to end.
     ttl = _VERIFY_TTL_SECONDS if ok else _BROWSER_FAIL_TTL_SECONDS
     _browser_exit_cache[want] = (
-        _time.monotonic() + ttl, ok, {**parsed, "verified": ok},
+        _time.monotonic() + ttl,
+        ok,
+        {**parsed, "verified": ok},
     )
     return ok, {**parsed, "verified": ok}
 
@@ -884,18 +995,23 @@ async def search_web(
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
                 _SEARCH_URL,
-                json={"query": query[:500], "mode": "fast", "region": "us",
-                      "max_results": max_results},
-                headers={"Content-Type": "application/json",
-                         "Authorization": f"Bearer {api_key}"},
+                json={
+                    "query": query[:500],
+                    "mode": "fast",
+                    "region": "us",
+                    "max_results": max_results,
+                },
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
             )
         if resp.status_code != 200:
-            logger.warning("watch: search failed (%s): %s", resp.status_code,
-                           resp.text[:120])
+            logger.warning("watch: search failed (%s): %s", resp.status_code, resp.text[:120])
             return []
         return [
-            {"title": str(s.get("title") or ""), "url": str(s.get("url") or ""),
-             "snippet": str(s.get("snippet") or "")}
+            {
+                "title": str(s.get("title") or ""),
+                "url": str(s.get("url") or ""),
+                "snippet": str(s.get("snippet") or ""),
+            }
             for s in (resp.json().get("sources") or [])
             if isinstance(s, dict) and str(s.get("url") or "").startswith("http")
         ]
@@ -904,17 +1020,14 @@ async def search_web(
         return []
 
 
-def expansion_queries(brand: str, missing_dimensions: list[str],
-                      *, limit: int = 3) -> list[str]:
+def expansion_queries(brand: str, missing_dimensions: list[str], *, limit: int = 3) -> list[str]:
     """A few targeted queries for what the brand's own site would not say."""
     if not missing_dimensions:
         return []
     queries: list[str] = []
     chunk = 3
     for i in range(0, len(missing_dimensions), chunk):
-        group = " ".join(
-            w for d in missing_dimensions[i:i + chunk] for w in d.split()[:3]
-        )
+        group = " ".join(w for d in missing_dimensions[i : i + chunk] for w in d.split()[:3])
         queries.append(f'"{brand}" {group}'[:200])
         if len(queries) >= limit:
             break

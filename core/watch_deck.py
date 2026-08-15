@@ -1,21 +1,27 @@
 """Executive deck rendering for the competitive-intelligence organ.
 
 The scorecard workbook is for the analyst and the board report is for the
-reader; this is for the room. Twelve 16:9 slides in a fixed house style,
-built from the *same* stored evidence as the other deliverables — nothing
-here is computed differently, it is only said the way a room hears it.
+reader; this is for the room. ~16 slides in a fixed house style, built from
+the *same* stored evidence as the other deliverables — nothing here is
+computed differently, it is only said the way a room hears it.
 
-Design doctrine (adapted from a sister deck pipeline that ships to
-executives daily):
+Design doctrine (adapted from decks that ship to steering committees):
 
+* **The room hears about the market, not the machinery.** The front half of
+  the deck is competitors: an executive summary in findings / threats /
+  watch-next columns, standings, us-versus-the-leader, one deep-dive slide
+  per key competitor (observations → implications), their storefronts as
+  photographed exhibits, and the moves this period. Evidence coverage and
+  method exist — in the appendix, where an analyst looks for them.
 * **One idea per slide, action titles.** Every heading is a sentence someone
   could disagree with ("High 5 leads a thin field"), never a label. The
-  model writes titles and one-line commentary from the factual record; the
-  numbers themselves are computed, never generated.
-* **Numbers pulled forward.** The headline figures get a metrics slide with
-  display-size values, before any chart.
+  model writes titles and commentary from the factual record; the numbers
+  themselves are computed, never generated.
+* **Exhibits are captures, not mockups.** A storefront screenshot on a slide
+  was taken by the browser through a state-verified network exit, and is
+  filed in the evidence register beside the claims from that page.
 * **Restraint.** White content slides, ink type, one short accent rule under
-  each heading, dark bookends (title and closing). En dashes, never em.
+  each heading, dark bookends. En dashes, never em.
 * **No internal bookkeeping.** Hashes, file paths, manifests, run IDs and
   checkpoint numbers never reach a slide — enforced by prompt *and* by a
   scrubber here, because a deck once shipped with a SHA-256 on it.
@@ -41,16 +47,16 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── house tokens ─────────────────────────────────────────────────────
-_INK = "111827"        # near-black: headings, display numbers, dark canvases
-_BODY = "4B5563"       # body copy
-_MUTED = "9CA3AF"      # eyebrows, footers, labels
-_HAIR = "E5E7EB"       # hairlines
-_CARD = "F9FAFB"       # zebra rows / note cards
-_GAP_BG = "F3F4F6"     # heatmap: not observed
-_ACCENT = "D97706"     # amber: the accent rule, and *our* brand everywhere
-_PEER = "64748B"       # slate: peer brands
+_INK = "111827"  # near-black: headings, display numbers, dark canvases
+_BODY = "4B5563"  # body copy
+_MUTED = "9CA3AF"  # eyebrows, footers, labels
+_HAIR = "E5E7EB"  # hairlines
+_CARD = "F9FAFB"  # zebra rows / note cards
+_GAP_BG = "F3F4F6"  # heatmap: not observed
+_ACCENT = "D97706"  # amber: the accent rule, and *our* brand everywhere
+_PEER = "64748B"  # slate: peer brands
 _DARK_BODY = "D1D5DB"  # body copy on dark canvases
-_SELF_ROW = "FDF6EC"   # our row in the heatmap
+_SELF_ROW = "FDF6EC"  # our row in the heatmap
 _WHITE = "FFFFFF"
 
 _CLASS_LABEL = {
@@ -79,6 +85,16 @@ def _clean(text: Any, cap: int = 300) -> str:
     s = _BOOKKEEPING_RE.sub("", s)
     s = re.sub(r"\s+", " ", s).strip(" -–,;")
     return s[:cap]
+
+
+def _trim_words(text: str, cap: int) -> str:
+    """Cap at a word boundary — a slide once shipped reading '…FLORI'."""
+    if len(text) <= cap:
+        return text
+    cut = text[:cap]
+    if " " in cut:
+        cut = cut[: cut.rfind(" ")]
+    return cut.rstrip(" ·-–,;")
 
 
 def _fmt(v: float | None) -> str:
@@ -114,9 +130,7 @@ def _text(
     from pptx.enum.text import PP_ALIGN
     from pptx.util import Inches, Pt
 
-    box = slide.shapes.add_textbox(
-        Inches(left), Inches(top), Inches(width), Inches(height)
-    )
+    box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = box.text_frame
     tf.word_wrap = wrap
     p = tf.paragraphs[0]
@@ -152,16 +166,15 @@ def _bullets(
     gap_pt: int = 10,
     cap: int = 220,
     accent_bullet: bool = True,
+    max_items: int = 6,
 ) -> Any:
     from pptx.util import Inches, Pt
 
-    box = slide.shapes.add_textbox(
-        Inches(left), Inches(top), Inches(width), Inches(height)
-    )
+    box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = box.text_frame
     tf.word_wrap = True
     first = True
-    for item in items[:6]:
+    for item in items[:max_items]:
         p = tf.paragraphs[0] if first else tf.add_paragraph()
         first = False
         if accent_bullet:
@@ -182,24 +195,29 @@ def _rule(slide: Any, y: float, *, x: float = 0.7, w: float = 0.7) -> None:
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches, Pt
 
-    ln = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Pt(2.6)
-    )
+    ln = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Pt(2.6))
     ln.fill.solid()
     ln.fill.fore_color.rgb = _rgb(_ACCENT)
     ln.line.fill.background()
     ln.shadow.inherit = False
 
 
-def _eyebrow(
-    slide: Any, text: str, *, y: float, x: float = 0.7, color: str = _MUTED
-) -> None:
+def _eyebrow(slide: Any, text: str, *, y: float, x: float = 0.7, color: str = _MUTED) -> None:
     # Width fits the remaining canvas — an eyebrow placed in a right-hand
-    # column must not spill past the slide edge.
+    # column must not spill past the slide edge — and the text is cut at a
+    # word boundary, never mid-word.
     width = max(1.0, 13.333 - x - 0.73)
     _text(
-        slide, x, y, width, 0.3, _clean(text, 60).upper(),
-        size=10.5, bold=True, color=color, spacing=3,
+        slide,
+        x,
+        y,
+        width,
+        0.3,
+        _trim_words(_clean(text, 90), 60).upper(),
+        size=10.5,
+        bold=True,
+        color=color,
+        spacing=3,
     )
 
 
@@ -215,14 +233,28 @@ def _header(slide: Any, eyebrow: str, title: str, commentary: str = "") -> float
     """
     _eyebrow(slide, eyebrow, y=0.42)
     _text(
-        slide, 0.7, 0.72, 11.9, 0.85, _clean(title, 110),
-        size=23, bold=True, line=1.08,
+        slide,
+        0.7,
+        0.72,
+        11.9,
+        0.85,
+        _clean(title, 110),
+        size=23,
+        bold=True,
+        line=1.08,
     )
     _rule(slide, 1.62)
     if commentary:
         _text(
-            slide, 0.7, 1.78, 11.9, 0.4, _clean(commentary, 170),
-            size=12.5, italic=True, color=_BODY,
+            slide,
+            0.7,
+            1.78,
+            11.9,
+            0.4,
+            _clean(commentary, 170),
+            size=12.5,
+            italic=True,
+            color=_BODY,
         )
         return 2.3
     return 2.0
@@ -233,11 +265,9 @@ def _judgement_note(slide: Any, source: str, *, dark: bool = False) -> None:
         "Narrative and commentary written by the model from the factual record "
         "– verify before presenting."
         if source == "model"
-        else "Facts only – no model was available, so no narrative judgement "
-        "has been applied."
+        else "Facts only – no model was available, so no narrative judgement has been applied."
     )
-    _text(slide, 0.7, 6.72, 11.9, 0.3, msg, size=9,
-          color="6B7280" if dark else _MUTED)
+    _text(slide, 0.7, 6.72, 11.9, 0.3, msg, size=9, color="6B7280" if dark else _MUTED)
 
 
 def _notes(slide: Any, text: str) -> None:
@@ -261,6 +291,27 @@ def _dark(slide: Any) -> None:
     bg.shadow.inherit = False
 
 
+def _picture(slide: Any, path: str, x: float, y: float, w: float, max_h: float) -> Any | None:
+    """Place an image fitted to ``w`` wide, capped at ``max_h`` tall, with a
+    hairline border. Returns the picture shape, or None if the file is
+    unreadable — a missing exhibit never breaks the deck."""
+    from pptx.util import Inches, Pt
+
+    try:
+        pic = slide.shapes.add_picture(path, Inches(x), Inches(y), width=Inches(w))
+    except Exception as e:
+        logger.debug("deck: could not place exhibit %s: %s", path, e)
+        return None
+    if pic.height > Inches(max_h):
+        ratio = Inches(max_h) / pic.height
+        pic.height = Inches(max_h)
+        pic.width = int(pic.width * ratio)
+    pic.line.color.rgb = _rgb(_HAIR)
+    pic.line.width = Pt(1.0)
+    pic.shadow.inherit = False
+    return pic
+
+
 # ── narrative fallback (no model) ────────────────────────────────────
 
 
@@ -273,7 +324,9 @@ def factual_narrative(
     """The deck's words when no model is available: numbers only, no claims.
 
     Deliberately dull — a dull true summary beats a sharp invented one. Same
-    shape as the model's narrative, so the renderer never branches.
+    shape as the model's narrative, so the renderer never branches; the
+    model-only sections (exec zones, competitor profiles) stay empty and
+    their slides are skipped rather than faked.
     """
     rows = card.get("rows", [])
     ranked = [r for r in rows if r.get("rank") is not None]
@@ -289,14 +342,12 @@ def factual_narrative(
         )
     else:
         bullets.append(
-            f"{len(rows)} brands tracked; none yet scored on enough of the "
-            "model to rank."
+            f"{len(rows)} brands tracked; none yet scored on enough of the model to rank."
         )
     if us is not None:
         if us.get("rank") is not None:
             bullets.append(
-                f"{us['name']} ranks #{us['rank']} at "
-                f"{_fmt(us['overall']['normalized_pct'])}."
+                f"{us['name']} ranks #{us['rank']} at {_fmt(us['overall']['normalized_pct'])}."
             )
         elif us["overall"]["normalized_pct"] is not None:
             bullets.append(
@@ -306,9 +357,7 @@ def factual_narrative(
         else:
             bullets.append(f"{us['name']} is not yet scored on any dimension.")
     if diff is None:
-        bullets.append(
-            "First cycle: this pack sets the baseline; change appears next cycle."
-        )
+        bullets.append("First cycle: this pack sets the baseline; change appears next cycle.")
     else:
         n = int(diff.get("material_count", 0))
         bullets.append(
@@ -319,11 +368,11 @@ def factual_narrative(
     never = [g for g in gaps if g.get("status") == "never_observed"]
     stale = [g for g in gaps if g.get("status") == "stale"]
     bullets.append(
-        f"{len(never)} brand × dimension pairs never observed; "
-        f"{len(stale)} overdue a refresh."
+        f"{len(never)} brand × dimension pairs never observed; {len(stale)} overdue a refresh."
     )
     asks = [
-        j for j in judged
+        j
+        for j in judged
         if str(j.get("decision_required", "none")).strip().lower() not in ("", "none")
     ]
 
@@ -331,24 +380,20 @@ def factual_narrative(
     next_steps: list[str] = []
     if never_brands:
         more = " and others" if len(never_brands) > 3 else ""
-        next_steps.append(
-            "Collect the unobserved brands – " + ", ".join(never_brands[:3]) + more
-        )
+        next_steps.append("Collect the unobserved brands – " + ", ".join(never_brands[:3]) + more)
     if stale:
-        next_steps.append(
-            f"Refresh the {len(stale)} pairs overdue against their cadence"
-        )
+        next_steps.append(f"Refresh the {len(stale)} pairs overdue against their cadence")
     if asks:
         plural = "s" if len(asks) != 1 else ""
-        next_steps.append(
-            f"Decide the {len(asks)} board ask{plural} on the decisions slide"
-        )
+        next_steps.append(f"Decide the {len(asks)} board ask{plural} on the decisions slide")
     if not next_steps:
         next_steps.append("Hold the cadence – re-observe on schedule and diff next cycle")
 
     return {
         "headline": "",
         "bullets": bullets[:5],
+        "exec": {},
+        "profiles": [],
         "titles": {},
         "commentary": {},
         "next_steps": next_steps[:4],
@@ -370,8 +415,16 @@ def _slide_title(
     _dark(s)
     _eyebrow(s, market or "Competitive intelligence", y=1.05)
     _text(
-        s, 0.7, 1.55, 11.9, 1.9, _clean(title, 90),
-        size=40, bold=True, color=_WHITE, line=1.06,
+        s,
+        0.7,
+        1.55,
+        11.9,
+        1.9,
+        _clean(title, 90),
+        size=40,
+        bold=True,
+        color=_WHITE,
+        line=1.06,
     )
     _text(s, 0.7, 3.55, 11.0, 0.5, _clean(period, 120), size=15, color=_MUTED)
     _rule(s, 4.35)
@@ -383,9 +436,10 @@ def _slide_title(
     _text(s, 0.7, 6.75, 5.0, 0.3, month, size=10, color=_MUTED)
 
 
-def _slide_summary(
-    prs: Any, narrative: dict[str, Any], page: int, deck_title: str
-) -> None:
+def _slide_summary(prs: Any, narrative: dict[str, Any], page: int, deck_title: str) -> None:
+    """Findings / threats / watch-next, the way a steering committee reads an
+    executive summary. Falls back to plain priority bullets when the model
+    did not write the three zones (facts-only mode)."""
     s = _blank(prs)
     _eyebrow(s, "Executive summary", y=0.5)
     headline = _clean(narrative.get("headline") or "", 110)
@@ -395,11 +449,45 @@ def _slide_summary(
         y += 1.25
     _rule(s, y)
     y += 0.3
-    _bullets(
-        s, 0.7, y, 11.9, 6.4 - y,
-        [str(b) for b in narrative.get("bullets") or []],
-        size=15, gap_pt=12, cap=140,
-    )
+
+    exec_zone = narrative.get("exec") or {}
+    findings = [str(x) for x in exec_zone.get("findings") or []]
+    threats = [str(x) for x in exec_zone.get("threats") or []]
+    watch = [str(x) for x in exec_zone.get("watch") or []]
+
+    if findings or threats or watch:
+        cols = [
+            ("Key findings", _PEER, findings, 0.7, 3.9),
+            ("Key threats", _ACCENT, threats, 4.95, 3.9),
+            ("Watch next", _MUTED, watch, 9.2, 3.4),
+        ]
+        for label, label_color, items, x, w in cols:
+            _eyebrow(s, label, y=y, x=x, color=label_color)
+            _bullets(
+                s,
+                x,
+                y + 0.38,
+                w,
+                6.35 - y,
+                items or ["Nothing this period."],
+                size=12,
+                gap_pt=9,
+                cap=140,
+                accent_bullet=False,
+                max_items=4,
+            )
+    else:
+        _bullets(
+            s,
+            0.7,
+            y,
+            11.9,
+            6.4 - y,
+            [str(b) for b in narrative.get("bullets") or []],
+            size=15,
+            gap_pt=12,
+            cap=140,
+        )
     _judgement_note(s, str(narrative.get("source") or "facts"))
     _footer(s, deck_title, page)
     _notes(
@@ -426,8 +514,7 @@ def _slide_glance(
     leader = ranked[0] if ranked else None
     pairs = len(rows) * len(dims)
     observed = sum(
-        1 for r in rows for d in r.get("dimensions", {}).values()
-        if d.get("score") is not None
+        1 for r in rows for d in r.get("dimensions", {}).values() if d.get("score") is not None
     )
     pct = (observed / pairs * 100.0) if pairs else 0.0
 
@@ -438,7 +525,7 @@ def _slide_glance(
         ),
         (f"{len(ranked)} / {len(rows)}", "brands ranked / tracked"),
         (f"{pct:.0f}%", f"of the model observed – {observed} of {pairs} pairs"),
-        (f"{evidence_count:,}", "evidence items, each traceable to a source"),
+        (f"{evidence_count:,}", "observed facts, each traceable to a source"),
     ]
     x = 0.7
     w = 12.0 / len(tiles)
@@ -448,14 +535,24 @@ def _slide_glance(
         x += w
     if commentary:
         _text(
-            s, 0.7, 5.0, 11.9, 0.5, _clean(commentary, 170),
-            size=12.5, italic=True, color=_BODY,
+            s,
+            0.7,
+            5.0,
+            11.9,
+            0.5,
+            _clean(commentary, 170),
+            size=12.5,
+            italic=True,
+            color=_BODY,
         )
     _footer(s, deck_title, page)
 
 
 def _slide_standings(
-    prs: Any, card: dict[str, Any], narrative: dict[str, Any], page: int,
+    prs: Any,
+    card: dict[str, Any],
+    narrative: dict[str, Any],
+    page: int,
     deck_title: str,
 ) -> None:
     from pptx.chart.data import CategoryChartData
@@ -465,15 +562,16 @@ def _slide_standings(
     s = _blank(prs)
     title = (narrative.get("titles") or {}).get("standings") or "Where the market stands"
     top = _header(
-        s, "Standings", title,
+        s,
+        "Standings",
+        title,
         (narrative.get("commentary") or {}).get("standings", ""),
     )
 
     rows = card.get("rows", [])
     ranked = [r for r in rows if r.get("rank") is not None]
     provisional = [
-        r for r in rows
-        if r.get("provisional") and r["overall"]["normalized_pct"] is not None
+        r for r in rows if r.get("provisional") and r["overall"]["normalized_pct"] is not None
     ]
     unscored = [r for r in rows if r["overall"]["normalized_pct"] is None]
 
@@ -481,16 +579,19 @@ def _slide_standings(
         shown = ranked[:12]
         cd = CategoryChartData()
         cd.categories = [
-            f"{r['name']}{'  (us)' if r.get('is_self') else ''}"
-            for r in reversed(shown)
+            f"{r['name']}{'  (us)' if r.get('is_self') else ''}" for r in reversed(shown)
         ]
         cd.add_series(
             "Overall (normalized %)",
             [round(float(r["overall"]["normalized_pct"]), 1) for r in reversed(shown)],
         )
         gf = s.shapes.add_chart(
-            XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.7), Inches(top),
-            Inches(8.1), Inches(6.6 - top), cd,
+            XL_CHART_TYPE.BAR_CLUSTERED,
+            Inches(0.7),
+            Inches(top),
+            Inches(8.1),
+            Inches(6.6 - top),
+            cd,
         )
         ch = gf.chart
         ch.has_legend = False
@@ -524,23 +625,37 @@ def _slide_standings(
                 pt.format.fill.fore_color.rgb = _rgb(_ACCENT)
         if len(ranked) > len(shown):
             _text(
-                s, 0.7, 6.62, 8.1, 0.3,
+                s,
+                0.7,
+                6.62,
+                8.1,
+                0.3,
                 f"Top {len(shown)} of {len(ranked)} ranked brands shown.",
-                size=9, color=_MUTED,
+                size=9,
+                color=_MUTED,
             )
     else:
         _text(
-            s, 0.7, top + 0.2, 8.1, 1.0,
+            s,
+            0.7,
+            top + 0.2,
+            8.1,
+            1.0,
             "No brand has yet been scored on enough of the model to hold a rank.",
-            size=15, color=_BODY,
+            size=15,
+            color=_BODY,
         )
 
     x = 9.1
     _text(
-        s, x, top, 3.5, 0.55,
-        "Overall score, normalized to the weight actually measured. "
-        "Amber – our brand.",
-        size=9.5, color=_MUTED,
+        s,
+        x,
+        top,
+        3.5,
+        0.55,
+        "Overall score, normalized to the weight actually measured. Amber – our brand.",
+        size=9.5,
+        color=_MUTED,
     )
     y = top + 0.75
     if provisional:
@@ -552,8 +667,17 @@ def _slide_standings(
             for r in provisional[:4]
         ]
         _bullets(
-            s, x, y, 3.5, 2.6, lines,
-            size=9, color=_MUTED, gap_pt=5, cap=120, accent_bullet=False,
+            s,
+            x,
+            y,
+            3.5,
+            2.6,
+            lines,
+            size=9,
+            color=_MUTED,
+            gap_pt=5,
+            cap=120,
+            accent_bullet=False,
         )
         y += min(2.6, 0.55 * len(lines)) + 0.25
     if unscored and y < 6.2:
@@ -572,7 +696,10 @@ def _slide_standings(
 
 
 def _slide_versus(
-    prs: Any, card: dict[str, Any], narrative: dict[str, Any], page: int,
+    prs: Any,
+    card: dict[str, Any],
+    narrative: dict[str, Any],
+    page: int,
     deck_title: str,
 ) -> None:
     s = _blank(prs)
@@ -584,35 +711,52 @@ def _slide_versus(
     )
     title = (narrative.get("titles") or {}).get("versus") or "Where we win, where we lose"
     top = _header(
-        s, "Versus the leader", title,
+        s,
+        "Versus the leader",
+        title,
         (narrative.get("commentary") or {}).get("versus", ""),
     )
 
     if us is None:
         _text(
-            s, 0.7, top + 0.2, 11.9, 1.0,
+            s,
+            0.7,
+            top + 0.2,
+            11.9,
+            1.0,
             "No brand is marked as ours, so there is nothing to compare. Mark "
             "one with watch_subject is_self=true and this slide fills in.",
-            size=14, color=_BODY,
+            size=14,
+            color=_BODY,
         )
         _footer(s, deck_title, page)
         return
     if leader is None:
         _text(
-            s, 0.7, top + 0.2, 11.9, 1.0,
+            s,
+            0.7,
+            top + 0.2,
+            11.9,
+            1.0,
             f"{us['name']} is the only ranked brand so far – no peer holds a "
             "rank yet to compare against.",
-            size=14, color=_BODY,
+            size=14,
+            color=_BODY,
         )
         _footer(s, deck_title, page)
         return
 
     _text(
-        s, 0.7, top, 11.9, 0.45,
+        s,
+        0.7,
+        top,
+        11.9,
+        0.45,
         f"{us['name']}  {_fmt(us['overall']['normalized_pct'])}   vs   "
         f"{leader['name']} (#{leader['rank']})  "
         f"{_fmt(leader['overall']['normalized_pct'])}",
-        size=15, bold=True,
+        size=15,
+        bold=True,
     )
     top += 0.6
 
@@ -636,70 +780,326 @@ def _slide_versus(
     behind.sort(key=lambda t: -t[0])
 
     cols = [
-        ("Ahead", _ACCENT,
-         [entry for _, entry in ahead[:5]] or ["Nowhere yet, on measured dimensions."],
-         0.7, 3.9, _BODY),
-        ("Behind", _PEER,
-         [entry for _, entry in behind[:5]] or ["Nowhere, on measured dimensions."],
-         4.95, 3.9, _BODY),
-        ("Not comparable yet", _MUTED,
-         unmeasured[:7] or ["Every dimension is measured on both."],
-         9.2, 3.4, _MUTED),
+        (
+            "Ahead",
+            _ACCENT,
+            [entry for _, entry in ahead[:5]] or ["Nowhere yet, on measured dimensions."],
+            0.7,
+            3.9,
+            _BODY,
+        ),
+        (
+            "Behind",
+            _PEER,
+            [entry for _, entry in behind[:5]] or ["Nowhere, on measured dimensions."],
+            4.95,
+            3.9,
+            _BODY,
+        ),
+        (
+            "Not comparable yet",
+            _MUTED,
+            unmeasured[:7] or ["Every dimension is measured on both."],
+            9.2,
+            3.4,
+            _MUTED,
+        ),
     ]
     for label, label_color, items, x, w, body_color in cols:
         _eyebrow(s, label, y=top, x=x, color=label_color)
         _bullets(
-            s, x, top + 0.35, w, 6.2 - top, items,
-            size=10.5, color=body_color, gap_pt=6, cap=110, accent_bullet=False,
+            s,
+            x,
+            top + 0.35,
+            w,
+            6.2 - top,
+            items,
+            size=10.5,
+            color=body_color,
+            gap_pt=6,
+            cap=110,
+            accent_bullet=False,
+            max_items=7,
         )
     _text(
-        s, 0.7, 6.72, 11.9, 0.3,
+        s,
+        0.7,
+        6.72,
+        11.9,
+        0.3,
         "A dimension unscored on either side is listed as not comparable – "
         "never counted as a loss.",
-        size=9, color=_MUTED,
+        size=9,
+        color=_MUTED,
+    )
+    _footer(s, deck_title, page)
+
+
+def _slide_profile(
+    prs: Any,
+    row: dict[str, Any],
+    profile: dict[str, Any],
+    weights: dict[str, float],
+    exhibits: list[dict[str, str]],
+    page: int,
+    deck_title: str,
+) -> None:
+    """One competitor, one slide: their scores and storefront on the left,
+    what they are doing and what it means for us on the right — the
+    steering-committee deep-dive pattern."""
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    name = row["name"]
+    rank = row.get("rank")
+    overall = row["overall"]["normalized_pct"]
+    standing = f"#{rank}" if rank is not None else "provisional †"
+    eyebrow = f"Competitor deep dive · {standing} · overall {_fmt(overall)}"
+    title = profile.get("title") or f"{name}"
+    top = _header(s, eyebrow, f"{name} – {title}" if title != name else name)
+
+    # Left: the brand's strongest-weighted scored dimensions as 1-5 bars.
+    scored = [
+        (dname, float(d["score"]))
+        for dname, d in row.get("dimensions", {}).items()
+        if d.get("score") is not None
+    ]
+    scored.sort(key=lambda t: -weights.get(t[0], 0.0))
+    shown = scored[:5]
+    not_observed = [
+        dname for dname, d in row.get("dimensions", {}).items() if d.get("score") is None
+    ]
+    bar_x, bar_w = 0.7, 4.4
+    y = top + 0.1
+    for dname, score in shown:
+        _text(s, bar_x, y, bar_w, 0.26, _clean(dname, 44), size=9.5, color=_BODY)
+        track = s.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(bar_x),
+            Inches(y + 0.26),
+            Inches(bar_w),
+            Pt(6),
+        )
+        track.fill.solid()
+        track.fill.fore_color.rgb = _rgb(_GAP_BG)
+        track.line.fill.background()
+        track.shadow.inherit = False
+        fill = s.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(bar_x),
+            Inches(y + 0.26),
+            Inches(bar_w * max(0.0, min(score, 5.0)) / 5.0),
+            Pt(6),
+        )
+        fill.fill.solid()
+        fill.fill.fore_color.rgb = _rgb(_ACCENT if row.get("is_self") else _PEER)
+        fill.line.fill.background()
+        fill.shadow.inherit = False
+        _text(
+            s,
+            bar_x + bar_w + 0.08,
+            y + 0.1,
+            0.5,
+            0.26,
+            f"{score:g}",
+            size=9.5,
+            bold=True,
+        )
+        y += 0.52
+    if not shown:
+        _text(
+            s,
+            bar_x,
+            y,
+            bar_w,
+            0.8,
+            "No dimension scored yet – observations pending.",
+            size=11,
+            color=_MUTED,
+        )
+        y += 0.9
+    extras: list[str] = []
+    if len(scored) > len(shown):
+        extras.append(f"+{len(scored) - len(shown)} more scored – see appendix")
+    if not_observed:
+        more = f" +{len(not_observed) - 3} more" if len(not_observed) > 3 else ""
+        extras.append("not observed: " + ", ".join(not_observed[:3]) + more)
+    if extras:
+        _text(
+            s,
+            bar_x,
+            y + 0.02,
+            bar_w + 0.6,
+            0.45,
+            " · ".join(extras),
+            size=8.5,
+            color=_MUTED,
+        )
+        y += 0.45
+
+    # Storefront capture under the bars — fixed slot so it always fits.
+    if exhibits:
+        shot = exhibits[0]
+        shot_y = max(y + 0.15, 4.75)
+        max_h = 6.6 - shot_y
+        if max_h > 0.7:
+            pic = _picture(s, shot["path"], bar_x, shot_y, 2.9, max_h)
+            if pic is not None:
+                cap = "Storefront capture"
+                if shot.get("observed_at"):
+                    cap += f" · {str(shot['observed_at'])[:10]}"
+                _text(
+                    s,
+                    bar_x + 3.0,
+                    shot_y + 0.05,
+                    2.2,
+                    0.8,
+                    cap,
+                    size=8.5,
+                    color=_MUTED,
+                )
+
+    # Right: observations → implications, model-written from filed facts.
+    x = 6.1
+    _eyebrow(s, "Observations", y=top + 0.1, x=x, color=_PEER)
+    _bullets(
+        s,
+        x,
+        top + 0.45,
+        6.4,
+        2.9,
+        [str(o) for o in profile.get("observations") or []]
+        or ["No narrative available – see the workbook for this brand's facts."],
+        size=11.5,
+        gap_pt=8,
+        cap=150,
+        accent_bullet=False,
+        max_items=4,
+    )
+    imp_y = top + 3.3
+    _eyebrow(s, "Implications for us", y=imp_y, x=x, color=_ACCENT)
+    _bullets(
+        s,
+        x,
+        imp_y + 0.35,
+        6.4,
+        6.55 - imp_y - 0.4,
+        [str(i) for i in profile.get("implications") or []] or ["Not yet judged."],
+        size=11.5,
+        gap_pt=8,
+        cap=150,
+        accent_bullet=False,
+        max_items=2,
+    )
+    _judgement_note(s, "model")
+    _footer(s, deck_title, page)
+    _notes(
+        s,
+        "Bars are computed scores (1-5) on the weighted dimensions; blank "
+        "means not observed, never zero. Observations and implications are "
+        "model-written from this brand's filed facts.",
+    )
+
+
+def _slide_exhibits(
+    prs: Any,
+    batch: list[tuple[str, dict[str, str], bool]],
+    idx: int,
+    total: int,
+    page: int,
+    deck_title: str,
+) -> None:
+    """Two storefronts per slide, photographed by the browser — the market
+    as a visitor sees it, filed beside the claims it supports."""
+    s = _blank(prs)
+    suffix = f" ({idx}/{total})" if total > 1 else ""
+    top = _header(s, "Exhibits", f"The storefronts as a visitor sees them{suffix}")
+    slots = [(0.7, 5.9), (6.85, 5.9)]
+    for (x, w), (brand, shot, is_self) in zip(slots, batch, strict=False):
+        pic = _picture(s, shot["path"], x, top + 0.15, w, 3.6)
+        label = f"{brand}{'  (us)' if is_self else ''}"
+        cap_y = top + 0.15 + 3.75
+        _text(s, x, cap_y, w, 0.3, label, size=12, bold=True, color=_ACCENT if is_self else _INK)
+        detail = []
+        if shot.get("url"):
+            detail.append(_clean(shot["url"], 70))
+        if shot.get("observed_at"):
+            detail.append(f"captured {str(shot['observed_at'])[:10]}")
+        if detail:
+            _text(s, x, cap_y + 0.3, w, 0.3, " · ".join(detail), size=9, color=_MUTED)
+        if pic is None:
+            _text(s, x, top + 1.5, w, 0.5, "exhibit unavailable", size=10, color=_MUTED)
+    _text(
+        s,
+        0.7,
+        6.72,
+        11.9,
+        0.3,
+        "Captured by the browser through a state-verified network exit; each "
+        "capture is filed in the evidence register beside its claims.",
+        size=9,
+        color=_MUTED,
     )
     _footer(s, deck_title, page)
 
 
 def _slide_changes(
-    prs: Any, diff: dict[str, Any] | None, narrative: dict[str, Any], page: int,
+    prs: Any,
+    diff: dict[str, Any] | None,
+    narrative: dict[str, Any],
+    page: int,
     deck_title: str,
 ) -> None:
     s = _blank(prs)
     commentary = (narrative.get("commentary") or {}).get("changes", "")
     if diff is None:
-        _header(s, "Material changes", "Baseline established", commentary)
+        _header(s, "Market moves", "Baseline established", commentary)
         _text(
-            s, 0.7, 2.5, 11.9, 1.2,
+            s,
+            0.7,
+            2.5,
+            11.9,
+            1.2,
             "First reporting cycle. There is no prior snapshot to compare "
             "against, so this pack sets the baseline; the next cycle shows "
             "what moved.",
-            size=15, color=_BODY,
+            size=15,
+            color=_BODY,
         )
         _footer(s, deck_title, page)
         return
     n = int(diff.get("material_count", 0))
-    title = (
-        (narrative.get("titles") or {}).get("changes")
-        or f"{n} material change{'s' if n != 1 else ''} this period"
-    )
-    top = _header(s, "Material changes", title, commentary)
+    title = (narrative.get("titles") or {}).get(
+        "changes"
+    ) or f"{n} material move{'s' if n != 1 else ''} this period"
+    top = _header(s, "Market moves", title, commentary)
     _text(
-        s, 0.7, top - 0.05, 11.9, 0.3,
+        s,
+        0.7,
+        top - 0.05,
+        11.9,
+        0.3,
         f"{str(diff.get('from_generated_at', '?'))[:10]} → "
         f"{str(diff.get('to_generated_at', '?'))[:10]}",
-        size=10, color=_MUTED,
+        size=10,
+        color=_MUTED,
     )
     top += 0.3
     if n == 0:
         th = diff.get("thresholds", {})
         _text(
-            s, 0.7, top + 0.2, 11.9, 1.2,
+            s,
+            0.7,
+            top + 0.2,
+            11.9,
+            1.2,
             "Nothing moved above the materiality threshold "
             f"(score move ≥ {th.get('min_score_delta', 1.0)}, coverage shift ≥ "
             f"{th.get('min_coverage_delta', 0)}%). Sub-threshold wobble is "
             "suppressed on purpose.",
-            size=15, color=_BODY,
+            size=15,
+            color=_BODY,
         )
         _footer(s, deck_title, page)
         return
@@ -714,25 +1114,52 @@ def _slide_changes(
     shown = lines[:11]
     half = (len(shown) + 1) // 2
     _bullets(
-        s, 0.7, top, 5.9, 6.5 - top, shown[:half],
-        size=11.5, gap_pt=7, cap=120, accent_bullet=False,
+        s,
+        0.7,
+        top,
+        5.9,
+        6.5 - top,
+        shown[:half],
+        size=11.5,
+        gap_pt=7,
+        cap=120,
+        accent_bullet=False,
+        max_items=6,
     )
     _bullets(
-        s, 6.85, top, 5.8, 6.5 - top, shown[half:],
-        size=11.5, gap_pt=7, cap=120, accent_bullet=False,
+        s,
+        6.85,
+        top,
+        5.8,
+        6.5 - top,
+        shown[half:],
+        size=11.5,
+        gap_pt=7,
+        cap=120,
+        accent_bullet=False,
+        max_items=6,
     )
     if len(lines) > len(shown):
         _text(
-            s, 0.7, 6.55, 11.9, 0.3,
+            s,
+            0.7,
+            6.55,
+            11.9,
+            0.3,
             f"+{len(lines) - len(shown)} more in the board report.",
-            size=9, color=_MUTED,
+            size=9,
+            color=_MUTED,
         )
     _footer(s, deck_title, page)
 
 
 def _slide_implications(
-    prs: Any, judged: list[dict[str, Any]], material_count: int, source: str,
-    page: int, deck_title: str,
+    prs: Any,
+    judged: list[dict[str, Any]],
+    material_count: int,
+    source: str,
+    page: int,
+    deck_title: str,
 ) -> int:
     from pptx.util import Inches, Pt
 
@@ -752,9 +1179,11 @@ def _slide_implications(
 
     ordered = sorted(
         judged,
-        key=lambda j: _CLASS_ORDER.index(j.get("classification", "monitor"))
-        if j.get("classification") in _CLASS_ORDER
-        else len(_CLASS_ORDER),
+        key=lambda j: (
+            _CLASS_ORDER.index(j.get("classification", "monitor"))
+            if j.get("classification") in _CLASS_ORDER
+            else len(_CLASS_ORDER)
+        ),
     )
     per = 5
     batches = [ordered[i : i + per] for i in range(0, len(ordered), per)]
@@ -765,8 +1194,12 @@ def _slide_implications(
         cols = ["Subject", "Change", "Implication", "Recommendation", "Class"]
         widths = [1.7, 2.7, 3.3, 3.3, 1.6]
         shape = s.shapes.add_table(
-            len(chunk) + 1, len(cols), Inches(0.7), Inches(top),
-            Inches(sum(widths)), Inches(0.42 * (len(chunk) + 1)),
+            len(chunk) + 1,
+            len(cols),
+            Inches(0.7),
+            Inches(top),
+            Inches(sum(widths)),
+            Inches(0.42 * (len(chunk) + 1)),
         )
         tbl = shape.table
         for ci, w in enumerate(widths):
@@ -810,8 +1243,12 @@ def _slide_implications(
 
 
 def _slide_decisions(
-    prs: Any, judged: list[dict[str, Any]], source: str, material_count: int,
-    page: int, deck_title: str,
+    prs: Any,
+    judged: list[dict[str, Any]],
+    source: str,
+    material_count: int,
+    page: int,
+    deck_title: str,
 ) -> None:
     s = _blank(prs)
     top = _header(s, "The ask", "Decisions required")
@@ -821,35 +1258,55 @@ def _slide_decisions(
         if str(j.get("decision_required", "none")).strip().lower() not in ("", "none")
     ]
     if asks:
-        _bullets(s, 0.7, top + 0.2, 11.9, 6.4 - top, asks[:6], size=15,
-                 gap_pt=12, cap=140)
+        _bullets(s, 0.7, top + 0.2, 11.9, 6.4 - top, asks[:6], size=15, gap_pt=12, cap=140)
         _judgement_note(s, source)
     elif judged:
         _text(
-            s, 0.7, top + 0.3, 11.9, 1.0,
-            "No board decision is required this period.", size=17, color=_BODY,
+            s,
+            0.7,
+            top + 0.3,
+            11.9,
+            1.0,
+            "No board decision is required this period.",
+            size=17,
+            color=_BODY,
         )
         _judgement_note(s, source)
     elif material_count:
         _text(
-            s, 0.7, top + 0.3, 11.9, 1.4,
+            s,
+            0.7,
+            top + 0.3,
+            11.9,
+            1.4,
             f"Not yet evaluated – {material_count} material change"
             f"{'s' if material_count != 1 else ''} recorded, but no model was "
             "available to judge what they require of the board.",
-            size=17, color=_BODY,
+            size=17,
+            color=_BODY,
         )
     else:
         _text(
-            s, 0.7, top + 0.3, 11.9, 1.0,
+            s,
+            0.7,
+            top + 0.3,
+            11.9,
+            1.0,
             "No material change this period, so nothing new to decide.",
-            size=17, color=_BODY,
+            size=17,
+            color=_BODY,
         )
     _footer(s, deck_title, page)
 
 
 def _slide_evidence(
-    prs: Any, card: dict[str, Any], gaps: list[dict[str, Any]],
-    evidence_count: int, narrative: dict[str, Any], page: int, deck_title: str,
+    prs: Any,
+    card: dict[str, Any],
+    gaps: list[dict[str, Any]],
+    evidence_count: int,
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
 ) -> None:
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.util import Inches, Pt
@@ -857,23 +1314,23 @@ def _slide_evidence(
     s = _blank(prs)
     title = (narrative.get("titles") or {}).get("coverage") or "How much of this is measured"
     top = _header(
-        s, "Evidence and confidence", title,
+        s,
+        "Appendix – evidence and confidence",
+        title,
         (narrative.get("commentary") or {}).get("coverage", ""),
     )
     rows = card.get("rows", [])
     dims = card.get("dimensions", [])
     pairs = len(rows) * len(dims)
     observed = sum(
-        1 for r in rows for d in r.get("dimensions", {}).values()
-        if d.get("score") is not None
+        1 for r in rows for d in r.get("dimensions", {}).values() if d.get("score") is not None
     )
     never = [g for g in gaps if g.get("status") == "never_observed"]
     stale = [g for g in gaps if g.get("status") == "stale"]
     pct = (observed / pairs * 100.0) if pairs else 0.0
 
     tiles = [
-        (f"{pct:.0f}%", f"of the model observed – {observed} of {pairs} "
-                        "brand × dimension pairs"),
+        (f"{pct:.0f}%", f"of the model observed – {observed} of {pairs} brand × dimension pairs"),
         (f"{evidence_count:,}", "evidence items on file, each quoting a source URL"),
         (f"{len(never)}", "pairs never observed – no score, no penalty"),
         (f"{len(stale)}", "overdue a refresh against their cadence"),
@@ -889,9 +1346,14 @@ def _slide_evidence(
     if never_brands:
         more = f" +{len(never_brands) - 6} more" if len(never_brands) > 6 else ""
         _text(
-            s, 0.7, y, 11.9, 0.35,
+            s,
+            0.7,
+            y,
+            11.9,
+            0.35,
             "Not yet observed: " + ", ".join(never_brands[:6]) + more,
-            size=11.5, color=_BODY,
+            size=11.5,
+            color=_BODY,
         )
         y += 0.45
     if stale:
@@ -916,11 +1378,16 @@ def _slide_evidence(
     bar.line.fill.background()
     bar.shadow.inherit = False
     _text(
-        s, 0.95, card_y + 0.12, 11.4, 0.65,
+        s,
+        0.95,
+        card_y + 0.12,
+        11.4,
+        0.65,
         "Gaps are absences of evidence, not weaknesses. No brand is scored "
         "down for being opaque, and no score on any slide exists without a "
         "source behind it.",
-        size=11.5, color=_INK,
+        size=11.5,
+        color=_INK,
     )
     _footer(s, deck_title, page)
 
@@ -941,7 +1408,11 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
     first_w = 2.0
     dim_w = (total_w - first_w - 0.9) / len(dims)
     shape = s.shapes.add_table(
-        len(rows) + 1, ncols, Inches(0.7), Inches(top), Inches(total_w),
+        len(rows) + 1,
+        ncols,
+        Inches(0.7),
+        Inches(top),
+        Inches(total_w),
         Inches(min(0.32 * (len(rows) + 1), 6.6 - top)),
     )
     tbl = shape.table
@@ -950,8 +1421,9 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
     for ci in range(len(dims)):
         tbl.columns[2 + ci].width = Inches(dim_w)
 
-    def cell_write(r: int, c: int, text: str, *, bg: str, fg: str = _INK,
-                   bold: bool = False, size: int = 8) -> None:
+    def cell_write(
+        r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8
+    ) -> None:
         cell = tbl.cell(r, c)
         cell.text = text
         cell.fill.solid()
@@ -970,14 +1442,13 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
         cell_write(0, 2 + ci, d, bg=_INK, fg=_WHITE, bold=True, size=7)
     for ri, r in enumerate(rows, start=1):
         bg = _SELF_ROW if r.get("is_self") else _WHITE
-        mark = (
-            "†"
-            if r.get("provisional") and r["overall"]["normalized_pct"] is not None
-            else ""
-        )
+        mark = "†" if r.get("provisional") and r["overall"]["normalized_pct"] is not None else ""
         cell_write(
-            ri, 0, f"{r['name']}{'  (us)' if r.get('is_self') else ''}",
-            bg=bg, bold=bool(r.get("is_self")),
+            ri,
+            0,
+            f"{r['name']}{'  (us)' if r.get('is_self') else ''}",
+            bg=bg,
+            bold=bool(r.get("is_self")),
         )
         cell_write(ri, 1, f"{_fmt(r['overall']['normalized_pct'])}{mark}", bg=bg)
         for ci, d in enumerate(dims):
@@ -987,16 +1458,24 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
             else:
                 cell_write(ri, 2 + ci, f"{float(sc):g}", bg=bg)
     _text(
-        s, 0.7, 6.62, 11.9, 0.3,
+        s,
+        0.7,
+        6.62,
+        11.9,
+        0.3,
         "1–5 per dimension. Blank – not yet observed (never a zero). "
         "† provisional. Amber row – our brand.",
-        size=9, color=_MUTED,
+        size=9,
+        color=_MUTED,
     )
     _footer(s, deck_title, page)
 
 
 def _slide_method(
-    prs: Any, card: dict[str, Any], diff: dict[str, Any] | None, page: int,
+    prs: Any,
+    card: dict[str, Any],
+    diff: dict[str, Any] | None,
+    page: int,
     deck_title: str,
 ) -> None:
     s = _blank(prs)
@@ -1026,14 +1505,24 @@ def _slide_method(
         "is provisional (†) – its figure is shown, its standing withheld.",
         "Every evidence item quotes its source verbatim and was verified "
         "against the live page before it was saved; per-state evidence "
-        "carries the network exit that was proven to be in that state.",
+        "carries the network exit that was proven to be in that state, and "
+        "storefront exhibits were captured through that same verified exit.",
         change_rule,
-        "Narrative, titles and commentary are model-written from the factual "
-        "record and labelled; standings, scores and gaps are computed.",
+        "Narrative, titles, competitor observations and implications are "
+        "model-written from the factual record and labelled; standings, "
+        "scores and gaps are computed.",
     ]
     _bullets(
-        s, 0.7, top + 0.1, 11.9, 6.5 - top, items[:6],
-        size=11.5, gap_pt=7, cap=220, accent_bullet=False,
+        s,
+        0.7,
+        top + 0.1,
+        11.9,
+        6.5 - top,
+        items[:6],
+        size=11.5,
+        gap_pt=7,
+        cap=260,
+        accent_bullet=False,
     )
     _footer(s, deck_title, page)
 
@@ -1042,14 +1531,12 @@ def _slide_closing(prs: Any, narrative: dict[str, Any], deck_title: str) -> None
     s = _blank(prs)
     _dark(s)
     _eyebrow(s, "Next steps", y=1.0)
-    _text(s, 0.7, 1.4, 11.9, 1.0, "Where this goes next", size=30, bold=True,
-          color=_WHITE)
+    _text(s, 0.7, 1.4, 11.9, 1.0, "Where this goes next", size=30, bold=True, color=_WHITE)
     _rule(s, 2.5)
     steps = [str(b) for b in narrative.get("next_steps") or []][:4]
     if not steps:
         steps = ["Hold the cadence – re-observe on schedule and diff next cycle"]
-    _bullets(s, 0.7, 2.85, 11.4, 3.4, steps, size=15, color=_DARK_BODY,
-             gap_pt=14, cap=120)
+    _bullets(s, 0.7, 2.85, 11.4, 3.4, steps, size=15, color=_DARK_BODY, gap_pt=14, cap=120)
     _judgement_note(s, str(narrative.get("source") or "facts"), dark=True)
 
 
@@ -1065,27 +1552,32 @@ def render_executive_deck(
     gaps: list[dict[str, Any]],
     evidence_count: int,
     path: str | Path,
+    screenshots: dict[str, list[dict[str, str]]] | None = None,
     title: str = "Competitive Intelligence – Executive Briefing",
     market_label: str = "",
 ) -> str:
     """Write the deck. Returns the path written.
 
-    ``summary`` is the narrative dict — ``{headline, bullets, titles,
-    commentary, next_steps, source}`` — model-written when a router exists,
-    otherwise :func:`factual_narrative`'s computed fallback. The renderer
-    treats every narrative string as untrusted copy: capped, en-dashed and
-    scrubbed of internal bookkeeping.
+    ``summary`` is the narrative dict — ``{headline, bullets, exec, profiles,
+    titles, commentary, next_steps, source}`` — model-written when a router
+    exists, otherwise :func:`factual_narrative`'s computed fallback. The
+    renderer treats every narrative string as untrusted copy: capped,
+    en-dashed and scrubbed of internal bookkeeping. ``screenshots`` maps
+    brand name → storefront exhibits ``[{path, url, observed_at}]``; slides
+    that need them are skipped when they are absent, never faked.
     """
     from pptx import Presentation
     from pptx.util import Inches
 
     narrative = summary or {}
+    shots = screenshots or {}
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
 
     rows = card.get("rows", [])
     dims = card.get("dimensions", [])
+    weights = {d["name"]: float(d.get("weight_pct") or 0.0) for d in dims}
     generated = str(card.get("generated_at") or datetime.now(UTC).isoformat())
     if diff:
         period = (
@@ -1096,35 +1588,89 @@ def render_executive_deck(
         period = f"Baseline · generated {generated[:10]}"
     basis = (
         f"{len(rows)} brands · {len(dims)} dimensions · {evidence_count:,} "
-        "evidence items · every score traceable to a source URL"
+        "observed facts · every score traceable to a source URL"
     )
     deck_title = _clean(title, 70)
     src = str(narrative.get("source") or "facts")
 
     _slide_title(
-        prs, title=title, market=market_label, period=period, basis=basis,
+        prs,
+        title=title,
+        market=market_label,
+        period=period,
+        basis=basis,
         generated=generated,
     )
     page = 2
     _slide_summary(prs, narrative, page, deck_title)
     page += 1
     _slide_glance(
-        prs, card, evidence_count, gaps,
-        (narrative.get("commentary") or {}).get("glance", ""), page, deck_title,
+        prs,
+        card,
+        evidence_count,
+        gaps,
+        (narrative.get("commentary") or {}).get("glance", ""),
+        page,
+        deck_title,
     )
     page += 1
     _slide_standings(prs, card, narrative, page, deck_title)
     page += 1
     _slide_versus(prs, card, narrative, page, deck_title)
     page += 1
+
+    # Competitor deep dives — one slide per profiled brand, in the model's
+    # order (the ranked leader first). Only brands that exist in the card.
+    by_name = {r["name"]: r for r in rows}
+    for profile in (narrative.get("profiles") or [])[:4]:
+        row = by_name.get(str(profile.get("brand") or ""))
+        if row is None:
+            continue
+        _slide_profile(
+            prs,
+            row,
+            profile,
+            weights,
+            shots.get(row["name"], []),
+            page,
+            deck_title,
+        )
+        page += 1
+
+    # Storefront exhibits — ranked order, our brand first when captured.
+    exhibit_items: list[tuple[str, dict[str, str], bool]] = []
+    ordered_rows = sorted(
+        rows,
+        key=lambda r: (
+            not r.get("is_self"),
+            r.get("rank") if r.get("rank") is not None else 99,
+        ),
+    )
+    for r in ordered_rows:
+        for shot in shots.get(r["name"], [])[:1]:
+            exhibit_items.append((r["name"], shot, bool(r.get("is_self"))))
+    exhibit_items = exhibit_items[:6]
+    batches = [exhibit_items[i : i + 2] for i in range(0, len(exhibit_items), 2)]
+    for bi, batch in enumerate(batches):
+        _slide_exhibits(prs, batch, bi + 1, len(batches), page, deck_title)
+        page += 1
+
     _slide_changes(prs, diff, narrative, page, deck_title)
     page += 1
     page += _slide_implications(
-        prs, judged, int((diff or {}).get("material_count", 0)), src, page,
+        prs,
+        judged,
+        int((diff or {}).get("material_count", 0)),
+        src,
+        page,
         deck_title,
     )
     _slide_decisions(
-        prs, judged, src, int((diff or {}).get("material_count", 0)), page,
+        prs,
+        judged,
+        src,
+        int((diff or {}).get("material_count", 0)),
+        page,
         deck_title,
     )
     page += 1

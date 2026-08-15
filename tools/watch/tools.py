@@ -43,9 +43,7 @@ class _WatchToolBase(BaseTool):
 
     def _guard(self) -> ToolResult | None:
         if self._watch_manager is None:
-            return ToolResult(
-                success=False, error=f"{self.name} not initialized (watch_manager)"
-            )
+            return ToolResult(success=False, error=f"{self.name} not initialized (watch_manager)")
         return None
 
 
@@ -135,9 +133,7 @@ class WatchSubjectTool(_WatchToolBase):
                 market_share_est=str(params.get("market_share_est") or ""),
                 is_self=bool(params.get("is_self")),
             )
-            return ToolResult(
-                success=True, data={"subject_id": sub.subject_id, "name": sub.name}
-            )
+            return ToolResult(success=True, data={"subject_id": sub.subject_id, "name": sub.name})
 
         if action == "archive":
             sub = await wm.get_subject_by_name(name, cid)
@@ -469,9 +465,7 @@ class WatchEvidenceTool(_WatchToolBase):
 
         if action == "add":
             if not subject_id or not dimension_id:
-                return ToolResult(
-                    success=False, error="subject and dimension are both required"
-                )
+                return ToolResult(success=False, error="subject and dimension are both required")
             claim = str(params.get("claim") or "").strip()
             if not claim:
                 return ToolResult(success=False, error="claim is required")
@@ -578,9 +572,7 @@ class WatchScoreTool(_WatchToolBase):
         subject_name = str(params.get("subject") or "").strip()
         dim_name = str(params.get("dimension") or "").strip()
         if not subject_name or not dim_name:
-            return ToolResult(
-                success=False, error="subject and dimension are both required"
-            )
+            return ToolResult(success=False, error="subject and dimension are both required")
         sub = await wm.get_subject_by_name(subject_name, cid)
         if sub is None:
             return ToolResult(success=False, error=f"no such brand: {subject_name!r}")
@@ -670,9 +662,7 @@ class WatchScorecardTool(_WatchToolBase):
         if fmt == "xlsx":
             path = str(params.get("path") or "").strip()
             if not path:
-                return ToolResult(
-                    success=False, error="path is required for format='xlsx'"
-                )
+                return ToolResult(success=False, error="path is required for format='xlsx'")
             try:
                 from core.watch_xlsx import render_scorecard_xlsx
             except ImportError as e:  # openpyxl missing
@@ -729,9 +719,7 @@ class WatchScorecardTool(_WatchToolBase):
             "evidence yet, never a weak result. Coverage shows the evidence gap."
         )
         if not card["weights_valid"]:
-            note += (
-                f"\n⚠️  Dimension weights sum to {card['weight_total_pct']}%, not 100%."
-            )
+            note += f"\n⚠️  Dimension weights sum to {card['weight_total_pct']}%, not 100%."
         return ToolResult(
             success=True,
             data={"markdown": "\n".join(lines) + note, "rows": len(card["rows"])},
@@ -781,9 +769,7 @@ class WatchSnapshotTool(_WatchToolBase):
 
         if action == "list":
             snaps = await wm.list_snapshots(cid)
-            return ToolResult(
-                success=True, data={"count": len(snaps), "snapshots": snaps}
-            )
+            return ToolResult(success=True, data={"count": len(snaps), "snapshots": snaps})
 
         snap_id = await wm.take_snapshot(cid, label=str(params.get("label") or ""))
         return ToolResult(success=True, data={"snapshot_id": snap_id})
@@ -876,29 +862,51 @@ Return STRICT JSON: {"items":[{"subject":str,"change":str,"implication":str,
 
 
 _DECK_NARRATIVE_SYSTEM = """You write the words for an executive competitor
-board deck. You are given FACTS only: current standings, our position, the
-material changes this period, the judged implications, and the evidence gaps.
+board deck. The room is a leadership team deciding how to respond in their
+market; they care about competitors and their moves, not about how the
+analysis was produced. You are given FACTS only: current standings, our
+position, observed facts per key brand, the material changes this period,
+the judged implications, and the evidence gaps.
 
 Return STRICT JSON:
-{"headline": str, "bullets": [str, ...],
+{"headline": str,
+ "bullets": [str, ...],
+ "exec": {"findings": [str, ...], "threats": [str, ...], "watch": [str, ...]},
  "titles": {"standings": str, "versus": str, "changes": str, "coverage": str},
  "commentary": {"standings": str, "versus": str, "changes": str,
                 "coverage": str, "glance": str},
+ "profiles": [{"brand": str, "title": str,
+               "observations": [str, ...], "implications": [str, ...]}],
  "next_steps": [str, ...]}
 
-- headline: one sentence, at most 14 words — the single thing the room must
+- headline: one sentence, at most 14 words – the single thing the room must
   take away. Lead with the so-what for US, not a description of the market.
-- bullets: 3 to 5, each at most 20 words, priority order. Say what to do or
-  decide where the facts support it.
-- titles: an ACTION TITLE per slide — a sentence someone could disagree with
+- bullets: 3 to 5, each at most 20 words, priority order.
+- exec: what the room reads first, three columns –
+  findings: 3-4 market findings (what competitors are doing, who moved);
+  threats: 2-3 competitive threats to US, sharpest first;
+  watch: 2-3 things to watch or act on next period.
+  Each entry at most 18 words, grounded only in the facts given.
+- titles: an ACTION TITLE per slide – a sentence someone could disagree with
   ("High 5 leads a thin field"), never a label ("Standings overview").
   At most 10 words each.
 - commentary: one line per slide (max 22 words) telling the room what to take
   from that slide. "glance" covers the headline-numbers slide.
+- profiles: one per brand listed in brand_facts EXCEPT ours, in the given
+  order. For each brand:
+  title – an action title about THAT brand's market position, max 10 words;
+  observations – 2-4 lines on what the brand actually does in the market
+  (offers, promotions, payments, product, terms), drawn from its observed
+  facts, each max 20 words;
+  implications – 1-2 lines on what that means for US, each max 18 words.
 - next_steps: 2 to 4 concrete actions, each at most 16 words.
 
 Rules:
 - Use ONLY the facts given. Never invent a number, a move, a brand, a source.
+- Talk about the MARKET and the BRANDS, never about the analysis. Words like
+  evidence, coverage, dimension, scored, provisional or snapshot belong only
+  in titles.coverage and commentary.coverage; everywhere else say what the
+  brand does, not how well we measured it.
 - If our brand is provisional or unscored, say so plainly; do not rank it.
 - If there is no material change, say so; do not manufacture urgency.
 - NEVER mention internal bookkeeping: no hashes, SHA, file names, file paths,
@@ -908,6 +916,90 @@ Rules:
 - No filler, no preamble, no restating the method."""
 
 
+def _collect_exhibits(
+    evidence: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    config: Any = None,
+) -> dict[str, list[dict[str, str]]]:
+    """brand -> up to 3 newest storefront exhibits ``{path, url, observed_at}``.
+
+    Register-carried paths come first — the shot stands beside the claims
+    from that page. Brands whose shots never landed on a row (an unreadable
+    site rescued by third-party sources) fall back to the workspace exhibit
+    directory, so a walled brand still shows its storefront."""
+    from pathlib import Path
+
+    out: dict[str, list[dict[str, str]]] = {}
+    seen: set[str] = set()
+    for e in evidence:
+        pth = str(e.get("screenshot_path") or "")
+        if not pth or pth in seen or not Path(pth).exists():
+            continue
+        seen.add(pth)
+        out.setdefault(str(e.get("subject") or ""), []).append(
+            {
+                "path": pth,
+                "url": str(e.get("source_url") or ""),
+                "observed_at": str(e.get("observed_at") or ""),
+            }
+        )
+    ws = str(getattr(config, "workspace", "") or "").strip()
+    if ws:
+        root = Path(ws).expanduser()
+        if not root.is_absolute():
+            root = Path(getattr(config, "project_root", Path.cwd())) / root
+        base = root / "watch-screenshots"
+        for r in rows:
+            name = str(r.get("name") or "")
+            if not name or out.get(name):
+                continue
+            slug = "".join(ch if ch.isalnum() else "-" for ch in name.lower()).strip("-") or "brand"
+            d = base / slug
+            if not d.is_dir():
+                continue
+            files = sorted(d.glob("*.jpg"), key=lambda f: f.name, reverse=True)
+            if files:
+                out[name] = [{"path": str(f), "url": "", "observed_at": ""} for f in files[:3]]
+    return {k: v[:3] for k, v in out.items() if v}
+
+
+def _brand_facts(card: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Observed facts per key brand, for the narrative model: the ranked
+    leader and runners-up plus our brand, newest first, at most one claim
+    per dimension per brand so eight lines cover the whole product."""
+    rows = card.get("rows", [])
+    ranked = [r for r in rows if r.get("rank") is not None]
+    picks: list[str] = []
+    for r in ranked:
+        if not r.get("is_self"):
+            picks.append(r["name"])
+        if len(picks) >= 4:
+            break
+    us = next((r["name"] for r in rows if r.get("is_self")), None)
+    if us:
+        picks.append(us)
+    facts: dict[str, list[str]] = {}
+    for name in picks:
+        seen_dims: set[str] = set()
+        lines: list[str] = []
+        for e in evidence:  # evidence_with_names is newest-first
+            if str(e.get("subject") or "") != name:
+                continue
+            dim = str(e.get("dimension") or "")
+            if dim in seen_dims:
+                continue
+            claim = str(e.get("claim") or "").strip()
+            if not claim:
+                continue
+            seen_dims.add(dim)
+            lines.append(f"[{dim}] {claim[:160]}")
+            if len(lines) >= 8:
+                break
+        if lines:
+            facts[name] = lines
+    return facts
+
+
 async def _narrate_for_deck(
     router: Any,
     *,
@@ -915,6 +1007,7 @@ async def _narrate_for_deck(
     diff: dict[str, Any] | None,
     judged: list[dict[str, Any]],
     gaps: list[dict[str, Any]],
+    evidence: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The deck's words. Model-written from facts when a router exists;
     otherwise the computed factual fallback — and the deck labels which."""
@@ -956,16 +1049,11 @@ async def _narrate_for_deck(
             }
         ),
         "implications": judged,
+        "brand_facts": _brand_facts(card, evidence or []),
         "gaps": {
-            "never_observed_pairs": sum(
-                1 for g in gaps if g.get("status") == "never_observed"
-            ),
+            "never_observed_pairs": sum(1 for g in gaps if g.get("status") == "never_observed"),
             "unobserved_brands": sorted(
-                {
-                    g["subject"]
-                    for g in gaps
-                    if g.get("status") == "never_observed"
-                }
+                {g["subject"] for g in gaps if g.get("status") == "never_observed"}
             )[:6],
             "stale": sum(1 for g in gaps if g.get("status") == "stale"),
         },
@@ -978,7 +1066,7 @@ async def _narrate_for_deck(
             ],
             task_type="analysis",
             temperature=0.3,
-            max_tokens=1100,
+            max_tokens=2400,
         )
         text = (resp.content or "").strip()
         if text.startswith("```"):
@@ -988,13 +1076,39 @@ async def _narrate_for_deck(
         bullets = [str(b).strip() for b in data.get("bullets", []) if str(b).strip()]
         if not bullets:
             return fallback
+        known = {str(r.get("name") or "") for r in rows}
+        exec_zone = data.get("exec") or {}
+        profiles = [
+            {
+                "brand": str(pr.get("brand") or "").strip(),
+                "title": str(pr.get("title") or "").strip(),
+                "observations": [
+                    str(o).strip() for o in (pr.get("observations") or []) if str(o).strip()
+                ][:4],
+                "implications": [
+                    str(i).strip() for i in (pr.get("implications") or []) if str(i).strip()
+                ][:2],
+            }
+            for pr in (data.get("profiles") or [])
+            if isinstance(pr, dict) and str(pr.get("brand") or "").strip() in known
+        ]
         return {
             "headline": str(data.get("headline") or "").strip(),
             "bullets": bullets[:5],
+            "exec": {
+                "findings": [
+                    str(x).strip() for x in (exec_zone.get("findings") or []) if str(x).strip()
+                ][:4],
+                "threats": [
+                    str(x).strip() for x in (exec_zone.get("threats") or []) if str(x).strip()
+                ][:3],
+                "watch": [str(x).strip() for x in (exec_zone.get("watch") or []) if str(x).strip()][
+                    :3
+                ],
+            },
+            "profiles": [pr for pr in profiles if pr["observations"]][:4],
             "titles": {
-                k: str(v).strip()
-                for k, v in (data.get("titles") or {}).items()
-                if str(v).strip()
+                k: str(v).strip() for k, v in (data.get("titles") or {}).items() if str(v).strip()
             },
             "commentary": {
                 k: str(v).strip()
@@ -1020,6 +1134,7 @@ class WatchBoardReportTool(_WatchToolBase):
     def __init__(self) -> None:
         super().__init__()
         self._router: Any = None
+        self._config: Any = None  # workspace root, for storefront exhibits
 
     @property
     def name(self) -> str:
@@ -1087,9 +1202,7 @@ class WatchBoardReportTool(_WatchToolBase):
             for c in diff.get("changed", [])
         ]
         if diff.get("added_subjects"):
-            facts.append(
-                {"subject": "(new entrants)", "changes": diff["added_subjects"]}
-            )
+            facts.append({"subject": "(new entrants)", "changes": diff["added_subjects"]})
         if not facts:
             return []
         try:
@@ -1172,8 +1285,7 @@ class WatchBoardReportTool(_WatchToolBase):
                 "The figure is real; the standing is not yet earned.",
             ]
             lines += [
-                f"- **{r['name']}** — {r.get('provisional_reason', '')}"
-                for r in board_provisional
+                f"- **{r['name']}** — {r.get('provisional_reason', '')}" for r in board_provisional
             ]
         lines.append("")
 
@@ -1187,9 +1299,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     lines.append(f"- {item['detail']}")
                 lines.append("")
             if diff.get("added_subjects"):
-                lines.append(
-                    f"**New in the analysis:** {', '.join(diff['added_subjects'])}"
-                )
+                lines.append(f"**New in the analysis:** {', '.join(diff['added_subjects'])}")
                 lines.append("")
             if diff.get("removed_subjects"):
                 lines.append(f"**Removed:** {', '.join(diff['removed_subjects'])}")
@@ -1233,11 +1343,7 @@ class WatchBoardReportTool(_WatchToolBase):
         lines += ["## Evidence gaps", ""]
         lines.append(
             f"- **{len(never)}** brand × dimension pairs never observed"
-            + (
-                f" (e.g. {never[0]['subject']} / {never[0]['dimension']})"
-                if never
-                else ""
-            )
+            + (f" (e.g. {never[0]['subject']} / {never[0]['dimension']})" if never else "")
         )
         lines.append(f"- **{len(stale)}** overdue a refresh against their cadence")
         lines.append("")
@@ -1273,8 +1379,14 @@ class WatchBoardReportTool(_WatchToolBase):
             try:
                 from core.watch_deck import render_executive_deck
 
+                ev_rows = await wm.evidence_with_names(cid)
                 summary = await _narrate_for_deck(
-                    self._router, card=card, diff=diff, judged=judged, gaps=gaps
+                    self._router,
+                    card=card,
+                    diff=diff,
+                    judged=judged,
+                    gaps=gaps,
+                    evidence=ev_rows,
                 )
                 deck_written = render_executive_deck(
                     card,
@@ -1282,7 +1394,8 @@ class WatchBoardReportTool(_WatchToolBase):
                     judged=judged,
                     summary=summary,
                     gaps=gaps,
-                    evidence_count=len(await wm.evidence_with_names(cid)),
+                    evidence_count=len(ev_rows),
+                    screenshots=_collect_exhibits(ev_rows, card.get("rows", []), self._config),
                     path=deck_target,
                 )
             except Exception as e:
@@ -1315,6 +1428,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
     def __init__(self) -> None:
         super().__init__()
         self._router: Any = None
+        self._config: Any = None  # workspace root, for storefront exhibits
 
     @property
     def name(self) -> str:
@@ -1323,13 +1437,16 @@ class WatchExecutiveDeckTool(_WatchToolBase):
     @property
     def description(self) -> str:
         return (
-            "Produce the executive presentation (.pptx, ~10 slides) of the "
-            "competitor analysis: executive summary, standings chart, our brand "
-            "vs the leader, material changes, implications and recommendations, "
-            "decisions required, evidence coverage, and a scores-by-dimension "
-            "appendix. Same stored evidence as the workbook and board report — "
-            "use when asked for a presentation, deck, slides or board pack. "
-            "Does not snapshot; run watch_board_report to close the cycle."
+            "Produce the executive presentation (.pptx, ~16 slides) of the "
+            "competitor analysis: executive summary (findings / threats / "
+            "watch next), standings chart, our brand vs the leader, a deep-"
+            "dive slide per key competitor (observations → implications), "
+            "storefront screenshot exhibits, market moves, implications and "
+            "recommendations, decisions required, and appendix (coverage, "
+            "heatmap, method). Same stored evidence as the workbook and board "
+            "report — use when asked for a presentation, deck, slides or "
+            "board pack. Does not snapshot; run watch_board_report to close "
+            "the cycle."
         )
 
     @property
@@ -1382,7 +1499,12 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         judge._router = self._router
         judged = await judge._judge(diff) if diff else []
         summary = await _narrate_for_deck(
-            self._router, card=card, diff=diff, judged=judged, gaps=gaps
+            self._router,
+            card=card,
+            diff=diff,
+            judged=judged,
+            gaps=gaps,
+            evidence=evidence,
         )
         try:
             from core.watch_deck import render_executive_deck
@@ -1394,6 +1516,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 summary=summary,
                 gaps=gaps,
                 evidence_count=len(evidence),
+                screenshots=_collect_exhibits(evidence, card.get("rows", []), self._config),
                 path=path,
                 title=str(params.get("title") or "Competitive Intelligence — Executive Briefing"),
                 market_label=str(params.get("market_label") or ""),
@@ -1438,9 +1561,7 @@ def _exit_not_verified(geo_state: str, detail: dict[str, Any]) -> ToolResult:
         for g in detail.get("landed", [])
         if isinstance(g, dict) and g.get("state_code")
     ]
-    unreachable = any(
-        isinstance(g, dict) and g.get("error") for g in detail.get("landed", [])
-    )
+    unreachable = any(isinstance(g, dict) and g.get("error") for g in detail.get("landed", []))
     if landed:
         why = f"the exit landed in {', '.join(landed)} instead"
     elif unreachable:
@@ -1556,9 +1677,7 @@ class WatchObserveTool(_WatchToolBase):
         wm = self._watch_manager
         subj = await wm.get_subject_by_name(str(params.get("subject") or ""), cid)
         if subj is None:
-            return ToolResult(
-                success=False, error=f"no such brand: {params.get('subject')!r}"
-            )
+            return ToolResult(success=False, error=f"no such brand: {params.get('subject')!r}")
         dim = await wm.get_dimension_by_name(str(params.get("dimension") or ""), cid)
         if dim is None:
             return ToolResult(
@@ -1609,18 +1728,14 @@ class WatchObserveTool(_WatchToolBase):
                 url, browser_manager=self._browser_manager, proxy_url=proxy_url
             )
             if fetch_err or not text:
-                page_reports.append(
-                    {"url": url, "error": fetch_err or "no readable text"}
-                )
+                page_reports.append({"url": url, "error": fetch_err or "no readable text"})
                 continue
             page_exit_ip = http_exit_ip
             if geo_state != "n/a" and method == "browser":
                 if browser_exit is None:
                     from core.watch_observe import verify_browser_exit
 
-                    b_ok, b_detail = await verify_browser_exit(
-                        self._browser_manager, geo_state
-                    )
+                    b_ok, b_detail = await verify_browser_exit(self._browser_manager, geo_state)
                     browser_exit = {"ok": b_ok, **b_detail}
                 if not browser_exit.get("ok"):
                     page_reports.append(
@@ -1787,6 +1902,14 @@ class WatchAnalyzeTool(_WatchToolBase):
                         "true; needs the search_sh_api_key vault entry."
                     ),
                 },
+                "screenshots": {
+                    "type": "boolean",
+                    "description": (
+                        "Also file clean storefront screenshots (homepage + up "
+                        "to 2 key pages) as visual evidence, captured only "
+                        "through a state-verified browser exit. Default true."
+                    ),
+                },
                 "company_id": {"type": "string"},
             },
             "required": ["subject"],
@@ -1795,6 +1918,22 @@ class WatchAnalyzeTool(_WatchToolBase):
     @property
     def permission_level(self) -> PermissionLevel:
         return PermissionLevel.MODERATE
+
+    def _exhibit_dir(self, brand: str) -> Any:
+        """``<workspace>/watch-screenshots/<brand-slug>/`` — None when no
+        workspace is configured (exhibits then simply are not filed)."""
+        from pathlib import Path
+
+        ws = str(getattr(self._config, "workspace", "") or "").strip()
+        if not ws:
+            return None
+        root = Path(ws).expanduser()
+        if not root.is_absolute():
+            root = Path(getattr(self._config, "project_root", Path.cwd())) / root
+        slug = "".join(ch if ch.isalnum() else "-" for ch in brand.lower()).strip("-") or "brand"
+        d = root / "watch-screenshots" / slug
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
     async def execute(self, params: dict[str, Any]) -> ToolResult:
         if (err := self._guard()) is not None:
@@ -1875,9 +2014,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                 pages.append({"url": u, "text": t, "error": e, "method": m})
         else:
             if not subj.url:
-                return ToolResult(
-                    success=False, error=f"{subj.name} has no URL — pass url or urls"
-                )
+                return ToolResult(success=False, error=f"{subj.name} has no URL — pass url or urls")
             pages = await collect_pages(
                 subj.url,
                 browser_manager=self._browser_manager,
@@ -1894,19 +2031,11 @@ class WatchAnalyzeTool(_WatchToolBase):
         ):
             from core.watch_observe import verify_browser_exit
 
-            b_ok, b_detail = await verify_browser_exit(
-                self._browser_manager, geo_state
-            )
+            b_ok, b_detail = await verify_browser_exit(self._browser_manager, geo_state)
             browser_exit = {"ok": b_ok, **b_detail}
             if not b_ok:
-                dropped = [
-                    p for p in pages
-                    if str(p.get("method") or "").startswith("browser")
-                ]
-                pages = [
-                    p for p in pages
-                    if not str(p.get("method") or "").startswith("browser")
-                ]
+                dropped = [p for p in pages if str(p.get("method") or "").startswith("browser")]
+                pages = [p for p in pages if not str(p.get("method") or "").startswith("browser")]
                 for p_ in dropped:
                     pages.append(
                         {
@@ -1936,13 +2065,56 @@ class WatchAnalyzeTool(_WatchToolBase):
             "browser (is Chrome available?) or an explicit urls list."
         )
 
+        # ── 1c. Storefront exhibits ──
+        # A clean screenshot of what a visitor actually sees, filed beside
+        # the claims it supports. Captured only through a browser whose exit
+        # is verified in the claimed state — an out-of-state storefront is a
+        # different product, not an exhibit.
+        shots: dict[str, str] = {}
+        shots_note = ""
+        if params.get("screenshots", True) and self._browser_manager is not None:
+            targets: list[str] = []
+            if subj.url:
+                targets.append(subj.url)
+            for p_ in readable:
+                u = str(p_.get("url") or "")
+                if u and u not in targets:
+                    targets.append(u)
+            targets = targets[:3]
+            if targets:
+                allowed = True
+                if geo_state != "n/a":
+                    if not browser_exit:
+                        from core.watch_observe import verify_browser_exit
+
+                        b_ok, b_detail = await verify_browser_exit(self._browser_manager, geo_state)
+                        browser_exit = {"ok": b_ok, **b_detail}
+                    allowed = bool(browser_exit.get("ok"))
+                    if not allowed:
+                        shots_note = f"skipped — browser exit not verified in {geo_state}"
+                shot_dir = self._exhibit_dir(subj.name) if allowed else None
+                if allowed and shot_dir is None:
+                    allowed = False
+                    shots_note = "skipped — no workspace configured"
+                if allowed and shot_dir is not None:
+                    from core.watch_observe import (
+                        capture_page_screenshot,
+                        screenshot_filename,
+                    )
+
+                    for u in targets:
+                        out = shot_dir / screenshot_filename(u)
+                        got = await capture_page_screenshot(self._browser_manager, u, str(out))
+                        if got:
+                            shots[u] = got
+                    if not shots and not shots_note:
+                        shots_note = "capture failed on every page"
+
         # ── 2. Extract + verify, one model call per page across all dimensions ──
         dim_specs = [
             {
                 "name": d.name,
-                "subcriteria": [
-                    str(s.get("name", "")) for s in d.subcriteria if s.get("name")
-                ],
+                "subcriteria": [str(s.get("name", "")) for s in d.subcriteria if s.get("name")],
             }
             for d in dimensions
         ]
@@ -1979,6 +2151,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                     customer_state="logged_out",
                     confidence="medium",
                     excerpt=str(c.get("excerpt") or "")[:1000],
+                    screenshot_path=shots.get(str(page.get("url") or ""), ""),
                     collector="agent",
                     exit_ip=(
                         str(browser_exit.get("ip") or "")
@@ -2007,11 +2180,9 @@ class WatchAnalyzeTool(_WatchToolBase):
         if params.get("expand_sources", True):
             covered = site_covered
             evidenced = {
-                e.dimension_id
-                for e in await wm.list_evidence(cid, subject_id=subj.subject_id)
+                e.dimension_id for e in await wm.list_evidence(cid, subject_id=subj.subject_id)
             }
-            missing = [d.name for d in dimensions
-                       if d.dimension_id not in (covered | evidenced)]
+            missing = [d.name for d in dimensions if d.dimension_id not in (covered | evidenced)]
             api_key = None
             if self._vault is not None:
                 try:
@@ -2038,9 +2209,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                 search_key = str(api_key)
                 for q in queries:
                     results.extend(await search_web(q, api_key=search_key))
-                extra_urls = pick_expansion_urls(
-                    results, already_fetched=fetched, limit=4
-                )
+                extra_urls = pick_expansion_urls(results, already_fetched=fetched, limit=4)
                 exp_written = 0
                 exp_pages: list[dict[str, Any]] = []
                 for url in extra_urls:
@@ -2055,9 +2224,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                     claims = await extract_claims_multi(
                         self._router,
                         page_text=text,
-                        dimensions=[
-                            d for d in dim_specs if d["name"] in missing
-                        ],
+                        dimensions=[d for d in dim_specs if d["name"] in missing],
                     )
                     verified, _rej = filter_verified_claims(claims, text)
                     for c in verified:
@@ -2087,9 +2254,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                             ),
                         )
                         exp_written += 1
-                    exp_pages.append(
-                        {"url": url, "method": method, "verified": len(verified)}
-                    )
+                    exp_pages.append({"url": url, "method": method, "verified": len(verified)})
                 written += exp_written
                 expansion_report = {
                     "attempted": True,
@@ -2139,9 +2304,7 @@ class WatchAnalyzeTool(_WatchToolBase):
             judged = await score_dimension(
                 self._router,
                 dimension_name=dim.name,
-                subcriteria=[
-                    str(s.get("name", "")) for s in dim.subcriteria if s.get("name")
-                ],
+                subcriteria=[str(s.get("name", "")) for s in dim.subcriteria if s.get("name")],
                 own_claims=[r.claim for r in own],
                 peer_claims=peers,
             )
@@ -2181,9 +2344,7 @@ class WatchAnalyzeTool(_WatchToolBase):
 
             out_dir = Path(str(params.get("out_dir") or "~/Desktop")).expanduser()
             out_dir.mkdir(parents=True, exist_ok=True)
-            slug = "".join(
-                ch if ch.isalnum() else "-" for ch in subj.name.lower()
-            ).strip("-")
+            slug = "".join(ch if ch.isalnum() else "-" for ch in subj.name.lower()).strip("-")
             try:
                 from core.watch_xlsx import render_scorecard_xlsx
 
@@ -2201,6 +2362,7 @@ class WatchAnalyzeTool(_WatchToolBase):
             report_tool = WatchBoardReportTool()
             report_tool._watch_manager = wm
             report_tool._router = self._router
+            report_tool._config = self._config
             rep_params: dict[str, Any] = {
                 "company_id": cid,
                 "path": str(out_dir / f"competitor-report-{slug}.md"),
@@ -2233,6 +2395,15 @@ class WatchAnalyzeTool(_WatchToolBase):
                 "dimensions_unscored": len(unscored),
                 "scores": scored,
                 "unscored": unscored,
+                "screenshots": (
+                    {
+                        "captured": len(shots),
+                        "paths": sorted(shots.values()),
+                        **({"note": shots_note} if shots_note else {}),
+                    }
+                    if (shots or shots_note)
+                    else None
+                ),
                 "saved": saved,
                 "note": (
                     "Every saved fact quotes its source and was checked against "
@@ -2339,9 +2510,7 @@ class WatchQueueTool(_WatchToolBase):
             success=True,
             data={
                 "due_count": len(gaps),
-                "never_observed": sum(
-                    1 for g in gaps if g["status"] == "never_observed"
-                ),
+                "never_observed": sum(1 for g in gaps if g["status"] == "never_observed"),
                 "stale": sum(1 for g in gaps if g["status"] == "stale"),
                 "queue": gaps[:limit],
             },

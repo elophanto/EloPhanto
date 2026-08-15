@@ -5,7 +5,7 @@
 > are **refused unless evidence backs them**. All four deliverables generate
 > from stored evidence: the executive scorecard (markdown or a four-sheet XLSX
 > workbook), month-over-month material-change detection, the board report, and
-> the executive deck (~10 board slides, .pptx).
+> the executive deck (~16 board slides, .pptx).
 > Collection is autonomous for public pages — with every claim's quote checked
 > against the live source before it is saved — driven by a cadence-based
 > refresh queue and recurring schedules.
@@ -106,7 +106,7 @@ disagree.
 | `watch_snapshot` | MODERATE | freeze the scorecard so later cycles have a baseline to diff |
 | `watch_diff` | SAFE | material changes since a snapshot |
 | `watch_board_report` | MODERATE | the monthly report: changes → implications → recommendations → decisions; written to a `path`, the executive deck (.pptx) lands beside it |
-| `watch_executive_deck` | MODERATE | the executive presentation on its own (.pptx): summary, standings chart, us vs the leader, changes, implications, decisions, evidence coverage |
+| `watch_executive_deck` | MODERATE | the executive presentation on its own (.pptx): exec summary (findings / threats / watch next), standings, us vs the leader, competitor deep dives, storefront exhibits, moves, implications, decisions, appendix |
 | `watch_observe` | MODERATE | collect evidence from public pages, every quote verified against the source |
 | `watch_queue` | MODERATE | what is due for refresh; `action=schedule` installs the recurring jobs |
 | `watch_analyze` | MODERATE | **one command** — read a brand, score every dimension, save the pack (workbook, report, deck) |
@@ -164,14 +164,21 @@ it never silently omits the distinction between fact and judgement.
 beside the workbook and report, and `watch_board_report path=…` writes it
 beside the report (`deck=false` to skip, `deck_path=…` to place it).
 `watch_executive_deck path=…` regenerates it on its own at any time. It is the
-same facts and the same judgement as ~10 16:9 slides for the room: cover with the evidence basis;
-executive summary; standings as a native bar chart with our brand in amber;
-our brand against the ranked leader, dimension by dimension (ahead / behind /
-not comparable yet); material changes; implications and recommendations
-grouped by class; decisions required; evidence and confidence (how much of the
-model is measured, what is unobserved or overdue); and an appendix with the
-scores-by-dimension heatmap and the method. Charts are native PowerPoint
-objects, so the client can restyle or lift them.
+same facts and the same judgement as ~16 16:9 slides for the room, and the
+room hears about the **market**, not the machinery: cover with the evidence
+basis; an executive summary in steering-committee form (key findings / key
+threats / watch next, three columns); the market at a glance; standings as a
+native bar chart with our brand in amber; our brand against the ranked
+leader, dimension by dimension (ahead / behind / not comparable yet); a
+**competitor deep-dive slide per key brand** — their scored dimensions as
+bars on the left, model-written *observations* (what the brand actually does:
+offers, payments, product) and *implications for us* on the right, with the
+storefront thumbnail beneath; **storefront exhibits** — clean browser
+captures of the sites as a visitor sees them, two per slide with brand, URL
+and capture date; market moves this period; implications and recommendations
+grouped by class; decisions required; and an appendix with evidence and
+confidence, the scores-by-dimension heatmap and the method. Charts are native
+PowerPoint objects, so the client can restyle or lift them.
 
 A slide is where the organ's rules are most easily lost, so the deck enforces
 them itself. Unscored is a blank cell and no bar — never a zero, which reads
@@ -191,11 +198,28 @@ The deck is written in a fixed house style — dark title and closing bookends,
 white content slides, one accent rule, eyebrow labels, footers, en dashes —
 with a narrative layer the model writes from the factual record: an action
 title per slide (a sentence someone could disagree with, never a label),
-one-line commentary, an executive summary and next steps. Numbers are always
+one-line commentary, the three-column executive summary, per-competitor
+observations and implications, and next steps. The narrative model receives
+each key brand's observed facts (newest first, one claim per dimension) so
+the deep dives talk about promotions and payment rails, not scores about
+scores — and analysis words (evidence, coverage, dimension, provisional) are
+confined to the coverage slide by prompt. Numbers are always
 computed, never generated, and the narrative prompt bans internal bookkeeping
 outright — no hashes, file paths, manifests or checkpoint talk reaches a
 slide; a scrubber in the renderer catches whatever slips through (a deck once
 shipped with a SHA-256 on it).
+
+**Storefront exhibits.** During `watch_analyze`, the browser saves a clean
+screenshot of the homepage and up to two key pages per brand — no element
+boxes, no annotations, exactly what a visitor sees — via the bridge's
+`browser_capture`. On a state-stamped run the capture is allowed only after
+`verify_browser_exit` proves Chrome's egress is in the claimed state: an
+out-of-state storefront is a different product, not an exhibit. Files land in
+`<workspace>/watch-screenshots/<brand>/YYYYMMDD-<page>.jpg`; every evidence
+row extracted from a captured page carries the exhibit in `screenshot_path`
+(a column on the workbook's Evidence sheet), and the deck pulls exhibits from
+the register first, falling back to the workspace directory for brands whose
+shots never landed on a row. `screenshots=false` skips capture.
 
 **Source expansion.** A brand's site is the primary source, and for some
 brands it is nearly useless — a JS shell behind a bot wall that says nothing

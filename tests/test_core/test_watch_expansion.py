@@ -422,3 +422,261 @@ class TestBrowserFirstLinkDiscovery:
         )
         assert called["browser"] == 0
         assert len(pages) == 2  # homepage + terms
+
+
+class _CapturingBrowser:
+    """Fake browser manager: navigate succeeds, browser_capture writes a
+    real file at the requested path — the bridge contract, minus Chrome."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def call_tool(self, name: str, params: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((name, params))
+        if name == "browser_navigate":
+            return {"success": True, "url": params.get("url")}
+        if name == "browser_capture":
+            if self.fail:
+                return {"success": False, "error": "no page"}
+            from pathlib import Path
+
+            out = Path(str(params["path"]))
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(b"\xff\xd8\xff\xe0 fake jpeg")
+            return {"success": True, "path": str(out), "bytes": 14}
+        return {"success": True}
+
+
+class TestCapturePageScreenshot:
+    @pytest.mark.asyncio
+    async def test_navigates_and_writes_the_file(self, tmp_path) -> None:
+        from core.watch_observe import capture_page_screenshot
+
+        bm = _CapturingBrowser()
+        out = tmp_path / "shots" / "home.jpg"
+        got = await capture_page_screenshot(bm, "https://x.example", str(out))
+        assert got == str(out) and out.exists()
+        assert [c[0] for c in bm.calls] == ["browser_navigate", "browser_capture"]
+
+    @pytest.mark.asyncio
+    async def test_failure_returns_empty_never_raises(self, tmp_path) -> None:
+        from core.watch_observe import capture_page_screenshot
+
+        got = await capture_page_screenshot(
+            _CapturingBrowser(fail=True), "https://x.example",
+            str(tmp_path / "no.jpg"),
+        )
+        assert got == ""
+        assert await capture_page_screenshot(None, "https://x", "/tmp/x.jpg") == ""
+
+    def test_filenames_are_dated_slugs(self) -> None:
+        from core.watch_observe import screenshot_filename
+
+        name = screenshot_filename(
+            "https://www.mcluck.com/Promotions/Daily-Wheel?x=1", when="20260815"
+        )
+        assert name == "20260815-promotions-daily-wheel.jpg"
+        assert screenshot_filename("https://x.example/", when="20260815") == (
+            "20260815-home.jpg"
+        )
+
+
+class TestStorefrontExhibitsInAnalyze:
+    """watch_analyze files clean storefront captures and stamps the evidence
+    rows from that page with the exhibit path."""
+
+    async def _run(self, wm, monkeypatch, tmp_path, *, browser) -> Any:
+        from types import SimpleNamespace
+
+        from tools.watch.tools import WatchAnalyzeTool
+
+        await wm.upsert_dimension(
+            name="Game portfolio", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "range", "weight_pct": 100}],
+        )
+        await wm.add_subject(
+            name="McLuck", company_id="c1", url="https://www.mcluck.com"
+        )
+
+        async def fake_collect(start_url, **kw):
+            return [{
+                "url": start_url,
+                "text": "Play over 1,000 casino-style games at McLuck today " * 20,
+                "error": None, "method": "http",
+            }]
+
+        monkeypatch.setattr(wo, "collect_pages", fake_collect)
+
+        class R:
+            async def complete(self, **_kw: Any) -> _Resp:
+                return _Resp(
+                    '{"claims": [{"dimension": "Game portfolio", '
+                    '"subcriterion": "range", '
+                    '"claim": "McLuck offers over 1,000 games", '
+                    '"value_text": "1,000", '
+                    '"excerpt": "Play over 1,000 casino-style games at McLuck today"}]}'
+                )
+
+        t = WatchAnalyzeTool()
+        t._watch_manager = wm
+        t._router = R()
+        t._vault = _Vault(None)
+        t._browser_manager = browser
+        t._config = SimpleNamespace(
+            workspace=str(tmp_path / "ws"), project_root=tmp_path, proxy=None
+        )
+        return await t.execute({
+            "subject": "McLuck", "company_id": "c1",
+            "save": False, "deck": False, "expand_sources": False,
+        })
+
+    @pytest.mark.asyncio
+    async def test_captures_and_stamps_evidence_rows(
+        self, wm, monkeypatch, tmp_path
+    ) -> None:
+        bm = _CapturingBrowser()
+        res = await self._run(wm, monkeypatch, tmp_path, browser=bm)
+        assert res.success, res.error
+        shots = res.data["screenshots"]
+        assert shots["captured"] == 1
+        path = shots["paths"][0]
+        assert "watch-screenshots/mcluck/" in path and path.endswith(".jpg")
+        from pathlib import Path
+
+        assert Path(path).exists()
+        rows = await wm.list_evidence("c1")
+        assert rows and all(r.screenshot_path == path for r in rows)
+
+    @pytest.mark.asyncio
+    async def test_no_browser_means_no_exhibits_and_no_error(
+        self, wm, monkeypatch, tmp_path
+    ) -> None:
+        res = await self._run(wm, monkeypatch, tmp_path, browser=None)
+        assert res.success, res.error
+        assert res.data["screenshots"] is None
+        rows = await wm.list_evidence("c1")
+        assert rows and all(r.screenshot_path == "" for r in rows)
+
+    @pytest.mark.asyncio
+    async def test_capture_failure_is_noted_not_fatal(
+        self, wm, monkeypatch, tmp_path
+    ) -> None:
+        res = await self._run(
+            wm, monkeypatch, tmp_path, browser=_CapturingBrowser(fail=True)
+        )
+        assert res.success, res.error
+        assert res.data["screenshots"]["captured"] == 0
+        assert "capture failed" in res.data["screenshots"]["note"]
+
+    @pytest.mark.asyncio
+    async def test_geo_run_refuses_exhibits_on_unverified_browser_exit(
+        self, wm, monkeypatch, tmp_path
+    ) -> None:
+        """A Florida-stamped run must not exhibit an Alabama storefront."""
+        from types import SimpleNamespace
+
+        from tools.watch.tools import WatchAnalyzeTool
+
+        await wm.upsert_dimension(
+            name="Game portfolio", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "range", "weight_pct": 100}],
+        )
+        await wm.add_subject(
+            name="McLuck", company_id="c1", url="https://www.mcluck.com"
+        )
+
+        async def fake_collect(start_url, **kw):
+            return [{
+                "url": start_url,
+                "text": "Play over 1,000 casino-style games at McLuck today " * 20,
+                "error": None, "method": "http",
+            }]
+
+        async def fake_verify_exit(proxy_url, state, **kw):
+            return True, proxy_url, {"ip": "1.2.3.4", "state_code": "FL"}
+
+        async def fake_verify_browser(bm, state, **kw):
+            return False, {"state_code": "AL", "ip": "5.6.7.8"}
+
+        monkeypatch.setattr(wo, "collect_pages", fake_collect)
+        monkeypatch.setattr(wo, "verify_exit_state", fake_verify_exit)
+        monkeypatch.setattr(wo, "verify_browser_exit", fake_verify_browser)
+
+        class R:
+            async def complete(self, **_kw: Any) -> _Resp:
+                return _Resp(
+                    '{"claims": [{"dimension": "Game portfolio", '
+                    '"subcriterion": "range", '
+                    '"claim": "McLuck offers over 1,000 games", '
+                    '"value_text": "1,000", '
+                    '"excerpt": "Play over 1,000 casino-style games at McLuck today"}]}'
+                )
+
+        bm = _CapturingBrowser()
+        t = WatchAnalyzeTool()
+        t._watch_manager = wm
+        t._router = R()
+        t._vault = _Vault(None)
+        t._browser_manager = bm
+        t._config = SimpleNamespace(
+            workspace=str(tmp_path / "ws"), project_root=tmp_path,
+            proxy=SimpleNamespace(
+                request_proxy_url=lambda state: "http://sticky.example:1"
+            ),
+        )
+        res = await t.execute({
+            "subject": "McLuck", "company_id": "c1", "geo_state": "FL",
+            "save": False, "deck": False, "expand_sources": False,
+        })
+        assert res.success, res.error
+        shots = res.data["screenshots"]
+        assert shots["captured"] == 0
+        assert "not verified in FL" in shots["note"]
+        assert not any(c[0] == "browser_capture" for c in bm.calls)
+        rows = await wm.list_evidence("c1")
+        assert all(r.screenshot_path == "" for r in rows)
+
+
+class TestCollectExhibits:
+    """brand → exhibits mapping for the deck: register first, workspace
+    fallback for brands whose shots never landed on a row."""
+
+    def test_register_paths_win_and_missing_files_are_dropped(self, tmp_path) -> None:
+        from tools.watch.tools import _collect_exhibits
+
+        real = tmp_path / "real.jpg"
+        real.write_bytes(b"x")
+        evidence = [
+            {"subject": "A", "screenshot_path": str(real),
+             "source_url": "https://a.example", "observed_at": "2026-08-15"},
+            {"subject": "A", "screenshot_path": str(real),  # duplicate
+             "source_url": "https://a.example/2", "observed_at": "2026-08-15"},
+            {"subject": "B", "screenshot_path": str(tmp_path / "gone.jpg"),
+             "source_url": "https://b.example", "observed_at": "2026-08-15"},
+            {"subject": "C", "screenshot_path": "",
+             "source_url": "https://c.example", "observed_at": "2026-08-15"},
+        ]
+        out = _collect_exhibits(evidence, [{"name": "A"}, {"name": "B"}], None)
+        assert list(out) == ["A"]
+        assert out["A"] == [{
+            "path": str(real), "url": "https://a.example",
+            "observed_at": "2026-08-15",
+        }]
+
+    def test_workspace_fallback_covers_walled_brands(self, tmp_path) -> None:
+        from types import SimpleNamespace
+
+        from tools.watch.tools import _collect_exhibits
+
+        d = tmp_path / "ws" / "watch-screenshots" / "walled-brand"
+        d.mkdir(parents=True)
+        (d / "20260814-home.jpg").write_bytes(b"x")
+        (d / "20260815-home.jpg").write_bytes(b"x")
+        cfg = SimpleNamespace(workspace=str(tmp_path / "ws"), project_root=tmp_path)
+        out = _collect_exhibits([], [{"name": "Walled Brand"}], cfg)
+        from pathlib import Path
+
+        assert [Path(p["path"]).name for p in out["Walled Brand"]] == [
+            "20260815-home.jpg", "20260814-home.jpg",
+        ]

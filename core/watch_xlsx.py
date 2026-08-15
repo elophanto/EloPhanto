@@ -213,6 +213,7 @@ def render_scorecard_xlsx(
         "Confidence",
         "Collector",
         "Excerpt",
+        "Screenshot",
         "Exit IP",
     ]
     ws3.append(hdr3)
@@ -234,6 +235,7 @@ def render_scorecard_xlsx(
                 e.get("confidence", ""),
                 e.get("collector", ""),
                 (e.get("excerpt", "") or "")[:500],
+                e.get("screenshot_path", ""),
                 e.get("exit_ip", ""),
             ]
         )
