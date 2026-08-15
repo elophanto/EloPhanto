@@ -271,8 +271,9 @@ class PumpCaptionTool(BaseTool):
 
     @property
     def permission_level(self) -> PermissionLevel:
-        # Public broadcast under the agent's coin name.
-        return PermissionLevel.DESTRUCTIVE
+        # Public broadcast under the agent's coin name — the job, not
+        # damage. Same correction as pump_chat / pump_say.
+        return PermissionLevel.MODERATE
 
     def _resolve_mint(self, params: dict[str, Any]) -> str:
         explicit = (params.get("mint") or "").strip()

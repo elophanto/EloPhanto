@@ -107,10 +107,12 @@ class PumpChatTool(BaseTool):
 
     @property
     def permission_level(self) -> PermissionLevel:
-        # Posting publicly under the agent's coin name = visible to all
-        # viewers. Reading is harmless but the action enum is shared,
-        # so we mark the whole tool DESTRUCTIVE so 'say' always asks.
-        return PermissionLevel.DESTRUCTIVE
+        # Posting publicly under the agent's coin name — the agent's own
+        # work, not damage. The old comment here said DESTRUCTIVE made
+        # 'say' always ask; it never did. DESTRUCTIVE and MODERATE gate
+        # identically in every permission mode, and neither asks under
+        # full_auto. The tier was chosen for a behaviour it never had.
+        return PermissionLevel.MODERATE
 
     def _resolve_mint(self, params: dict[str, Any]) -> str:
         explicit = (params.get("mint") or "").strip()

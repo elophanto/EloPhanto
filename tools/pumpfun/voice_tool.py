@@ -114,9 +114,9 @@ class PumpSayTool(BaseTool):
 
     @property
     def permission_level(self) -> PermissionLevel:
-        # Public broadcast under the agent's coin name — same risk
-        # bracket as pump_chat.
-        return PermissionLevel.DESTRUCTIVE
+        # Public broadcast under the agent's coin name — same bracket as
+        # pump_chat, and the same correction: publishing is the job.
+        return PermissionLevel.MODERATE
 
     def _resolve_mint(self, params: dict[str, Any]) -> str:
         explicit = (params.get("mint") or "").strip()

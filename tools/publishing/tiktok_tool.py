@@ -73,7 +73,10 @@ class TikTokUploadTool(BaseTool):
 
     @property
     def permission_level(self) -> PermissionLevel:
-        return PermissionLevel.DESTRUCTIVE
+        # Publishing is this agent's job, not damage. MODERATE: it asks
+        # under ask_always / smart_auto and runs under full_auto, which
+        # is what an operator choosing full_auto is asking for.
+        return PermissionLevel.MODERATE
 
     async def _log_publish(
         self,

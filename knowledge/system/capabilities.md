@@ -109,7 +109,7 @@ suppresses the signal.
 | `file_write` | moderate | Create or overwrite files with .bak backup |
 | `file_patch` | moderate | Apply a targeted patch to a file |
 | `file_list` | safe | List directory contents with glob filtering |
-| `file_delete` | destructive | Delete files or directories |
+| `file_delete` | critical | Delete files or directories — no trash, no undo, so it asks under full_auto |
 | `file_move` | moderate | Move or rename files and directories |
 | `llm_call` | safe | (in `data`) Sub-LLM calls through the router |
 | `vault_lookup` | safe | Look up credentials from the encrypted vault |

@@ -18,7 +18,7 @@ Every tool — built-in or self-created — must implement this interface:
 |---|---|---|---|---|---|
 | `safe` | Read-only, no side effects | Ask | Auto | Auto | Auto |
 | `moderate` | Writes data, creates files | Ask | Ask | Auto | Auto |
-| `destructive` | Sends comms, spawns agents, modifies system | Ask | Ask | Auto | Auto |
+| `destructive` | Spawns agents, changes trust, deploys, runs shells | Ask | Ask | Auto | Auto |
 | `critical` | **No undo** — deletion, key export, self-modification, arbitrary code execution | Ask | Ask | **Ask** | Auto |
 
 **The tier is a claim about consequences, not about category.** The question
@@ -38,6 +38,18 @@ The cost of gating is worth measuring rather than assuming. `file_delete` had
 never been called once across the project's logs when it was moved to CRITICAL,
 against 80 `shell_execute` calls in the same period — so the gate closed a real
 hole and stalls nothing.
+
+**`moderate` and `destructive` gate identically today** — same column in all
+four modes — so `destructive` currently carries no behaviour the tier above it
+does not. That is worth knowing before choosing between them, because tools
+were labelled `destructive` in the belief it forced approval. `pump_chat`
+carried the comment *"we mark the whole tool DESTRUCTIVE so 'say' always
+asks"*, and `pump_livestream` *"so the user gets to approve each call"* —
+neither ever did under `full_auto`. Those, along with `twitter_post`,
+`tiktok_upload`, `youtube_upload`, `pump_say` and `pump_caption`, are now
+`moderate`: publishing is what this agent is for, and a tier should describe
+what a call costs, not how consequential it feels. If you want to approve
+each post, that is what `ask_always` is for.
 
 ## Built-in Tools
 

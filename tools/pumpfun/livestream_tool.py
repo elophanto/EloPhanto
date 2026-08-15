@@ -179,9 +179,11 @@ class PumpLivestreamTool(BaseTool):
 
     @property
     def permission_level(self) -> PermissionLevel:
-        # Streaming publishes content under the agent's coin — destructive
-        # in the public-state sense, so the user gets to approve each call.
-        return PermissionLevel.DESTRUCTIVE
+        # Streaming publishes under the agent's coin. The old comment
+        # claimed the operator approves each call — DESTRUCTIVE never
+        # asked under full_auto, so they did not. Publishing is the job;
+        # use ask_always if you want to approve each broadcast.
+        return PermissionLevel.MODERATE
 
     def _resolve_mint(self, params: dict[str, Any]) -> str:
         explicit = params.get("mint", "") or ""
