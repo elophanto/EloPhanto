@@ -231,7 +231,8 @@ before it is saved.
 
 Four deliverables from one evidence base: the XLSX scorecard, the
 material-change diff, the board report, and the executive deck (~10
-board slides, .pptx). The deck keeps the same rules — unscored is blank
+board slides, .pptx) — `watch_analyze` writes all of them, and a board
+report written to disk brings the deck beside it. The deck keeps the same rules — unscored is blank
 never zero, provisional brands are listed not ranked, and every slide of
 judgement says a model wrote it.
 

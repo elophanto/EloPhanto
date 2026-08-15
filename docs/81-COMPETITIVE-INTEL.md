@@ -105,11 +105,11 @@ disagree.
 | `watch_scorecard` | SAFE | ranked scorecard + both alternative views; `format=xlsx` writes the client workbook |
 | `watch_snapshot` | MODERATE | freeze the scorecard so later cycles have a baseline to diff |
 | `watch_diff` | SAFE | material changes since a snapshot |
-| `watch_board_report` | MODERATE | the monthly report: changes → implications → recommendations → decisions; `deck_path=…` also writes the slides |
-| `watch_executive_deck` | MODERATE | the executive presentation (.pptx): summary, standings chart, us vs the leader, changes, implications, decisions, evidence coverage |
+| `watch_board_report` | MODERATE | the monthly report: changes → implications → recommendations → decisions; written to a `path`, the executive deck (.pptx) lands beside it |
+| `watch_executive_deck` | MODERATE | the executive presentation on its own (.pptx): summary, standings chart, us vs the leader, changes, implications, decisions, evidence coverage |
 | `watch_observe` | MODERATE | collect evidence from public pages, every quote verified against the source |
 | `watch_queue` | MODERATE | what is due for refresh; `action=schedule` installs the recurring jobs |
-| `watch_analyze` | MODERATE | **one command** — read a brand, score every dimension, save the deliverables; `deck=true` adds the slides |
+| `watch_analyze` | MODERATE | **one command** — read a brand, score every dimension, save the pack (workbook, report, deck) |
 
 ## One command
 
@@ -120,7 +120,8 @@ The whole pipeline behind a single sentence:
 `watch_analyze` reads the brand's landing page plus the sub-pages that actually
 carry facts (terms, promotions, payments — discovered from the homepage), files
 every verifiable claim, scores each dimension the evidence supports, and writes
-the workbook and board report to `~/Desktop` by default.
+the pack — workbook, board report and executive deck — to `~/Desktop` by
+default.
 
 Two efficiencies matter at this scale. Pages are read **once** and extracted
 against **all twelve dimensions in a single model call** — one call per page
@@ -159,9 +160,11 @@ use only the facts given. If no model is available the report still ships the
 full factual record and says plainly that implications have not been applied —
 it never silently omits the distinction between fact and judgement.
 
-**Executive deck.** `watch_executive_deck path=…` (or `watch_board_report
-deck_path=…`, or `watch_analyze deck=true`) writes the same facts and the same
-judgement as ~10 16:9 slides for the room: cover with the evidence basis;
+**Executive deck.** Part of the pack, not an option: `watch_analyze` writes it
+beside the workbook and report, and `watch_board_report path=…` writes it
+beside the report (`deck=false` to skip, `deck_path=…` to place it).
+`watch_executive_deck path=…` regenerates it on its own at any time. It is the
+same facts and the same judgement as ~10 16:9 slides for the room: cover with the evidence basis;
 executive summary; standings as a native bar chart with our brand in amber;
 our brand against the ranked leader, dimension by dimension (ahead / behind /
 not comparable yet); material changes; implications and recommendations
@@ -180,9 +183,9 @@ them; with no model the summary is built from the numbers alone and says
 *facts only*, and the decisions slide says *not yet evaluated* rather than
 *none required* — those two must never look alike.
 
-The deck does not snapshot. `watch_board_report` closes the cycle; asking for
-both in one call (`deck_path`) cuts both from the same diff before the
-snapshot, so they describe one period.
+The standalone deck does not snapshot. `watch_board_report` closes the cycle,
+and cuts the report and the deck from the same diff *before* the snapshot, so
+they describe one period.
 
 ## Autonomous collection — and why you can trust it
 
@@ -290,7 +293,7 @@ watch_observe   subject=McLuck dimension=… geo_state=TX   # agent, public page
 watch_evidence  action=add collector=human …        # operator, logged-in states
 watch_score     subject=… dimension=… score=4       # refused without evidence
 watch_scorecard    format=xlsx path=~/scorecard.xlsx
-watch_board_report path=~/board-march.md deck_path=~/board-march.pptx   # snapshots on the way out
+watch_board_report path=~/board-march.md            # + board-march.pptx beside it; snapshots on the way out
 watch_executive_deck path=~/deck.pptx               # slides only, any time; no snapshot
 ```
 

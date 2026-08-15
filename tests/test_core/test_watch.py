@@ -1306,6 +1306,10 @@ class TestWatchAnalyzeTool:
         saved = res.data["saved"]
         assert Path(saved["scorecard"]).exists()
         assert Path(saved["report"]).exists()
+        # The executive deck is part of the pack, not an option.
+        assert Path(saved["deck"]).exists()
+        assert saved["deck"].endswith("competitor-deck-rival.pptx")
+        assert "deck_error" not in saved
 
     @pytest.mark.asyncio
     async def test_unknown_brand_lists_the_tracked_ones(self, wm) -> None:

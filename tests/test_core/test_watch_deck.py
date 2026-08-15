@@ -413,7 +413,39 @@ class TestBoardReportCanCarryTheDeck:
         assert (await wm.diff_since_snapshot("c1"))["material_count"] == 0
 
     @pytest.mark.asyncio
-    async def test_without_deck_path_nothing_changes(self, wm, tmp_path) -> None:
+    async def test_report_to_disk_brings_the_deck_by_default(self, wm, tmp_path) -> None:
+        """The deck is part of the pack, not an option to remember."""
+        from tools.watch.tools import WatchBoardReportTool
+
+        await _market(wm)
+        t = WatchBoardReportTool()
+        t._watch_manager = wm
+        res = await t.execute(
+            {"company_id": "c1", "path": str(tmp_path / "board-march.md"),
+             "take_snapshot": False}
+        )
+        assert res.success
+        assert res.data["deck_path"] == str(tmp_path / "board-march.pptx")
+        assert (tmp_path / "board-march.pptx").exists()
+        assert (tmp_path / "board-march.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_deck_false_skips_it(self, wm, tmp_path) -> None:
+        from tools.watch.tools import WatchBoardReportTool
+
+        await _market(wm)
+        t = WatchBoardReportTool()
+        t._watch_manager = wm
+        res = await t.execute(
+            {"company_id": "c1", "path": str(tmp_path / "r.md"),
+             "deck": False, "take_snapshot": False}
+        )
+        assert res.success and "deck_path" not in res.data
+        assert not (tmp_path / "r.pptx").exists()
+
+    @pytest.mark.asyncio
+    async def test_inline_report_writes_nothing_so_no_deck(self, wm, tmp_path) -> None:
+        """No path means the report is returned, not saved — same for the deck."""
         from tools.watch.tools import WatchBoardReportTool
 
         await _market(wm)
@@ -421,6 +453,7 @@ class TestBoardReportCanCarryTheDeck:
         t._watch_manager = wm
         res = await t.execute({"company_id": "c1", "take_snapshot": False})
         assert res.success and "deck_path" not in res.data
+        assert not list(tmp_path.glob("*.pptx"))
 
 
 class TestRegistration:
@@ -431,7 +464,10 @@ class TestRegistration:
         assert "watch_executive_deck" in names
         assert names["watch_executive_deck"].group == "watch"
 
-    def test_analyze_exposes_the_deck_switch(self) -> None:
+    def test_analyze_ships_the_deck_by_default(self) -> None:
         from tools.watch.tools import WatchAnalyzeTool
 
-        assert "deck" in WatchAnalyzeTool().input_schema["properties"]
+        props = WatchAnalyzeTool().input_schema["properties"]
+        assert "deck" in props
+        assert "Default true" in props["deck"]["description"]
+        assert "executive deck" in WatchAnalyzeTool().description

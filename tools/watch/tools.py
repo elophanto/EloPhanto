@@ -991,7 +991,8 @@ class WatchBoardReportTool(_WatchToolBase):
             "since the last snapshot, each turned into an implication, a "
             "recommendation classified as no-regret / transition-requirement / "
             "post-transition / monitor, and the decision the board must make — "
-            "plus current standings and outstanding evidence gaps."
+            "plus current standings and outstanding evidence gaps. When written "
+            "to a path, the executive deck (.pptx) is written beside it."
         )
 
     @property
@@ -1011,11 +1012,18 @@ class WatchBoardReportTool(_WatchToolBase):
                     "type": "boolean",
                     "description": "Snapshot the current state after reporting. Default true.",
                 },
+                "deck": {
+                    "type": "boolean",
+                    "description": (
+                        "Also write the executive deck (.pptx) — the same facts "
+                        "and judgement as ~10 board slides. Default true whenever "
+                        "`path` is set; the deck lands beside the report."
+                    ),
+                },
                 "deck_path": {
                     "type": "string",
                     "description": (
-                        "Also write the executive deck (.pptx) here — the same "
-                        "facts and judgement as the report, as ~10 board slides."
+                        "Where to write the deck. Default: `path` with a .pptx suffix."
                     ),
                 },
                 "company_id": {"type": "string"},
@@ -1208,10 +1216,19 @@ class WatchBoardReportTool(_WatchToolBase):
             written = str(p)
 
         # The deck is the same facts and the same judgement, before the
-        # snapshot below — so both deliverables describe one period.
+        # snapshot below — so both deliverables describe one period. It is
+        # part of the pack, not an extra: whenever the report goes to disk,
+        # the deck goes beside it unless deck=false.
         deck_written = None
         deck_error = None
-        if params.get("deck_path"):
+        deck_target = str(params.get("deck_path") or "").strip()
+        if not deck_target and written:
+            from pathlib import Path as _P
+
+            deck_target = str(_P(written).with_suffix(".pptx"))
+        if not params.get("deck", True):
+            deck_target = ""
+        if deck_target:
             try:
                 from core.watch_deck import render_executive_deck
 
@@ -1225,7 +1242,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     summary=summary,
                     gaps=gaps,
                     evidence_count=len(await wm.evidence_with_names(cid)),
-                    path=str(params["deck_path"]),
+                    path=deck_target,
                 )
             except Exception as e:
                 deck_error = str(e)
@@ -1243,7 +1260,7 @@ class WatchBoardReportTool(_WatchToolBase):
             "path": written,
             "snapshot_id": snap_id,
         }
-        if params.get("deck_path"):
+        if deck_target:
             data["deck_path"] = deck_written
             if deck_error:
                 data["deck_error"] = deck_error
@@ -1566,8 +1583,9 @@ class WatchAnalyzeTool(_WatchToolBase):
             "site (landing page plus terms / promotions / payments pages, using "
             "the real browser when a site is a JS app or blocks requests), files "
             "every verifiable fact into the evidence register, scores each "
-            "dimension it has evidence for, and saves the scorecard workbook and "
-            "board report. Use this when asked to 'do a competitor analysis on "
+            "dimension it has evidence for, and saves the pack: scorecard "
+            "workbook, board report and executive deck (.pptx). Use this when "
+            "asked to 'do a competitor analysis on "
             "X' or 'analyse X and save the results'. Dimensions with no evidence "
             "are left unscored rather than guessed."
         )
@@ -1597,7 +1615,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                 },
                 "out_dir": {
                     "type": "string",
-                    "description": "Where to save the workbook + report. Default ~/Desktop.",
+                    "description": "Where to save the workbook, report and deck. Default ~/Desktop.",
                 },
                 "geo_state": {
                     "type": "string",
@@ -1615,7 +1633,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                     "type": "boolean",
                     "description": (
                         "Also write the executive presentation (.pptx). Default "
-                        "false; turn on when asked for a deck, slides or a board pack."
+                        "true — it is part of the pack. Set false to skip it."
                     ),
                 },
                 "company_id": {"type": "string"},
@@ -1859,12 +1877,14 @@ class WatchAnalyzeTool(_WatchToolBase):
                 "path": str(out_dir / f"competitor-report-{slug}.md"),
                 "take_snapshot": True,
             }
-            if params.get("deck"):
+            want_deck = bool(params.get("deck", True))
+            rep_params["deck"] = want_deck
+            if want_deck:
                 rep_params["deck_path"] = str(out_dir / f"competitor-deck-{slug}.pptx")
             rep = await report_tool.execute(rep_params)
             if rep.success:
                 saved["report"] = rep.data.get("path") or ""
-                if params.get("deck"):
+                if want_deck:
                     if rep.data.get("deck_path"):
                         saved["deck"] = rep.data["deck_path"]
                     if rep.data.get("deck_error"):
