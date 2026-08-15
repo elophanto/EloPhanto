@@ -2216,12 +2216,17 @@ class Agent:
                 tool._context_store = self._context_store
 
     def _inject_vault_deps(self) -> None:
-        """Inject vault into vault, web search, and Solana read tools."""
+        """Inject vault into vault, web search, watch, and Solana read tools."""
         for tool_name in (
             "vault_lookup",
             "vault_set",
             "web_search",
             "web_extract",
+            # watch_analyze reads search_sh_api_key for source expansion.
+            # This line was missing for a week: the tool's _vault stayed
+            # None, so every run reported "no search_sh_api_key in vault"
+            # while the key sat in the vault the whole time.
+            "watch_analyze",
             "solana_balance",
             "solana_token_holders",
             "solana_recent_txs",

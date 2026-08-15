@@ -680,3 +680,26 @@ class TestCollectExhibits:
         assert [Path(p["path"]).name for p in out["Walled Brand"]] == [
             "20260815-home.jpg", "20260814-home.jpg",
         ]
+
+
+class TestVaultReachesTheWatchOrgan:
+    """Regression: the vault injection list omitted watch_analyze, so
+    expansion always reported 'no search_sh_api_key in vault' while the key
+    sat in the vault. The injection list is source of truth — pin it."""
+
+    def test_watch_analyze_is_in_the_vault_injection_list(self) -> None:
+        import inspect
+
+        from core.agent import Agent
+
+        src = inspect.getsource(Agent._inject_vault_deps)
+        assert '"watch_analyze"' in src, (
+            "watch_analyze must receive the vault, or source expansion "
+            "silently loses its search key"
+        )
+
+    def test_watch_analyze_declares_the_vault_slot(self) -> None:
+        from tools.watch.tools import WatchAnalyzeTool
+
+        t = WatchAnalyzeTool()
+        assert hasattr(t, "_vault") and t._vault is None
