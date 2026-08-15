@@ -1922,15 +1922,19 @@ class WatchAnalyzeTool(_WatchToolBase):
                     )
 
         readable = [p for p in pages if p.get("text")]
-        if not readable:
-            return ToolResult(
-                success=False,
-                error=(
-                    f"could not read any page for {subj.name}: "
-                    f"{[p.get('error') for p in pages]}. The site may need the "
-                    "browser (is Chrome available?) or an explicit urls list."
-                ),
-            )
+        # An unreadable site is not the end of the brand — it is the case
+        # source expansion exists for. The early return here used to run
+        # BEFORE expansion, so the brands that most needed third-party
+        # sources (bot-walled, browser exit unverifiable) were exactly the
+        # ones that never got them. Now the run continues into expansion
+        # with every dimension missing, and only fails if that finds
+        # nothing either.
+        site_unreadable = not readable
+        site_error = (
+            f"could not read any page for {subj.name}: "
+            f"{[p.get('error') for p in pages]}. The site may need the "
+            "browser (is Chrome available?) or an explicit urls list."
+        )
 
         # ── 2. Extract + verify, one model call per page across all dimensions ──
         dim_specs = [
@@ -2094,6 +2098,22 @@ class WatchAnalyzeTool(_WatchToolBase):
                     "pages": exp_pages,
                     "evidence_written": exp_written,
                 }
+
+        if site_unreadable and written == 0:
+            exp_note = ""
+            if expansion_report.get("attempted"):
+                exp_note = (
+                    " Source expansion searched "
+                    f"{len(expansion_report.get('queries', []))} queries and "
+                    "found no verifiable third-party claims either."
+                )
+            elif expansion_report.get("note"):
+                exp_note = f" Source expansion: {expansion_report['note']}."
+            return ToolResult(
+                success=False,
+                data={"source_expansion": expansion_report or None},
+                error=site_error + exp_note,
+            )
 
         # ── 3. Score what the evidence supports ──
         scored: list[dict[str, Any]] = []

@@ -240,3 +240,185 @@ class TestExpansionInAnalyze:
         )
         exp = res.data["source_expansion"]
         assert "Game portfolio" not in exp["missing_dimensions"]
+
+
+class TestUnreadableSiteStillGetsResearched:
+    """The exact Chumba failure, 2026-08-15 19:47:
+
+        could not read any page for Chumba Casino:
+          ['browser exit not verified in FL (AL) — page dropped …']
+
+    The site was bot-walled, Chrome's exit landed in Alabama, exit
+    verification (correctly) dropped the page — and the early return then
+    skipped source expansion entirely. The brands that most need third-party
+    research were exactly the ones that never got it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_expansion_rescues_a_zero_page_brand(self, wm, monkeypatch) -> None:
+        from tools.watch.tools import WatchAnalyzeTool
+
+        await wm.upsert_dimension(
+            name="Payments", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "methods", "weight_pct": 100}],
+        )
+        await wm.add_subject(name="Chumba Casino", company_id="c1",
+                             url="https://www.chumbacasino.com")
+
+        async def unreadable(start_url, **kw):
+            return [{"url": start_url, "text": "",
+                     "error": "browser exit not verified in FL (AL)",
+                     "method": "browser"}]
+
+        async def fake_search(query, *, api_key, **kw):
+            return [{"url": "https://reviews.example/chumba", "title": "", "snippet": ""}]
+
+        async def fake_fetch(url, **kw):
+            return ("Chumba supports Visa and ACH withdrawals for players " * 10,
+                    None, "http")
+
+        monkeypatch.setattr(wo, "collect_pages", unreadable)
+        monkeypatch.setattr(wo, "search_web", fake_search)
+        monkeypatch.setattr(wo, "fetch_page_best_effort", fake_fetch)
+
+        class R:
+            async def complete(self, **_kw: Any) -> _Resp:
+                return _Resp(
+                    '{"claims": [{"dimension": "Payments", "subcriterion": "methods", '
+                    '"claim": "Chumba supports Visa and ACH withdrawals", '
+                    '"value_text": "Visa, ACH", '
+                    '"excerpt": "Chumba supports Visa and ACH withdrawals for players"}]}'
+                )
+
+        t = WatchAnalyzeTool()
+        t._watch_manager = wm
+        t._router = R()
+        t._config = None
+        t._vault = _Vault("sk-test")
+        res = await t.execute({"subject": "Chumba Casino", "company_id": "c1",
+                               "save": False, "deck": False})
+
+        assert res.success, res.error
+        assert res.data["source_expansion"]["evidence_written"] == 1
+        rows = await wm.list_evidence("c1")
+        assert rows and rows[0].source_type == "third_party"
+
+    @pytest.mark.asyncio
+    async def test_zero_pages_and_no_expansion_is_still_an_honest_error(
+        self, wm, monkeypatch
+    ) -> None:
+        from tools.watch.tools import WatchAnalyzeTool
+
+        await wm.upsert_dimension(
+            name="Payments", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "methods", "weight_pct": 100}],
+        )
+        await wm.add_subject(name="Walled", company_id="c1", url="https://w.example")
+
+        async def unreadable(start_url, **kw):
+            return [{"url": start_url, "text": "", "error": "HTTP 403",
+                     "method": "http"}]
+
+        monkeypatch.setattr(wo, "collect_pages", unreadable)
+
+        t = WatchAnalyzeTool()
+        t._watch_manager = wm
+        t._router = _Router()
+        t._config = None
+        t._vault = _Vault(None)  # no search key
+        res = await t.execute({"subject": "Walled", "company_id": "c1",
+                               "save": False, "deck": False})
+
+        assert not res.success
+        assert "could not read any page" in res.error
+        assert "search_sh_api_key" in res.error  # says why expansion was skipped
+
+
+class TestChromeSessionPinning:
+    def test_pin_password_appends_session_to_geo_passwords(self) -> None:
+        out = wo.pin_password("pw_country-us_state-florida", session="ab12cd34")
+        assert out == "pw_country-us_state-florida_session-ab12cd34_lifetime-30m"
+
+    def test_pin_password_is_idempotent_and_ignores_plain_passwords(self) -> None:
+        pinned = wo.pin_password("pw_state-florida", session="ab12cd34")
+        assert wo.pin_password(pinned) == pinned
+        assert wo.pin_password("plainsecret") == "plainsecret"
+
+    def test_agent_pins_the_browser_password(self) -> None:
+        """Chrome must hold one exit per session window — an unpinned
+        rotating credential exits anywhere in the country (Alabama,
+        2026-08-15), and every browser-escalated page of a state-stamped
+        run is then correctly dropped."""
+        import inspect
+
+        import core.agent as agent_mod
+
+        src = inspect.getsource(agent_mod)
+        assert "pin_password(" in src, (
+            "browser proxy_password must be session-pinned at wiring time"
+        )
+
+
+class TestBrowserFirstLinkDiscovery:
+    """'It's trying pages URLs instead of going through the site actually.'
+
+    Link discovery parsed the raw HTTP response — a JS-app site serves an
+    empty shell there (big HTML, zero anchors), so for exactly the walled
+    brands the crawler concluded the site had one page. The rendered DOM
+    knows the nav the shell hides; when raw discovery finds nothing and
+    Chrome is available, discovery now uses what Chrome actually renders.
+    """
+
+    @pytest.mark.asyncio
+    async def test_shell_homepage_falls_back_to_rendered_dom(self, monkeypatch) -> None:
+        fetched: list[str] = []
+
+        async def fake_raw(url, **kw):
+            return "<html><div id=root></div><script src=/app.js></script></html>"
+
+        async def fake_browser_html(bm, url):
+            return ('<a href="/sweeps-rules">Sweepstakes Rules</a>'
+                    '<a href="/promotions">Promotions</a>')
+
+        async def fake_fetch(url, **kw):
+            fetched.append(url)
+            return ("page text " * 100, None, "browser")
+
+        monkeypatch.setattr(wo, "_fetch_raw_html", fake_raw)
+        monkeypatch.setattr(wo, "_browser_html", fake_browser_html)
+        monkeypatch.setattr(wo, "fetch_page_best_effort", fake_fetch)
+
+        pages = await wo.collect_pages(
+            "https://walled.example", browser_manager=object(), max_pages=4
+        )
+        assert [p["url"] for p in pages][1:] == [
+            "https://walled.example/sweeps-rules",
+            "https://walled.example/promotions",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_server_rendered_sites_never_touch_the_browser(
+        self, monkeypatch
+    ) -> None:
+        """Raw discovery that works must stay the cheap path."""
+        called = {"browser": 0}
+
+        async def fake_raw(url, **kw):
+            return '<a href="/terms">Terms of use</a>'
+
+        async def fake_browser_html(bm, url):
+            called["browser"] += 1
+            return ""
+
+        async def fake_fetch(url, **kw):
+            return ("page text " * 100, None, "http")
+
+        monkeypatch.setattr(wo, "_fetch_raw_html", fake_raw)
+        monkeypatch.setattr(wo, "_browser_html", fake_browser_html)
+        monkeypatch.setattr(wo, "fetch_page_best_effort", fake_fetch)
+
+        pages = await wo.collect_pages(
+            "https://plain.example", browser_manager=object(), max_pages=3
+        )
+        assert called["browser"] == 0
+        assert len(pages) == 2  # homepage + terms

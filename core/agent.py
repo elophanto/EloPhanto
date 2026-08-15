@@ -933,9 +933,22 @@ class Agent:
                 # ProxyConfig docstring).
                 proxy_cfg = self._config.proxy
                 if proxy_cfg.enabled and proxy_cfg.host and proxy_cfg.port:
+                    # Pin Chrome to ONE exit per session window. Rotating
+                    # residential targeting is best-effort per connection, so
+                    # unpinned Chrome can exit anywhere in the country —
+                    # observed 2026-08-15: a Florida-targeted password, a
+                    # Chrome exit in Alabama, and every browser-escalated
+                    # page of a state-stamped run correctly dropped by exit
+                    # verification. One session = one exit ≤30m; when it
+                    # verifies once it stays verified, and when it lands
+                    # wrong it rotates out at the lifetime boundary.
+                    from core.watch_observe import pin_password
+
                     self._browser_manager.proxy_server = proxy_cfg.proxy_url()
                     self._browser_manager.proxy_username = proxy_cfg.username
-                    self._browser_manager.proxy_password = proxy_cfg.password
+                    self._browser_manager.proxy_password = pin_password(
+                        proxy_cfg.password
+                    )
                     self._browser_manager.proxy_bypass = list(proxy_cfg.bypass)
                     logger.info(
                         "Browser proxy enabled: %s (creds=%s)",

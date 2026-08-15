@@ -416,8 +416,31 @@ async def collect_pages(
     if max_pages <= 1:
         return pages
 
-    # Link discovery needs markup, not stripped text.
-    raw = ""
+    # Link discovery needs markup, not stripped text. Raw HTTP first —
+    # cheap, and for a server-rendered site it carries the whole nav.
+    raw = await _fetch_raw_html(start_url, proxy_url=proxy_url)
+    links = discover_links(raw, start_url, limit=max_pages - 1)
+
+    # A JS-app site serves an empty shell to a plain client: big HTML, no
+    # anchors. That is precisely the site the real browser exists for — the
+    # rendered DOM knows the nav the shell hides — so when raw discovery
+    # finds nothing and Chrome is available, discover from what Chrome
+    # actually renders instead of concluding the site has one page.
+    if not links and browser_manager is not None:
+        rendered = await _browser_html(browser_manager, start_url)
+        if rendered:
+            links = discover_links(rendered, start_url, limit=max_pages - 1)
+
+    for link in links:
+        t, e, m = await fetch_page_best_effort(
+            link, browser_manager=browser_manager, proxy_url=proxy_url
+        )
+        pages.append({"url": link, "text": t, "error": e, "method": m})
+    return pages
+
+
+async def _fetch_raw_html(url: str, *, proxy_url: str | None = None) -> str:
+    """The unstripped homepage markup, for link discovery. '' on failure."""
     try:
         import httpx
 
@@ -425,23 +448,23 @@ async def collect_pages(
         if proxy_url:
             kwargs["proxy"] = proxy_url
         async with httpx.AsyncClient(**kwargs) as client:
-            r = await client.get(start_url, headers={"User-Agent": "Mozilla/5.0"})
-            raw = r.text if r.status_code < 400 else ""
+            r = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            return r.text if r.status_code < 400 else ""
     except Exception:
-        raw = ""
-    if len(raw) < 2000 and browser_manager is not None:
-        try:
-            payload = await browser_manager.call_tool("browser_get_html", {})
-            raw = _result_text(payload) or raw
-        except Exception:
-            pass
+        return ""
 
-    for link in discover_links(raw, start_url, limit=max_pages - 1):
-        t, e, m = await fetch_page_best_effort(
-            link, browser_manager=browser_manager, proxy_url=proxy_url
-        )
-        pages.append({"url": link, "text": t, "error": e, "method": m})
-    return pages
+
+async def _browser_html(browser_manager: Any, url: str) -> str:
+    """Navigate the real browser to ``url`` and return the rendered HTML."""
+    if browser_manager is None:
+        return ""
+    try:
+        await browser_manager.call_tool("browser_navigate", {"url": url})
+        payload = await browser_manager.call_tool("browser_get_html", {})
+        return _result_text(payload)
+    except Exception as e:
+        logger.debug("watch: browser html for %s failed: %s", url, e)
+        return ""
 
 
 SCORE_SYSTEM = """You score one brand on one dimension of a competitive analysis.
@@ -600,6 +623,22 @@ _GEO_TOKEN_RE = re.compile(r"_(?:country|state|region|city)-[a-z0-9-]+", re.I)
 _SESSION_TOKEN_RE = re.compile(r"_session-[a-z0-9]+", re.I)
 
 
+def pin_password(password: str, *, session: str | None = None,
+                 lifetime: str = "30m") -> str:
+    """Append a sticky-session token to a geo-targeted proxy password.
+
+    The password-level primitive under :func:`pin_session`, exposed on its
+    own because Chrome takes credentials, not a URL. Non-geo passwords are
+    returned unchanged; already-pinned ones too.
+    """
+    if not _GEO_TOKEN_RE.search(password or "") or _SESSION_TOKEN_RE.search(password or ""):
+        return password
+    import secrets as _secrets
+
+    sid = session or _secrets.token_hex(4)
+    return f"{password}_session-{sid}_lifetime-{lifetime}"
+
+
 def pin_session(proxy_url: str, *, session: str | None = None,
                 lifetime: str = "30m") -> str:
     """Pin a geo-targeted proxy URL to one exit via a sticky-session token.
@@ -618,12 +657,9 @@ def pin_session(proxy_url: str, *, session: str | None = None,
     try:
         parts = urlsplit(proxy_url)
         password = parts.password or ""
-        if not _GEO_TOKEN_RE.search(password) or _SESSION_TOKEN_RE.search(password):
+        new_password = pin_password(password, session=session, lifetime=lifetime)
+        if new_password == password:
             return proxy_url
-        import secrets as _secrets
-
-        sid = session or _secrets.token_hex(4)
-        new_password = f"{password}_session-{sid}_lifetime-{lifetime}"
         username = parts.username or ""
         host = parts.hostname or ""
         port = f":{parts.port}" if parts.port else ""
