@@ -875,26 +875,40 @@ Return STRICT JSON: {"items":[{"subject":str,"change":str,"implication":str,
 "recommendation":str,"classification":str,"decision_required":str}]}"""
 
 
-_DECK_SUMMARY_SYSTEM = """You write the executive-summary slide of a competitor
-board pack. You are given FACTS only: current standings, our position, the
+_DECK_NARRATIVE_SYSTEM = """You write the words for an executive competitor
+board deck. You are given FACTS only: current standings, our position, the
 material changes this period, the judged implications, and the evidence gaps.
 
-Return STRICT JSON: {"headline": str, "bullets": [str, ...]}
+Return STRICT JSON:
+{"headline": str, "bullets": [str, ...],
+ "titles": {"standings": str, "versus": str, "changes": str, "coverage": str},
+ "commentary": {"standings": str, "versus": str, "changes": str,
+                "coverage": str, "glance": str},
+ "next_steps": [str, ...]}
 
-- headline: one sentence, at most 18 words, the single thing the room must
+- headline: one sentence, at most 14 words — the single thing the room must
   take away. Lead with the so-what for US, not a description of the market.
-- bullets: 3 to 5, each at most 22 words, in priority order. Numbers only as
-  given. Name brands as given. Say what to do, or what to decide, where the
-  facts support it.
+- bullets: 3 to 5, each at most 20 words, priority order. Say what to do or
+  decide where the facts support it.
+- titles: an ACTION TITLE per slide — a sentence someone could disagree with
+  ("High 5 leads a thin field"), never a label ("Standings overview").
+  At most 10 words each.
+- commentary: one line per slide (max 22 words) telling the room what to take
+  from that slide. "glance" covers the headline-numbers slide.
+- next_steps: 2 to 4 concrete actions, each at most 16 words.
 
 Rules:
-- Use ONLY the facts given. Never invent a number, a move, a brand or a source.
+- Use ONLY the facts given. Never invent a number, a move, a brand, a source.
 - If our brand is provisional or unscored, say so plainly; do not rank it.
 - If there is no material change, say so; do not manufacture urgency.
+- NEVER mention internal bookkeeping: no hashes, SHA, file names, file paths,
+  manifests, ledgers, registers, corpora, checkpoints, run IDs, snapshots or
+  tool names. The room hears about the MARKET, not about the machinery.
+- Punctuation: en dashes (–), never em dashes (—).
 - No filler, no preamble, no restating the method."""
 
 
-async def _summarize_for_deck(
+async def _narrate_for_deck(
     router: Any,
     *,
     card: dict[str, Any],
@@ -902,11 +916,11 @@ async def _summarize_for_deck(
     judged: list[dict[str, Any]],
     gaps: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """The summary slide. Model-written from facts when a router exists;
-    otherwise the factual fallback — and the deck labels which it got."""
-    from core.watch_deck import factual_summary
+    """The deck's words. Model-written from facts when a router exists;
+    otherwise the computed factual fallback — and the deck labels which."""
+    from core.watch_deck import factual_narrative
 
-    fallback = factual_summary(card, diff, judged, gaps)
+    fallback = factual_narrative(card, diff, judged, gaps)
     if router is None:
         return fallback
     import json as _json
@@ -921,8 +935,9 @@ async def _summarize_for_deck(
                 "overall_normalized_pct": r["overall"]["normalized_pct"],
                 "provisional": bool(r.get("provisional")),
                 "coverage_pct": r["overall"]["coverage_pct"],
+                "unscored_dimensions": r["overall"].get("unscored_dimensions", [])[:6],
             }
-            for r in rows[:12]
+            for r in rows[:14]
         ],
         "material_changes": (
             None
@@ -930,7 +945,10 @@ async def _summarize_for_deck(
             else {
                 "count": diff.get("material_count", 0),
                 "changed": [
-                    {"subject": c["subject"], "items": [i["detail"] for i in c["items"]]}
+                    {
+                        "subject": c["subject"],
+                        "items": [i["detail"] for i in c["items"]],
+                    }
                     for c in diff.get("changed", [])
                 ],
                 "added_subjects": diff.get("added_subjects", []),
@@ -939,19 +957,28 @@ async def _summarize_for_deck(
         ),
         "implications": judged,
         "gaps": {
-            "never_observed": sum(1 for g in gaps if g.get("status") == "never_observed"),
+            "never_observed_pairs": sum(
+                1 for g in gaps if g.get("status") == "never_observed"
+            ),
+            "unobserved_brands": sorted(
+                {
+                    g["subject"]
+                    for g in gaps
+                    if g.get("status") == "never_observed"
+                }
+            )[:6],
             "stale": sum(1 for g in gaps if g.get("status") == "stale"),
         },
     }
     try:
         resp = await router.complete(
             messages=[
-                {"role": "system", "content": _DECK_SUMMARY_SYSTEM},
+                {"role": "system", "content": _DECK_NARRATIVE_SYSTEM},
                 {"role": "user", "content": _json.dumps(facts, indent=1, default=str)},
             ],
             task_type="analysis",
-            temperature=0.2,
-            max_tokens=700,
+            temperature=0.3,
+            max_tokens=1100,
         )
         text = (resp.content or "").strip()
         if text.startswith("```"):
@@ -964,12 +991,26 @@ async def _summarize_for_deck(
         return {
             "headline": str(data.get("headline") or "").strip(),
             "bullets": bullets[:5],
+            "titles": {
+                k: str(v).strip()
+                for k, v in (data.get("titles") or {}).items()
+                if str(v).strip()
+            },
+            "commentary": {
+                k: str(v).strip()
+                for k, v in (data.get("commentary") or {}).items()
+                if str(v).strip()
+            },
+            "next_steps": [
+                str(b).strip() for b in (data.get("next_steps") or []) if str(b).strip()
+            ][:4]
+            or fallback["next_steps"],
             "source": "model",
         }
-    except Exception as e:  # the slide still ships — as facts, and says so
+    except Exception as e:  # the deck still ships — as facts, and says so
         import logging
 
-        logging.getLogger(__name__).warning("deck summary failed: %s", e)
+        logging.getLogger(__name__).warning("deck narrative failed: %s", e)
         return fallback
 
 
@@ -1232,7 +1273,7 @@ class WatchBoardReportTool(_WatchToolBase):
             try:
                 from core.watch_deck import render_executive_deck
 
-                summary = await _summarize_for_deck(
+                summary = await _narrate_for_deck(
                     self._router, card=card, diff=diff, judged=judged, gaps=gaps
                 )
                 deck_written = render_executive_deck(
@@ -1340,7 +1381,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         judge = WatchBoardReportTool()
         judge._router = self._router
         judged = await judge._judge(diff) if diff else []
-        summary = await _summarize_for_deck(
+        summary = await _narrate_for_deck(
             self._router, card=card, diff=diff, judged=judged, gaps=gaps
         )
         try:
@@ -1665,6 +1706,7 @@ class WatchAnalyzeTool(_WatchToolBase):
     def __init__(self) -> None:
         super().__init__()
         self._router: Any = None
+        self._vault: Any = None  # for search-driven source expansion
         self._config: Any = None
         self._browser_manager: Any = None
 
@@ -1734,6 +1776,15 @@ class WatchAnalyzeTool(_WatchToolBase):
                     "description": (
                         "Also write the executive presentation (.pptx). Default "
                         "true — it is part of the pack. Set false to skip it."
+                    ),
+                },
+                "expand_sources": {
+                    "type": "boolean",
+                    "description": (
+                        "When the brand's own site leaves dimensions without "
+                        "evidence, search the web for third-party sources "
+                        "(reviews, help centers) and read those too. Default "
+                        "true; needs the search_sh_api_key vault entry."
                     ),
                 },
                 "company_id": {"type": "string"},
@@ -1894,6 +1945,7 @@ class WatchAnalyzeTool(_WatchToolBase):
         by_name = {d.name: d for d in dimensions}
         written = 0
         rejected_total = 0
+        site_covered: set[str] = set()
         page_reports: list[dict[str, Any]] = []
 
         for page in readable:
@@ -1909,6 +1961,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                 dim = by_name.get(str(c.get("dimension")))
                 if dim is None:
                     continue
+                site_covered.add(dim.dimension_id)
                 await wm.add_evidence(
                     company_id=cid,
                     subject_id=subj.subject_id,
@@ -1939,6 +1992,108 @@ class WatchAnalyzeTool(_WatchToolBase):
                     "rejected": len(rejected),
                 }
             )
+
+        # ── 2b. Expand sources where the brand's own site said nothing ──
+        # The site is the primary source; for dimensions it left silent, look
+        # where the facts actually live — reviews, help centers, app stores —
+        # found by search, fetched through the SAME verified session, held to
+        # the same verbatim-excerpt gate. A brand that hides its terms is not
+        # a brand we score blind; it is a brand we read about elsewhere.
+        expansion_report: dict[str, Any] = {}
+        if params.get("expand_sources", True):
+            covered = site_covered
+            evidenced = {
+                e.dimension_id
+                for e in await wm.list_evidence(cid, subject_id=subj.subject_id)
+            }
+            missing = [d.name for d in dimensions
+                       if d.dimension_id not in (covered | evidenced)]
+            api_key = None
+            if self._vault is not None:
+                try:
+                    api_key = self._vault.get("search_sh_api_key")
+                except Exception:
+                    api_key = None
+            if missing and not api_key:
+                expansion_report = {
+                    "attempted": False,
+                    "missing_dimensions": missing,
+                    "note": "no search_sh_api_key in vault — expansion skipped",
+                }
+            elif missing:
+                from core.watch_observe import (
+                    expansion_queries,
+                    fetch_page_best_effort,
+                    pick_expansion_urls,
+                    search_web,
+                )
+
+                fetched = {str(pr.get("url") or "") for pr in pages}
+                results: list[dict[str, str]] = []
+                queries = expansion_queries(subj.name, missing)
+                search_key = str(api_key)
+                for q in queries:
+                    results.extend(await search_web(q, api_key=search_key))
+                extra_urls = pick_expansion_urls(
+                    results, already_fetched=fetched, limit=4
+                )
+                exp_written = 0
+                exp_pages: list[dict[str, Any]] = []
+                for url in extra_urls:
+                    text, fetch_err, method = await fetch_page_best_effort(
+                        url,
+                        browser_manager=self._browser_manager,
+                        proxy_url=proxy_url,
+                    )
+                    if fetch_err or not text:
+                        exp_pages.append({"url": url, "error": fetch_err})
+                        continue
+                    claims = await extract_claims_multi(
+                        self._router,
+                        page_text=text,
+                        dimensions=[
+                            d for d in dim_specs if d["name"] in missing
+                        ],
+                    )
+                    verified, _rej = filter_verified_claims(claims, text)
+                    for c in verified:
+                        dim = by_name.get(str(c.get("dimension")))
+                        if dim is None:
+                            continue
+                        await wm.add_evidence(
+                            company_id=cid,
+                            subject_id=subj.subject_id,
+                            dimension_id=dim.dimension_id,
+                            subcriterion=str(c.get("subcriterion") or ""),
+                            claim=str(c.get("claim") or "")[:1000],
+                            value_text=str(c.get("value_text") or "")[:300],
+                            source_url=url,
+                            # Third-party pages: real provenance, lower
+                            # authority than the brand's own words.
+                            source_type="third_party",
+                            geo_state=geo_state,
+                            customer_state="logged_out",
+                            confidence="low",
+                            excerpt=str(c.get("excerpt") or "")[:1000],
+                            collector="agent",
+                            exit_ip=(
+                                str(browser_exit.get("ip") or "")
+                                if method == "browser"
+                                else http_exit_ip
+                            ),
+                        )
+                        exp_written += 1
+                    exp_pages.append(
+                        {"url": url, "method": method, "verified": len(verified)}
+                    )
+                written += exp_written
+                expansion_report = {
+                    "attempted": True,
+                    "missing_dimensions": missing,
+                    "queries": queries,
+                    "pages": exp_pages,
+                    "evidence_written": exp_written,
+                }
 
         # ── 3. Score what the evidence supports ──
         scored: list[dict[str, Any]] = []
@@ -2050,6 +2205,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                 "subject": subj.name,
                 "pages_read": len(readable),
                 "exit": exit_info or None,
+                "source_expansion": expansion_report or None,
                 "pages": page_reports,
                 "evidence_written": written,
                 "claims_rejected": rejected_total,

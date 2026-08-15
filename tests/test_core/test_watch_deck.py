@@ -34,13 +34,17 @@ class _DeckRouter:
 
     async def complete(self, *, messages: list[dict[str, str]], **_kw: Any) -> _Resp:
         system = messages[0]["content"]
-        self.calls.append("summary" if "executive-summary slide" in system else "judge")
-        if "executive-summary slide" in system:
+        is_narrative = "words for an executive competitor" in system
+        self.calls.append("summary" if is_narrative else "judge")
+        if is_narrative:
             return _Resp(
                 '{"headline": "We lead, but Rival One is closing on promos.", '
                 '"bullets": ["OurBrand ranks #1 at 75.0.", '
                 '"Rival One dropped a full point on Promos.", '
-                '"Two dimensions remain unobserved for Rival Two."]}'
+                '"Two dimensions remain unobserved for Rival Two."], '
+                '"titles": {"standings": "OurBrand leads a thin field"}, '
+                '"commentary": {"standings": "Amber is us – the lead is real but narrow."}, '
+                '"next_steps": ["Collect the unobserved brands"]}'
             )
         return _Resp(
             '{"items": [{"subject": "Rival One", "change": "Promos 5 -> 2", '
@@ -139,7 +143,7 @@ def _slides(path: str) -> list[dict[str, Any]]:
 
 def _slide(slides: list[dict[str, Any]], title_fragment: str) -> dict[str, Any]:
     for s in slides:
-        if title_fragment in s["text"]:
+        if title_fragment.casefold() in s["text"].casefold():
             return s
     raise AssertionError(f"no slide contains {title_fragment!r}")
 
@@ -180,7 +184,8 @@ class TestTheThreeRules:
         vals = list(standings["chart"].plots[0].series[0].values)
         assert 0.0 not in vals
         assert not any("Ghost" in c for c in standings["chart"].plots[0].categories)
-        assert "Not yet observed" in standings["text"] and "Ghost Brand" in standings["text"]
+        assert "not yet observed" in standings["text"].casefold()
+        assert "Ghost Brand" in standings["text"]
         # Heatmap: Rival Two's unscored cell is empty text, not "0".
         heat = _slide(slides, "Scores by dimension")
         tbl = heat["table"]
@@ -244,6 +249,8 @@ class TestFactAndJudgementAreLabelled:
         summary = _slide(slides, "Executive summary")
         assert "We lead, but Rival One is closing on promos." in summary["text"]
         assert "written by the model" in summary["text"]
+        standings = _slide(slides, "OurBrand leads a thin field")
+        assert "Amber is us – the lead is real but narrow." in standings["text"]
 
         implications = _slide(slides, "Implications and recommendations")
         tbl = implications["table"]
@@ -276,8 +283,8 @@ class TestVersusTheLeader:
         _res, slides = await _deck(wm, tmp_path)
         vs = _slide(slides, "Where we win, where we lose")
         # After the moves: us Promos 3 vs Rival One 2 → ahead; Trust 3 vs 4 → behind.
-        assert "Promos  (3 vs 2" in vs["text"]
-        assert "Trust  (3 vs 4" in vs["text"]
+        assert "Promos (3 vs 2" in vs["text"]
+        assert "Trust (3 vs 4" in vs["text"]
         assert "Rival One (#2)" in vs["text"]
 
     @pytest.mark.asyncio
@@ -335,13 +342,13 @@ class TestEvidenceSlide:
 
 class TestDeckShape:
     @pytest.mark.asyncio
-    async def test_ten_slides_all_within_bounds(self, wm, tmp_path) -> None:
+    async def test_twelve_slides_all_within_bounds(self, wm, tmp_path) -> None:
         from pptx import Presentation
 
         await _market(wm)
         res, _ = await _deck(wm, tmp_path, router=_DeckRouter())
         prs = Presentation(res.data["path"])
-        assert len(prs.slides) == 10
+        assert len(prs.slides) == 12
         W, H = prs.slide_width, prs.slide_height
         for sl in prs.slides:
             for sh in sl.shapes:
@@ -369,7 +376,7 @@ class TestDeckShape:
         titles = [s["text"] for s in slides if "Implications and recommendations" in s["text"]]
         assert len(titles) == 3  # 12 items, 5 per slide
         assert "(1/3)" in titles[0] and "(3/3)" in titles[2]
-        assert len(Presentation(res.data["path"]).slides) == 12
+        assert len(Presentation(res.data["path"]).slides) == 14
 
     @pytest.mark.asyncio
     async def test_extension_is_forced_to_pptx(self, wm, tmp_path) -> None:

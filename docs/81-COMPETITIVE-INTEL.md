@@ -187,6 +187,27 @@ The standalone deck does not snapshot. `watch_board_report` closes the cycle,
 and cuts the report and the deck from the same diff *before* the snapshot, so
 they describe one period.
 
+The deck is written in a fixed house style — dark title and closing bookends,
+white content slides, one accent rule, eyebrow labels, footers, en dashes —
+with a narrative layer the model writes from the factual record: an action
+title per slide (a sentence someone could disagree with, never a label),
+one-line commentary, an executive summary and next steps. Numbers are always
+computed, never generated, and the narrative prompt bans internal bookkeeping
+outright — no hashes, file paths, manifests or checkpoint talk reaches a
+slide; a scrubber in the renderer catches whatever slips through (a deck once
+shipped with a SHA-256 on it).
+
+**Source expansion.** A brand's site is the primary source, and for some
+brands it is nearly useless — a JS shell behind a bot wall that says nothing
+about payments or AMOE. When dimensions are left without evidence,
+`watch_analyze` searches the web for third-party sources (reviews, help
+centers), reads them through the **same verified exit**, and holds them to
+the same verbatim-excerpt gate. Third-party rows carry
+`source_type=third_party` and `confidence=low` — real provenance, lower
+authority than the brand's own words. Needs `search_sh_api_key` in the vault;
+absent, expansion is skipped and the result says so. `expand_sources=false`
+turns it off.
+
 ## Autonomous collection — and why you can trust it
 
 `watch_observe` fetches a brand's public pages and files what it finds. The

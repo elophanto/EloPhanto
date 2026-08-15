@@ -818,3 +818,104 @@ async def verify_browser_exit(
         _time.monotonic() + ttl, ok, {**parsed, "verified": ok},
     )
     return ok, {**parsed, "verified": ok}
+
+
+# ── source expansion: research beyond the brand's own site ───────────
+#
+# A brand's site is the primary source, and for some brands it is nearly
+# useless — a JS shell behind a bot wall, or a lobby that says nothing about
+# payments, AMOE or loyalty. The organ used to stop there, which left whole
+# brands at "not publicly observable" while reviews, help centers and app
+# stores carried the facts in plain text. Expansion finds those pages with
+# web search and reads them through the SAME verified exit, so the excerpt
+# guarantee and the geo stamp both survive: a claim still only exists if its
+# verbatim quote is on a page we actually fetched.
+
+_SEARCH_URL = "https://search.sh/api/search"
+
+
+async def search_web(
+    query: str,
+    *,
+    api_key: str,
+    max_results: int = 8,
+    timeout: float = 30.0,
+) -> list[dict[str, str]]:
+    """Plain web search → [{title, url, snippet}]. Empty on any failure."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                _SEARCH_URL,
+                json={"query": query[:500], "mode": "fast", "region": "us",
+                      "max_results": max_results},
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {api_key}"},
+            )
+        if resp.status_code != 200:
+            logger.warning("watch: search failed (%s): %s", resp.status_code,
+                           resp.text[:120])
+            return []
+        return [
+            {"title": str(s.get("title") or ""), "url": str(s.get("url") or ""),
+             "snippet": str(s.get("snippet") or "")}
+            for s in (resp.json().get("sources") or [])
+            if isinstance(s, dict) and str(s.get("url") or "").startswith("http")
+        ]
+    except Exception as e:
+        logger.warning("watch: search failed: %s", e)
+        return []
+
+
+def expansion_queries(brand: str, missing_dimensions: list[str],
+                      *, limit: int = 3) -> list[str]:
+    """A few targeted queries for what the brand's own site would not say."""
+    if not missing_dimensions:
+        return []
+    queries: list[str] = []
+    chunk = 3
+    for i in range(0, len(missing_dimensions), chunk):
+        group = " ".join(
+            w for d in missing_dimensions[i:i + chunk] for w in d.split()[:3]
+        )
+        queries.append(f'"{brand}" {group}'[:200])
+        if len(queries) >= limit:
+            break
+    return queries
+
+
+def pick_expansion_urls(
+    results: list[dict[str, str]],
+    *,
+    already_fetched: set[str],
+    limit: int = 4,
+) -> list[str]:
+    """Choose distinct, unread hosts from search results, best-first."""
+    from urllib.parse import urlparse
+
+    fetched_keys = set()
+    for u in already_fetched:
+        try:
+            pu = urlparse(u)
+            fetched_keys.add((pu.netloc.lower(), pu.path.rstrip("/")))
+        except Exception:
+            continue
+    seen_hosts: set[str] = set()
+    out: list[str] = []
+    for r in results:
+        url = r.get("url") or ""
+        try:
+            pu = urlparse(url)
+        except Exception:
+            continue
+        if pu.scheme not in ("http", "https"):
+            continue
+        key = (pu.netloc.lower(), pu.path.rstrip("/"))
+        if key in fetched_keys or pu.netloc.lower() in seen_hosts:
+            continue
+        seen_hosts.add(pu.netloc.lower())
+        out.append(url.split("#")[0])
+        if len(out) >= limit:
+            break
+    return out
