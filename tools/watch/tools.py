@@ -875,6 +875,104 @@ Return STRICT JSON: {"items":[{"subject":str,"change":str,"implication":str,
 "recommendation":str,"classification":str,"decision_required":str}]}"""
 
 
+_DECK_SUMMARY_SYSTEM = """You write the executive-summary slide of a competitor
+board pack. You are given FACTS only: current standings, our position, the
+material changes this period, the judged implications, and the evidence gaps.
+
+Return STRICT JSON: {"headline": str, "bullets": [str, ...]}
+
+- headline: one sentence, at most 18 words, the single thing the room must
+  take away. Lead with the so-what for US, not a description of the market.
+- bullets: 3 to 5, each at most 22 words, in priority order. Numbers only as
+  given. Name brands as given. Say what to do, or what to decide, where the
+  facts support it.
+
+Rules:
+- Use ONLY the facts given. Never invent a number, a move, a brand or a source.
+- If our brand is provisional or unscored, say so plainly; do not rank it.
+- If there is no material change, say so; do not manufacture urgency.
+- No filler, no preamble, no restating the method."""
+
+
+async def _summarize_for_deck(
+    router: Any,
+    *,
+    card: dict[str, Any],
+    diff: dict[str, Any] | None,
+    judged: list[dict[str, Any]],
+    gaps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The summary slide. Model-written from facts when a router exists;
+    otherwise the factual fallback — and the deck labels which it got."""
+    from core.watch_deck import factual_summary
+
+    fallback = factual_summary(card, diff, judged, gaps)
+    if router is None:
+        return fallback
+    import json as _json
+
+    rows = card.get("rows", [])
+    facts = {
+        "standings": [
+            {
+                "rank": r.get("rank"),
+                "brand": r["name"],
+                "is_us": bool(r.get("is_self")),
+                "overall_normalized_pct": r["overall"]["normalized_pct"],
+                "provisional": bool(r.get("provisional")),
+                "coverage_pct": r["overall"]["coverage_pct"],
+            }
+            for r in rows[:12]
+        ],
+        "material_changes": (
+            None
+            if diff is None
+            else {
+                "count": diff.get("material_count", 0),
+                "changed": [
+                    {"subject": c["subject"], "items": [i["detail"] for i in c["items"]]}
+                    for c in diff.get("changed", [])
+                ],
+                "added_subjects": diff.get("added_subjects", []),
+                "removed_subjects": diff.get("removed_subjects", []),
+            }
+        ),
+        "implications": judged,
+        "gaps": {
+            "never_observed": sum(1 for g in gaps if g.get("status") == "never_observed"),
+            "stale": sum(1 for g in gaps if g.get("status") == "stale"),
+        },
+    }
+    try:
+        resp = await router.complete(
+            messages=[
+                {"role": "system", "content": _DECK_SUMMARY_SYSTEM},
+                {"role": "user", "content": _json.dumps(facts, indent=1, default=str)},
+            ],
+            task_type="analysis",
+            temperature=0.2,
+            max_tokens=700,
+        )
+        text = (resp.content or "").strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            text = text[4:] if text.startswith("json") else text
+        data = _json.loads(text)
+        bullets = [str(b).strip() for b in data.get("bullets", []) if str(b).strip()]
+        if not bullets:
+            return fallback
+        return {
+            "headline": str(data.get("headline") or "").strip(),
+            "bullets": bullets[:5],
+            "source": "model",
+        }
+    except Exception as e:  # the slide still ships — as facts, and says so
+        import logging
+
+        logging.getLogger(__name__).warning("deck summary failed: %s", e)
+        return fallback
+
+
 class WatchBoardReportTool(_WatchToolBase):
     """Turn the month's material changes into implications and decisions."""
 
@@ -912,6 +1010,13 @@ class WatchBoardReportTool(_WatchToolBase):
                 "take_snapshot": {
                     "type": "boolean",
                     "description": "Snapshot the current state after reporting. Default true.",
+                },
+                "deck_path": {
+                    "type": "string",
+                    "description": (
+                        "Also write the executive deck (.pptx) here — the same "
+                        "facts and judgement as the report, as ~10 board slides."
+                    ),
                 },
                 "company_id": {"type": "string"},
             },
@@ -1102,20 +1207,161 @@ class WatchBoardReportTool(_WatchToolBase):
             p.write_text(report, encoding="utf-8")
             written = str(p)
 
+        # The deck is the same facts and the same judgement, before the
+        # snapshot below — so both deliverables describe one period.
+        deck_written = None
+        deck_error = None
+        if params.get("deck_path"):
+            try:
+                from core.watch_deck import render_executive_deck
+
+                summary = await _summarize_for_deck(
+                    self._router, card=card, diff=diff, judged=judged, gaps=gaps
+                )
+                deck_written = render_executive_deck(
+                    card,
+                    diff=diff,
+                    judged=judged,
+                    summary=summary,
+                    gaps=gaps,
+                    evidence_count=len(await wm.evidence_with_names(cid)),
+                    path=str(params["deck_path"]),
+                )
+            except Exception as e:
+                deck_error = str(e)
+
         snap_id = None
         if params.get("take_snapshot", True):
             snap_id = await wm.take_snapshot(cid, label="board report")
 
+        data: dict[str, Any] = {
+            "markdown": report,
+            "material_count": (diff or {}).get("material_count", 0),
+            "judged_items": len(judged),
+            "gaps_never_observed": len(never),
+            "gaps_stale": len(stale),
+            "path": written,
+            "snapshot_id": snap_id,
+        }
+        if params.get("deck_path"):
+            data["deck_path"] = deck_written
+            if deck_error:
+                data["deck_error"] = deck_error
+        return ToolResult(success=True, data=data)
+
+
+class WatchExecutiveDeckTool(_WatchToolBase):
+    """The board pack as slides: standings, our position, what moved, what to
+    do, what to decide, and how much of it is actually measured."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_executive_deck"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Produce the executive presentation (.pptx, ~10 slides) of the "
+            "competitor analysis: executive summary, standings chart, our brand "
+            "vs the leader, material changes, implications and recommendations, "
+            "decisions required, evidence coverage, and a scores-by-dimension "
+            "appendix. Same stored evidence as the workbook and board report — "
+            "use when asked for a presentation, deck, slides or board pack. "
+            "Does not snapshot; run watch_board_report to close the cycle."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Where to write the .pptx. Default ~/Desktop/competitor-deck.pptx",
+                },
+                "snapshot_id": {
+                    "type": "string",
+                    "description": "Compare against this snapshot. Default: most recent.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Deck title. Default 'Competitive Intelligence — Executive Briefing'.",
+                },
+                "market_label": {
+                    "type": "string",
+                    "description": "Subtitle on the cover, e.g. the market or client name.",
+                },
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        wm = self._watch_manager
+        from pathlib import Path
+
+        path = Path(str(params.get("path") or "~/Desktop/competitor-deck.pptx")).expanduser()
+        if path.suffix.lower() != ".pptx":
+            path = path.with_suffix(".pptx")
+
+        diff = await wm.diff_since_snapshot(cid, snapshot_id=params.get("snapshot_id"))
+        card = await wm.scorecard(cid)
+        gaps = await wm.staleness(cid)
+        evidence = await wm.evidence_with_names(cid)
+
+        # Reuse the report's judgement so both artefacts say the same thing.
+        judge = WatchBoardReportTool()
+        judge._router = self._router
+        judged = await judge._judge(diff) if diff else []
+        summary = await _summarize_for_deck(
+            self._router, card=card, diff=diff, judged=judged, gaps=gaps
+        )
+        try:
+            from core.watch_deck import render_executive_deck
+
+            written = render_executive_deck(
+                card,
+                diff=diff,
+                judged=judged,
+                summary=summary,
+                gaps=gaps,
+                evidence_count=len(evidence),
+                path=path,
+                title=str(params.get("title") or "Competitive Intelligence — Executive Briefing"),
+                market_label=str(params.get("market_label") or ""),
+            )
+        except Exception as e:
+            return ToolResult(success=False, error=f"deck export failed: {e}")
+
+        ranked = [r for r in card["rows"] if r.get("rank") is not None]
         return ToolResult(
             success=True,
             data={
-                "markdown": report,
+                "path": written,
+                "brands": len(card["rows"]),
+                "ranked": len(ranked),
                 "material_count": (diff or {}).get("material_count", 0),
                 "judged_items": len(judged),
-                "gaps_never_observed": len(never),
-                "gaps_stale": len(stale),
-                "path": written,
-                "snapshot_id": snap_id,
+                "summary_source": summary.get("source", "facts"),
+                "note": (
+                    "Summary and implications are model-written from the factual "
+                    "record and labelled as such on the slides; standings, scores "
+                    "and gaps are computed. Unscored dimensions are blank, never "
+                    "zero, and provisional brands are listed, not ranked."
+                    if summary.get("source") == "model"
+                    else "No model available: the summary slide is factual only "
+                    "and says so. Standings, scores and gaps are computed."
+                ),
             },
         )
 
@@ -1365,6 +1611,13 @@ class WatchAnalyzeTool(_WatchToolBase):
                     "type": "boolean",
                     "description": "Write the deliverables to disk. Default true.",
                 },
+                "deck": {
+                    "type": "boolean",
+                    "description": (
+                        "Also write the executive presentation (.pptx). Default "
+                        "false; turn on when asked for a deck, slides or a board pack."
+                    ),
+                },
                 "company_id": {"type": "string"},
             },
             "required": ["subject"],
@@ -1601,15 +1854,21 @@ class WatchAnalyzeTool(_WatchToolBase):
             report_tool = WatchBoardReportTool()
             report_tool._watch_manager = wm
             report_tool._router = self._router
-            rep = await report_tool.execute(
-                {
-                    "company_id": cid,
-                    "path": str(out_dir / f"competitor-report-{slug}.md"),
-                    "take_snapshot": True,
-                }
-            )
+            rep_params: dict[str, Any] = {
+                "company_id": cid,
+                "path": str(out_dir / f"competitor-report-{slug}.md"),
+                "take_snapshot": True,
+            }
+            if params.get("deck"):
+                rep_params["deck_path"] = str(out_dir / f"competitor-deck-{slug}.pptx")
+            rep = await report_tool.execute(rep_params)
             if rep.success:
                 saved["report"] = rep.data.get("path") or ""
+                if params.get("deck"):
+                    if rep.data.get("deck_path"):
+                        saved["deck"] = rep.data["deck_path"]
+                    if rep.data.get("deck_error"):
+                        saved["deck_error"] = rep.data["deck_error"]
 
         return ToolResult(
             success=True,
@@ -1749,6 +2008,7 @@ def create_watch_tools() -> list[BaseTool]:
         WatchSnapshotTool(),
         WatchDiffTool(),
         WatchBoardReportTool(),
+        WatchExecutiveDeckTool(),
         WatchObserveTool(),
         WatchQueueTool(),
         WatchAnalyzeTool(),

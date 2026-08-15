@@ -2596,6 +2596,7 @@ class Agent:
             "watch_snapshot",
             "watch_diff",
             "watch_board_report",
+            "watch_executive_deck",
             "watch_observe",
             "watch_queue",
             "watch_analyze",
