@@ -48,7 +48,9 @@ Key tools: `browser_navigate`, `browser_click`, `browser_click_text`,
 `browser_screenshot`, `browser_paste_html`, `browser_select_text`,
 `browser_eval`, `browser_get_elements`, `browser_full_audit`.
 
-`browser_eval`, `browser_inject` and `browser_close` are CRITICAL.
+`browser_eval` and `browser_inject` are CRITICAL — arbitrary code
+execution. `browser_close` is MODERATE, like `browser_close_tab`:
+reversible cleanup, not an irreversible act.
 
 ## Companies / ABE — `companies` (28)
 
@@ -544,11 +546,11 @@ See `docs/14-SELF-LEARNING.md` and `docs/48-LEARNING-ENGINE.md`.
 ## Permission spine
 
 Modes: `ask_always` → `smart_auto` → `full_auto` → `nuclear`
-(Open only; absent on Hosted). Under `full_auto`, **18 CRITICAL tools
+(Open only; absent on Hosted). Under `full_auto`, **17 CRITICAL tools
 always ask**: `crypto_transfer`, `crypto_swap`, `fiat_issue_card`,
 `wallet_export`, `vault_set`, `self_create_plugin`, `self_modify_source`,
 `self_rollback`, `company_trust_set`, `company_purge`, `browser_eval`,
-`browser_inject`, `browser_close`, `ambient_intervention_decide`,
+`browser_inject`, `ambient_intervention_decide`,
 `ambient_intervention_execute`, `personality_rule_confirm`,
 `video_generate`, `music_generate`.
 

@@ -189,6 +189,21 @@ Guidelines:
   old "research first" habit.
 - Keep each checkpoint achievable in 5-30 tool calls.
 - Avoid subjective criteria ("good quality") — use measurable ones ("3+ items found").
+
+NO PLUMBING CHECKPOINTS:
+Every checkpoint must advance the user's goal, not confirm the agent's own
+setup. Do NOT create checkpoints that verify network routing, proxy exits, IP
+geolocation, credentials, API keys, tool availability, disk space or logged-in
+state. Those are preconditions the tools enforce themselves, and a tool that
+cannot meet one FAILS AND SAYS SO — that is the check. Writing it out as a
+checkpoint adds a way to fail without adding a way to succeed: asked for a
+competitor analysis, a plan whose checkpoint 1 was "verify the proxy exits in
+state X" spent three hours reloading IP-geolocation pages while the config had
+already moved to a different state, and collected nothing (2026-08-15).
+
+If a precondition is genuinely uncertain, fold it into the first REAL
+checkpoint's success criteria ("evidence collected from state X" — which is
+only satisfiable if the routing worked), never as a checkpoint of its own.
 </goal_decomposition>"""
 
 _SUMMARIZE_SYSTEM = """\

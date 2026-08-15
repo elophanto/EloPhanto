@@ -77,11 +77,16 @@ class TestBrowserToolInterface:
             assert (
                 tool_map[name].permission_level == PermissionLevel.MODERATE
             ), f"{name} should be MODERATE"
-        # CRITICAL tools
-        for name in ["browser_eval", "browser_inject", "browser_close"]:
+        # CRITICAL is for irreversible acts — arbitrary JS and script
+        # injection qualify; closing a window does not. CRITICAL asks even
+        # under full_auto, so anything parked here stops an unattended run.
+        for name in ["browser_eval", "browser_inject"]:
             assert (
                 tool_map[name].permission_level == PermissionLevel.CRITICAL
             ), f"{name} should be CRITICAL"
+        assert (
+            tool_map["browser_close"].permission_level == PermissionLevel.MODERATE
+        ), "browser_close is reversible cleanup, like browser_close_tab"
 
     def test_key_tools_exist(self) -> None:
         tool_map = {t.name: t for t in create_browser_tools()}
@@ -193,3 +198,43 @@ class TestBridgeBrowserToolExecution:
             "browser_click_text",
             {"text": "Submit", "exact": True, "nth": 0},
         )
+
+
+class TestCriticalIsReservedForIrreversibleActs:
+    """CRITICAL asks even under full_auto, so it stops an unattended run.
+
+    Regression 2026-08-15: `browser_close` sat at CRITICAL. Under
+    `permission_mode: full_auto` the operator was not watching, the approval
+    timed out twice, and the goal went `awaiting_approval` mid-checkpoint:
+
+        15:35:32  Approval timeout (1st) for browser_close — re-pinging
+        15:38:02  Approval timed out for browser_close — pausing (not denying)
+        15:38:02  Checkpoint 1 of goal 67ec4304-7dd awaiting approval (browser_close)
+
+    Told it had blanket approval, the agent then recorded a preference, wrote
+    a lesson and minted an instinct to stop asking — papering over a wrong
+    constant with memory. The constant was the bug.
+    """
+
+    def test_only_code_execution_is_critical(self) -> None:
+        from tools.browser.tools import create_browser_tools
+
+        critical = {
+            t.name
+            for t in create_browser_tools()
+            if t.permission_level == PermissionLevel.CRITICAL
+        }
+        assert critical == {"browser_eval", "browser_inject"}, (
+            "CRITICAL means irreversible system change (docs/03-TOOLS.md) and "
+            "blocks unattended full_auto runs — only arbitrary code execution "
+            f"belongs there, got {sorted(critical)}"
+        )
+
+    def test_closing_the_browser_matches_closing_a_tab(self) -> None:
+        from tools.browser.tools import create_browser_tools
+
+        tool_map = {t.name: t for t in create_browser_tools()}
+        assert (
+            tool_map["browser_close"].permission_level
+            == tool_map["browser_close_tab"].permission_level
+        ), "shutting the window is not graver than closing a tab in it"

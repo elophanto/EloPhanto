@@ -1008,7 +1008,20 @@ _TOOL_DEFS: list[tuple[str, str, dict[str, Any], PermissionLevel]] = [
         "browser_close",
         "Close the browser completely.",
         {"type": "object", "properties": {}},
-        PermissionLevel.CRITICAL,
+        # CRITICAL means "irreversible system changes, core modification"
+        # (docs/03-TOOLS.md), and CRITICAL asks even under full_auto. Closing
+        # the browser is neither: the next navigate relaunches it, nothing
+        # leaves the machine, nothing is destroyed. Closing a single tab is
+        # already MODERATE, so shutting the window was somehow four times the
+        # gravity of closing a tab in it.
+        #
+        # The cost of the mislabel was not one prompt. Under full_auto an
+        # operator is not watching, so the ask timed out, the goal went
+        # awaiting_approval mid-checkpoint, and the agent — told it had blanket
+        # approval — recorded a preference, wrote a lesson and minted an
+        # instinct to stop asking. It was papering over a wrong constant with
+        # memory. Cleanup work belongs at MODERATE, beside browser_close_tab.
+        PermissionLevel.MODERATE,
     ),
 ]
 

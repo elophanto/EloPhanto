@@ -137,7 +137,10 @@ class TestToolInterface:
         assert tool_map["browser_get_elements"].permission_level == PermissionLevel.SAFE
         assert tool_map["browser_eval"].permission_level == PermissionLevel.CRITICAL
         assert tool_map["browser_inject"].permission_level == PermissionLevel.CRITICAL
-        assert tool_map["browser_close"].permission_level == PermissionLevel.CRITICAL
+        # Reversible cleanup — the next navigate relaunches it. CRITICAL here
+        # stalled unattended full_auto runs on an approval nobody was there to
+        # give (2026-08-15).
+        assert tool_map["browser_close"].permission_level == PermissionLevel.MODERATE
         assert tool_map["browser_list_tabs"].permission_level == PermissionLevel.SAFE
         assert (
             tool_map["browser_read_semantic"].permission_level == PermissionLevel.SAFE
