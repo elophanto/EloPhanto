@@ -554,7 +554,10 @@ class TestStorefrontExhibitsInAnalyze:
     ) -> None:
         res = await self._run(wm, monkeypatch, tmp_path, browser=None)
         assert res.success, res.error
-        assert res.data["screenshots"] is None
+        # A missing browser is a VISIBLE skip now, never a silent None —
+        # the silent skip is how a whole run shipped without exhibits.
+        assert res.data["screenshots"]["captured"] == 0
+        assert "no browser" in res.data["screenshots"]["note"]
         rows = await wm.list_evidence("c1")
         assert rows and all(r.screenshot_path == "" for r in rows)
 
@@ -703,3 +706,70 @@ class TestVaultReachesTheWatchOrgan:
 
         t = WatchAnalyzeTool()
         assert hasattr(t, "_vault") and t._vault is None
+
+
+class TestExhibitsAreNotAModelChoice:
+    """Regression 2026-08-15: `screenshots` spent one evening in the input
+    schema. The first goal-driven run under timeout pressure passed
+    screenshots=false to save time and shipped a pack with no exhibits.
+    Exhibits are collection, not an option the model weighs against the
+    clock — the kwarg stays for programmatic callers, the schema stays
+    silent."""
+
+    def test_schema_does_not_expose_screenshots(self) -> None:
+        from tools.watch.tools import WatchAnalyzeTool
+
+        assert "screenshots" not in WatchAnalyzeTool().input_schema["properties"]
+
+    @pytest.mark.asyncio
+    async def test_kwarg_still_works_for_programmatic_callers(
+        self, wm, monkeypatch, tmp_path
+    ) -> None:
+        from types import SimpleNamespace
+
+        from tools.watch.tools import WatchAnalyzeTool
+
+        await wm.upsert_dimension(
+            name="Game portfolio", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "range", "weight_pct": 100}],
+        )
+        await wm.add_subject(
+            name="McLuck", company_id="c1", url="https://www.mcluck.com"
+        )
+
+        async def fake_collect(start_url, **kw):
+            return [{
+                "url": start_url,
+                "text": "Play over 1,000 casino-style games at McLuck today " * 20,
+                "error": None, "method": "http",
+            }]
+
+        monkeypatch.setattr(wo, "collect_pages", fake_collect)
+
+        class R:
+            async def complete(self, **_kw: Any) -> _Resp:
+                return _Resp(
+                    '{"claims": [{"dimension": "Game portfolio", '
+                    '"subcriterion": "range", '
+                    '"claim": "McLuck offers over 1,000 games", '
+                    '"value_text": "1,000", '
+                    '"excerpt": "Play over 1,000 casino-style games at McLuck today"}]}'
+                )
+
+        bm = _CapturingBrowser()
+        t = WatchAnalyzeTool()
+        t._watch_manager = wm
+        t._router = R()
+        t._vault = _Vault(None)
+        t._browser_manager = bm
+        t._config = SimpleNamespace(
+            workspace=str(tmp_path / "ws"), project_root=tmp_path, proxy=None
+        )
+        res = await t.execute({
+            "subject": "McLuck", "company_id": "c1", "save": False,
+            "deck": False, "expand_sources": False, "screenshots": False,
+        })
+        assert res.success, res.error
+        assert res.data["screenshots"]["captured"] == 0
+        assert res.data["screenshots"]["note"] == "disabled by caller"
+        assert not any(c[0] == "browser_capture" for c in bm.calls)

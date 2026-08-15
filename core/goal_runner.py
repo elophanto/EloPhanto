@@ -250,6 +250,26 @@ class GoalRunner:
             {"goal_id": goal_id, "goal": goal.goal},
         )
 
+        # A checkpoint left 'active' by a dead run (hard cancellation,
+        # process kill) is stranded: get_next_checkpoint only looks at
+        # 'pending', so the loop would silently skip it forever — observed
+        # 2026-08-15, checkpoint 2 stranded active while 3-6 ran around it.
+        # This runner is the only executor, so any 'active' checkpoint at
+        # loop start is by definition abandoned. Re-pick it.
+        stranded = await self._gm._db.execute(
+            "SELECT checkpoint_order FROM goal_checkpoints WHERE goal_id = ? AND status = 'active'",
+            (goal_id,),
+        )
+        for row in stranded or []:
+            order = row["checkpoint_order"]
+            logger.warning(
+                "Goal %s: checkpoint %s was stranded active by a previous "
+                "run — resetting to pending",
+                goal_id,
+                order,
+            )
+            await self._reset_checkpoint_pending(goal_id, order, refund_attempt=True)
+
         try:
             while True:
                 # --- Pre-checkpoint safety checks ---
@@ -518,6 +538,29 @@ class GoalRunner:
                 self._agent._executor._approval_callback = prev_approval
                 self._agent._executor._on_tool_executed = prev_on_tool
 
+            # A preempted response is a YIELD, not a result. The loop gave
+            # the slot to a higher-priority task (operator chat, heartbeat)
+            # at a safe point; the checkpoint's work is partial by
+            # construction. Verifying receipts on the partial trail is how
+            # three checkpoints on 2026-08-15 got marked complete with the
+            # summary "Task stopped: preempted…" while most of their brands
+            # were never collected — the plan reviser then spent its
+            # revisions re-adding the missing work. Reset to pending,
+            # refund the attempt (an operator asking "is it working?" must
+            # not burn the checkpoint's three attempts), and let the loop
+            # re-pick it after the foreground drains.
+            if getattr(response, "preempted", False):
+                logger.info(
+                    "Checkpoint %d of goal %s preempted — resetting to pending (attempt refunded)",
+                    checkpoint.order,
+                    goal.goal_id,
+                )
+                await self._reset_checkpoint_pending(
+                    goal.goal_id, checkpoint.order, refund_attempt=True
+                )
+                await asyncio.sleep(2)  # let the preempting task take the slot
+                return False
+
             summary = (response.content or "")[:500]
             from core.checkpoint_receipt import verify_checkpoint_receipt
 
@@ -751,11 +794,19 @@ class GoalRunner:
         )
         logger.info("Goal %s → %s: %s", goal_id, status, reason)
 
-    async def _reset_checkpoint_pending(self, goal_id: str, order: int) -> None:
-        """Return an in-flight checkpoint to pending so resume retries it."""
+    async def _reset_checkpoint_pending(
+        self, goal_id: str, order: int, *, refund_attempt: bool = False
+    ) -> None:
+        """Return an in-flight checkpoint to pending so resume retries it.
+
+        ``refund_attempt`` un-counts the attempt that ``mark_checkpoint_active``
+        recorded — used when the checkpoint never got to run (preemption),
+        so external interruptions cannot exhaust ``max_checkpoint_attempts``.
+        """
         await self._gm._db.execute(
-            "UPDATE goal_checkpoints SET status = 'pending' "
-            "WHERE goal_id = ? AND checkpoint_order = ?",
+            "UPDATE goal_checkpoints SET status = 'pending'"
+            + (", attempts = MAX(attempts - 1, 0)" if refund_attempt else "")
+            + " WHERE goal_id = ? AND checkpoint_order = ?",
             (goal_id, order),
         )
 

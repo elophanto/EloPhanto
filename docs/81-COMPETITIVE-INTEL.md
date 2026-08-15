@@ -223,7 +223,12 @@ out-of-state storefront is a different product, not an exhibit. Files land in
 row extracted from a captured page carries the exhibit in `screenshot_path`
 (a column on the workbook's Evidence sheet), and the deck pulls exhibits from
 the register first, falling back to the workspace directory for brands whose
-shots never landed on a row. `screenshots=false` skips capture.
+shots never landed on a row. Capture is not a model-facing option — the one
+evening a `screenshots` flag sat in the input schema, the first goal-driven
+run under timeout pressure switched it off to save time and shipped a pack
+with no exhibits. Programmatic callers may still pass `screenshots=false`;
+the tool logs every outcome (`watch exhibits for <brand>: 3 captured` or the
+skip reason) so a missing exhibit is always explained in the run log.
 
 **Source expansion.** A brand's site is the primary source, and for some
 brands it is nearly useless — a JS shell behind a bot wall that says nothing

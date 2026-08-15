@@ -247,6 +247,19 @@ remainder. The cap keeps the other half of the bargain — a checkpoint that
 cannot finish in 4× base still exhausts `max_checkpoint_attempts` and pauses
 the goal instead of holding it forever.
 
+**Preemption is a yield, not a result.** Goal checkpoints run at the lowest
+priority; operator chat and heartbeats preempt them at safe points, and the
+response comes back marked `preempted`. The runner resets that checkpoint to
+pending with the attempt refunded and re-picks it once the foreground drains
+— it never verifies receipts on a preempted response's partial tool trail
+(three checkpoints once shipped as "complete" with the summary "Task
+stopped: preempted…"), and an operator asking "is it working?" can never
+burn a checkpoint's attempts. Checkpoints left stranded `active` by a dead
+run (hard cancellation, process kill) are reset to pending at loop start —
+the runner is the only executor, so an active checkpoint it isn't running
+is by definition abandoned, and skipping it silently is how one batch of
+brands vanished from a plan until the reviser re-added it.
+
 ## Goal Lifecycle
 
 ```

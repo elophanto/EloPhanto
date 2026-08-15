@@ -1904,14 +1904,6 @@ class WatchAnalyzeTool(_WatchToolBase):
                         "true; needs the search_sh_api_key vault entry."
                     ),
                 },
-                "screenshots": {
-                    "type": "boolean",
-                    "description": (
-                        "Also file clean storefront screenshots (homepage + up "
-                        "to 2 key pages) as visual evidence, captured only "
-                        "through a state-verified browser exit. Default true."
-                    ),
-                },
                 "company_id": {"type": "string"},
             },
             "required": ["subject"],
@@ -2074,6 +2066,16 @@ class WatchAnalyzeTool(_WatchToolBase):
         # different product, not an exhibit.
         shots: dict[str, str] = {}
         shots_note = ""
+        # ``screenshots`` is deliberately NOT in the input schema. It existed
+        # there for one evening — and the first goal-driven run under time
+        # pressure turned it off ("do only the remainder") and shipped a pack
+        # with no exhibits. Exhibits are part of collection, not an option
+        # the model weighs against the clock; the kwarg survives for
+        # programmatic callers and tests only.
+        if self._browser_manager is None:
+            shots_note = "skipped — no browser available"
+        elif not params.get("screenshots", True):
+            shots_note = "disabled by caller"
         if params.get("screenshots", True) and self._browser_manager is not None:
             targets: list[str] = []
             if subj.url:
@@ -2111,13 +2113,13 @@ class WatchAnalyzeTool(_WatchToolBase):
                             shots[u] = got
                     if not shots and not shots_note:
                         shots_note = "capture failed on every page"
-            import logging
+        import logging
 
-            logging.getLogger(__name__).info(
-                "watch exhibits for %s: %s",
-                subj.name,
-                shots_note or f"{len(shots)} captured",
-            )
+        logging.getLogger(__name__).info(
+            "watch exhibits for %s: %s",
+            subj.name,
+            shots_note or f"{len(shots)} captured",
+        )
 
         # ── 2. Extract + verify, one model call per page across all dimensions ──
         dim_specs = [

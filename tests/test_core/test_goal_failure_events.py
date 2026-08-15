@@ -212,3 +212,90 @@ class TestRevisionIsAnnounced:
         assert any(
             "revised 3 times" in p.get("reason", "") for p in gateway.of("goal_paused")
         )
+
+
+class TestPreemptionIsAYieldNotAResult:
+    """Regression 2026-08-15: three checkpoints were marked complete with the
+    summary 'Task stopped: preempted by higher-priority task…' — the runner
+    verified receipts on the partial tool trail of a preempted response and
+    stamped completion; a fourth checkpoint was hard-cancelled mid-run and
+    stranded 'active', which get_next_checkpoint silently skips forever. The
+    plan reviser then spent its limited revisions re-adding work preemption
+    had eaten. Preempted = reset to pending with the attempt refunded;
+    stranded active = re-picked at loop start."""
+
+    @pytest.mark.asyncio
+    async def test_preempted_response_never_completes_a_checkpoint(
+        self, runner, gm, router, mock_agent, gateway
+    ) -> None:
+        calls = {"n": 0}
+
+        async def _submit(*_a, **_kw):
+            calls["n"] += 1
+            cb = getattr(mock_agent._executor, "_on_tool_executed", None)
+            if callable(cb):
+                cb("watch_analyze", {"subject": "Pulsz"}, None)
+            if calls["n"] == 1:
+                # First slot request yields to a higher-priority task —
+                # with a partial-but-real tool trail, like the live run.
+                return type(
+                    "PreemptedResponse",
+                    (),
+                    {"content": "Task stopped: preempted", "preempted": True},
+                )()
+            return FakeAgentResponse(content="rows=4 receipts present")
+
+        mock_agent.submit_task = AsyncMock(side_effect=_submit)
+        router.complete = AsyncMock(
+            return_value=FakeLLMResponse(_checkpoints("evidence rows exist", n=1))
+        )
+        goal = await gm.create_goal("Collect brands")
+        await gm.decompose(goal)
+        router.complete = AsyncMock(return_value=FakeLLMResponse("Summary."))
+        await runner.start_goal(goal.goal_id)
+        await asyncio.wait_for(runner._current_task, timeout=20)
+
+        cps = await gm.get_checkpoints(goal.goal_id)
+        cp = cps[0]
+        # Completed only by the SECOND (real) execution — and the preempted
+        # attempt was refunded, so attempts records one real run.
+        assert cp.status == "completed"
+        assert calls["n"] == 2
+        assert cp.attempts == 1
+        assert "preempted" not in (cp.result_summary or "")
+
+    @pytest.mark.asyncio
+    async def test_stranded_active_checkpoint_is_repicked_on_start(
+        self, runner, gm, router, mock_agent
+    ) -> None:
+        router.complete = AsyncMock(
+            return_value=FakeLLMResponse(_checkpoints("done", n=2))
+        )
+        goal = await gm.create_goal("Two steps")
+        await gm.decompose(goal)
+        router.complete = AsyncMock(return_value=FakeLLMResponse("Summary."))
+        # Simulate a dead run: checkpoint 1 stranded active with an attempt.
+        await gm._db.execute(
+            "UPDATE goal_checkpoints SET status='active', attempts=1 "
+            "WHERE goal_id=? AND checkpoint_order=1",
+            (goal.goal_id,),
+        )
+        await runner.start_goal(goal.goal_id)
+        await asyncio.wait_for(runner._current_task, timeout=20)
+        cps = await gm.get_checkpoints(goal.goal_id)
+        assert [c.status for c in cps] == ["completed", "completed"]
+        # The stranded attempt was refunded before the re-run recorded its own.
+        assert cps[0].attempts == 1
+
+    @pytest.mark.asyncio
+    async def test_refund_never_goes_below_zero(self, runner, gm, router) -> None:
+        router.complete = AsyncMock(
+            return_value=FakeLLMResponse(_checkpoints("done", n=1))
+        )
+        goal = await gm.create_goal("One step")
+        await gm.decompose(goal)
+        await runner._reset_checkpoint_pending(
+            goal.goal_id, 1, refund_attempt=True
+        )
+        cps = await gm.get_checkpoints(goal.goal_id)
+        assert cps[0].attempts == 0
