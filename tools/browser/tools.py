@@ -390,6 +390,27 @@ _TOOL_DEFS: list[tuple[str, str, dict[str, Any], PermissionLevel]] = [
         PermissionLevel.SAFE,
     ),
     (
+        "browser_capture",
+        "Save a clean screenshot of the current page to a file path — no "
+        "element boxes, no labels, no vision analysis. For filing visual "
+        "evidence (e.g. competitor storefronts).",
+        {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute file path to write (saved as JPEG)",
+                },
+                "fullPage": {
+                    "type": "boolean",
+                    "description": "Capture the full scrollable page (default: viewport)",
+                },
+            },
+            "required": ["path"],
+        },
+        PermissionLevel.MODERATE,  # writes a file — same consequence class as file_write
+    ),
+    (
         "browser_screenshot",
         "Take a screenshot of the current page and analyze it. "
         "Returns a detailed description of what's visible. "

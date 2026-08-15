@@ -102,7 +102,7 @@ class TestToolInterface:
 
     def test_expected_tool_count(self, test_config: Config) -> None:
         tools = _make_tools(test_config)
-        assert len(tools) == 68  # 6 + 3 + 4 + 47 + 2 + 3 + 3
+        assert len(tools) == 69  # 6 + 3 + 4 + 48 + 2 + 3 + 3
 
     def test_expected_permission_levels(self, test_config: Config) -> None:
         tool_map = {t.name: t for t in _make_tools(test_config)}

@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**288 tools across 40 groups.** Every count below is the live
+**289 tools across 40 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -30,7 +30,7 @@ way. `tests/test_core/test_tool_profiles_coverage.py` now fails when any
 PROFILE-tier group is missing from `full`, so the next one is caught before
 it ships rather than by watching a live log.
 
-## Browser — `browser` (47)
+## Browser — `browser` (48)
 
 Real Chrome automation over a Node.js bridge, using the operator's own
 profile and logged-in sessions. Stealth mode strips Playwright
@@ -45,7 +45,8 @@ file operations.
 
 Key tools: `browser_navigate`, `browser_click`, `browser_click_text`,
 `browser_type`, `browser_extract`, `browser_read_semantic`,
-`browser_screenshot`, `browser_paste_html`, `browser_select_text`,
+`browser_screenshot`, `browser_capture` (clean screenshot to a file,
+no overlays — used for competitor storefront exhibits), `browser_paste_html`, `browser_select_text`,
 `browser_eval`, `browser_get_elements`, `browser_full_audit`.
 
 `browser_eval` and `browser_inject` are CRITICAL — arbitrary code

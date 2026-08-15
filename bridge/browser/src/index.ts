@@ -317,6 +317,23 @@ Use the element indices from the returned list to interact with elements via bro
     },
     {
       type: 'tool',
+      name: 'browser_capture',
+      description: `Save a clean screenshot of the current page to a file — no element boxes, no labels, no vision analysis. For filing visual evidence (e.g. competitor storefronts). Returns {success, path, bytes, url, title}.`,
+      schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Absolute file path to write (.jpg/.jpeg/.png; saved as JPEG)' },
+          fullPage: { type: 'boolean', description: 'Capture the full scrollable page (default: viewport only)' },
+        },
+        required: ['path'],
+      },
+      execute: async (params: unknown) => {
+        const { path: outPath, fullPage } = (params || {}) as { path?: string; fullPage?: boolean };
+        return this.captureToFile(outPath, fullPage);
+      },
+    },
+    {
+      type: 'tool',
       name: 'browser_wait',
       description: 'Wait for a specified time in milliseconds.',
       schema: {
@@ -1880,6 +1897,36 @@ HACK MODE: Use after conventional UI approaches have failed to solve the challen
       .replace(/^-|-$/g, '')
       .slice(0, maxLen);
     return s || 'page';
+  }
+
+  /**
+   * Clean screenshot straight to a caller-chosen file. Unlike screenshot()
+   * this never annotates the page and never calls the vision model — it is
+   * an exhibit, not an agent observation.
+   */
+  private async captureToFile(outPath?: string, fullPage?: boolean) {
+    if (!outPath || typeof outPath !== 'string') {
+      return { success: false, error: 'path required' };
+    }
+    try {
+      const browser = await this.ensureBrowser();
+      const shot = await browser.captureClean(!!fullPage);
+      const buf = Buffer.from(shot.imageBase64, 'base64');
+      await fs.mkdir(path.dirname(outPath), { recursive: true });
+      await fs.writeFile(outPath, buf);
+      return {
+        success: true,
+        path: outPath,
+        bytes: buf.length,
+        url: shot.url,
+        title: shot.title,
+      };
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
   }
 
   private async saveScreenshotToDisk(

@@ -1420,6 +1420,41 @@ export class AwareBrowserAgent {
   }
 
   /**
+   * Clean capture for evidence exhibits: the page exactly as a visitor sees
+   * it — no element highlights, no index labels, no vision pipeline, no
+   * resizing. Used by the competitive-intelligence organ to file storefront
+   * screenshots beside the claims they support.
+   */
+  async captureClean(fullPage = false): Promise<{
+    imageBase64: string;
+    imageType: 'image/jpeg';
+    url: string;
+    title: string;
+  }> {
+    const page = await this.getPage();
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 3000 });
+    } catch {
+      // Long-polling/streaming pages never go idle — capture anyway.
+    }
+    const buffer = await page.screenshot({
+      type: 'jpeg',
+      quality: 85,
+      fullPage,
+    });
+    const [url, title] = await Promise.all([
+      Promise.resolve(page.url()).catch(() => ''),
+      page.title().catch(() => ''),
+    ]);
+    return {
+      imageBase64: buffer.toString('base64'),
+      imageType: 'image/jpeg',
+      url,
+      title,
+    };
+  }
+
+  /**
    * Take a screenshot and resize proportionally for faster vision API processing
    * @param highlightElements - If true, adds visual index labels to interactive elements
    */
