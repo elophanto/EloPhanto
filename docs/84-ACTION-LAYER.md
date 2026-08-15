@@ -147,6 +147,34 @@ The executor only honours a genuine `PermissionLevel` from that hook. Anything
 else — a bug, a mock, a stale string — logs a warning and keeps the static tier,
 so a classification defect cannot open a gate.
 
+## A 200 with no answer is a failed call
+
+When the response is an OpenAI-shaped chat completion whose content is empty,
+`http_request` returns `success=False` and puts the reason and the fix in the
+error. The body is still in `data`, so nothing is lost.
+
+This exists because "the request worked" and "you got an answer" are different
+questions, and only the first one has an HTTP status. Asked to prompt an
+endpoint for an SVG (2026-08-15), the agent sent a correct request and got a
+clean 200 containing 24,164 characters of reasoning, `content: null` and
+`finish_reason: "length"` — the model had spent its whole 8,192-token budget
+thinking and never started the answer. The agent reported "it did not return
+actual SVG code" and stopped: honest, and useless. The response said exactly
+what went wrong and exactly what to change, and none of it reached the agent
+as something it had to act on.
+
+The diagnosis distinguishes the causes, because the fixes differ:
+
+| Response | Diagnosis | Fix offered |
+|---|---|---|
+| `finish_reason: length` + reasoning present | budget spent on reasoning | raise `max_tokens` 2-4x, or lower `reasoning_effort` |
+| `finish_reason: length`, no reasoning | cut off before any content | raise `max_tokens` |
+| `content_filter` / `refusal` | endpoint declined | rephrase, or report the refusal |
+| empty content, reasoning present | answer missing, thinking present | retry; then inspect `message` keys for a non-standard field |
+
+A short-but-present answer is never flagged — truncation is the caller's
+judgement to make, not the tool's.
+
 ## Configuration
 
 ```yaml

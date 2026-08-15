@@ -408,7 +408,113 @@ class HttpRequestTool(BaseTool):
                 data=data,
                 error=f"HTTP {status} from {urlparse(final_url).hostname}",
             )
+
+        # A 200 carrying an empty completion is a failed call from the
+        # caller's point of view — they asked the model for something and got
+        # nothing. Fail it so the agent has to deal with the result instead of
+        # passing an absence along as an answer; the body stays in `data`.
+        completion = self._completion_diagnosis(parsed_json)
+        if completion is not None:
+            data["completion"] = completion
+            return ToolResult(
+                success=False,
+                data=data,
+                error=(
+                    f"The endpoint returned no answer: {completion['diagnosis']}. "
+                    f"{completion['suggested_fix']}"
+                ),
+            )
         return ToolResult(success=True, data=data)
+
+    @staticmethod
+    def _completion_diagnosis(payload: Any) -> dict[str, Any] | None:
+        """Spot an OpenAI-shaped chat completion that carries no answer.
+
+        A reasoning model can spend its whole ``max_tokens`` budget thinking
+        and return ``content: null`` with ``finish_reason: "length"``. The
+        HTTP call is a clean 200 and the JSON is well-formed, so nothing
+        upstream is wrong — but the caller asked for an answer and there
+        isn't one.
+
+        Observed 2026-08-15: asked to prompt an endpoint for an SVG, the
+        agent got 24,164 characters of reasoning, ``content: null``,
+        ``completion_tokens 8192/8192``, and correctly reported that no SVG
+        came back — then stopped. Reporting an empty answer as an empty
+        answer is honest but useless; the budget was the problem and the
+        response says so. Returning the diagnosis (and what to change) is
+        what turns "it returned nothing" into a next step.
+
+        Returns None for any response that is not this shape.
+        """
+        if not isinstance(payload, dict):
+            return None
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return None
+        first = choices[0]
+        if not isinstance(first, dict):
+            return None
+        message = first.get("message")
+        if not isinstance(message, dict):
+            # Legacy completions carry a bare "text" field.
+            text = first.get("text")
+            if not isinstance(text, str):
+                return None
+            message = {"content": text}
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return None  # there is an answer; nothing to diagnose
+        if content is not None and not isinstance(content, str):
+            return None
+
+        finish = str(first.get("finish_reason") or "")
+        reasoning = message.get("reasoning")
+        reasoning_chars = len(reasoning) if isinstance(reasoning, str) else 0
+        usage = payload.get("usage")
+        completion_tokens = (
+            usage.get("completion_tokens") if isinstance(usage, dict) else None
+        )
+
+        if finish == "length":
+            if reasoning_chars:
+                why = (
+                    f"the model spent its entire token budget on internal "
+                    f"reasoning ({reasoning_chars:,} characters) and never "
+                    f"emitted an answer"
+                )
+                fix = (
+                    "Retry with a materially larger `max_tokens` (2-4x), or "
+                    "ask the endpoint for less reasoning if it honours a "
+                    "`reasoning_effort` / `thinking` parameter. Note that some "
+                    "endpoints accept `reasoning_effort` and ignore it."
+                )
+            else:
+                why = "the response was cut off by the token limit before any content"
+                fix = "Retry with a larger `max_tokens`."
+        elif finish in ("content_filter", "refusal") or message.get("refusal"):
+            why = f"the endpoint declined to answer (finish_reason={finish!r})"
+            fix = "Rephrase the prompt, or report the refusal to the operator."
+        elif reasoning_chars:
+            why = (
+                f"the model returned {reasoning_chars:,} characters of reasoning "
+                f"but no answer content"
+            )
+            fix = (
+                "Retry once. If it recurs, the endpoint may put the answer in a "
+                "non-standard field — inspect `json.choices[0].message` keys."
+            )
+        else:
+            why = "the endpoint returned an empty completion"
+            fix = "Retry once, then report the empty response to the operator."
+
+        return {
+            "empty_content": True,
+            "finish_reason": finish or None,
+            "reasoning_chars": reasoning_chars or None,
+            "completion_tokens": completion_tokens,
+            "diagnosis": why,
+            "suggested_fix": fix,
+        }
 
     # ── helpers ─────────────────────────────────────────────────────
 
