@@ -119,3 +119,13 @@ class TestRevisionsObeyTheSameRules:
         from core.goal_manager import _REVISE_SYSTEM
 
         assert "paying-party signal" in _REVISE_SYSTEM
+
+
+def test_plan_rules_declare_the_register_canon() -> None:
+    """Regression 2026-08-15: an executor 'completing the canon' added two
+    brands to the customer's register mid-goal. The register is a
+    deliverable; plans must not grow it unbidden."""
+    from core.goal_manager import _PLAN_RULES
+
+    assert "THE REGISTER IS CANON" in _PLAN_RULES
+    assert "Never add a new brand mid-goal" in _PLAN_RULES

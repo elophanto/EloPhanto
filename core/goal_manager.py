@@ -163,6 +163,11 @@ Competitive intelligence (competitors, brands, market monitoring, scorecards):
 - collection: one `watch_analyze subject=<brand> save=false` per brand — it
   reads the live site, verifies any geo exit, files verbatim-verified evidence
   and scores the dimensions it can. Batch a few brands per checkpoint.
+- THE REGISTER IS CANON: analyze the subjects that exist in the register and
+  ONLY those. Never add a new brand mid-goal unless the goal text names it
+  explicitly — the register is a customer deliverable, and a plan that quietly
+  grows it changes every ranking in the pack (observed 2026-08-15: an executor
+  "completing the canon" added two brands the customer never asked to track).
 - deliverables: ONE final checkpoint calling `watch_scorecard format=xlsx
   path=…` and `watch_board_report path=…` (the deck is written beside the
   report). These consolidate all brands; never one deliverable per brand.
