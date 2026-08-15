@@ -1959,6 +1959,25 @@ class WatchAnalyzeTool(_WatchToolBase):
                         f"one of: {known[:14]}"
                     ),
                 )
+            # Auto-add is an OPERATOR convenience. In autonomous contexts
+            # (goal, mind, scheduled) the register is read-only canon: it is
+            # a customer deliverable, and a plan that quietly grows it
+            # changes every ranking in the pack. 2026-08-15: a goal executor
+            # "completing the canon" invented two brands the customer never
+            # asked to track. Prompt rules discourage it; this refuses it.
+            from core.execution_context import current_context
+
+            if not current_context().is_user_input:
+                known = [s.name for s in await wm.list_subjects(cid)]
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"{name!r} is not in the register, and autonomous "
+                        "runs may not add brands — the register is canon. "
+                        f"Analyze one of: {known[:14]}. Only the operator "
+                        "adds brands (watch_subject)."
+                    ),
+                )
             subj = await wm.add_subject(name=name, company_id=cid, url=url)
 
         dimensions = await wm.list_dimensions(cid)

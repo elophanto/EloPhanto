@@ -773,3 +773,62 @@ class TestExhibitsAreNotAModelChoice:
         assert res.data["screenshots"]["captured"] == 0
         assert res.data["screenshots"]["note"] == "disabled by caller"
         assert not any(c[0] == "browser_capture" for c in bm.calls)
+
+
+class TestAutonomousRunsCannotGrowTheRegister:
+    """Regression 2026-08-15: a goal executor 'completing the canon' added
+    Fortune Coins and Global Poker to the customer's 14-brand register.
+    Auto-add on url= is an operator convenience; in goal/mind/scheduled
+    contexts the register is read-only canon and the tool refuses."""
+
+    @pytest.mark.asyncio
+    async def test_goal_context_cannot_add_a_brand(self, wm) -> None:
+        from types import SimpleNamespace
+
+        from core.execution_context import TaskSource, execution_context
+        from tools.watch.tools import WatchAnalyzeTool
+
+        t = WatchAnalyzeTool()
+        t._watch_manager = wm
+        t._router = SimpleNamespace()  # never reached
+        with execution_context(source=TaskSource.GOAL):
+            res = await t.execute({
+                "subject": "Invented Casino", "company_id": "c1",
+                "url": "https://invented.example",
+            })
+        assert not res.success
+        assert "register is canon" in res.error
+        assert await wm.get_subject_by_name("Invented Casino", "c1") is None
+
+    @pytest.mark.asyncio
+    async def test_operator_context_still_adds(self, wm, monkeypatch) -> None:
+        from types import SimpleNamespace
+
+        from tools.watch.tools import WatchAnalyzeTool
+
+        async def fake_collect(start_url, **kw):
+            return [{"url": start_url, "text": "words " * 100,
+                     "error": None, "method": "http"}]
+
+        monkeypatch.setattr(wo, "collect_pages", fake_collect)
+        await wm.upsert_dimension(
+            name="Promos", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "a", "weight_pct": 100}],
+        )
+
+        class R:
+            async def complete(self, **_kw: Any) -> _Resp:
+                return _Resp('{"claims": []}')
+
+        t = WatchAnalyzeTool()
+        t._watch_manager = wm
+        t._router = R()
+        t._vault = _Vault(None)
+        t._config = None
+        # Default context is USER — the operator convenience keeps working.
+        res = await t.execute({
+            "subject": "New Brand", "company_id": "c1",
+            "url": "https://new.example", "save": False, "deck": False,
+            "expand_sources": False,
+        })
+        assert await wm.get_subject_by_name("New Brand", "c1") is not None
