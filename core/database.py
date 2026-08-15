@@ -369,6 +369,10 @@ _SCHEMA = [
         screenshot_path TEXT NOT NULL DEFAULT '',
         collector TEXT NOT NULL DEFAULT 'agent'
             CHECK (collector IN ('agent','human')),
+        -- The verified network exit that fetched the source page. Set only
+        -- when the exit's geolocation was checked against geo_state at
+        -- collection time; '' for operator-entered or stateless rows.
+        exit_ip TEXT NOT NULL DEFAULT '',
         superseded_by TEXT,
         created_at TEXT NOT NULL
     )
@@ -1123,6 +1127,9 @@ _SCHEMA = [
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError
 # ("duplicate column name") if the column already exists, which we catch.
 _MIGRATIONS = [
+    # Watch: geo_state became a *verified* provenance claim; the exit IP that
+    # passed verification is recorded beside it (see core/watch_observe.py).
+    "ALTER TABLE watch_evidence ADD COLUMN exit_ip TEXT NOT NULL DEFAULT ''",
     # Gap 5: Provider transparency columns on llm_usage
     "ALTER TABLE llm_usage ADD COLUMN finish_reason TEXT DEFAULT 'unknown'",
     "ALTER TABLE llm_usage ADD COLUMN latency_ms INTEGER DEFAULT 0",

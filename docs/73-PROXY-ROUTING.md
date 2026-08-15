@@ -47,13 +47,15 @@ proxy:
 ```
 
 `state` matters only if you use the competitive-intel organ's per-state
-observation (`watch_observe geo_state=NV`). Evidence stamped with a state is a
+observation (`watch_observe geo_state=FL`). Evidence stamped with a state is a
 provenance claim — "this is what a Nevada customer sees" — so the organ will
 only route a specific-state request through an exit that *declares* that
 state: a `proxy.pool` entry, or this single proxy with `state` set. With an
-IPRoyal residential password ending `_state-nevada`, set `state: NV`. If
-neither declares it, `watch_observe geo_state=NV` **refuses** rather than
-fetch from wherever this box sits and stamp it Nevada. See
+IPRoyal residential password ending `_state-florida`, set `state: FL`. If
+neither declares it, `watch_observe geo_state=FL` **refuses** rather than
+fetch from wherever this box sits and stamp it Florida. Declaring it is not
+the end of it: the organ then pins the exit to one address and geolocates it
+before stamping anything, because targeting is best-effort. See
 [81-COMPETITIVE-INTEL.md](81-COMPETITIVE-INTEL.md#per-state-observation).
 
 **Only Chrome is proxied.** A `curl` from the shell, `http_request`,
@@ -134,6 +136,8 @@ If you're posting media-heavy threads or doing video-streaming via browser, band
 | Shell `curl ifconfig.me` shows the host IP with the proxy on | Expected — only Chrome routes; shell, `http_request`, `web_search` and API calls are direct | Verify with the agent's browser or `elophanto doctor`, not curl. |
 | Rotating residential IP changes every request; logins get flagged | Residential pay-as-you-go rotates per request unless a session is pinned | IPRoyal: append `_session-<8 chars>_lifetime-30m` (or `1h`, `24h`) to the password. |
 | `watch_observe geo_state=NV` refuses with "No network exit for geo_state" | Nothing declares a Nevada exit | Set `proxy.state: NV` if the single proxy is pinned there, or add a `proxy.pool` entry for NV. Don't just drop `geo_state` — that removes the state claim from the evidence. |
+| `watch_observe` refuses with "Exit verification failed … landed in VA" | State targeting is best-effort; the provider routed you elsewhere | Retry — each attempt re-rolls the exit. Some states are reliable (Florida, Pennsylvania sampled clean), Texas missed ~half the time. |
+| Sweepstakes-casino sites geo-block you *with* a working state proxy | That state may be one the operator does not serve — NV, WA, MI, ID, MT are common exclusions for sweeps | Observe from a state the brands actually serve. The block page itself is legitimate evidence of state availability. |
 | IPRoyal account gone after a lapse | Unrenewed accounts are deleted, not paused — and the credentials in config die with them | Prepay more than one cycle or set a reminder for day 28; keep the account email somewhere you'll find it. |
 
 ## Threat model

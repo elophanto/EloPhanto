@@ -128,6 +128,9 @@ class WatchEvidence:
     excerpt: str = ""
     screenshot_path: str = ""
     collector: str = "agent"
+    # The verified network exit the page was fetched through — the proof
+    # behind geo_state. "" means no state was claimed (or a human entered it).
+    exit_ip: str = ""
     superseded_by: str | None = None
     created_at: str = ""
 
@@ -697,6 +700,7 @@ class WatchManager:
         excerpt: str = "",
         screenshot_path: str = "",
         collector: str = "agent",
+        exit_ip: str = "",
         supersedes: str | None = None,
     ) -> WatchEvidence:
         """Record one observed fact. Never mutates prior evidence.
@@ -731,15 +735,16 @@ class WatchManager:
             excerpt=excerpt,
             screenshot_path=screenshot_path,
             collector=collector,
+            exit_ip=exit_ip,
             created_at=now,
         )
         await self._db.execute_insert(
             "INSERT INTO watch_evidence (evidence_id, company_id, subject_id, "
             "dimension_id, subcriterion, claim, value_text, value_num, source_url, "
             "source_type, geo_state, customer_state, journey_stage, observed_at, "
-            "confidence, excerpt, screenshot_path, collector, superseded_by, "
-            "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-            "?, ?, NULL, ?)",
+            "confidence, excerpt, screenshot_path, collector, exit_ip, "
+            "superseded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
             (
                 ev.evidence_id,
                 company_id,
@@ -759,6 +764,7 @@ class WatchManager:
                 excerpt,
                 screenshot_path,
                 collector,
+                exit_ip,
                 now,
             ),
         )
@@ -813,6 +819,7 @@ class WatchManager:
             excerpt=_row_get(r, "excerpt", "") or "",
             screenshot_path=_row_get(r, "screenshot_path", "") or "",
             collector=_row_get(r, "collector", "agent") or "agent",
+            exit_ip=_row_get(r, "exit_ip", "") or "",
             superseded_by=_row_get(r, "superseded_by"),
             created_at=_row_get(r, "created_at", "") or "",
         )
@@ -966,6 +973,7 @@ class WatchManager:
                 "confidence": e.confidence,
                 "collector": e.collector,
                 "excerpt": e.excerpt,
+                "exit_ip": e.exit_ip,
             }
             for e in rows
         ]

@@ -223,7 +223,9 @@ Market model as tracked brands × weighted dimensions on an append-only
 evidence register with full provenance. Scores are **refused without
 evidence** — a missing datapoint renders as a coverage gap, never a low
 score — and every claim's quote is verified against the live page
-before it is saved.
+before it is saved. Per-state observation proves its exit: the network
+address is pinned and geolocated before any evidence is stamped with a
+state, and recorded on the row as `exit_ip`.
 
 `watch_subject`, `watch_dimension`, `watch_evidence`, `watch_observe`,
 `watch_analyze`, `watch_score`, `watch_scorecard`, `watch_snapshot`,

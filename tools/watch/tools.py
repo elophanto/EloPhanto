@@ -1383,6 +1383,40 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         )
 
 
+def _exit_not_verified(geo_state: str, detail: dict[str, Any]) -> ToolResult:
+    """Refuse when the exit cannot be *proven* to be in the claimed state.
+
+    Two distinct failures share this gate: the provider routed the request
+    somewhere else (targeting is best-effort — observed `_state-texas`
+    exiting in Virginia), or the geolocation echoes were unreachable so
+    nothing could be proven either way. Both end the same: no proof, no
+    stamp. "Could not verify" must never soften into "verified".
+    """
+    landed = [
+        f"{g.get('state_code')} ({g.get('ip')})"
+        for g in detail.get("landed", [])
+        if isinstance(g, dict) and g.get("state_code")
+    ]
+    unreachable = any(
+        isinstance(g, dict) and g.get("error") for g in detail.get("landed", [])
+    )
+    if landed:
+        why = f"the exit landed in {', '.join(landed)} instead"
+    elif unreachable:
+        why = "the geolocation services could not be reached, so nothing was proven"
+    else:
+        why = "the exit could not be verified"
+    return ToolResult(
+        success=False,
+        error=(
+            f"Exit verification failed for geo_state={geo_state}: {why}. "
+            "State targeting is best-effort at the provider, so retrying may "
+            "land correctly (each attempt re-rolls the exit). Evidence is only "
+            "stamped with a state its exit provably came from."
+        ),
+    )
+
+
 def _no_exit_for_state(geo_state: str) -> ToolResult:
     """Refuse rather than collect from the wrong place and stamp it right.
 
@@ -1506,12 +1540,28 @@ class WatchObserveTool(_WatchToolBase):
         if geo_state != "n/a" and not proxy_url:
             return _no_exit_for_state(geo_state)
 
+        # A state stamp is proven, not assumed: pin one exit and check its
+        # geolocation before anything is fetched, then fetch through the
+        # pinned session so the proof binds the pages it covers.
+        exit_info: dict[str, Any] = {}
+        if geo_state != "n/a" and proxy_url:
+            from core.watch_observe import verify_exit_state
+
+            ok, proxy_url, exit_info = await verify_exit_state(proxy_url, geo_state)
+            if not ok:
+                return _exit_not_verified(geo_state, exit_info)
+        http_exit_ip = str(exit_info.get("ip") or "")
+
         subcriteria = [str(s.get("name", "")) for s in dim.subcriteria if s.get("name")]
         max_claims = int(params.get("max_claims") or 8)
 
         written = 0
         rejected_total = 0
         page_reports: list[dict[str, Any]] = []
+        # Browser-escalated pages exit through Chrome's own credentials, not
+        # the verified session — a different address. Checked once, lazily,
+        # the first time a page actually escalates; None = not yet checked.
+        browser_exit: dict[str, Any] | None = None
 
         for url in urls[:5]:
             text, fetch_err, method = await fetch_page_best_effort(
@@ -1522,6 +1572,30 @@ class WatchObserveTool(_WatchToolBase):
                     {"url": url, "error": fetch_err or "no readable text"}
                 )
                 continue
+            page_exit_ip = http_exit_ip
+            if geo_state != "n/a" and method == "browser":
+                if browser_exit is None:
+                    from core.watch_observe import verify_browser_exit
+
+                    b_ok, b_detail = await verify_browser_exit(
+                        self._browser_manager, geo_state
+                    )
+                    browser_exit = {"ok": b_ok, **b_detail}
+                if not browser_exit.get("ok"):
+                    page_reports.append(
+                        {
+                            "url": url,
+                            "method": method,
+                            "error": (
+                                f"page needed the browser, but Chrome's exit is "
+                                f"not verified in {geo_state} "
+                                f"({browser_exit.get('state_code') or browser_exit.get('error', 'unknown')}) "
+                                "— page skipped so the state stamp stays true"
+                            ),
+                        }
+                    )
+                    continue
+                page_exit_ip = str(browser_exit.get("ip") or "")
             claims = await extract_claims(
                 self._router,
                 page_text=text,
@@ -1550,6 +1624,7 @@ class WatchObserveTool(_WatchToolBase):
                     confidence="medium",
                     excerpt=str(c.get("excerpt") or "")[:1000],
                     collector="agent",
+                    exit_ip=page_exit_ip,
                 )
                 written += 1
             page_reports.append(
@@ -1571,6 +1646,7 @@ class WatchObserveTool(_WatchToolBase):
                 "dimension": dim.name,
                 "geo_state": geo_state,
                 "proxied": bool(proxy_url),
+                "exit": exit_info or None,
                 "evidence_written": written,
                 "claims_rejected": rejected_total,
                 "pages": page_reports,
@@ -1723,6 +1799,17 @@ class WatchAnalyzeTool(_WatchToolBase):
         if geo_state != "n/a" and not proxy_url:
             return _no_exit_for_state(geo_state)
 
+        # Prove the exit before reading anything; fetch through the session
+        # that passed. See watch_observe — same rule, same reasons.
+        exit_info: dict[str, Any] = {}
+        if geo_state != "n/a" and proxy_url:
+            from core.watch_observe import verify_exit_state
+
+            ok, proxy_url, exit_info = await verify_exit_state(proxy_url, geo_state)
+            if not ok:
+                return _exit_not_verified(geo_state, exit_info)
+        http_exit_ip = str(exit_info.get("ip") or "")
+
         # ── 1. Read the site ──
         explicit = [str(u) for u in (params.get("urls") or []) if str(u).strip()]
         max_pages = int(params.get("max_pages") or 4)
@@ -1746,6 +1833,42 @@ class WatchAnalyzeTool(_WatchToolBase):
                 proxy_url=proxy_url,
                 max_pages=max_pages,
             )
+
+        # Browser-escalated pages exit through Chrome's credentials, not the
+        # verified session. One check covers them all; failing it drops those
+        # pages from a state-stamped run rather than stamping them falsely.
+        browser_exit: dict[str, Any] = {}
+        if geo_state != "n/a" and any(
+            str(p.get("method") or "").startswith("browser") for p in pages
+        ):
+            from core.watch_observe import verify_browser_exit
+
+            b_ok, b_detail = await verify_browser_exit(
+                self._browser_manager, geo_state
+            )
+            browser_exit = {"ok": b_ok, **b_detail}
+            if not b_ok:
+                dropped = [
+                    p for p in pages
+                    if str(p.get("method") or "").startswith("browser")
+                ]
+                pages = [
+                    p for p in pages
+                    if not str(p.get("method") or "").startswith("browser")
+                ]
+                for p_ in dropped:
+                    pages.append(
+                        {
+                            "url": p_.get("url"),
+                            "text": "",
+                            "method": p_.get("method"),
+                            "error": (
+                                f"browser exit not verified in {geo_state} "
+                                f"({b_detail.get('state_code') or b_detail.get('error', 'unknown')}) "
+                                "— page dropped so the state stamp stays true"
+                            ),
+                        }
+                    )
 
         readable = [p for p in pages if p.get("text")]
         if not readable:
@@ -1800,6 +1923,11 @@ class WatchAnalyzeTool(_WatchToolBase):
                     confidence="medium",
                     excerpt=str(c.get("excerpt") or "")[:1000],
                     collector="agent",
+                    exit_ip=(
+                        str(browser_exit.get("ip") or "")
+                        if str(page.get("method") or "").startswith("browser")
+                        else http_exit_ip
+                    ),
                 )
                 written += 1
             page_reports.append(
@@ -1921,6 +2049,7 @@ class WatchAnalyzeTool(_WatchToolBase):
             data={
                 "subject": subj.name,
                 "pages_read": len(readable),
+                "exit": exit_info or None,
                 "pages": page_reports,
                 "evidence_written": written,
                 "claims_rejected": rejected_total,

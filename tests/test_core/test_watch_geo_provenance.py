@@ -102,6 +102,122 @@ async def _observe(wm, cfg, geo_state=None):
     return await t.execute(params)
 
 
+def _patch_verify(monkeypatch, *, ok=True, ip="72.179.10.1", state="FL"):
+    """Make exit verification deterministic and offline.
+
+    The tools import verify_exit_state inside the call, so patching the
+    module attribute is enough. Real routing is covered by the unit suite and
+    the live smoke test; here we only care that the tools gate on the result.
+    """
+    import core.watch_observe as wo
+
+    async def fake_verify(proxy_url, want, **kw):
+        if ok:
+            return (
+                True,
+                proxy_url,
+                {
+                    "ip": ip,
+                    "state_code": state.upper(),
+                    "state_name": "verified",
+                    "verified": True,
+                    "session_pinned": True,
+                    "attempts": 1,
+                },
+            )
+        return (
+            False,
+            proxy_url,
+            {
+                "verified": False,
+                "wanted": want.upper(),
+                "landed": [{"ip": "170.1.1.1", "state_code": "VA", "state_name": "virginia"}],
+            },
+        )
+
+    async def fake_browser_verify(bm, want, **kw):
+        if ok:
+            return True, {"ip": ip, "state_code": state.upper(), "verified": True}
+        return False, {"state_code": "VA", "verified": False}
+
+    monkeypatch.setattr(wo, "verify_exit_state", fake_verify)
+    monkeypatch.setattr(wo, "verify_browser_exit", fake_browser_verify)
+
+
+class TestExitIsProvenBeforeStamping:
+    @pytest.mark.asyncio
+    async def test_verified_exit_is_recorded_on_every_row(self, wm, monkeypatch) -> None:
+        await _seed(wm)
+        _fake_pages(monkeypatch, {})
+        _patch_verify(monkeypatch, ok=True, ip="72.179.10.1", state="FL")
+        cfg = _Cfg(
+            ProxyConfig(
+                enabled=True,
+                type="http",
+                host="geo.example",
+                port=12321,
+                username="u",
+                password="p_country-us_state-florida",
+                state="FL",
+            )
+        )
+        res = await _observe(wm, cfg, geo_state="FL")
+
+        assert res.success, res.error
+        assert res.data["exit"]["ip"] == "72.179.10.1"
+        rows = await wm.list_evidence("c1")
+        assert rows
+        assert all(r.geo_state == "FL" and r.exit_ip == "72.179.10.1" for r in rows)
+
+    @pytest.mark.asyncio
+    async def test_exit_in_the_wrong_state_is_refused_and_writes_nothing(
+        self, wm, monkeypatch
+    ) -> None:
+        """Asked Florida, the provider delivered Virginia — the real failure."""
+        await _seed(wm)
+        seen: dict[str, Any] = {}
+        _fake_pages(monkeypatch, seen)
+        _patch_verify(monkeypatch, ok=False)
+        cfg = _Cfg(
+            ProxyConfig(
+                enabled=True,
+                type="http",
+                host="geo.example",
+                port=12321,
+                username="u",
+                password="p_state-florida",
+                state="FL",
+            )
+        )
+        res = await _observe(wm, cfg, geo_state="FL")
+
+        assert not res.success
+        assert "Exit verification failed" in res.error
+        assert "VA (170.1.1.1)" in res.error
+        assert "proxy_url" not in seen  # refused before fetching anything
+        assert await wm.list_evidence("c1") == []
+
+    @pytest.mark.asyncio
+    async def test_no_state_claim_skips_verification_entirely(self, wm, monkeypatch) -> None:
+        import core.watch_observe as wo
+
+        called = {"n": 0}
+
+        async def boom(*a, **k):
+            called["n"] += 1
+            return False, "", {}
+
+        monkeypatch.setattr(wo, "verify_exit_state", boom)
+        await _seed(wm)
+        _fake_pages(monkeypatch, {})
+        res = await _observe(wm, _Cfg(ProxyConfig(enabled=False)))
+
+        assert res.success, res.error
+        assert called["n"] == 0  # nothing to prove without a state claim
+        rows = await wm.list_evidence("c1")
+        assert rows and all(r.exit_ip == "" for r in rows)
+
+
 class TestObserveRefusesAnUnroutableState:
     @pytest.mark.asyncio
     async def test_proxy_disabled_geo_state_is_refused_not_stamped(self, wm, monkeypatch) -> None:
@@ -146,6 +262,7 @@ class TestObserveRoutesWhenItHonestlyCan:
         await _seed(wm)
         seen: dict[str, Any] = {}
         _fake_pages(monkeypatch, seen)
+        _patch_verify(monkeypatch, ok=True, ip="72.179.9.9", state="NV")
         cfg = _Cfg(
             ProxyConfig(
                 enabled=True,
@@ -170,6 +287,7 @@ class TestObserveRoutesWhenItHonestlyCan:
         await _seed(wm)
         seen: dict[str, Any] = {}
         _fake_pages(monkeypatch, seen)
+        _patch_verify(monkeypatch, ok=True, ip="72.16.1.1", state="TX")
         cfg = _Cfg(
             ProxyConfig(
                 enabled=True,

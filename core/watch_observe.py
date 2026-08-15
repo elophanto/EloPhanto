@@ -561,3 +561,208 @@ async def extract_claims(
     except Exception as e:
         logger.warning("watch_observe: claim extraction failed: %s", e)
         return []
+
+
+# ── Exit verification: a state stamp is proven, not assumed ──────────
+#
+# `geo_state` on an evidence row means "this is what a customer in that state
+# sees". Routing through a state-targeted proxy *asks* for that; it does not
+# prove it. Residential targeting is best-effort — sampled live on
+# 2026-08-15, `_state-texas` exited in Virginia half the time — and a
+# rotating pool can hand every request a different city. So before anything
+# is stamped, the exit is pinned to one IP (a sticky session) and that IP's
+# geolocation is checked against the claimed state. No verified exit, no
+# state stamp: the observation is refused, never silently downgraded.
+
+US_STATES = {
+    "AL": "alabama", "AK": "alaska", "AZ": "arizona", "AR": "arkansas",
+    "CA": "california", "CO": "colorado", "CT": "connecticut",
+    "DE": "delaware", "FL": "florida", "GA": "georgia", "HI": "hawaii",
+    "ID": "idaho", "IL": "illinois", "IN": "indiana", "IA": "iowa",
+    "KS": "kansas", "KY": "kentucky", "LA": "louisiana", "ME": "maine",
+    "MD": "maryland", "MA": "massachusetts", "MI": "michigan",
+    "MN": "minnesota", "MS": "mississippi", "MO": "missouri",
+    "MT": "montana", "NE": "nebraska", "NV": "nevada",
+    "NH": "new hampshire", "NJ": "new jersey", "NM": "new mexico",
+    "NY": "new york", "NC": "north carolina", "ND": "north dakota",
+    "OH": "ohio", "OK": "oklahoma", "OR": "oregon", "PA": "pennsylvania",
+    "RI": "rhode island", "SC": "south carolina", "SD": "south dakota",
+    "TN": "tennessee", "TX": "texas", "UT": "utah", "VT": "vermont",
+    "VA": "virginia", "WA": "washington", "WV": "west virginia",
+    "WI": "wisconsin", "WY": "wyoming", "DC": "district of columbia",
+}
+_STATE_BY_NAME = {v: k for k, v in US_STATES.items()}
+
+# IPRoyal-style geo tokens in the proxy password. Their presence is what makes
+# a password sticky-session capable (same token grammar), and is the gate for
+# appending one — another provider's password must never be rewritten.
+_GEO_TOKEN_RE = re.compile(r"_(?:country|state|region|city)-[a-z0-9-]+", re.I)
+_SESSION_TOKEN_RE = re.compile(r"_session-[a-z0-9]+", re.I)
+
+
+def pin_session(proxy_url: str, *, session: str | None = None,
+                lifetime: str = "30m") -> str:
+    """Pin a geo-targeted proxy URL to one exit via a sticky-session token.
+
+    Without this, every request may exit from a different address, and a geo
+    check on request 1 proves nothing about request 2 — verification would be
+    theatre. With ``_session-…_lifetime-…`` appended to the password, the
+    provider holds one exit for the session's lifetime, so the IP that passes
+    verification is the IP that fetches the pages.
+
+    Only applied to passwords already carrying geo tokens (IPRoyal grammar);
+    anything else is returned unchanged. Idempotent.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    try:
+        parts = urlsplit(proxy_url)
+        password = parts.password or ""
+        if not _GEO_TOKEN_RE.search(password) or _SESSION_TOKEN_RE.search(password):
+            return proxy_url
+        import secrets as _secrets
+
+        sid = session or _secrets.token_hex(4)
+        new_password = f"{password}_session-{sid}_lifetime-{lifetime}"
+        username = parts.username or ""
+        host = parts.hostname or ""
+        port = f":{parts.port}" if parts.port else ""
+        netloc = f"{username}:{new_password}@{host}{port}"
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query,
+                           parts.fragment))
+    except Exception:
+        return proxy_url
+
+
+def is_session_pinnable(proxy_url: str) -> bool:
+    """True when the URL's password carries geo tokens (sticky grammar)."""
+    from urllib.parse import urlsplit
+
+    try:
+        return bool(_GEO_TOKEN_RE.search(urlsplit(proxy_url).password or ""))
+    except Exception:
+        return False
+
+
+def _parse_geo_fields(ip: str, state_code: str, state_name: str,
+                      service: str) -> dict[str, Any] | None:
+    code = (state_code or "").strip().upper()
+    name = (state_name or "").strip().lower()
+    if not code and name in _STATE_BY_NAME:
+        code = _STATE_BY_NAME[name]
+    if not ip or not code:
+        return None
+    return {"ip": ip, "state_code": code,
+            "state_name": US_STATES.get(code, name), "service": service}
+
+
+async def _egress_geo(proxy_url: str, *, timeout: float = 15.0) -> dict[str, Any] | None:
+    """Where does this proxy URL actually come out? None when unknowable.
+
+    One request *through the proxy* to a geolocation echo — the reply
+    describes whichever exit served it, which (session-pinned) is the exit
+    the page fetches will use. Two independent services, first answer wins.
+    """
+    import httpx
+
+    for url, kind in (("https://ipwho.is/", "ipwho.is"),
+                      ("https://ipinfo.io/json", "ipinfo.io")):
+        try:
+            async with httpx.AsyncClient(
+                proxy=proxy_url, timeout=timeout,
+                headers={"User-Agent": "Mozilla/5.0"},
+            ) as client:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                if kind == "ipwho.is":
+                    if data.get("success") is False:
+                        continue
+                    parsed = _parse_geo_fields(
+                        str(data.get("ip") or ""),
+                        str(data.get("region_code") or ""),
+                        str(data.get("region") or ""), kind)
+                else:
+                    parsed = _parse_geo_fields(
+                        str(data.get("ip") or ""), "",
+                        str(data.get("region") or ""), kind)
+                if parsed:
+                    return parsed
+        except Exception as e:
+            logger.debug("watch: egress geo via %s failed: %s", kind, e)
+    return None
+
+
+async def verify_exit_state(
+    proxy_url: str, state: str, *, attempts: int = 3,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Prove the exit is in ``state`` before anything gets stamped with it.
+
+    Returns ``(ok, url_to_use, detail)``. On success ``url_to_use`` is the
+    session-pinned URL whose exit passed the check — callers MUST fetch
+    through it, not the original, or the proof binds nothing. Targeting being
+    best-effort, a miss retries with a fresh session (a re-roll of the exit);
+    a non-pinnable URL gets one attempt, since retrying the same URL would
+    check a different exit than the fetches use anyway.
+    """
+    want = (state or "").strip().upper()
+    pinnable = is_session_pinnable(proxy_url)
+    landed: list[dict[str, Any]] = []
+    for attempt in range(attempts if pinnable else 1):
+        candidate = pin_session(proxy_url) if pinnable else proxy_url
+        geo = await _egress_geo(candidate)
+        if geo is None:
+            landed.append({"error": "geolocation unreachable"})
+            continue
+        if geo["state_code"] == want:
+            return True, candidate, {
+                **geo, "verified": True, "session_pinned": pinnable,
+                "attempts": attempt + 1,
+            }
+        landed.append(geo)
+        logger.info(
+            "watch: exit verification miss %d/%d — asked %s, landed %s (%s)",
+            attempt + 1, attempts if pinnable else 1, want,
+            geo.get("state_code"), geo.get("ip"),
+        )
+    return False, proxy_url, {
+        "verified": False, "session_pinned": pinnable, "wanted": want,
+        "landed": landed,
+    }
+
+
+async def verify_browser_exit(
+    browser_manager: Any, state: str,
+) -> tuple[bool, dict[str, Any]]:
+    """Check where the agent's Chrome actually exits, for escalated pages.
+
+    Browser-escalated fetches ride Chrome's own proxy credentials, not the
+    verified HTTP session — a different exit. Before claims from a
+    browser-fetched page get a state stamp, Chrome's exit has to pass the
+    same check. One echo page, parsed from the rendered text.
+    """
+    if browser_manager is None:
+        return False, {"error": "browser unavailable"}
+    want = (state or "").strip().upper()
+    text, err = await fetch_page_via_browser(
+        browser_manager, "https://ipwho.is/", max_chars=4000
+    )
+    if err or not text:
+        return False, {"error": err or "no response from geolocation echo"}
+    ip_m = re.search(r'"ip"\s*:?\s*"?((?:\d{1,3}\.){3}\d{1,3})', text)
+    code_m = re.search(r'"region_code"\s*:?\s*"?([A-Za-z]{2})', text)
+    name_m = re.search(r'"region"\s*:?\s*"?([A-Za-z ]{3,30}?)"', text)
+    parsed = _parse_geo_fields(
+        ip_m.group(1) if ip_m else "",
+        code_m.group(1) if code_m else "",
+        name_m.group(1) if name_m else "", "ipwho.is (browser)")
+    if parsed is None:
+        return False, {"error": "could not parse geolocation from browser page"}
+    ok = parsed["state_code"] == want
+    if not ok:
+        logger.info(
+            "watch: browser exit is %s (%s), not %s — browser-fetched pages "
+            "will not be stamped", parsed["state_code"], parsed["ip"], want,
+        )
+    return ok, {**parsed, "verified": ok}

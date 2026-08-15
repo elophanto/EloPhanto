@@ -213,6 +213,7 @@ def render_scorecard_xlsx(
         "Confidence",
         "Collector",
         "Excerpt",
+        "Exit IP",
     ]
     ws3.append(hdr3)
     _style_header(ws3, 1, len(hdr3))
@@ -233,6 +234,7 @@ def render_scorecard_xlsx(
                 e.get("confidence", ""),
                 e.get("collector", ""),
                 (e.get("excerpt", "") or "")[:500],
+                e.get("exit_ip", ""),
             ]
         )
     _autosize(

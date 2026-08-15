@@ -254,9 +254,34 @@ entry, or the single proxy with matching `proxy.state`. Otherwise
 used to fall back to whatever the single proxy was, or with the proxy off, to
 the host's own connection, and stamp the state anyway — the register would
 have said "this is what a Nevada customer sees" about a page fetched from the
-operator's desk. Found 2026-08-15; `tests/test_core/test_watch_geo_provenance.py`
-pins the rule. Observing without `geo_state` is always allowed — it is a
+operator's desk. Observing without `geo_state` is always allowed — it is a
 weaker claim, and the row says so (`geo_state=n/a`).
+
+**And declaring a state is not the same as being in it.** Residential
+targeting is best-effort: sampled 2026-08-15, `_state-texas` exited in
+Virginia half the time, and a rotating pool hands each request a different
+city — so a geo check on one request proves nothing about the next. Before any
+state-stamped collection, the organ therefore:
+
+1. **pins the exit** with a sticky-session token (`_session-…_lifetime-30m`),
+   so one address serves the whole run — otherwise verification is theatre;
+2. **geolocates that address** through the proxy itself, against two
+   independent services, retrying with a fresh session on a miss (each retry
+   re-rolls the exit);
+3. **refuses** if it cannot prove the match — including when the geolocation
+   services are unreachable. *Could not verify* never softens into *verified*.
+
+The address that passed is written to `exit_ip` on every row it produced, and
+appears as the last column of the workbook's Evidence sheet: the audit trail
+now answers "how do you know this is what Florida sees?" with an IP, not an
+intention. Browser-escalated pages exit through Chrome's own credentials
+rather than the verified session, so Chrome's exit is checked separately; if
+it does not match, those pages are dropped from a state-stamped run instead of
+being stamped falsely.
+
+Tests: `test_watch_geo_provenance.py` (the rules), `test_watch_exit_verify.py`
+(pinning, verification, retries), and `test_watch_exit_verify_live.py` — a
+real-network check, skipped unless `WATCH_PROXY_URL` is set.
 
 ## Refresh cadence and staleness
 
