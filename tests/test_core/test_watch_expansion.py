@@ -1053,13 +1053,13 @@ class TestConsentDismissal:
                 return {"success": True}
 
         b = _B()
-        assert await dismiss_consent(b, settle_ms=10) == 1
+        assert await dismiss_consent(b, settle_ms=(10, 20)) == 1
         assert not b.banner_up
-        # exactly one settle wait before the second look, not an endless retry
+        # a bounded number of settle waits, not an endless retry
         clean = _B()
         clean.banner_up = False
-        assert await dismiss_consent(clean, settle_ms=10) == 0
-        assert sum(1 for nm, _ in clean.calls if nm == "browser_wait") == 1
+        assert await dismiss_consent(clean, settle_ms=(10, 20)) == 0
+        assert sum(1 for nm, _ in clean.calls if nm == "browser_wait") == 2
 
 
 class TestOfferFacts:
