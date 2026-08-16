@@ -666,6 +666,9 @@ async def capture_page_screenshot(
                     await browser_manager.call_tool("browser_wait", {"ms": 2500})
                 except Exception:
                     pass
+                # The stall was 30s of page time — a consent bar that slid in
+                # meanwhile would be in the retry shot (High 5, 2026-08-16).
+                await dismiss_consent(browser_manager, settle_ms=(500,))
             payload = await browser_manager.call_tool("browser_capture", {"path": out_path})
             data = payload if isinstance(payload, dict) else {}
             # Bridge results sometimes arrive wrapped ({"result": {...}}) or

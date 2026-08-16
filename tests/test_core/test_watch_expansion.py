@@ -489,6 +489,7 @@ class TestCapturePageScreenshot:
                 if name == "browser_capture":
                     self.shots += 1
                     if self.shots == 1:
+                        self.calls.append((name, params))
                         return {"success": False,
                                 "error": "page.screenshot: Timeout 30000ms exceeded. waiting for fonts to load..."}
                 return await super().call_tool(name, params)
@@ -497,6 +498,11 @@ class TestCapturePageScreenshot:
         out = tmp_path / "h5" / "home.jpg"
         assert await capture_page_screenshot(bm, "https://h5.example", str(out)) == str(out)
         assert bm.shots == 2 and out.exists()
+        # consent is dismissed again between the stalled shot and the retry:
+        # a bar that slid in during the 30s stall must not be in the picture
+        names = [c[0] for c in bm.calls]
+        first_shot = names.index("browser_capture")
+        assert "browser_click_text" in names[first_shot + 1 : len(names) - 1]
         # and a browser that fails twice is a gap, not an exception
         assert await capture_page_screenshot(_CapturingBrowser(fail=True), "https://x", str(tmp_path / "n.jpg")) == ""
 
