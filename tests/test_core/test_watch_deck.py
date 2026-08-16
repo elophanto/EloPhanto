@@ -790,3 +790,30 @@ class TestReferenceStyleDeck:
         standings = _slide(slides, "Where the market stands")
         assert "Key observations" in standings["text"]
         assert "leads the ranked field" in standings["text"]
+
+
+def test_glance_slide_shows_the_highest_score_when_ranks_are_withheld(tmp_path) -> None:
+    """2026-08-16 pack: 'The market at a glance' printed '—' and '0 / 14
+    brands ranked' because ranks were withheld for comparability. The scores
+    exist; the slide shows the highest and says it is unranked."""
+    from pptx import Presentation
+
+    from core.watch_deck import factual_narrative, render_executive_deck
+
+    card = {
+        "rows": [
+            {"name": "Us", "is_self": True, "rank": None, "provisional": False,
+             "overall": {"normalized_pct": 60.0, "coverage_pct": 70.0}, "dimensions": {}},
+            {"name": "Crown", "is_self": False, "rank": None, "provisional": False,
+             "overall": {"normalized_pct": 70.4, "coverage_pct": 80.0}, "dimensions": {}},
+        ],
+        "dimensions": [],
+        "comparability_note": "coverage spread 44 > 35; ranks withheld",
+    }
+    out = tmp_path / "g.pptx"
+    render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                          gaps=[], evidence_count=10, path=out)
+    prs = Presentation(str(out))
+    glance = "\n".join(sh.text_frame.text for sh in prs.slides[2].shapes if sh.has_text_frame)
+    assert "70.4" in glance and "Crown – highest score, ranks withheld" in glance
+    assert "2 / 2" in glance and "0 / 2" not in glance and "no brand ranked yet" not in glance

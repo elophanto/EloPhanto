@@ -652,24 +652,35 @@ async def capture_page_screenshot(
         if navigate:
             await browser_manager.call_tool("browser_navigate", {"url": url})
         await dismiss_consent(browser_manager)
-        payload = await browser_manager.call_tool("browser_capture", {"path": out_path})
-        data = payload if isinstance(payload, dict) else {}
-        # Bridge results sometimes arrive wrapped ({"result": {...}}) or as
-        # JSON text; be liberal in what we accept.
-        if not data.get("success") and isinstance(data.get("result"), dict):
-            data = data["result"]
-        if not data.get("success"):
-            text = _result_text(payload)
-            if '"success": true' not in text and '"success":true' not in text:
-                logger.debug(
-                    "watch: screenshot of %s failed: %s",
-                    url,
-                    str(data.get("error") or text)[:200],
-                )
-                return ""
         from pathlib import Path as _Path
 
-        return out_path if _Path(out_path).exists() else ""
+        # One retry after a settle: heavy storefronts stall Playwright's
+        # screenshot on "waiting for fonts to load" (High 5, 2026-08-16:
+        # 30s timeout on the only exhibit page, and the brand went into
+        # the deck with a stale capture). A second shot a moment later
+        # usually lands; a second failure is a gap, logged, not an error.
+        last_err = ""
+        for attempt in range(2):
+            if attempt:
+                try:
+                    await browser_manager.call_tool("browser_wait", {"ms": 2500})
+                except Exception:
+                    pass
+            payload = await browser_manager.call_tool("browser_capture", {"path": out_path})
+            data = payload if isinstance(payload, dict) else {}
+            # Bridge results sometimes arrive wrapped ({"result": {...}}) or
+            # as JSON text; be liberal in what we accept.
+            if not data.get("success") and isinstance(data.get("result"), dict):
+                data = data["result"]
+            ok = bool(data.get("success"))
+            if not ok:
+                text = _result_text(payload)
+                ok = '"success": true' in text or '"success":true' in text
+                last_err = str(data.get("error") or text)[:200]
+            if ok and _Path(out_path).exists():
+                return out_path
+        logger.debug("watch: screenshot of %s failed twice: %s", url, last_err)
+        return ""
     except Exception as e:
         logger.debug("watch: screenshot of %s failed: %s", url, e)
         return ""

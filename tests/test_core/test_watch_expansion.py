@@ -474,6 +474,32 @@ class TestCapturePageScreenshot:
         assert got == ""
         assert await capture_page_screenshot(None, "https://x", "/tmp/x.jpg") == ""
 
+    @pytest.mark.asyncio
+    async def test_a_font_stall_gets_one_more_shot(self, tmp_path) -> None:
+        """High 5, 2026-08-16: page.screenshot timed out 'waiting for fonts
+        to load' on the only exhibit page. The second shot lands."""
+        from core.watch_observe import capture_page_screenshot
+
+        class _Stalls(_CapturingBrowser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.shots = 0
+
+            async def call_tool(self, name, params):
+                if name == "browser_capture":
+                    self.shots += 1
+                    if self.shots == 1:
+                        return {"success": False,
+                                "error": "page.screenshot: Timeout 30000ms exceeded. waiting for fonts to load..."}
+                return await super().call_tool(name, params)
+
+        bm = _Stalls()
+        out = tmp_path / "h5" / "home.jpg"
+        assert await capture_page_screenshot(bm, "https://h5.example", str(out)) == str(out)
+        assert bm.shots == 2 and out.exists()
+        # and a browser that fails twice is a gap, not an exception
+        assert await capture_page_screenshot(_CapturingBrowser(fail=True), "https://x", str(tmp_path / "n.jpg")) == ""
+
     def test_filenames_are_dated_slugs(self) -> None:
         from core.watch_observe import screenshot_filename
 

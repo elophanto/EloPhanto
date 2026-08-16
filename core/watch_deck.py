@@ -935,12 +935,33 @@ def _slide_glance(
     )
     pct = (observed / pairs * 100.0) if pairs else 0.0
 
+    scored = sorted(
+        (r for r in rows if r["overall"]["normalized_pct"] is not None),
+        key=lambda r: -float(r["overall"]["normalized_pct"]),
+    )
+    # Ranks withheld (comparability) or nothing ranked yet: the scores are
+    # still the numbers under everything else — show the highest and say it
+    # is unranked, rather than a dash and "0 / 14 ranked" (2026-08-16 pack).
+    if leader is not None:
+        first = (
+            _fmt(leader["overall"]["normalized_pct"]),
+            f"{leader['name']} – ranked leader",
+        )
+        second = (f"{len(ranked)} / {len(rows)}", "brands ranked / tracked")
+    elif scored:
+        first = (
+            _fmt(scored[0]["overall"]["normalized_pct"]),
+            f"{scored[0]['name']} – highest score, ranks withheld"
+            if card.get("comparability_note")
+            else f"{scored[0]['name']} – highest score, provisional",
+        )
+        second = (f"{len(scored)} / {len(rows)}", "brands scored / tracked – none ranked yet")
+    else:
+        first = ("—", "no brand scored yet")
+        second = (f"0 / {len(rows)}", "brands scored / tracked")
     tiles = [
-        (
-            _fmt(leader["overall"]["normalized_pct"]) if leader else "—",
-            f"{leader['name']} – ranked leader" if leader else "no brand ranked yet",
-        ),
-        (f"{len(ranked)} / {len(rows)}", "brands ranked / tracked"),
+        first,
+        second,
         (f"{pct:.0f}%", f"of the model observed – {observed} of {pairs} pairs"),
         (f"{evidence_count:,}", "observed facts, each traceable to a source"),
     ]
