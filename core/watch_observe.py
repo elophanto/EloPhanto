@@ -567,14 +567,17 @@ def _consent_click_landed(res: Any, wanted: str) -> bool:
     return bool(matched) and wanted.lower() in matched
 
 
-async def dismiss_consent(browser_manager: Any, *, rounds: int = 2) -> int:
+async def dismiss_consent(
+    browser_manager: Any, *, rounds: int = 2, settle_ms: int = 1500
+) -> int:
     """Click through cookie-consent / privacy-choice overlays before an
     exhibit is captured, exactly the way the browser skill does it by hand.
     Returns the number of overlays clicked; never raises."""
     if browser_manager is None:
         return 0
     clicked = 0
-    for _ in range(max(1, rounds)):
+    looked_again = False
+    for _ in range(max(1, rounds) + 1):
         hit = False
         for label in _CONSENT_LABELS:
             try:
@@ -610,7 +613,17 @@ async def dismiss_consent(browser_manager: Any, *, rounds: int = 2) -> int:
                     clicked += 1
                     break
         if not hit:
-            break
+            # Consent overlays often render a beat after load (Pulsz Bingo,
+            # 2026-08-16: nothing to click at t=0, modal on screen by the
+            # capture). A miss on the first look earns exactly one more look.
+            if clicked or looked_again:
+                break
+            looked_again = True
+            try:
+                await browser_manager.call_tool("browser_wait", {"ms": settle_ms})
+            except Exception:
+                pass
+            continue
         try:
             await browser_manager.call_tool("browser_wait", {"ms": 600})
         except Exception:

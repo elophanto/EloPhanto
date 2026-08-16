@@ -806,7 +806,6 @@ class TestAutonomousRunsCannotGrowTheRegister:
 
     @pytest.mark.asyncio
     async def test_operator_context_still_adds(self, wm, monkeypatch) -> None:
-        from types import SimpleNamespace
 
         from tools.watch.tools import WatchAnalyzeTool
 
@@ -830,7 +829,7 @@ class TestAutonomousRunsCannotGrowTheRegister:
         t._vault = _Vault(None)
         t._config = None
         # Default context is USER — the operator convenience keeps working.
-        res = await t.execute({
+        await t.execute({
             "subject": "New Brand", "company_id": "c1",
             "url": "https://new.example", "save": False, "deck": False,
             "expand_sources": False,
@@ -1025,6 +1024,42 @@ class TestConsentDismissal:
         # "Accept All"/"Allow all" fall-throughs were NOT counted as hits
         clicked = [a["text"] for nm, a in b.calls if nm == "browser_click_text"]
         assert "Accept All" in clicked and "Accept" in clicked
+
+
+    @pytest.mark.asyncio
+    async def test_a_late_modal_gets_one_more_look(self) -> None:
+        """Pulsz Bingo, 2026-08-16: nothing to click at t=0, modal on screen
+        by the capture. A miss on the first look waits and looks again once."""
+        from core.watch_observe import dismiss_consent
+
+        class _B:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict]] = []
+                self.waited = False
+                self.banner_up = True
+
+            async def call_tool(self, name: str, args: dict) -> dict:
+                self.calls.append((name, args))
+                if name == "browser_wait":
+                    self.waited = True  # the modal renders during the settle
+                    return {"success": True}
+                if name == "browser_click_text":
+                    if self.waited and self.banner_up and args["text"] == "Accept All":
+                        self.banner_up = False
+                        return {"success": True, "matchedText": "Accept All", "matchedTag": "button"}
+                    return {"success": False, "message": "no element"}
+                if name == "browser_get_elements":
+                    return {"elements": "[0]:<a>Home</a>"}
+                return {"success": True}
+
+        b = _B()
+        assert await dismiss_consent(b, settle_ms=10) == 1
+        assert not b.banner_up
+        # exactly one settle wait before the second look, not an endless retry
+        clean = _B()
+        clean.banner_up = False
+        assert await dismiss_consent(clean, settle_ms=10) == 0
+        assert sum(1 for nm, _ in clean.calls if nm == "browser_wait") == 1
 
 
 class TestOfferFacts:
