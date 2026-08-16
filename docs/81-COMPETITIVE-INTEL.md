@@ -213,6 +213,28 @@ outright — no hashes, file paths, manifests or checkpoint talk reaches a
 slide; a scrubber in the renderer catches whatever slips through (a deck once
 shipped with a SHA-256 on it).
 
+**The reference-deck shape (2026-08-16).** The customer benchmarks the pack
+against top-tier steering-committee decks, and the deck now follows their
+shape. The executive summary is one column per battleground (the six
+heaviest dimensions) with *numbered* observations — who leads it and with
+what, where we stand — over a strip of *Recommendation · Where we stand ·
+Decisions*; findings/threats/watch remain the fallback shape when the
+narrative carries no columns. Every analytical slide (standings, versus the
+leader, battlegrounds, offers, appendix) carries a right-hand **Key
+observations / Key implications** panel, model-written from the facts on
+that slide (`slides.<name>` in the narrative contract) with a computed
+fallback (`_slides_facts`), so an executive can read the column and skip
+the chart. When ranks are withheld for comparability the standings still
+chart the scores, labelled unranked, and *versus* compares against the
+highest-scoring peer — the room always sees the numbers.
+
+**Offers on the table.** A slide of its own: per brand, the headline welcome
+offer and the ongoing/daily proposition, verbatim claims from the
+promotions and loyalty dimensions (`_offer_facts`), ours first then by
+rank, with an honest blank where the pages read stated none. The
+promotions pages captured during analysis follow as exhibits, each
+captioned with the offer it shows.
+
 **Baseline packs and comparable fields.** A from-scratch analysis has nothing
 to move *from*: pass `baseline=true` to `watch_board_report` (or
 `watch_executive_deck`, or `watch_analyze` when it saves the pack) and no
@@ -235,6 +257,19 @@ archived brand's rows stay in the store (append-only) but do not appear in a
 deliverable that claims a canonical brand list; a silent 2,000-row cap once
 truncated a 1,900+-row run's export by exactly the rows that would have shown
 its completeness.
+
+**Which pages are exhibits, and how they are captured.** The exhibit picker
+ranks a brand's readable pages — homepage, then the promotions/offers page,
+then one more product page — and never files a privacy policy, terms,
+responsible-play or rules page as the storefront (`rank_exhibit_pages`,
+`exhibit_kind`; four of fourteen exhibits were legal pages before this).
+Before every capture the browser is told to click through cookie-consent and
+privacy-choice overlays exactly the way the browser-automation playbook does
+it by hand — `browser_click_text("Accept All")` / `("Accept")`, then
+`browser_get_elements` — via `dismiss_consent`, which trusts the tool's
+`matchedText` rather than its `success` flag (the tool reports success even
+when it fell through to an unrelated element). Four of fourteen exhibits
+carried a consent bar before this.
 
 **Storefront exhibits.** During `watch_analyze`, the browser saves a clean
 screenshot of the homepage and up to two key pages per brand — no element

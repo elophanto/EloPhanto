@@ -315,6 +315,183 @@ def _picture(slide: Any, path: str, x: float, y: float, w: float, max_h: float) 
 # ── narrative fallback (no model) ────────────────────────────────────
 
 
+def _sidebar(
+    slide: Any,
+    observations: list[str],
+    implications: list[str],
+    *,
+    top: float,
+    x: float = 9.1,
+    w: float = 3.55,
+    bottom: float = 6.55,
+) -> float:
+    """The right-hand reading panel every analytical slide carries: *Key
+    observations* (what the chart shows) and *Key implications* (what it
+    means for us). Executives read this column and skip the chart; the
+    reference decks the customer benchmarks against carry it on every
+    slide, and a slide without it makes the room guess. Returns the y where
+    the panel ends. Draws nothing when both lists are empty."""
+    obs = [str(o).strip() for o in observations if str(o).strip()][:4]
+    imp = [str(i).strip() for i in implications if str(i).strip()][:3]
+    if not obs and not imp:
+        return top
+    from pptx.util import Inches
+
+    h = bottom - top
+    card = slide.shapes.add_shape(
+        1, Inches(x - 0.15), Inches(top - 0.1), Inches(w + 0.3), Inches(h)
+    )
+    card.fill.solid()
+    card.fill.fore_color.rgb = _rgb(_CARD)
+    card.line.fill.background()
+    card.shadow.inherit = False
+    y = top + 0.05
+    if obs:
+        _text(slide, x, y, w, 0.3, "Key observations", size=11, bold=True, color=_INK)
+        y += 0.36
+        n_lines = sum(1 + len(o) // 48 for o in obs)
+        block_h = min(0.24 * n_lines + 0.12 * len(obs), bottom - y - (1.6 if imp else 0.2))
+        _bullets(
+            slide,
+            x,
+            y,
+            w,
+            block_h,
+            obs,
+            size=9.5,
+            color=_BODY,
+            gap_pt=5,
+            cap=150,
+            accent_bullet=False,
+            max_items=4,
+        )
+        y += block_h + 0.18
+    if imp and y < bottom - 0.8:
+        _text(slide, x, y, w, 0.3, "Key implications", size=11, bold=True, color=_ACCENT)
+        y += 0.36
+        _bullets(
+            slide,
+            x,
+            y,
+            w,
+            max(0.5, bottom - y - 0.1),
+            imp,
+            size=9.5,
+            color=_BODY,
+            gap_pt=5,
+            cap=150,
+            accent_bullet=True,
+            max_items=3,
+        )
+    return bottom
+
+
+def _chip(slide: Any, x: float, y: float, n: int, *, color: str = _PEER) -> None:
+    """A small numbered circle — the reference decks number each executive
+    observation and repeat the number where the evidence lives."""
+    from pptx.enum.text import PP_ALIGN
+    from pptx.util import Inches, Pt
+
+    d = 0.26
+    c = slide.shapes.add_shape(9, Inches(x), Inches(y), Inches(d), Inches(d))  # 9 = oval
+    c.fill.solid()
+    c.fill.fore_color.rgb = _rgb(color)
+    c.line.fill.background()
+    c.shadow.inherit = False
+    tf = c.text_frame
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    p = tf.paragraphs[0]
+    p.text = str(n)
+    p.alignment = PP_ALIGN.CENTER
+    for r in p.runs:
+        r.font.size = Pt(8.5)
+        r.font.bold = True
+        r.font.color.rgb = _rgb(_WHITE)
+
+
+def _slides_facts(
+    card: dict[str, Any], offers: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """Computed, model-free observations/implications per slide — the
+    reading panel's fallback so a facts-only deck still tells the room what
+    each slide shows. Numbers only, no claims about intent."""
+    rows = card.get("rows", [])
+    ranked = [r for r in rows if r.get("rank") is not None]
+    us_rows = [r for r in rows if r.get("is_self")]
+    us = us_rows[0] if us_rows else None
+    leader = next((r for r in ranked if not r.get("is_self")), None)
+    dims = card.get("dimensions", [])
+    out: dict[str, dict[str, list[str]]] = {}
+
+    st_obs: list[str] = []
+    st_imp: list[str] = []
+    if leader:
+        st_obs.append(
+            f"{leader['name']} leads the ranked field at {_fmt(leader['overall']['normalized_pct'])}."
+        )
+    if len(ranked) >= 3:
+        spread = float(ranked[0]["overall"]["normalized_pct"]) - float(
+            ranked[-1]["overall"]["normalized_pct"]
+        )
+        st_obs.append(f"{len(ranked)} brands ranked; {spread:.0f} points separate first from last.")
+    for u in us_rows[:2]:
+        if u.get("rank") is not None:
+            st_obs.append(
+                f"{u['name']} ranks #{u['rank']} at {_fmt(u['overall']['normalized_pct'])}."
+            )
+            if leader is not None:
+                gap = float(leader["overall"]["normalized_pct"]) - float(
+                    u["overall"]["normalized_pct"]
+                )
+                st_imp.append(f"{u['name']} sits {gap:.1f} points behind the leader.")
+        elif u["overall"]["normalized_pct"] is not None:
+            st_obs.append(f"{u['name']} is scored but not yet ranked.")
+    if card.get("comparability_note"):
+        st_imp.append("Ranks are withheld until the field is measured to comparable depth.")
+    out["standings"] = {"observations": st_obs, "implications": st_imp}
+
+    # dimensions: where we lead / trail
+    lead, trail = [], []
+    if us is not None:
+        for d in dims:
+            dn = d["name"]
+            mine = us.get("dimensions", {}).get(dn, {}).get("score")
+            scored = [
+                float(r["dimensions"][dn]["score"])
+                for r in rows
+                if r.get("dimensions", {}).get(dn, {}).get("score") is not None
+            ]
+            if mine is None or not scored:
+                continue
+            best = max(scored)
+            if float(mine) >= best:
+                lead.append(dn)
+            elif best - float(mine) >= 2:
+                trail.append(dn)
+    d_obs = []
+    if lead:
+        d_obs.append(
+            f"We hold the top score on {len(lead)} dimension{'s' if len(lead) != 1 else ''}: "
+            + ", ".join(lead[:3])
+            + "."
+        )
+    if trail:
+        d_obs.append("We trail by two or more points on: " + ", ".join(trail[:3]) + ".")
+    out["dimensions"] = {"observations": d_obs, "implications": []}
+    out["versus"] = {"observations": [], "implications": []}
+
+    o_obs = []
+    if offers:
+        with_welcome = [o for o in offers if o.get("welcome")]
+        o_obs.append(
+            f"{len(with_welcome)} of {len(offers)} brands lead with a stated welcome offer."
+        )
+    out["offers"] = {"observations": o_obs, "implications": []}
+    out["exhibits"] = {"observations": [], "implications": []}
+    out["coverage"] = {"observations": [], "implications": []}
+    return out
+
+
 def factual_narrative(
     card: dict[str, Any],
     diff: dict[str, Any] | None,
@@ -389,13 +566,38 @@ def factual_narrative(
     if not next_steps:
         next_steps.append("Hold the cadence – re-observe on schedule and diff next cycle")
 
+    # Executive-summary columns, computed: per top-weight dimension, who
+    # holds the top score and where we stand. Dull but true.
+    by_dim: list[dict[str, Any]] = []
+    for d in sorted(card.get("dimensions", []), key=lambda d: -float(d.get("weight_pct") or 0))[:6]:
+        dn = d["name"]
+        scored = [
+            (r, float(r["dimensions"][dn]["score"]))
+            for r in rows
+            if r.get("dimensions", {}).get(dn, {}).get("score") is not None
+        ]
+        obs: list[str] = []
+        if scored:
+            best = max(sc for _, sc in scored)
+            names = [r["name"] for r, sc in scored if sc == best][:2]
+            verb = "holds" if len(names) == 1 else "hold"
+            obs.append(f"{' and '.join(names)} {verb} the top score ({best:g}/5).")
+            if us is not None:
+                mine = us.get("dimensions", {}).get(dn, {}).get("score")
+                if mine is not None:
+                    obs.append(f"{us['name']} scores {float(mine):g}/5.")
+        else:
+            obs.append("Not yet observed for any brand.")
+        by_dim.append({"dimension": dn, "observations": obs})
+
     return {
         "headline": "",
         "bullets": bullets[:5],
-        "exec": {},
+        "exec": {"by_dimension": by_dim, "recommendation": "", "actions": []},
         "profiles": [],
         "titles": {},
         "commentary": {},
+        "slides": _slides_facts(card),
         "next_steps": next_steps[:4],
         "source": "facts",
     }
@@ -436,65 +638,208 @@ def _slide_title(
     _text(s, 0.7, 6.75, 5.0, 0.3, month, size=10, color=_MUTED)
 
 
-def _slide_summary(prs: Any, narrative: dict[str, Any], page: int, deck_title: str) -> None:
-    """Findings / threats / watch-next, the way a steering committee reads an
-    executive summary. Falls back to plain priority bullets when the model
-    did not write the three zones (facts-only mode)."""
+def _slide_summary(
+    prs: Any,
+    card: dict[str, Any],
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+) -> None:
+    """The executive summary a steering committee reads first, in the shape
+    of the reference decks: one column per battleground with numbered
+    observations, then a recommendation strip — recommendation, where we
+    stand, decisions. Nothing on this slide is a new fact; every line is a
+    reading of the scorecard, the offers table or the material-change diff.
+
+    Falls back to the three-zone findings/threats/watch layout when the
+    narrative carries no per-dimension observations."""
     s = _blank(prs)
-    _eyebrow(s, "Executive summary", y=0.5)
-    headline = _clean(narrative.get("headline") or "", 110)
-    y = 0.85
+    _eyebrow(s, "Executive summary", y=0.42)
+    headline = _clean(narrative.get("headline") or "", 120)
+    y = 0.72
     if headline:
-        _text(s, 0.7, y, 11.9, 1.15, headline, size=25, bold=True, line=1.1)
-        y += 1.25
+        _text(s, 0.7, y, 11.9, 0.9, headline, size=21, bold=True, line=1.08)
+        y += 0.9
+    else:
+        y += 0.2
     _rule(s, y)
-    y += 0.3
+    y += 0.22
 
     exec_zone = narrative.get("exec") or {}
-    findings = [str(x) for x in exec_zone.get("findings") or []]
-    threats = [str(x) for x in exec_zone.get("threats") or []]
-    watch = [str(x) for x in exec_zone.get("watch") or []]
+    by_dim = [
+        d
+        for d in (exec_zone.get("by_dimension") or [])
+        if isinstance(d, dict) and str(d.get("dimension") or "").strip()
+    ][:6]
+    rows = card.get("rows", [])
+    us_rows = [r for r in rows if r.get("is_self")]
+    ranked = [r for r in rows if r.get("rank") is not None]
+    leader = next((r for r in ranked if not r.get("is_self")), None)
 
-    if findings or threats or watch:
-        cols = [
-            ("Key findings", _PEER, findings, 0.7, 3.9),
-            ("Key threats", _ACCENT, threats, 4.95, 3.9),
-            ("Watch next", _MUTED, watch, 9.2, 3.4),
-        ]
-        for label, label_color, items, x, w in cols:
-            _eyebrow(s, label, y=y, x=x, color=label_color)
-            _bullets(
+    if by_dim:
+        # ── dimension columns ──
+        n = len(by_dim)
+        gutter = 0.18
+        col_w = (11.9 - gutter * (n - 1)) / n
+        band_top = y
+        band_bottom = 4.55
+        counter = 0
+        for ci, d in enumerate(by_dim):
+            x = 0.7 + ci * (col_w + gutter)
+            # column header
+            hdr = s.shapes.add_shape(1, _in(x), _in(band_top), _in(col_w), _in(0.5))
+            hdr.fill.solid()
+            hdr.fill.fore_color.rgb = _rgb(_CARD)
+            hdr.line.fill.background()
+            hdr.shadow.inherit = False
+            _text(
                 s,
-                x,
-                y + 0.38,
-                w,
-                6.35 - y,
-                items or ["Nothing this period."],
-                size=12,
-                gap_pt=9,
-                cap=140,
-                accent_bullet=False,
-                max_items=4,
+                x + 0.08,
+                band_top + 0.06,
+                col_w - 0.16,
+                0.42,
+                _clean(str(d.get("dimension")), 46),
+                size=9.5,
+                bold=True,
+                color=_INK,
+                line=1.0,
             )
-    else:
+            oy = band_top + 0.62
+            for obs in [str(o) for o in (d.get("observations") or []) if str(o).strip()][:3]:
+                if oy > band_bottom - 0.4:
+                    break
+                counter += 1
+                _chip(
+                    s,
+                    x,
+                    oy + 0.02,
+                    counter,
+                    color=_ACCENT if any(u["name"] in obs for u in us_rows) else _PEER,
+                )
+                text = _clean(obs, 130)
+                lines = 1 + len(text) // max(18, int(col_w * 9.5))
+                h = min(0.22 * lines + 0.1, band_bottom - oy)
+                _text(s, x + 0.34, oy, col_w - 0.36, h, text, size=9, color=_BODY, line=1.05)
+                oy += h + 0.1
+        # ── recommendation strip ──
+        y = band_bottom + 0.2
+        _rule(s, y)
+        y += 0.2
+        strip_h = 6.5 - y
+        boxes = [
+            ("Recommendation", 0.7, 4.7),
+            ("Where we stand", 5.55, 3.55),
+            ("Decisions / next steps", 9.25, 3.35),
+        ]
+        rec = _clean(exec_zone.get("recommendation") or headline or "", 260)
+        stand: list[str] = []
+        for u in us_rows[:2]:
+            if u.get("rank") is not None:
+                line = f"{u['name']} – #{u['rank']} at {_fmt(u['overall']['normalized_pct'])}"
+                if leader is not None:
+                    gap = float(leader["overall"]["normalized_pct"]) - float(
+                        u["overall"]["normalized_pct"]
+                    )
+                    line += f", {gap:.1f} behind {leader['name']}"
+                stand.append(line)
+            elif u["overall"]["normalized_pct"] is not None:
+                stand.append(
+                    f"{u['name']} – scores {_fmt(u['overall']['normalized_pct'])}, not yet ranked"
+                )
+            else:
+                stand.append(f"{u['name']} – not yet scored")
+        if leader is not None:
+            stand.append(f"Leader: {leader['name']} at {_fmt(leader['overall']['normalized_pct'])}")
+        if card.get("comparability_note"):
+            stand.append("Ranks withheld until coverage is comparable")
+        actions = [str(a) for a in (exec_zone.get("actions") or []) if str(a).strip()][:3] or [
+            str(a) for a in (narrative.get("next_steps") or [])
+        ][:3]
+        for label, x, _w in boxes:
+            _eyebrow(s, label, y=y, x=x, color=_ACCENT if label == "Recommendation" else _MUTED)
+        if rec:
+            _text(
+                s, 0.7, y + 0.35, 4.7, strip_h - 0.4, rec, size=11, bold=True, color=_INK, line=1.12
+            )
         _bullets(
             s,
-            0.7,
-            y,
-            11.9,
-            6.4 - y,
-            [str(b) for b in narrative.get("bullets") or []],
-            size=15,
-            gap_pt=12,
-            cap=140,
+            5.55,
+            y + 0.35,
+            3.55,
+            strip_h - 0.4,
+            stand or ["No brand marked as ours."],
+            size=9.5,
+            color=_BODY,
+            gap_pt=5,
+            cap=110,
+            accent_bullet=False,
+            max_items=4,
         )
+        _bullets(
+            s,
+            9.25,
+            y + 0.35,
+            3.35,
+            strip_h - 0.4,
+            actions or ["Hold the cadence; diff next cycle."],
+            size=9.5,
+            color=_BODY,
+            gap_pt=5,
+            cap=110,
+            accent_bullet=True,
+            max_items=3,
+        )
+    else:
+        findings = [str(x) for x in exec_zone.get("findings") or []]
+        threats = [str(x) for x in exec_zone.get("threats") or []]
+        watch = [str(x) for x in exec_zone.get("watch") or []]
+        if findings or threats or watch:
+            cols = [
+                ("Key findings", _PEER, findings, 0.7, 3.9),
+                ("Key threats", _ACCENT, threats, 4.95, 3.9),
+                ("Watch next", _MUTED, watch, 9.2, 3.4),
+            ]
+            for label, label_color, items, x, w in cols:
+                _eyebrow(s, label, y=y, x=x, color=label_color)
+                _bullets(
+                    s,
+                    x,
+                    y + 0.38,
+                    w,
+                    6.35 - y,
+                    items or ["Nothing this period."],
+                    size=12,
+                    gap_pt=9,
+                    cap=140,
+                    accent_bullet=False,
+                    max_items=4,
+                )
+        else:
+            _bullets(
+                s,
+                0.7,
+                y,
+                11.9,
+                6.4 - y,
+                [str(b) for b in narrative.get("bullets") or []],
+                size=15,
+                gap_pt=12,
+                cap=140,
+            )
     _judgement_note(s, str(narrative.get("source") or "facts"))
     _footer(s, deck_title, page)
     _notes(
         s,
-        "Every line traces to the scorecard, the material-change diff or the "
-        "evidence register. Nothing on this slide is a new fact.",
+        "Every line traces to the scorecard, the offers table, the material-change "
+        "diff or the evidence register. Nothing on this slide is a new fact. Numbers "
+        "run across the columns in reading order.",
     )
+
+
+def _in(v: float) -> Any:
+    from pptx.util import Inches
+
+    return Inches(v)
 
 
 def _slide_glance(
@@ -634,20 +979,63 @@ def _slide_standings(
                 size=9,
                 color=_MUTED,
             )
-    elif card.get("comparability_note"):
+    elif card.get("comparability_note") and provisional:
+        # Ranks withheld, scores real: say so in one line, then chart the
+        # scores unranked — the room still needs to see the numbers.
         _text(
             s,
             0.7,
-            top + 0.2,
+            top,
             8.1,
-            1.4,
-            "Not yet a league table – "
-            + _clean(card["comparability_note"], 260)
-            + ". Scores are on the appendix heatmap; ranks are withheld until "
-            "the field is measured to comparable depth.",
-            size=13,
-            color=_BODY,
+            0.55,
+            "Not yet a league table – " + _clean(card["comparability_note"], 150) + ".",
+            size=9.5,
+            italic=True,
+            color=_ACCENT,
         )
+        shown = sorted(provisional, key=lambda r: -float(r["overall"]["normalized_pct"]))[:14]
+        cd = CategoryChartData()
+        cd.categories = [
+            f"{r['name']}{'  (us)' if r.get('is_self') else ''}" for r in reversed(shown)
+        ]
+        cd.add_series(
+            "Score (unranked)",
+            [round(float(r["overall"]["normalized_pct"]), 1) for r in reversed(shown)],
+        )
+        gf = s.shapes.add_chart(
+            XL_CHART_TYPE.BAR_CLUSTERED,
+            Inches(0.7),
+            Inches(top + 0.55),
+            Inches(8.1),
+            Inches(6.6 - top - 0.55),
+            cd,
+        )
+        ch = gf.chart
+        ch.has_legend = False
+        ch.has_title = False
+        va = ch.value_axis
+        va.minimum_scale = 0
+        va.maximum_scale = 100
+        va.has_major_gridlines = False
+        va.tick_labels.font.size = Pt(9)
+        va.tick_labels.font.color.rgb = _rgb(_MUTED)
+        ca = ch.category_axis
+        ca.tick_labels.font.size = Pt(10)
+        ca.tick_labels.font.color.rgb = _rgb(_INK)
+        plot = ch.plots[0]
+        plot.gap_width = 55
+        plot.has_data_labels = True
+        plot.data_labels.font.size = Pt(9)
+        plot.data_labels.font.color.rgb = _rgb(_BODY)
+        plot.data_labels.number_format = "0.0"
+        plot.data_labels.number_format_is_linked = False
+        plot.data_labels.position = XL_LABEL_POSITION.OUTSIDE_END
+        ser = plot.series[0]
+        for i, r in enumerate(reversed(shown)):
+            pt = ser.points[i]
+            pt.format.fill.solid()
+            pt.format.fill.fore_color.rgb = _rgb(_ACCENT if r.get("is_self") else _PEER)
+        provisional = []  # charted; do not repeat them in the side notes
     else:
         _text(
             s,
@@ -661,31 +1049,51 @@ def _slide_standings(
         )
 
     x = 9.1
+    panel = (narrative.get("slides") or {}).get("standings") or {}
+    y = _sidebar(
+        s,
+        panel.get("observations") or [],
+        panel.get("implications") or [],
+        top=top,
+        x=x,
+        w=3.5,
+        bottom=(
+            min(6.55, top + 2.3)
+            if (provisional and unscored)
+            else min(6.55, top + 3.0)
+            if (provisional or unscored)
+            else 6.55
+        ),
+    )
+    y += 0.25 if y > top else 0.0
+    if y > 6.3:
+        y = 6.72  # sidebar used the column; the note shares the footnote line
     _text(
         s,
         x,
-        top,
+        y,
         3.5,
-        0.55,
+        0.3 if y >= 6.7 else 0.5,
         "Overall score, normalized to the weight actually measured. Amber – our brand.",
-        size=9.5,
+        size=8 if y >= 6.7 else 8.5,
         color=_MUTED,
     )
-    y = top + 0.75
-    if provisional:
+    y += 0.55
+    if provisional and y < 6.0:
         _eyebrow(s, "Scored, not ranked †", y=y, x=x)
         y += 0.32
         lines = [
             f"{r['name']}: {_fmt(r['overall']['normalized_pct'])} – "
             f"{r.get('provisional_reason', 'thin evidence')}"
-            for r in provisional[:4]
+            for r in provisional[: (2 if unscored else 4)]
         ]
+        block_h = min(0.5 * len(lines) + 0.1, 6.55 - y - (0.7 if unscored else 0))
         _bullets(
             s,
             x,
             y,
             3.5,
-            2.6,
+            max(0.3, block_h),
             lines,
             size=9,
             color=_MUTED,
@@ -693,8 +1101,8 @@ def _slide_standings(
             cap=120,
             accent_bullet=False,
         )
-        y += min(2.6, 0.55 * len(lines)) + 0.25
-    if unscored and y < 6.2:
+        y += max(0.3, block_h) + 0.15
+    if unscored and y < 6.4:
         _eyebrow(s, "Not yet observed", y=y, x=x)
         names = ", ".join(r["name"] for r in unscored[:8])
         if len(unscored) > 8:
@@ -723,6 +1131,13 @@ def _slide_versus(
         (r for r in rows if r.get("rank") is not None and not r.get("is_self")),
         None,
     )
+    if leader is None:
+        # Ranks withheld (field not comparable) — compare against the
+        # highest-scoring peer; dimension scores are still real.
+        peers = [
+            r for r in rows if not r.get("is_self") and r["overall"]["normalized_pct"] is not None
+        ]
+        leader = max(peers, key=lambda r: float(r["overall"]["normalized_pct"])) if peers else None
     title = (narrative.get("titles") or {}).get("versus") or "Where we win, where we lose"
     top = _header(
         s,
@@ -767,7 +1182,8 @@ def _slide_versus(
         11.9,
         0.45,
         f"{us['name']}  {_fmt(us['overall']['normalized_pct'])}   vs   "
-        f"{leader['name']} (#{leader['rank']})  "
+        f"{leader['name']} "
+        f"({'#' + str(leader['rank']) if leader.get('rank') is not None else 'highest-scoring peer'})  "
         f"{_fmt(leader['overall']['normalized_pct'])}",
         size=15,
         bold=True,
@@ -806,17 +1222,9 @@ def _slide_versus(
             "Behind",
             _PEER,
             [entry for _, entry in behind[:5]] or ["Nowhere, on measured dimensions."],
-            4.95,
+            4.85,
             3.9,
             _BODY,
-        ),
-        (
-            "Not comparable yet",
-            _MUTED,
-            unmeasured[:7] or ["Every dimension is measured on both."],
-            9.2,
-            3.4,
-            _MUTED,
         ),
     ]
     for label, label_color, items, x, w, body_color in cols:
@@ -835,17 +1243,27 @@ def _slide_versus(
             accent_bullet=False,
             max_items=7,
         )
-    _text(
+    panel = (narrative.get("slides") or {}).get("versus") or {}
+    _sidebar(
         s,
-        0.7,
-        6.72,
-        11.9,
-        0.3,
-        "A dimension unscored on either side is listed as not comparable – "
-        "never counted as a loss.",
-        size=9,
-        color=_MUTED,
+        panel.get("observations") or [],
+        panel.get("implications") or [],
+        top=top,
+        x=9.1,
+        w=3.5,
     )
+    note = (
+        "A dimension unscored on either side is listed as not comparable – never counted as a loss."
+    )
+    if unmeasured:
+        note = (
+            "Not comparable yet: "
+            + ", ".join(unmeasured[:5])
+            + (f" +{len(unmeasured) - 5}" if len(unmeasured) > 5 else "")
+            + ". "
+            + note
+        )
+    _text(s, 0.7, 6.62, 11.9, 0.45, _clean(note, 220), size=8.5, color=_MUTED)
     _footer(s, deck_title, page)
 
 
@@ -895,7 +1313,7 @@ def _slide_dimension_leaders(
         return name
 
     cols = ["Dimension", "Market leader", "Theirs", "Us", "Gap"]
-    widths = [3.4, 4.9, 0.85, 0.85, 1.9]
+    widths = [2.75, 3.05, 0.65, 0.65, 1.1]
     shape = s.shapes.add_table(
         len(dims) + 1,
         len(cols),
@@ -987,12 +1405,21 @@ def _slide_dimension_leaders(
             delta = float(ours) - best
             cell_write(ri, 3, f"{float(ours):g}", bg=bg)
             cell_write(ri, 4, f"▼ {abs(delta):g} behind", bg=bg, size=8.5)
+    panel = (narrative.get("slides") or {}).get("dimensions") or {}
+    _sidebar(
+        s,
+        panel.get("observations") or [],
+        panel.get("implications") or [],
+        top=top,
+        x=9.1,
+        w=3.5,
+    )
     if len(card.get("dimensions", [])) > len(dims):
         _text(
             s,
             0.7,
             6.6,
-            11.9,
+            8.2,
             0.3,
             f"First {len(dims)} of {len(card.get('dimensions', []))} dimensions "
             "shown — the rest are in the workbook.",
@@ -1187,6 +1614,99 @@ def _slide_profile(
     )
 
 
+def _slide_offers(
+    prs: Any,
+    offers: list[dict[str, Any]],
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+) -> None:
+    """The offers on the table: per brand, the headline welcome offer and
+    the ongoing promotion, verbatim from the evidence register — what the
+    market is actually selling to a new visitor this cycle. Executives ask
+    for this first; it is the most comparable fact in the whole pack."""
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    title = (narrative.get("titles") or {}).get("offers") or "The offers on the table"
+    top = _header(
+        s,
+        "Offers and promotions",
+        title,
+        (narrative.get("commentary") or {}).get("offers", ""),
+    )
+    shown = offers[:14]
+    cols = ["Brand", "Headline welcome offer", "Ongoing / daily proposition"]
+    widths = [1.9, 3.35, 2.95]
+    tbl_h = min(0.36 * (len(shown) + 1), 6.5 - top)
+    shape = s.shapes.add_table(
+        len(shown) + 1, len(cols), Inches(0.7), Inches(top), Inches(sum(widths)), Inches(tbl_h)
+    )
+    tbl = shape.table
+    for ci, w in enumerate(widths):
+        tbl.columns[ci].width = Inches(w)
+
+    def cell_write(
+        r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: float = 8.5
+    ) -> None:
+        cell = tbl.cell(r, c)
+        cell.text = text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _rgb(bg)
+        cell.margin_left = cell.margin_right = Inches(0.05)
+        cell.margin_top = cell.margin_bottom = Inches(0.02)
+        for p_ in cell.text_frame.paragraphs:
+            for run in p_.runs:
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.color.rgb = _rgb(fg)
+
+    for ci, name in enumerate(cols):
+        cell_write(0, ci, name, bg=_INK, fg=_WHITE, bold=True, size=9.5)
+    for ri, o in enumerate(shown, start=1):
+        is_self = bool(o.get("is_self"))
+        bg = _SELF_ROW if is_self else (_WHITE if ri % 2 else _CARD)
+        name = str(o.get("brand") or "") + ("  (us)" if is_self else "")
+        cell_write(ri, 0, name, bg=bg, fg=_ACCENT if is_self else _INK, bold=True, size=8.5)
+        cell_write(
+            ri,
+            1,
+            _clean(o.get("welcome") or "not stated on the pages read", 95),
+            bg=bg,
+            fg=_INK if o.get("welcome") else _MUTED,
+        )
+        cell_write(
+            ri,
+            2,
+            _clean(o.get("ongoing") or "—", 95),
+            bg=bg,
+            fg=_INK if o.get("ongoing") else _MUTED,
+        )
+
+    panel = (narrative.get("slides") or {}).get("offers") or {}
+    _sidebar(
+        s, panel.get("observations") or [], panel.get("implications") or [], top=top, x=9.1, w=3.5
+    )
+    _text(
+        s,
+        0.7,
+        6.72,
+        11.9,
+        0.3,
+        "Offer text as published on each brand's own pages at capture; amounts and "
+        'conditions verified against the page excerpt. "Not stated" means the pages '
+        "read carried no welcome offer, not that none exists.",
+        size=8.5,
+        color=_MUTED,
+    )
+    _footer(s, deck_title, page)
+    _notes(
+        s,
+        "Every cell is a claim from the evidence register with a source URL and an "
+        "excerpt; nothing here is paraphrased from memory.",
+    )
+
+
 def _slide_exhibits(
     prs: Any,
     batch: list[tuple[str, dict[str, str], bool]],
@@ -1194,25 +1714,38 @@ def _slide_exhibits(
     total: int,
     page: int,
     deck_title: str,
+    *,
+    eyebrow: str = "Exhibits",
+    title: str = "The storefronts as a visitor sees them",
+    captions: dict[str, str] | None = None,
+    commentary: str = "",
 ) -> None:
-    """Two storefronts per slide, photographed by the browser — the market
-    as a visitor sees it, filed beside the claims it supports."""
+    """Two captures per slide, photographed by the browser — the market as a
+    visitor sees it, filed beside the claims it supports. ``captions`` adds
+    a one-line reading under a brand's exhibit (e.g. the offer it shows)."""
     s = _blank(prs)
     suffix = f" ({idx}/{total})" if total > 1 else ""
-    top = _header(s, "Exhibits", f"The storefronts as a visitor sees them{suffix}")
+    top = _header(s, eyebrow, f"{title}{suffix}", commentary)
     slots = [(0.7, 5.9), (6.85, 5.9)]
+    max_h = 3.0 if captions else 3.4
     for (x, w), (brand, shot, is_self) in zip(slots, batch, strict=False):
-        pic = _picture(s, shot["path"], x, top + 0.15, w, 3.6)
+        pic = _picture(s, shot["path"], x, top + 0.15, w, max_h)
         label = f"{brand}{'  (us)' if is_self else ''}"
-        cap_y = top + 0.15 + 3.75
+        pic_h = (pic.height / 914400.0) if pic is not None else max_h
+        cap_y = top + 0.15 + min(pic_h, max_h) + 0.12
         _text(s, x, cap_y, w, 0.3, label, size=12, bold=True, color=_ACCENT if is_self else _INK)
+        line_y = cap_y + 0.3
+        cap = (captions or {}).get(brand, "")
+        if cap:
+            _text(s, x, line_y, w, 0.45, _clean(cap, 140), size=9.5, color=_BODY)
+            line_y += 0.42
         detail = []
         if shot.get("url"):
             detail.append(_clean(shot["url"], 70))
         if shot.get("observed_at"):
             detail.append(f"captured {str(shot['observed_at'])[:10]}")
         if detail:
-            _text(s, x, cap_y + 0.3, w, 0.3, " · ".join(detail), size=9, color=_MUTED)
+            _text(s, x, line_y, w, 0.3, " · ".join(detail), size=8.5, color=_MUTED)
         if pic is None:
             _text(s, x, top + 1.5, w, 0.5, "exhibit unavailable", size=10, color=_MUTED)
     _text(
@@ -1221,8 +1754,8 @@ def _slide_exhibits(
         6.72,
         11.9,
         0.3,
-        "Captured by the browser through a state-verified network exit; each "
-        "capture is filed in the evidence register beside its claims.",
+        "Captured by the browser through a state-verified network exit, cookie "
+        "consent dismissed; each capture is filed in the evidence register beside its claims.",
         size=9,
         color=_MUTED,
     )
@@ -1738,6 +2271,7 @@ def render_executive_deck(
     evidence_count: int,
     path: str | Path,
     screenshots: dict[str, list[dict[str, str]]] | None = None,
+    offers: list[dict[str, Any]] | None = None,
     title: str = "Competitive Intelligence – Executive Briefing",
     market_label: str = "",
 ) -> str:
@@ -1787,7 +2321,7 @@ def render_executive_deck(
         generated=generated,
     )
     page = 2
-    _slide_summary(prs, narrative, page, deck_title)
+    _slide_summary(prs, card, narrative, page, deck_title)
     page += 1
     _slide_glance(
         prs,
@@ -1805,6 +2339,37 @@ def render_executive_deck(
     page += 1
     _slide_dimension_leaders(prs, card, narrative, page, deck_title)
     page += 1
+
+    # The offers on the table — one row per brand, then the promotions pages
+    # photographed, captioned with the offer they show.
+    offer_rows = [o for o in (offers or []) if o.get("welcome") or o.get("ongoing")]
+    if offer_rows:
+        _slide_offers(prs, offer_rows, narrative, page, deck_title)
+        page += 1
+        promo_items: list[tuple[str, dict[str, str], bool]] = []
+        captions: dict[str, str] = {}
+        for o in offer_rows:
+            promo_shot = o.get("exhibit")
+            if isinstance(promo_shot, dict) and promo_shot.get("path"):
+                promo_items.append((str(o["brand"]), promo_shot, bool(o.get("is_self"))))
+                captions[str(o["brand"])] = str(o.get("welcome") or o.get("ongoing") or "")
+        promo_items = promo_items[:8]
+        pbatches = [promo_items[i : i + 2] for i in range(0, len(promo_items), 2)]
+        exhibits_panel = (narrative.get("slides") or {}).get("offers") or {}
+        for bi, batch in enumerate(pbatches):
+            _slide_exhibits(
+                prs,
+                batch,
+                bi + 1,
+                len(pbatches),
+                page,
+                deck_title,
+                eyebrow="Offers and promotions – exhibits",
+                title="The offers as the visitor sees them",
+                captions=captions,
+                commentary=(exhibits_panel.get("observations") or [""])[0] if bi == 0 else "",
+            )
+            page += 1
 
     # Competitor deep dives — one slide per profiled brand, in the model's
     # order (the ranked leader first). Only brands that exist in the card.
@@ -1838,8 +2403,18 @@ def render_executive_deck(
             exhibit_items.append((r["name"], shot, bool(r.get("is_self"))))
     exhibit_items = exhibit_items[:14]
     batches = [exhibit_items[i : i + 2] for i in range(0, len(exhibit_items), 2)]
+    store_panel = (narrative.get("slides") or {}).get("exhibits") or {}
+    store_obs = [str(o) for o in (store_panel.get("observations") or []) if str(o).strip()]
     for bi, batch in enumerate(batches):
-        _slide_exhibits(prs, batch, bi + 1, len(batches), page, deck_title)
+        _slide_exhibits(
+            prs,
+            batch,
+            bi + 1,
+            len(batches),
+            page,
+            deck_title,
+            commentary=store_obs[bi] if bi < len(store_obs) else "",
+        )
         page += 1
 
     _slide_changes(prs, diff, narrative, page, deck_title)

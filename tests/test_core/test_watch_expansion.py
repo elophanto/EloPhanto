@@ -457,7 +457,11 @@ class TestCapturePageScreenshot:
         out = tmp_path / "shots" / "home.jpg"
         got = await capture_page_screenshot(bm, "https://x.example", str(out))
         assert got == str(out) and out.exists()
-        assert [c[0] for c in bm.calls] == ["browser_navigate", "browser_capture"]
+        # navigate → consent dismissal (the browser playbook's click_text
+        # recipe, best-effort) → capture. The capture is always last.
+        assert bm.calls[0][0] == "browser_navigate"
+        assert bm.calls[-1][0] == "browser_capture"
+        assert any(c[0] == "browser_click_text" for c in bm.calls)
 
     @pytest.mark.asyncio
     async def test_failure_returns_empty_never_raises(self, tmp_path) -> None:
@@ -664,7 +668,7 @@ class TestCollectExhibits:
         assert list(out) == ["A"]
         assert out["A"] == [{
             "path": str(real), "url": "https://a.example",
-            "observed_at": "2026-08-15",
+            "observed_at": "2026-08-15", "kind": "home",
         }]
 
     def test_workspace_fallback_covers_walled_brands(self, tmp_path) -> None:
@@ -957,3 +961,104 @@ class TestTheReceiptsFourFindings:
             "take_snapshot": False, "deck": False,
         })
         assert res2.data["material_count"] >= 1
+
+
+class TestExhibitPageRanking:
+    """A storefront pack shows the storefront. 2026-08-16: four of fourteen
+    exhibits were a privacy policy, a terms page, responsible-play or a deep
+    slot URL because the picker took 'the first readable pages'."""
+
+    def test_home_then_promo_then_other_never_legal(self) -> None:
+        from core.watch_observe import exhibit_kind, rank_exhibit_pages
+
+        assert exhibit_kind("https://x.example/") == "home"
+        assert exhibit_kind("https://x.example/pages/privacy-policy") == "legal"
+        assert exhibit_kind("https://x.example/terms-of-service") == "legal"
+        assert exhibit_kind("https://x.example/responsible-play") == "legal"
+        assert exhibit_kind("https://x.example/promotions") == "promo"
+        assert exhibit_kind("https://x.example/games/slots/piggy-power") == "other"
+        pages = [
+            {"url": "https://x.example/pages/privacy-policy"},
+            {"url": "https://x.example/games/slots/piggy-power"},
+            {"url": "https://x.example/promotions"},
+            {"url": "https://x.example/terms-of-service"},
+            {"url": "https://x.example/promotions/refer-a-friend"},
+        ]
+        got = rank_exhibit_pages(pages, home_url="https://x.example", limit=3)
+        assert got == [
+            "https://x.example",
+            "https://x.example/promotions",
+            "https://x.example/games/slots/piggy-power",
+        ]
+
+
+class TestConsentDismissal:
+    """The browser playbook's own recipe (click_text 'Accept All' / 'Accept'),
+    reading the tool's answer properly: browser_click_text reports success
+    even when it fell through to 'Home' (High 5, 2026-08-16)."""
+
+    @pytest.mark.asyncio
+    async def test_only_a_click_that_landed_on_the_label_counts(self) -> None:
+        from core.watch_observe import dismiss_consent
+
+        class _B:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict]] = []
+                self.banner_up = True
+
+            async def call_tool(self, name: str, args: dict) -> dict:
+                self.calls.append((name, args))
+                if name == "browser_click_text":
+                    if args["text"] == "Accept" and self.banner_up:
+                        self.banner_up = False
+                        return {"success": True, "matchedText": "Accept", "matchedTag": "button"}
+                    # the tool's fall-through: "success" on an unrelated element
+                    return {"success": True, "matchedText": "Home", "matchedTag": "a"}
+                if name == "browser_get_elements":
+                    return {"elements": "[0]:<a>Home</a> [1]:<button>Accept</button>"}
+                return {"success": True}
+
+        b = _B()
+        n = await dismiss_consent(b)
+        assert n == 1
+        assert not b.banner_up
+        # "Accept All"/"Allow all" fall-throughs were NOT counted as hits
+        clicked = [a["text"] for nm, a in b.calls if nm == "browser_click_text"]
+        assert "Accept All" in clicked and "Accept" in clicked
+
+
+class TestOfferFacts:
+    def test_welcome_and_ongoing_from_promo_evidence(self) -> None:
+        from tools.watch.tools import _offer_facts
+
+        card = {
+            "rows": [
+                {"name": "Us", "is_self": True, "rank": 2, "overall": {"normalized_pct": 60.0}},
+                {"name": "Rival", "is_self": False, "rank": 1, "overall": {"normalized_pct": 70.0}},
+                {"name": "Quiet", "is_self": False, "rank": 3, "overall": {"normalized_pct": 50.0}},
+            ]
+        }
+        ev = [
+            {"subject": "Rival", "dimension": "Promotional proposition and generosity",
+             "claim": "New players get 200% extra Gold Coins on first purchase.",
+             "value_text": "200% extra", "source_url": "https://r.example/promotions",
+             "observed_at": "2026-08-16"},
+            {"subject": "Rival", "dimension": "Promotional proposition and generosity",
+             "claim": "Daily login bonus of free coins.", "value_text": "Daily",
+             "source_url": "https://r.example", "observed_at": "2026-08-16"},
+            {"subject": "Us", "dimension": "Loyalty programme and proposition",
+             "claim": "Weekly wheel spin for members.", "value_text": "",
+             "source_url": "https://u.example", "observed_at": "2026-08-16"},
+            {"subject": "Rival", "dimension": "Game portfolio and category range",
+             "claim": "1,200 games.", "value_text": "", "source_url": "", "observed_at": ""},
+        ]
+        exhibits = {"Rival": [{"path": "/tmp/r-promo.jpg", "url": "https://r.example/promotions", "kind": "promo"}]}
+        offers = _offer_facts(card, ev, exhibits)
+        assert [o["brand"] for o in offers] == ["Us", "Rival", "Quiet"]  # ours first, then rank
+        rival = offers[1]
+        assert rival["welcome"].startswith("New players get 200%")
+        assert rival["ongoing"].startswith("Daily login bonus")
+        assert rival["exhibit"]["kind"] == "promo"
+        us = offers[0]
+        assert us["welcome"] == "Weekly wheel spin for members."  # newest promo claim when no welcome
+        assert offers[2]["welcome"] == "" and offers[2]["ongoing"] == ""  # census, honest blank

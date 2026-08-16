@@ -871,11 +871,16 @@ the judged implications, and the evidence gaps.
 Return STRICT JSON:
 {"headline": str,
  "bullets": [str, ...],
- "exec": {"findings": [str, ...], "threats": [str, ...], "watch": [str, ...]},
- "titles": {"standings": str, "versus": str, "dimensions": str,
+ "exec": {"findings": [str, ...], "threats": [str, ...], "watch": [str, ...],
+          "by_dimension": [{"dimension": str, "observations": [str, ...]}],
+          "recommendation": str, "actions": [str, ...]},
+ "titles": {"standings": str, "versus": str, "dimensions": str, "offers": str,
             "changes": str, "coverage": str},
- "commentary": {"standings": str, "versus": str, "dimensions": str,
+ "commentary": {"standings": str, "versus": str, "dimensions": str, "offers": str,
                 "changes": str, "coverage": str, "glance": str},
+ "slides": {"standings": {"observations": [str, ...], "implications": [str, ...]},
+            "versus": {...}, "dimensions": {...}, "offers": {...},
+            "exhibits": {...}, "coverage": {...}},
  "profiles": [{"brand": str, "title": str,
                "observations": [str, ...], "implications": [str, ...]}],
  "next_steps": [str, ...]}
@@ -883,17 +888,30 @@ Return STRICT JSON:
 - headline: one sentence, at most 14 words – the single thing the room must
   take away. Lead with the so-what for US, not a description of the market.
 - bullets: 3 to 5, each at most 20 words, priority order.
-- exec: what the room reads first, three columns –
-  findings: 3-4 market findings (what competitors are doing, who moved);
-  threats: 2-3 competitive threats to US, sharpest first;
-  watch: 2-3 things to watch or act on next period.
-  Each entry at most 18 words, grounded only in the facts given.
+- exec: the executive summary slide, read first and often alone –
+  by_dimension: one entry per dimension in dimensions_by_weight, SAME
+    order, SAME names; 2 observations each (max 16 words): who leads it and
+    with what, and where WE stand on it. Name brands; cite the fact.
+  recommendation: 1-2 sentences (max 40 words) – what we should do, stated
+    as a decision the room can take or refuse.
+  actions: 2-3 concrete next actions (max 14 words each).
+  findings / threats / watch: as before – findings: 3-4 market findings;
+    threats: 2-3 competitive threats to US, sharpest first; watch: 2-3
+    things to watch next period. Each entry at most 18 words.
+- slides: the reading panel every analytical slide carries – for each of
+  standings, versus, dimensions, offers, exhibits, coverage:
+  observations: 2-4 lines on what THAT slide shows (max 20 words each);
+  implications: 1-3 lines on what it means for US (max 18 words each).
+  "offers" reads offers_observed – who leads on welcome generosity, what
+  the ongoing propositions have in common, where ours sits. "exhibits" is
+  what the storefronts visibly emphasise (offer-led vs game-led vs
+  trust-led). Never repeat a chart's numbers back; say what they mean.
 - titles: an ACTION TITLE per slide – a sentence someone could disagree with
   ("High 5 leads a thin field"), never a label ("Standings overview").
   At most 10 words each.
 - commentary: one line per slide (max 22 words) telling the room what to take
   from that slide. "glance" covers the headline-numbers slide; "dimensions"
-  covers the who-leads-each-dimension breakout.
+  covers the who-leads-each-dimension breakout; "offers" the offers table.
 - profiles: one per brand listed in brand_facts EXCEPT ours, in the given
   order. For each brand:
   title – an action title about THAT brand's market position, max 10 words;
@@ -931,20 +949,31 @@ def _collect_exhibits(
     directory, so a walled brand still shows its storefront."""
     from pathlib import Path
 
+    from core.watch_observe import exhibit_kind
+
+    _order = {"home": 0, "promo": 1, "other": 2}
     out: dict[str, list[dict[str, str]]] = {}
     seen: set[str] = set()
     for e in evidence:
         pth = str(e.get("screenshot_path") or "")
         if not pth or pth in seen or not Path(pth).exists():
             continue
+        url = str(e.get("source_url") or "")
+        kind = exhibit_kind(url) if url else ("home" if pth.endswith("-home.jpg") else "other")
+        if kind == "legal":
+            continue  # a privacy policy is evidence, never an exhibit
         seen.add(pth)
         out.setdefault(str(e.get("subject") or ""), []).append(
             {
                 "path": pth,
-                "url": str(e.get("source_url") or ""),
+                "url": url,
                 "observed_at": str(e.get("observed_at") or ""),
+                "kind": kind,
             }
         )
+    for name in out:
+        # newest-first input; stable sort keeps newest within a kind
+        out[name].sort(key=lambda s: _order.get(s.get("kind", "other"), 2))
     ws = str(getattr(config, "workspace", "") or "").strip()
     if ws:
         root = Path(ws).expanduser()
@@ -960,8 +989,16 @@ def _collect_exhibits(
             if not d.is_dir():
                 continue
             files = sorted(d.glob("*.jpg"), key=lambda f: f.name, reverse=True)
-            if files:
-                out[name] = [{"path": str(f), "url": "", "observed_at": ""} for f in files[:3]]
+            picked: list[dict[str, str]] = []
+            for f in files:
+                stem = f.name.split("-", 1)[-1].rsplit(".", 1)[0]  # after YYYYMMDD-
+                kind = "home" if stem == "home" else exhibit_kind("/" + stem.replace("-", "/"))
+                if kind == "legal":
+                    continue
+                picked.append({"path": str(f), "url": "", "observed_at": "", "kind": kind})
+            picked.sort(key=lambda s: _order.get(s.get("kind", "other"), 2))
+            if picked:
+                out[name] = picked[:3]
     return {k: v[:3] for k, v in out.items() if v}
 
 
@@ -971,6 +1008,13 @@ def _brand_facts(card: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[s
     per dimension per brand so eight lines cover the whole product."""
     rows = card.get("rows", [])
     ranked = [r for r in rows if r.get("rank") is not None]
+    if not ranked:
+        # Ranks withheld (field not yet comparable) — the deep dives still
+        # profile the strongest peers by score; scores are real, ranks are not.
+        ranked = sorted(
+            [r for r in rows if r["overall"]["normalized_pct"] is not None],
+            key=lambda r: -float(r["overall"]["normalized_pct"]),
+        )
     picks: list[str] = []
     for r in ranked:
         if not r.get("is_self"):
@@ -1002,6 +1046,94 @@ def _brand_facts(card: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[s
     return facts
 
 
+_WELCOME_RE = __import__("re").compile(
+    r"welcome|sign[- ]?up|new (player|user|customer)s?|first[- ]time|register|"
+    r"joining|on registration|\d+\s*%\s*(extra|more|bonus)|no purchase",
+    __import__("re").I,
+)
+_ONGOING_RE = __import__("re").compile(
+    r"daily|every day|ongoing|weekly|login|log-in|wheel|jackpot|giveaway|"
+    r"tournament|leaderboard|challenge|quest|social media|refer",
+    __import__("re").I,
+)
+
+
+def _offer_facts(
+    card: dict[str, Any],
+    evidence: list[dict[str, Any]],
+    exhibits: dict[str, list[dict[str, str]]] | None = None,
+) -> list[dict[str, Any]]:
+    """Per brand, the headline welcome offer and the ongoing proposition —
+    verbatim claims from the promotions dimension, newest first — plus the
+    promotions-page exhibit when one was captured. Ranked order, ours
+    included; brands with nothing observed on promotions are listed with
+    the honest blank so the table is a census, not a highlight reel."""
+    rows = card.get("rows", [])
+    order = sorted(
+        rows,
+        key=lambda r: (
+            not r.get("is_self"),
+            r.get("rank") if r.get("rank") is not None else 99,
+            -(float(r["overall"]["normalized_pct"] or 0)),
+        ),
+    )
+    by_brand: dict[str, list[dict[str, Any]]] = {}
+    for e in evidence:  # newest first
+        dim = str(e.get("dimension") or "").lower()
+        if not ("promo" in dim or "loyalty" in dim or "offer" in dim or "bonus" in dim):
+            continue
+        claim = str(e.get("claim") or "").strip()
+        if claim:
+            by_brand.setdefault(str(e.get("subject") or ""), []).append(e)
+    out: list[dict[str, Any]] = []
+    for r in order:
+        name = str(r["name"])
+        rows_e = by_brand.get(name, [])
+        welcome = next(
+            (
+                str(e.get("claim"))
+                for e in rows_e
+                if _WELCOME_RE.search(
+                    str(e.get("claim") or "") + " " + str(e.get("value_text") or "")
+                )
+            ),
+            "",
+        )
+        ongoing = next(
+            (
+                str(e.get("claim"))
+                for e in rows_e
+                if str(e.get("claim")) != welcome
+                and _ONGOING_RE.search(
+                    str(e.get("claim") or "") + " " + str(e.get("value_text") or "")
+                )
+            ),
+            "",
+        )
+        if not welcome and rows_e:
+            welcome = str(rows_e[0].get("claim"))  # newest promo claim, whatever it is
+        src_row = next(
+            (e for e in rows_e if str(e.get("claim")) == welcome), rows_e[0] if rows_e else {}
+        )
+        promo_shot = next(
+            (s for s in (exhibits or {}).get(name, []) if s.get("kind") == "promo"),
+            None,
+        )
+        out.append(
+            {
+                "brand": name,
+                "is_self": bool(r.get("is_self")),
+                "rank": r.get("rank"),
+                "welcome": welcome,
+                "ongoing": ongoing,
+                "url": str(src_row.get("source_url") or ""),
+                "observed_at": str(src_row.get("observed_at") or ""),
+                "exhibit": promo_shot,
+            }
+        )
+    return out
+
+
 async def _narrate_for_deck(
     router: Any,
     *,
@@ -1010,12 +1142,15 @@ async def _narrate_for_deck(
     judged: list[dict[str, Any]],
     gaps: list[dict[str, Any]],
     evidence: list[dict[str, Any]] | None = None,
+    offers: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The deck's words. Model-written from facts when a router exists;
     otherwise the computed factual fallback — and the deck labels which."""
-    from core.watch_deck import factual_narrative
+    from core.watch_deck import _slides_facts, factual_narrative
 
     fallback = factual_narrative(card, diff, judged, gaps)
+    if offers:
+        fallback["slides"] = _slides_facts(card, offers)
     if router is None:
         return fallback
     import json as _json
@@ -1052,6 +1187,48 @@ async def _narrate_for_deck(
         ),
         "implications": judged,
         "brand_facts": _brand_facts(card, evidence or []),
+        "dimensions_by_weight": [
+            {
+                "dimension": d["name"],
+                "weight_pct": d.get("weight_pct"),
+                "top_score": max(
+                    [
+                        float(r["dimensions"][d["name"]]["score"])
+                        for r in rows
+                        if r.get("dimensions", {}).get(d["name"], {}).get("score") is not None
+                    ]
+                    or [0]
+                ),
+                "leaders": [
+                    r["name"]
+                    for r in rows
+                    if r.get("dimensions", {}).get(d["name"], {}).get("score") is not None
+                    and float(r["dimensions"][d["name"]]["score"])
+                    == max(
+                        float(x["dimensions"][d["name"]]["score"])
+                        for x in rows
+                        if x.get("dimensions", {}).get(d["name"], {}).get("score") is not None
+                    )
+                ][:3],
+                "ours": {
+                    r["name"]: r.get("dimensions", {}).get(d["name"], {}).get("score")
+                    for r in rows
+                    if r.get("is_self")
+                },
+            }
+            for d in sorted(
+                card.get("dimensions", []), key=lambda d: -float(d.get("weight_pct") or 0)
+            )[:6]
+        ],
+        "offers_observed": [
+            {
+                "brand": o["brand"],
+                "is_us": o["is_self"],
+                "welcome": o.get("welcome") or "",
+                "ongoing": o.get("ongoing") or "",
+            }
+            for o in (offers or [])
+        ],
         "gaps": {
             "never_observed_pairs": sum(1 for g in gaps if g.get("status") == "never_observed"),
             "unobserved_brands": sorted(
@@ -1094,6 +1271,31 @@ async def _narrate_for_deck(
             for pr in (data.get("profiles") or [])
             if isinstance(pr, dict) and str(pr.get("brand") or "").strip() in known
         ]
+        known_dims = {str(d.get("name") or "") for d in card.get("dimensions", [])}
+        by_dim = [
+            {
+                "dimension": str(d.get("dimension") or "").strip(),
+                "observations": [
+                    str(o).strip() for o in (d.get("observations") or []) if str(o).strip()
+                ][:3],
+            }
+            for d in (exec_zone.get("by_dimension") or [])
+            if isinstance(d, dict) and str(d.get("dimension") or "").strip() in known_dims
+        ]
+        slides_raw = data.get("slides") or {}
+        slides = {
+            k: {
+                "observations": [
+                    str(o).strip() for o in (v.get("observations") or []) if str(o).strip()
+                ][:4],
+                "implications": [
+                    str(i).strip() for i in (v.get("implications") or []) if str(i).strip()
+                ][:3],
+            }
+            for k, v in slides_raw.items()
+            if isinstance(v, dict)
+            and k in ("standings", "versus", "dimensions", "offers", "exhibits", "coverage")
+        }
         return {
             "headline": str(data.get("headline") or "").strip(),
             "bullets": bullets[:5],
@@ -1107,7 +1309,14 @@ async def _narrate_for_deck(
                 "watch": [str(x).strip() for x in (exec_zone.get("watch") or []) if str(x).strip()][
                     :3
                 ],
+                "by_dimension": [d for d in by_dim if d["observations"]][:6]
+                or (fallback.get("exec") or {}).get("by_dimension", []),
+                "recommendation": str(exec_zone.get("recommendation") or "").strip(),
+                "actions": [
+                    str(a).strip() for a in (exec_zone.get("actions") or []) if str(a).strip()
+                ][:3],
             },
+            "slides": slides or fallback.get("slides", {}),
             "profiles": [pr for pr in profiles if pr["observations"]][:8],
             "titles": {
                 k: str(v).strip() for k, v in (data.get("titles") or {}).items() if str(v).strip()
@@ -1408,6 +1617,8 @@ class WatchBoardReportTool(_WatchToolBase):
                 from core.watch_deck import render_executive_deck
 
                 ev_rows = await wm.evidence_with_names(cid)
+                exhibits = _collect_exhibits(ev_rows, card.get("rows", []), self._config)
+                offers = _offer_facts(card, ev_rows, exhibits)
                 summary = await _narrate_for_deck(
                     self._router,
                     card=card,
@@ -1415,6 +1626,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     judged=judged,
                     gaps=gaps,
                     evidence=ev_rows,
+                    offers=offers,
                 )
                 deck_written = render_executive_deck(
                     card,
@@ -1423,7 +1635,8 @@ class WatchBoardReportTool(_WatchToolBase):
                     summary=summary,
                     gaps=gaps,
                     evidence_count=len(ev_rows),
-                    screenshots=_collect_exhibits(ev_rows, card.get("rows", []), self._config),
+                    screenshots=exhibits,
+                    offers=offers,
                     path=deck_target,
                 )
             except Exception as e:
@@ -1543,6 +1756,8 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         judge = WatchBoardReportTool()
         judge._router = self._router
         judged = await judge._judge(diff) if diff else []
+        exhibits = _collect_exhibits(evidence, card.get("rows", []), self._config)
+        offers = _offer_facts(card, evidence, exhibits)
         summary = await _narrate_for_deck(
             self._router,
             card=card,
@@ -1550,6 +1765,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
             judged=judged,
             gaps=gaps,
             evidence=evidence,
+            offers=offers,
         )
         try:
             from core.watch_deck import render_executive_deck
@@ -1561,7 +1777,8 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 summary=summary,
                 gaps=gaps,
                 evidence_count=len(evidence),
-                screenshots=_collect_exhibits(evidence, card.get("rows", []), self._config),
+                screenshots=exhibits,
+                offers=offers,
                 path=path,
                 title=str(params.get("title") or "Competitive Intelligence — Executive Briefing"),
                 market_label=str(params.get("market_label") or ""),
@@ -2146,14 +2363,15 @@ class WatchAnalyzeTool(_WatchToolBase):
         elif not params.get("screenshots", True):
             shots_note = "disabled by caller"
         if params.get("screenshots", True) and self._browser_manager is not None:
-            targets: list[str] = []
-            if subj.url:
-                targets.append(subj.url)
-            for p_ in readable:
-                u = str(p_.get("url") or "")
-                if u and u not in targets:
-                    targets.append(u)
-            targets = targets[:3]
+            from core.watch_observe import rank_exhibit_pages
+
+            # Home, then the promotions page, then one more product page —
+            # never a privacy policy or terms page as the brand's exhibit.
+            targets: list[str] = rank_exhibit_pages(
+                [{"url": p_.get("url"), "title": p_.get("title")} for p_ in readable],
+                home_url=str(subj.url or ""),
+                limit=3,
+            )
             if targets:
                 allowed = True
                 if geo_state != "n/a":

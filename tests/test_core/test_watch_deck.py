@@ -44,9 +44,21 @@ class _DeckRouter:
                 '"Two dimensions remain unobserved for Rival Two."], '
                 '"exec": {"findings": ["Rival One cut its welcome offer this period."], '
                 '"threats": ["Rival One still out-promos us on Promos."], '
-                '"watch": ["Watch Rival Two – Trust newly published."]}, '
+                '"watch": ["Watch Rival Two – Trust newly published."], '
+                '"by_dimension": [{"dimension": "Promos", "observations": '
+                '["Rival One leads promos with a 200% welcome bundle.", '
+                '"OurBrand trails by two points on Promos."]}, '
+                '{"dimension": "Not A Dimension", "observations": ["dropped"]}], '
+                '"recommendation": "Match the welcome bundle before Q4 or cede the promos lead.", '
+                '"actions": ["Approve a Q4 welcome bundle", "Refresh Rival Two next cycle"]}, '
                 '"titles": {"standings": "OurBrand leads a thin field"}, '
                 '"commentary": {"standings": "Amber is us – the lead is real but narrow."}, '
+                '"slides": {"standings": {"observations": '
+                '["OurBrand leads; Rival One is one point back."], '
+                '"implications": ["The lead is narrow – one promo cycle could flip it."]}, '
+                '"offers": {"observations": '
+                '["Rival One is the only brand stating a percentage welcome offer."], '
+                '"implications": ["Our welcome offer is unstated on the pages read."]}}, '
                 '"profiles": [{"brand": "Rival One", "title": "closing fast on promotions", '
                 '"observations": ["Runs a two-tier welcome offer with daily login bonuses."], '
                 '"implications": ["Our promo calendar needs a counter before Q4."]}, '
@@ -234,8 +246,13 @@ class TestFactAndJudgementAreLabelled:
         assert res.data["summary_source"] == "facts"
         summary = _slide(slides, "Executive summary")
         assert "Facts only" in summary["text"]
-        assert "OurBrand ranks #1" in summary["text"]
-        assert "5 material changes" in summary["text"]
+        # Reference-style summary: dimension columns + a "where we stand" strip.
+        assert "OurBrand – #1" in summary["text"]
+        assert "WHERE WE STAND" in summary["text"]
+        # Baseline / change count is stated on the market-moves slide.
+        assert "5 material" in _slide(slides, "Market moves")["text"] or any(
+            "5 material" in s["text"] for s in slides
+        )
 
     @pytest.mark.asyncio
     async def test_without_a_model_decisions_are_not_evaluated_not_none(self, wm, tmp_path) -> None:
@@ -338,7 +355,7 @@ class TestFirstCycle:
         res, slides = await _deck(wm, tmp_path)
         assert res.data["material_count"] == 0
         assert "First reporting cycle" in _slide(slides, "Baseline established")["text"]
-        assert "sets the baseline" in _slide(slides, "Executive summary")["text"]
+        assert any("sets the baseline" in s["text"] for s in slides)
 
 
 class TestEvidenceSlide:
@@ -363,7 +380,7 @@ class TestDeckShape:
         await _market(wm)
         res, _ = await _deck(wm, tmp_path, router=_DeckRouter())
         prs = Presentation(res.data["path"])
-        assert len(prs.slides) == 15
+        assert len(prs.slides) == 16
         W, H = prs.slide_width, prs.slide_height
         for sl in prs.slides:
             for sh in sl.shapes:
@@ -393,7 +410,7 @@ class TestDeckShape:
         assert "(1/3)" in titles[0] and "(3/3)" in titles[2]
         # 12 core + dimension-leaders + 2 extra judgement pages, no profiles
         # (this router returns no profile section).
-        assert len(Presentation(res.data["path"]).slides) == 15
+        assert len(Presentation(res.data["path"]).slides) == 16
 
     @pytest.mark.asyncio
     async def test_extension_is_forced_to_pptx(self, wm, tmp_path) -> None:
@@ -531,10 +548,14 @@ class TestMarketFacingDeck:
         await _market(wm)
         _res, slides = await _deck(wm, tmp_path, router=_DeckRouter())
         summary = _slide(slides, "Executive summary")
-        for zone in ("KEY FINDINGS", "KEY THREATS", "WATCH NEXT"):
+        # The reference-deck shape: dimension columns with numbered observations,
+        # then Recommendation / Where we stand / Decisions. The model's
+        # by_dimension entries land in the columns; its recommendation in the strip.
+        for zone in ("RECOMMENDATION", "WHERE WE STAND", "DECISIONS / NEXT STEPS"):
             assert zone in summary["text"]
-        assert "Rival One cut its welcome offer" in summary["text"]
-        assert "Rival One still out-promos us" in summary["text"]
+        assert "Rival One leads promos with a 200% welcome bundle" in summary["text"]
+        assert "Match the welcome bundle" in summary["text"]
+        # Findings/threats/watch remain the fallback shape when no columns are given.
 
     @pytest.mark.asyncio
     async def test_competitor_profiles_render_observations_and_implications(
@@ -739,3 +760,33 @@ class TestDimensionLeaders:
         assert "VERSUS THE LEADER" in texts[0]
         assert "Who leads each dimension" in texts[1]
         assert "COMPETITOR DEEP DIVE" in texts[2]
+
+
+class TestReferenceStyleDeck:
+    """The customer's reference decks: every analytical slide carries a Key
+    observations / Key implications panel; the offers on the table are a
+    slide of their own; the summary is dimension columns + a decision strip."""
+
+    @pytest.mark.asyncio
+    async def test_reading_panels_and_offers_slide(self, wm, tmp_path) -> None:
+        await _market(wm)
+        _res, slides = await _deck(wm, tmp_path, router=_DeckRouter())
+        standings = _slide(slides, "OurBrand leads a thin field")
+        assert "Key observations" in standings["text"]
+        assert "OurBrand leads; Rival One is one point back." in standings["text"]
+        assert "Key implications" in standings["text"]
+        offers = _slide(slides, "The offers on the table")
+        # (table cells are not text frames; the panel and footnote are)
+        assert "Rival One is the only brand stating a percentage welcome offer." in offers["text"]
+        assert "Offer text as published" in offers["text"]
+        # summary strip
+        summary = _slide(slides, "Executive summary")
+        assert "Approve a Q4 welcome bundle" in summary["text"]
+
+    @pytest.mark.asyncio
+    async def test_facts_only_deck_still_carries_computed_panels(self, wm, tmp_path) -> None:
+        await _market(wm)
+        _res, slides = await _deck(wm, tmp_path)
+        standings = _slide(slides, "Where the market stands")
+        assert "Key observations" in standings["text"]
+        assert "leads the ranked field" in standings["text"]

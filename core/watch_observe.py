@@ -333,6 +333,15 @@ Hard rules:
 - Most pages support only a few dimensions. Omit the rest. Returning fewer,
   solid facts is correct; padding is a failure.
 - Never infer from brand knowledge, only from this page.
+- MARKET EVENTS ARE NEVER DROPPED. If the page announces that the brand is
+  closing, exiting a state or country, being acquired, merging, rebranding,
+  launching in a new state, or under a regulatory notice, file it as a
+  claim under the closest dimension (usually the availability / market
+  dimension, else the marketing one) with the date in value_text — even if
+  it fits no sub-criterion. A shutdown notice is the most material fact a
+  page can carry; a register that misses it because it "fits no dimension"
+  has failed (LuckyLand, 2026-08-16: "closing September 14, 2026" was on
+  the homepage and the register recorded nothing).
 
 Return STRICT JSON: {"claims":[{"dimension":str,"subcriterion":str,"claim":str,\
 "value_text":str,"excerpt":str}]}"""
@@ -462,6 +471,153 @@ async def _browser_html(browser_manager: Any, url: str) -> str:
         return ""
 
 
+# ── Which pages deserve to be exhibits ─────────────────────────────────────
+# A storefront pack shows the storefront. In the run of 2026-08-16 four of
+# fourteen exhibits were a privacy policy, terms of service, a responsible-
+# play page or a deep slot-game URL — the picker took "the first readable
+# pages" instead of "the pages a visitor sees". Rank instead: the homepage,
+# then the promotions/offers page (what the market is actually selling),
+# then other product pages; legal and account pages are never exhibits.
+_LEGAL_RE = re.compile(
+    r"privacy|terms|tos\b|conditions|cookie|responsible|legal|rules|sweeps|"
+    r"sweepstake|policy|faq|help|support|contact|about|login|log-in|signin|"
+    r"sign-in|register|signup|sign-up|account|careers|press|affiliate",
+    re.I,
+)
+_PROMO_RE = re.compile(
+    r"promo|promotion|offer|bonus|welcome|reward|loyalty|vip|deal|free-coins|"
+    r"daily|jackpot|giveaway|sale",
+    re.I,
+)
+
+
+def exhibit_kind(url: str, title: str = "") -> str:
+    """'home' | 'promo' | 'legal' | 'other' — the exhibit picker's ranking."""
+    from urllib.parse import urlparse
+
+    try:
+        path = (urlparse(url).path or "/").rstrip("/") or "/"
+    except Exception:
+        path = "/"
+    hay = f"{path} {title or ''}"
+    if path == "/" or path.lower() in ("/home", "/index.html", "/index"):
+        return "home"
+    if _LEGAL_RE.search(hay):
+        return "legal"
+    if _PROMO_RE.search(hay):
+        return "promo"
+    return "other"
+
+
+def rank_exhibit_pages(
+    pages: list[dict[str, Any]], *, home_url: str = "", limit: int = 3
+) -> list[str]:
+    """Order candidate URLs for capture: home, best promo page, then other
+    product pages — never a legal page. ``pages`` are ``{url, title?}``."""
+    _order = {"home": 0, "promo": 1, "other": 2}
+    seen: set[str] = set()
+    cands: list[tuple[int, int, str]] = []
+    if home_url:
+        cands.append((0, -1, home_url))
+        seen.add(home_url)
+    for i, p in enumerate(pages):
+        u = str(p.get("url") or "")
+        if not u or u in seen:
+            continue
+        kind = exhibit_kind(u, str(p.get("title") or ""))
+        if kind == "legal":
+            continue
+        seen.add(u)
+        cands.append((_order[kind], i, u))
+    cands.sort()
+    out: list[str] = []
+    kinds_taken: set[str] = set()
+    for rank, _, u in cands:
+        # one home, one promo, then others — a pack wants variety, not three
+        # promo pages
+        kind = {0: "home", 1: "promo", 2: "other"}[rank]
+        if kind in ("home", "promo") and kind in kinds_taken:
+            continue
+        kinds_taken.add(kind)
+        out.append(u)
+        if len(out) >= limit:
+            break
+    return out
+
+
+# The browser-automation playbook's own recipe for consent banners, verbatim:
+# browser_click_text("Accept All") / ("Accept"), then fall back to
+# browser_get_elements to find the consent button. Two rounds, because some
+# storefronts stack a bar and a modal (LuckyLand). Best-effort throughout —
+# a banner that will not close is still a capturable page.
+_CONSENT_LABELS = ("Accept All", "Accept all cookies", "Allow all", "Accept", "I agree", "Got it")
+_CONSENT_WORDS = ("accept", "agree", "allow all", "got it", "consent")
+
+
+def _consent_click_landed(res: Any, wanted: str) -> bool:
+    """``browser_click_text`` reports success even when it fell through to an
+    unrelated element (High 5, 2026-08-16: asked for "Accept All", clicked
+    "Home", success=true). Trust ``matchedText``, not the flag."""
+    data = res if isinstance(res, dict) else {}
+    if not data.get("success") and isinstance(data.get("result"), dict):
+        data = data["result"]
+    if not data.get("success"):
+        return False
+    matched = str(data.get("matchedText") or "").strip().lower()
+    return bool(matched) and wanted.lower() in matched
+
+
+async def dismiss_consent(browser_manager: Any, *, rounds: int = 2) -> int:
+    """Click through cookie-consent / privacy-choice overlays before an
+    exhibit is captured, exactly the way the browser skill does it by hand.
+    Returns the number of overlays clicked; never raises."""
+    if browser_manager is None:
+        return 0
+    clicked = 0
+    for _ in range(max(1, rounds)):
+        hit = False
+        for label in _CONSENT_LABELS:
+            try:
+                res = await browser_manager.call_tool(
+                    "browser_click_text", {"text": label, "exact": True}
+                )
+            except Exception:
+                continue
+            if _consent_click_landed(res, label):
+                hit = True
+                clicked += 1
+                break
+        if not hit:
+            # Playbook fallback: look at what is actually clickable, then
+            # try the consent words as substrings — accepting only a click
+            # that landed on an element carrying that word.
+            try:
+                els = await browser_manager.call_tool("browser_get_elements", {})
+            except Exception:
+                els = None
+            text = _result_text(els).lower()
+            for word in _CONSENT_WORDS:
+                if word not in text:
+                    continue
+                try:
+                    res = await browser_manager.call_tool(
+                        "browser_click_text", {"text": word, "exact": False}
+                    )
+                except Exception:
+                    continue
+                if _consent_click_landed(res, word):
+                    hit = True
+                    clicked += 1
+                    break
+        if not hit:
+            break
+        try:
+            await browser_manager.call_tool("browser_wait", {"ms": 600})
+        except Exception:
+            pass
+    return clicked
+
+
 async def capture_page_screenshot(
     browser_manager: Any,
     url: str,
@@ -482,6 +638,7 @@ async def capture_page_screenshot(
     try:
         if navigate:
             await browser_manager.call_tool("browser_navigate", {"url": url})
+        await dismiss_consent(browser_manager)
         payload = await browser_manager.call_tool("browser_capture", {"path": out_path})
         data = payload if isinstance(payload, dict) else {}
         # Bridge results sometimes arrive wrapped ({"result": {...}}) or as
