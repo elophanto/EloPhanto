@@ -48,6 +48,9 @@ def _flatten_tool_trail(tool_trace: list[dict[str, Any]] | None) -> str:
         data = row.get("data")
         if data is not None:
             parts.append(str(data)[:1500])
+        out = row.get("output")
+        if out:
+            parts.append(str(out)[:2000])
         err = row.get("error")
         if err:
             parts.append(str(err)[:300])

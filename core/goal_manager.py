@@ -1182,11 +1182,12 @@ class GoalManager:
                 goal.updated_at = now
                 await self._persist_goal(goal)
         else:
-            # Reset to pending for retry
+            # Reset to pending for retry — and keep the reason, so the
+            # retry prompt can say why the last attempt failed.
             await self._db.execute(
-                "UPDATE goal_checkpoints SET status = 'pending' "
+                "UPDATE goal_checkpoints SET status = 'pending', result_summary = ? "
                 "WHERE goal_id = ? AND checkpoint_order = ?",
-                (goal_id, order),
+                (f"Attempt {attempts} failed: {error}"[:1000], goal_id, order),
             )
 
     # --- Context management ---

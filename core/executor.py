@@ -140,6 +140,9 @@ class Executor:
         self._on_tool_executed: (
             Callable[[str, dict[str, Any], str | None], None] | None
         ) = None
+        # Fired after a successful execution WITH the result, so a receipt
+        # trail can see what a tool answered — not only what it was asked.
+        self._on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None
         # Affect handle — set by Agent.initialize() when affect is up.
         # Fire mild anxiety on tool-execution exceptions and on
         # ToolResult.success=False outcomes. See docs/69-AFFECT.md.
@@ -361,6 +364,11 @@ class Executor:
             if self._on_tool_executed:
                 try:
                     self._on_tool_executed(tool_name, params, None)
+                except Exception:
+                    pass
+            if self._on_tool_result:
+                try:
+                    self._on_tool_result(tool_name, params, result)
                 except Exception:
                     pass
             # Affect: a clean exception didn't fire, but the tool may

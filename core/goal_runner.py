@@ -64,6 +64,22 @@ INSTRUCTIONS:
 """
 
 
+def _attach_tool_output(tool_trace: list[dict[str, Any]], name: str, result: Any) -> None:
+    """Attach what a tool ANSWERED to its trace row, so the receipt gate can
+    ground counts in outputs, not only in the parameters it was called with
+    (2026-08-16: "exactly 14 subjects" could never be grounded because the
+    register listing was a result, and results were never recorded)."""
+    try:
+        payload = result.to_dict() if hasattr(result, "to_dict") else result
+        text = str(payload)
+    except Exception:
+        text = ""
+    for row in reversed(tool_trace):
+        if row.get("tool") == name and "output" not in row:
+            row["output"] = text[:2000]
+            return
+
+
 class GoalRunner:
     """Executes goal checkpoints autonomously as background asyncio tasks."""
 
@@ -449,19 +465,37 @@ class GoalRunner:
         return float(min(base * max(1, attempt_no), base * 4))
 
     @staticmethod
-    def _retry_note(attempt_no: int) -> str:
-        """Prompt addendum for retries: finished work is real, keep it."""
+    def _retry_note(attempt_no: int, last_failure: str = "") -> str:
+        """Prompt addendum for retries: finished work is real, keep it —
+        and say WHY the last attempt failed, so the retry can fix that
+        instead of repeating it. On 2026-08-16 a checkpoint did all four
+        brand analyses, failed the receipt gate three times over one
+        ungrounded count ("exactly 14 subjects"), and every retry was told
+        nothing about it."""
         if attempt_no <= 1:
             return ""
-        return (
+        note = (
             f"\nRETRY NOTE (attempt {attempt_no}): a previous attempt of this "
-            "checkpoint ran out of time partway through. The work it "
-            "completed is real and its receipts count for THIS run — first "
-            "check which parts are already done (query the relevant store or "
-            "organ for rows created during this run), then do ONLY the "
-            "remainder. Redoing finished work is how the previous attempt "
-            "died.\n"
+            "checkpoint did not pass. The work it completed is real and its "
+            "receipts count for THIS run — first check which parts are "
+            "already done (query the relevant store or organ for rows "
+            "created during this run), then do ONLY the remainder. Redoing "
+            "finished work is how the previous attempt died.\n"
         )
+        reason = (last_failure or "").strip()
+        if reason:
+            note += f"Why the last attempt failed: {reason[:400]}\n"
+        if "receipt_gate" in reason or "not grounded" in reason:
+            note += (
+                "The receipt gate checks that every count named in the "
+                "success criteria appears in a TOOL RESULT from this attempt "
+                "(what a tool answered, not what you wrote). Do the missing "
+                "remainder if any, then finish by calling the tool whose "
+                "output states those facts — list the register, count the "
+                "rows, show the file — so the numbers are in the trail. "
+                "Restating them in prose does not count.\n"
+            )
+        return note
 
     async def _execute_checkpoint(self, goal: Goal, checkpoint: Any) -> bool:
         """Execute a single checkpoint via agent.run(). Returns True on success."""
@@ -481,7 +515,9 @@ class GoalRunner:
                 criteria=checkpoint.success_criteria,
                 context=goal.context_summary or "(no prior context)",
             )
-            prompt += self._retry_note(attempt_no)
+            prompt += self._retry_note(
+                attempt_no, str(getattr(checkpoint, "result_summary", "") or "")
+            )
 
             # Isolate conversation history — background runs must not pollute user chat
             saved_history = list(self._agent._conversation_history)
@@ -525,7 +561,12 @@ class GoalRunner:
                     except Exception:
                         pass
 
+            def _on_result(name: str, params: dict[str, Any], result: Any) -> None:
+                _attach_tool_output(tool_trace, name, result)
+
+            prev_on_result = getattr(self._agent._executor, "_on_tool_result", None)
             self._agent._executor._on_tool_executed = _on_tool
+            self._agent._executor._on_tool_result = _on_result
 
             try:
                 response = await asyncio.wait_for(
@@ -537,6 +578,7 @@ class GoalRunner:
                 self._agent._conversation_history = saved_history
                 self._agent._executor._approval_callback = prev_approval
                 self._agent._executor._on_tool_executed = prev_on_tool
+                self._agent._executor._on_tool_result = prev_on_result
 
             # A preempted response is a YIELD, not a result. The loop gave
             # the slot to a higher-priority task (operator chat, heartbeat)
