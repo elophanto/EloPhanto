@@ -161,13 +161,18 @@ class WatchScore:
 # a narrow slice.
 _RANK_THRESHOLD_PCT = 50.0
 
-# Comparability spread. Even above the rank threshold, a brand measured on
-# 55% of the model and one measured on 95% are not standing on the same
-# ground; ranking them side by side reads as a like-for-like league table
-# when it is not. If the evidence-weight share across would-be ranked
-# brands spreads wider than this, ranking is withheld for the whole field
-# and every row is provisional with the reason stated. Scores still show.
-# The pack says "not yet comparable — collect X, Y" instead of a table.
+# Comparability spread. Even above the rank threshold, a brand measured to
+# 27% depth and one measured to 80% are not standing on the same ground;
+# ranking them side by side reads as a like-for-like league table when it is
+# not. Judged on COVERAGE (how much of each scored dimension's sub-criteria
+# the evidence actually covers) — not on the share of model weight that has
+# a score. Those differ: a brand can hold a score on 70% of the model while
+# its evidence covers 27% of what those dimensions ask (LuckyLand, 2026-08-16,
+# ranked #14 in a pack whose own receipt called the ranking non-comparable).
+# If coverage across would-be ranked brands spreads wider than this, ranking
+# is withheld for the whole field and every row is provisional with the
+# reason stated. Scores still show; the pack says "not yet comparable —
+# collect X, Y" instead of drawing a table.
 _RANK_COMPARABILITY_SPREAD_PCT = 35.0
 
 
@@ -355,21 +360,24 @@ def build_scorecard(
     rankable = [r for r in rows if not r["provisional"]]
     comparability_note = ""
     if len(rankable) >= 2:
-        shares = [float(r["evidence_weight_pct"]) for r in rankable]
-        spread = max(shares) - min(shares)
+        depths = [float(r["overall"]["coverage_pct"] or 0.0) for r in rankable]
+        spread = max(depths) - min(depths)
         if spread > comparability_spread_pct:
-            thin = sorted(rankable, key=lambda r: float(r["evidence_weight_pct"]))
+            thin = sorted(
+                rankable, key=lambda r: float(r["overall"]["coverage_pct"] or 0.0)
+            )
             comparability_note = (
-                f"evidence depth ranges {min(shares):.0f}%–{max(shares):.0f}% "
-                f"across ranked brands (spread {spread:.0f}% > "
-                f"{comparability_spread_pct:.0f}%); ranking withheld until "
+                f"evidence coverage ranges {min(depths):.0f}%–{max(depths):.0f}% "
+                f"across ranked brands (spread {spread:.0f} points > "
+                f"{comparability_spread_pct:.0f}); ranking withheld until "
                 "coverage is comparable — collect: "
                 + ", ".join(r["name"] for r in thin[:4])
             )
             for r in rankable:
                 r["provisional"] = True
                 r["provisional_reason"] = "field not comparable: " + (
-                    f"measured on {float(r['evidence_weight_pct']):.0f}% of the model"
+                    f"evidence covers {float(r['overall']['coverage_pct'] or 0):.0f}% "
+                    "of the scored dimensions"
                 )
 
     rows.sort(

@@ -218,9 +218,12 @@ to move *from*: pass `baseline=true` to `watch_board_report` (or
 `watch_executive_deck`, or `watch_analyze` when it saves the pack) and no
 snapshot is diffed — the report and deck say *baseline established* rather
 than inventing "141 material changes" out of the collection itself. And the
-scorecard withholds ranks for the whole field when evidence depth is not
-comparable across would-be ranked brands (spread wider than 35 percentage
-points of model weight measured): every row goes provisional with the reason,
+scorecard withholds ranks for the whole field when evidence *coverage* is not
+comparable across would-be ranked brands (spread wider than 35 points between
+the shallowest and deepest — coverage being how much of each scored
+dimension's sub-criteria the evidence covers, which is not the same as the
+share of model weight that merely holds a score): every row goes provisional
+with the reason,
 the report carries a *not yet a league table* banner naming which brands to
 collect, and the deck's standings slide says the same instead of drawing a
 chart. Scores are never suppressed — only the claim to a rank. Both rules came

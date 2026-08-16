@@ -878,19 +878,22 @@ class TestTheReceiptsFourFindings:
         a = WatchSubject(subject_id="a", company_id="c1", name="Deep")
         b = WatchSubject(subject_id="b", company_id="c1", name="Shallow")
 
-        def scores(sid, n, val):
+        def scores(sid, n, val, cov=100.0):
             return {
                 f"d{i}": WatchScore(score_id=f"{sid}-{i}", company_id="c1",
                                     subject_id=sid, dimension_id=f"d{i}",
-                                    score=val, coverage_pct=100.0)
+                                    score=val, coverage_pct=cov)
                 for i in range(n)
             }
 
-        # Deep measured on 100% of weight, Shallow on 60% — both clear the
-        # 50% rank threshold individually, but the 40% spread is not
-        # comparable.
+        # Both hold scores on 100% of the model weight — but Deep's evidence
+        # covers 90% of what those dimensions ask and Shallow's covers 30%.
+        # Being SCORED on a dimension is not being MEASURED to depth on it
+        # (LuckyLand 2026-08-16: scores on 70% of weight, 27% coverage,
+        # ranked #14 in a 'non-comparable' field). Judge on coverage.
         card = build_scorecard(
-            [a, b], dims, {"a": scores("a", 10, 4), "b": scores("b", 6, 5)}
+            [a, b], dims,
+            {"a": scores("a", 10, 4, cov=90.0), "b": scores("b", 10, 5, cov=30.0)},
         )
         assert card["comparability_note"]
         assert "ranking withheld" in card["comparability_note"]
@@ -900,9 +903,10 @@ class TestTheReceiptsFourFindings:
         # Scores are NOT suppressed — the figures still show.
         assert all(r["overall"]["normalized_pct"] is not None for r in card["rows"])
 
-        # Bring Shallow to 90% and the field ranks normally.
+        # Bring Shallow's coverage to 70% (spread 20) and the field ranks.
         card2 = build_scorecard(
-            [a, b], dims, {"a": scores("a", 10, 4), "b": scores("b", 9, 5)}
+            [a, b], dims,
+            {"a": scores("a", 10, 4, cov=90.0), "b": scores("b", 10, 5, cov=70.0)},
         )
         assert card2["comparability_note"] == ""
         assert [r["rank"] for r in card2["rows"]] == [1, 2]
