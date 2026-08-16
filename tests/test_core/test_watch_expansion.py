@@ -458,10 +458,11 @@ class TestCapturePageScreenshot:
         got = await capture_page_screenshot(bm, "https://x.example", str(out))
         assert got == str(out) and out.exists()
         # navigate → consent dismissal (the browser playbook's click_text
-        # recipe, best-effort) → capture. The capture is always last.
-        assert bm.calls[0][0] == "browser_navigate"
-        assert bm.calls[-1][0] == "browser_capture"
-        assert any(c[0] == "browser_click_text" for c in bm.calls)
+        # recipe, best-effort) → capture → one more look for a late banner.
+        names = [c[0] for c in bm.calls]
+        assert names[0] == "browser_navigate"
+        assert names.index("browser_click_text") < names.index("browser_capture")
+        assert names.count("browser_capture") == 1
 
     @pytest.mark.asyncio
     async def test_failure_returns_empty_never_raises(self, tmp_path) -> None:
@@ -505,6 +506,39 @@ class TestCapturePageScreenshot:
         assert "browser_click_text" in names[first_shot + 1 : len(names) - 1]
         # and a browser that fails twice is a gap, not an exception
         assert await capture_page_screenshot(_CapturingBrowser(fail=True), "https://x", str(tmp_path / "n.jpg")) == ""
+
+    @pytest.mark.asyncio
+    async def test_a_bar_that_appears_just_before_the_shot_gets_the_page_reshot(self, tmp_path) -> None:
+        """High 5, 2026-08-16 (three runs): the bar slides in only once the
+        slow page has fully loaded — after every pre-shot look. After the
+        shot one more look is taken; if that click lands, shoot again."""
+        from core.watch_observe import capture_page_screenshot
+
+        class _LateBar(_CapturingBrowser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.shots = 0
+                self.bar_up = False
+
+            async def call_tool(self, name, params):
+                if name == "browser_capture":
+                    self.shots += 1
+                    if self.shots == 1:
+                        self.bar_up = True  # the bar arrives with the (slow) first shot
+                if name == "browser_click_text" and self.bar_up and params["text"] == "Accept":
+                    self.bar_up = False
+                    self.calls.append((name, params))
+                    return {"success": True, "matchedText": "Accept", "matchedTag": "button"}
+                return await super().call_tool(name, params)
+
+        bm = _LateBar()
+        out = tmp_path / "h5" / "home.jpg"
+        assert await capture_page_screenshot(bm, "https://h5.example", str(out)) == str(out)
+        assert bm.shots == 2 and not bm.bar_up  # dirty shot detected, re-shot clean
+        # and a clean page is shot exactly once
+        clean = _CapturingBrowser()
+        assert await capture_page_screenshot(clean, "https://c.example", str(tmp_path / "c.jpg"))
+        assert sum(1 for c in clean.calls if c[0] == "browser_capture") == 1
 
     def test_filenames_are_dated_slugs(self) -> None:
         from core.watch_observe import screenshot_filename

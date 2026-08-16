@@ -587,6 +587,11 @@ async def dismiss_consent(
             except Exception:
                 continue
             if _consent_click_landed(res, label):
+                logger.info(
+                    "watch: consent dismissed via %r (matched %r)",
+                    label,
+                    (res or {}).get("matchedText") if isinstance(res, dict) else None,
+                )
                 hit = True
                 clicked += 1
                 break
@@ -609,6 +614,7 @@ async def dismiss_consent(
                 except Exception:
                     continue
                 if _consent_click_landed(res, word):
+                    logger.info("watch: consent dismissed via fallback %r", word)
                     hit = True
                     clicked += 1
                     break
@@ -681,6 +687,19 @@ async def capture_page_screenshot(
                 ok = '"success": true' in text or '"success":true' in text
                 last_err = str(data.get("error") or text)[:200]
             if ok and _Path(out_path).exists():
+                # Self-check: a consent bar that slid in AFTER the dismissal
+                # and BEFORE the shot is in the picture (High 5, 2026-08-16,
+                # three runs — its bar appears only once the slow page has
+                # fully loaded). One more quick look now; if that click
+                # lands, the picture was dirty: shoot again.
+                if attempt == 0 and await dismiss_consent(browser_manager, settle_ms=()) > 0:
+                    logger.info("watch: late consent bar on %s — re-shooting", url)
+                    try:
+                        await browser_manager.call_tool("browser_wait", {"ms": 600})
+                    except Exception:
+                        pass
+                    again = await browser_manager.call_tool("browser_capture", {"path": out_path})
+                    logger.debug("watch: re-shot %s: %s", url, _result_text(again)[:120])
                 return out_path
         logger.debug("watch: screenshot of %s failed twice: %s", url, last_err)
         return ""
