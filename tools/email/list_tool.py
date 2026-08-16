@@ -25,7 +25,8 @@ class EmailListTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "List emails in the agent's inbox. Returns message summaries (id, from, "
+            "List emails across EVERY inbox on the AgentMail account (or one via "
+            "`inbox`). Returns message summaries (inbox, id, from, "
             "subject, snippet, timestamp). Use email_read for full content."
         )
 
@@ -49,6 +50,14 @@ class EmailListTool(BaseTool):
                 "from_address": {
                     "type": "string",
                     "description": "Filter by sender email address",
+                },
+                "inbox": {
+                    "type": "string",
+                    "description": (
+                        "Inbox address or id to read (e.g. lonelydegree799@agentmail.to). "
+                        "Default: EVERY inbox on the AgentMail account, not only the "
+                        "agent's own address — the account has several."
+                    ),
                 },
             },
         }
@@ -80,32 +89,37 @@ class EmailListTool(BaseTool):
                 ),
             )
 
-        inbox_id = self._vault.get("agentmail_inbox_id")
-        if not inbox_id:
-            return ToolResult(
-                success=False,
-                error="No inbox created yet. Use email_create_inbox first.",
-            )
-
+        default_inbox = self._vault.get("agentmail_inbox_id")
         limit = params.get("limit", 20)
         offset = params.get("offset", 0)
 
         try:
             from agentmail import AgentMail
 
+            from tools.email._inboxes import list_messages, resolve_inbox
+
             client = AgentMail(api_key=api_key)
-            response = client.inboxes.messages.list(inbox_id=inbox_id)
-
-            # Process messages into summaries
-            messages_raw = getattr(response, "messages", None) or response
-            if not isinstance(messages_raw, list):
-                messages_raw = list(messages_raw) if messages_raw else []
-
-            messages_raw = messages_raw[offset : offset + limit]
+            inboxes = resolve_inbox(params.get("inbox"), client, default_inbox)
+            if not inboxes:
+                return ToolResult(
+                    success=False,
+                    error="No inbox on the account yet. Use email_create_inbox first.",
+                )
+            # Every inbox on the account, newest first across all of them.
+            tagged: list[tuple[str, Any]] = []
+            for ib in inboxes:
+                tagged.extend((ib, m) for m in list_messages(client, ib))
+            tagged.sort(
+                key=lambda t: str(
+                    getattr(t[1], "received_at", None) or getattr(t[1], "created_at", "")
+                ),
+                reverse=True,
+            )
+            tagged = tagged[offset : offset + limit]
             from_filter = params.get("from_address", "")
 
             summaries = []
-            for msg in messages_raw:
+            for inbox_id, msg in tagged:
                 sender = getattr(msg, "from_", None) or getattr(msg, "sender", "")
                 if isinstance(sender, dict):
                     sender = sender.get("email", str(sender))
@@ -116,6 +130,7 @@ class EmailListTool(BaseTool):
                 summary = {
                     "message_id": getattr(msg, "message_id", None)
                     or getattr(msg, "id", ""),
+                    "inbox": inbox_id,
                     "from": str(sender),
                     "subject": getattr(msg, "subject", ""),
                     "snippet": (
@@ -134,7 +149,7 @@ class EmailListTool(BaseTool):
             return ToolResult(
                 success=True,
                 data={
-                    "inbox_id": inbox_id,
+                    "inboxes": inboxes,
                     "messages": summaries,
                     "count": len(summaries),
                 },

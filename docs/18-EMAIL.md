@@ -176,10 +176,10 @@ email:
 |------|-----------|---------|
 | `email_create_inbox` | MODERATE | Create a new agent inbox, store address in identity |
 | `email_send` | MODERATE | Send an email from the agent's inbox |
-| `email_list` | SAFE | List emails in inbox (with filtering, pagination) |
+| `email_list` | SAFE | List emails across every inbox on the account, newest first (optional `inbox`, filtering, pagination) |
 | `email_read` | SAFE | Read a specific email (full body, headers, attachments) |
 | `email_reply` | MODERATE | Reply to an email thread |
-| `email_search` | SAFE | Semantic search across inbox |
+| `email_search` | SAFE | Search across every inbox on the account (optional `inbox`); results carry `inbox` |
 | `email_monitor` | MODERATE | Start/stop background inbox monitoring |
 
 ### `email_create_inbox` (`tools/email/create_inbox_tool.py`)
@@ -408,7 +408,7 @@ This requires exposing a webhook endpoint — would integrate with the gateway o
 
 When the agent creates an inbox, the email address is stored in two places:
 
-1. **Vault** — `agentmail_inbox_id` for reconnecting to the inbox across sessions
+1. **Vault** — `agentmail_inbox_id` for reconnecting to the inbox across sessions. This is the agent's *sending* address; the read tools (`email_list`, `email_search`, `email_read`) look at **every inbox on the AgentMail account** (`inboxes.list`) unless an `inbox` is named, because mail to any of them is the agent's mail. (2026-08-16: an X login code went to a second inbox on the account and the single-inbox tools reported "0 results".)
 2. **Identity beliefs** — `{"email": "agent@agentmail.to"}` so the agent knows its own email address in every system prompt
 
 ```

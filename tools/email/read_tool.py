@@ -38,6 +38,13 @@ class EmailReadTool(BaseTool):
                     "type": "string",
                     "description": "The message ID to read (from email_list results)",
                 },
+                "inbox": {
+                    "type": "string",
+                    "description": (
+                        "Inbox address or id to read (e.g. lonelydegree799@agentmail.to). "
+                        "Default: whichever inbox on the account holds the message."
+                    ),
+                },
             },
             "required": ["message_id"],
         }
@@ -69,20 +76,35 @@ class EmailReadTool(BaseTool):
                 ),
             )
 
-        inbox_id = self._vault.get("agentmail_inbox_id")
-        if not inbox_id:
-            return ToolResult(
-                success=False,
-                error="No inbox created yet. Use email_create_inbox first.",
-            )
-
+        default_inbox = self._vault.get("agentmail_inbox_id")
         message_id = params["message_id"]
 
         try:
             from agentmail import AgentMail
 
+            from tools.email._inboxes import resolve_inbox
+
             client = AgentMail(api_key=api_key)
-            msg = client.inboxes.messages.get(inbox_id=inbox_id, message_id=message_id)
+            inboxes = resolve_inbox(params.get("inbox"), client, default_inbox)
+            if not inboxes:
+                return ToolResult(
+                    success=False,
+                    error="No inbox on the account yet. Use email_create_inbox first.",
+                )
+            # Message ids are per inbox: try the one asked for, else each
+            # inbox on the account until one holds it.
+            msg = None
+            inbox_id = inboxes[0]
+            last_exc: Exception | None = None
+            for ib in inboxes:
+                try:
+                    msg = client.inboxes.messages.get(inbox_id=ib, message_id=message_id)
+                    inbox_id = ib
+                    break
+                except Exception as exc:  # not in this inbox
+                    last_exc = exc
+            if msg is None:
+                raise last_exc or RuntimeError(f"message {message_id} not found in any inbox")
 
             sender = getattr(msg, "from_", None) or getattr(msg, "sender", "")
             if isinstance(sender, dict):
@@ -110,6 +132,7 @@ class EmailReadTool(BaseTool):
                 success=True,
                 data={
                     "message_id": str(getattr(msg, "message_id", message_id)),
+                    "inbox": inbox_id,
                     "from": str(sender),
                     "to": str(to_addr),
                     "subject": getattr(msg, "subject", ""),

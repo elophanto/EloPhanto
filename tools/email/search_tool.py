@@ -25,7 +25,8 @@ class EmailSearchTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Search the agent's email inbox using natural language queries. "
+            "Search the agent's email across EVERY inbox on the AgentMail account "
+            "(or one inbox via `inbox`) using natural language queries. "
             "Supports queries like 'verification emails from today' "
             "or 'invoices from Hetzner'."
         )
@@ -42,6 +43,14 @@ class EmailSearchTool(BaseTool):
                 "limit": {
                     "type": "integer",
                     "description": "Max results to return (default: 10)",
+                },
+                "inbox": {
+                    "type": "string",
+                    "description": (
+                        "Inbox address or id to read (e.g. lonelydegree799@agentmail.to). "
+                        "Default: EVERY inbox on the AgentMail account, not only the "
+                        "agent's own address — the account has several."
+                    ),
                 },
             },
             "required": ["query"],
@@ -74,33 +83,31 @@ class EmailSearchTool(BaseTool):
                 ),
             )
 
-        inbox_id = self._vault.get("agentmail_inbox_id")
-        if not inbox_id:
-            return ToolResult(
-                success=False,
-                error="No inbox created yet. Use email_create_inbox first.",
-            )
-
+        default_inbox = self._vault.get("agentmail_inbox_id")
         query = params["query"]
         limit = params.get("limit", 10)
 
         try:
             from agentmail import AgentMail
 
-            client = AgentMail(api_key=api_key)
+            from tools.email._inboxes import list_messages, resolve_inbox
 
-            try:
-                response = client.inboxes.messages.list(inbox_id=inbox_id)
-                messages_raw = getattr(response, "messages", None) or response
-                if not isinstance(messages_raw, list):
-                    messages_raw = list(messages_raw) if messages_raw else []
-            except Exception:
-                messages_raw = []
+            client = AgentMail(api_key=api_key)
+            inboxes = resolve_inbox(params.get("inbox"), client, default_inbox)
+            if not inboxes:
+                return ToolResult(
+                    success=False,
+                    error="No inbox on the account yet. Use email_create_inbox first.",
+                )
+            # Every inbox on the account: mail to any of them is ours.
+            messages_raw: list[tuple[str, Any]] = []
+            for ib in inboxes:
+                messages_raw.extend((ib, m) for m in list_messages(client, ib))
 
             # Client-side relevance filtering
             query_lower = query.lower()
             results = []
-            for msg in messages_raw:
+            for inbox_id, msg in messages_raw:
                 subject = getattr(msg, "subject", "") or ""
                 snippet = getattr(msg, "snippet", "") or getattr(msg, "text", "") or ""
                 sender = str(getattr(msg, "from_", None) or getattr(msg, "sender", ""))
@@ -113,6 +120,7 @@ class EmailSearchTool(BaseTool):
                         {
                             "message_id": getattr(msg, "message_id", None)
                             or getattr(msg, "id", ""),
+                            "inbox": inbox_id,
                             "from": sender,
                             "subject": subject,
                             "snippet": snippet[:200],
@@ -129,7 +137,12 @@ class EmailSearchTool(BaseTool):
 
             return ToolResult(
                 success=True,
-                data={"query": query, "results": results, "count": len(results)},
+                data={
+                    "query": query,
+                    "results": results,
+                    "count": len(results),
+                    "inboxes_searched": inboxes,
+                },
             )
         except ImportError:
             return ToolResult(
