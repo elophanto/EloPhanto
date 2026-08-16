@@ -634,6 +634,20 @@ def _slide_standings(
                 size=9,
                 color=_MUTED,
             )
+    elif card.get("comparability_note"):
+        _text(
+            s,
+            0.7,
+            top + 0.2,
+            8.1,
+            1.4,
+            "Not yet a league table – "
+            + _clean(card["comparability_note"], 260)
+            + ". Scores are on the appendix heatmap; ranks are withheld until "
+            "the field is measured to comparable depth.",
+            size=13,
+            color=_BODY,
+        )
     else:
         _text(
             s,

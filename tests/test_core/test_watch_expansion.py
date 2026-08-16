@@ -832,3 +832,124 @@ class TestAutonomousRunsCannotGrowTheRegister:
             "expand_sources": False,
         })
         assert await wm.get_subject_by_name("New Brand", "c1") is not None
+
+
+class TestTheReceiptsFourFindings:
+    """The 2026-08-15 from-scratch run's own validation receipt named four
+    pipeline defects, correctly. Each is pinned here."""
+
+    @pytest.mark.asyncio
+    async def test_export_is_active_register_only_and_uncapped(self, wm) -> None:
+        d = await wm.upsert_dimension(
+            name="Promos", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "a", "weight_pct": 100}],
+        )
+        keep = await wm.add_subject(name="Keep", company_id="c1", url="https://k.example")
+        gone = await wm.add_subject(name="Gone", company_id="c1", url="https://g.example")
+        for i in range(2_100):
+            await wm.add_evidence(
+                company_id="c1", subject_id=keep.subject_id,
+                dimension_id=d.dimension_id, claim=f"claim {i}",
+                source_url="https://k.example/p",
+            )
+        await wm.add_evidence(
+            company_id="c1", subject_id=gone.subject_id,
+            dimension_id=d.dimension_id, claim="archived brand claim",
+            source_url="https://g.example/p",
+        )
+        await wm.archive_subject(gone.subject_id)
+        rows = await wm.evidence_with_names("c1")
+        # Uncapped: all 2,100 kept rows ship (the old cap was exactly 2,000).
+        assert len(rows) == 2_100
+        # Active-only: the archived brand's row does not.
+        assert not any(r["subject"] == "Gone" for r in rows)
+        # …unless asked for.
+        rows_all = await wm.evidence_with_names("c1", include_archived=True)
+        assert len(rows_all) == 2_101
+
+    def test_uneven_coverage_withholds_ranks_for_the_whole_field(self) -> None:
+        from core.watch import WatchDimension, WatchScore, WatchSubject, build_scorecard
+
+        dims = [
+            WatchDimension(dimension_id=f"d{i}", company_id="c1", name=f"D{i}",
+                           weight_pct=10.0)
+            for i in range(10)
+        ]
+        a = WatchSubject(subject_id="a", company_id="c1", name="Deep")
+        b = WatchSubject(subject_id="b", company_id="c1", name="Shallow")
+
+        def scores(sid, n, val):
+            return {
+                f"d{i}": WatchScore(score_id=f"{sid}-{i}", company_id="c1",
+                                    subject_id=sid, dimension_id=f"d{i}",
+                                    score=val, coverage_pct=100.0)
+                for i in range(n)
+            }
+
+        # Deep measured on 100% of weight, Shallow on 60% — both clear the
+        # 50% rank threshold individually, but the 40% spread is not
+        # comparable.
+        card = build_scorecard(
+            [a, b], dims, {"a": scores("a", 10, 4), "b": scores("b", 6, 5)}
+        )
+        assert card["comparability_note"]
+        assert "ranking withheld" in card["comparability_note"]
+        assert all(r["rank"] is None for r in card["rows"])
+        assert all(r["provisional"] for r in card["rows"])
+        assert "field not comparable" in card["rows"][0]["provisional_reason"]
+        # Scores are NOT suppressed — the figures still show.
+        assert all(r["overall"]["normalized_pct"] is not None for r in card["rows"])
+
+        # Bring Shallow to 90% and the field ranks normally.
+        card2 = build_scorecard(
+            [a, b], dims, {"a": scores("a", 10, 4), "b": scores("b", 9, 5)}
+        )
+        assert card2["comparability_note"] == ""
+        assert [r["rank"] for r in card2["rows"]] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_baseline_pack_makes_no_comparison(self, wm, tmp_path) -> None:
+        from tools.watch.tools import WatchBoardReportTool
+
+        d = await wm.upsert_dimension(
+            name="Promos", company_id="c1", weight_pct=100,
+            subcriteria=[{"name": "a", "weight_pct": 100}],
+        )
+        s = await wm.add_subject(name="Brand", company_id="c1", url="https://b.example")
+        await wm.add_evidence(company_id="c1", subject_id=s.subject_id,
+                              dimension_id=d.dimension_id, claim="x",
+                              source_url="https://b.example/p")
+        await wm.set_score(company_id="c1", subject_id=s.subject_id,
+                           dimension_id=d.dimension_id, score=3)
+        # An earlier same-day snapshot exists — the trap.
+        await wm.take_snapshot("c1", label="earlier today")
+        await wm.set_score(company_id="c1", subject_id=s.subject_id,
+                           dimension_id=d.dimension_id, score=5)
+
+        t = WatchBoardReportTool()
+        t._watch_manager = wm
+        t._router = None
+        res = await t.execute({
+            "company_id": "c1", "path": str(tmp_path / "r.md"),
+            "baseline": True, "deck": True, "take_snapshot": False,
+        })
+        assert res.success, res.error
+        assert res.data["material_count"] == 0
+        md = (tmp_path / "r.md").read_text()
+        assert "Material changes" not in md or "baseline" in md.lower()
+        from pptx import Presentation
+
+        text = "\n".join(
+            sh.text_frame.text
+            for sl in Presentation(res.data["deck_path"]).slides
+            for sh in sl.shapes if sh.has_text_frame
+        )
+        assert "Baseline established" in text
+        assert "material move" not in text.lower()
+
+        # Without the flag the same state reports the move.
+        res2 = await t.execute({
+            "company_id": "c1", "path": str(tmp_path / "r2.md"),
+            "take_snapshot": False, "deck": False,
+        })
+        assert res2.data["material_count"] >= 1

@@ -1170,6 +1170,16 @@ class WatchBoardReportTool(_WatchToolBase):
                     "type": "boolean",
                     "description": "Snapshot the current state after reporting. Default true.",
                 },
+                "baseline": {
+                    "type": "boolean",
+                    "description": (
+                        "This pack ESTABLISHES a baseline — a from-scratch or "
+                        "first analysis. No comparison against any prior "
+                        "snapshot; the report and deck say 'baseline', not "
+                        "'N material changes'. Use for 'fresh', 'from scratch' "
+                        "or first-run analyses. Default false."
+                    ),
+                },
                 "deck": {
                     "type": "boolean",
                     "description": (
@@ -1236,7 +1246,16 @@ class WatchBoardReportTool(_WatchToolBase):
         cid = _company(params)
         wm = self._watch_manager
 
-        diff = await wm.diff_since_snapshot(cid, snapshot_id=params.get("snapshot_id"))
+        # A from-scratch analysis has nothing to move FROM. Diffing it against
+        # a snapshot taken earlier the same day (or by a previous run of the
+        # same baseline) manufactures "141 material changes" out of the
+        # collection itself. baseline=true declares intent: no diff, and the
+        # pack says so.
+        diff = (
+            None
+            if params.get("baseline")
+            else await wm.diff_since_snapshot(cid, snapshot_id=params.get("snapshot_id"))
+        )
         card = await wm.scorecard(cid)
         gaps = await wm.staleness(cid)
 
@@ -1258,6 +1277,13 @@ class WatchBoardReportTool(_WatchToolBase):
 
         # ── Standings ──
         lines += ["## Standings", ""]
+        if card.get("comparability_note"):
+            lines += [
+                "> **Not yet a league table.** " + card["comparability_note"] + ".",
+                "> Scores are shown; ranks are withheld until the field is "
+                "measured to comparable depth.",
+                "",
+            ]
         lines += [
             "| # | Brand | Overall | Cust. prop | Transition | Coverage |",
             "|---|-------|---------|-----------|------------|----------|",
@@ -1472,6 +1498,14 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                     "type": "string",
                     "description": "Subtitle on the cover, e.g. the market or client name.",
                 },
+                "baseline": {
+                    "type": "boolean",
+                    "description": (
+                        "This deck establishes a baseline (from-scratch / first "
+                        "analysis): no comparison against a prior snapshot. "
+                        "Default false."
+                    ),
+                },
                 "company_id": {"type": "string"},
             },
         }
@@ -1491,7 +1525,16 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         if path.suffix.lower() != ".pptx":
             path = path.with_suffix(".pptx")
 
-        diff = await wm.diff_since_snapshot(cid, snapshot_id=params.get("snapshot_id"))
+        # A from-scratch analysis has nothing to move FROM. Diffing it against
+        # a snapshot taken earlier the same day (or by a previous run of the
+        # same baseline) manufactures "141 material changes" out of the
+        # collection itself. baseline=true declares intent: no diff, and the
+        # pack says so.
+        diff = (
+            None
+            if params.get("baseline")
+            else await wm.diff_since_snapshot(cid, snapshot_id=params.get("snapshot_id"))
+        )
         card = await wm.scorecard(cid)
         gaps = await wm.staleness(cid)
         evidence = await wm.evidence_with_names(cid)
@@ -1902,6 +1945,13 @@ class WatchAnalyzeTool(_WatchToolBase):
                         "evidence, search the web for third-party sources "
                         "(reviews, help centers) and read those too. Default "
                         "true; needs the search_sh_api_key vault entry."
+                    ),
+                },
+                "baseline": {
+                    "type": "boolean",
+                    "description": (
+                        "The saved pack establishes a baseline (from-scratch "
+                        "analysis) — no diff against prior snapshots. Default false."
                     ),
                 },
                 "company_id": {"type": "string"},
@@ -2397,6 +2447,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                 "company_id": cid,
                 "path": str(out_dir / f"competitor-report-{slug}.md"),
                 "take_snapshot": True,
+                "baseline": bool(params.get("baseline", False)),
             }
             want_deck = bool(params.get("deck", True))
             rep_params["deck"] = want_deck

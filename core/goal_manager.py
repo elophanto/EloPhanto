@@ -168,9 +168,20 @@ Competitive intelligence (competitors, brands, market monitoring, scorecards):
   explicitly — the register is a customer deliverable, and a plan that quietly
   grows it changes every ranking in the pack (observed 2026-08-15: an executor
   "completing the canon" added two brands the customer never asked to track).
+  Equally: never ARCHIVE or remove a register brand to make a count come out
+  — if the register looks wrong, that is a finding for the operator, not a
+  fix for the plan (the same run archived two real brands to "restore 14").
 - deliverables: ONE final checkpoint calling `watch_scorecard format=xlsx
   path=…` and `watch_board_report path=…` (the deck is written beside the
   report). These consolidate all brands; never one deliverable per brand.
+  For a FRESH / FROM-SCRATCH / FIRST analysis pass `baseline=true` to the
+  report: a baseline has nothing to move from, and diffing it against a
+  snapshot taken earlier the same day manufactures "material changes" out
+  of the collection itself.
+- rankings are the organ's call, not the plan's: the scorecard withholds
+  ranks when evidence depth is not comparable across brands and says so.
+  Do not write success criteria that demand a ranked table; demand the
+  pack, and let the organ label what it can and cannot rank.
 - success criteria in terms of the watch register: "watch_evidence holds rows
   dated today for brands A–D, each with a source URL" — never file counts.
 """

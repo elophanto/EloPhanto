@@ -213,6 +213,26 @@ outright — no hashes, file paths, manifests or checkpoint talk reaches a
 slide; a scrubber in the renderer catches whatever slips through (a deck once
 shipped with a SHA-256 on it).
 
+**Baseline packs and comparable fields.** A from-scratch analysis has nothing
+to move *from*: pass `baseline=true` to `watch_board_report` (or
+`watch_executive_deck`, or `watch_analyze` when it saves the pack) and no
+snapshot is diffed — the report and deck say *baseline established* rather
+than inventing "141 material changes" out of the collection itself. And the
+scorecard withholds ranks for the whole field when evidence depth is not
+comparable across would-be ranked brands (spread wider than 35 percentage
+points of model weight measured): every row goes provisional with the reason,
+the report carries a *not yet a league table* banner naming which brands to
+collect, and the deck's standings slide says the same instead of drawing a
+chart. Scores are never suppressed — only the claim to a rank. Both rules came
+from a run's own validation receipt (2026-08-15), which was right.
+
+**Exports.** `evidence_with_names` — the source of the workbook's Evidence
+sheet — ships the *active* register only and is uncapped by default. An
+archived brand's rows stay in the store (append-only) but do not appear in a
+deliverable that claims a canonical brand list; a silent 2,000-row cap once
+truncated a 1,900+-row run's export by exactly the rows that would have shown
+its completeness.
+
 **Storefront exhibits.** During `watch_analyze`, the browser saves a clean
 screenshot of the homepage and up to two key pages per brand — no element
 boxes, no annotations, exactly what a visitor sees — via the bridge's

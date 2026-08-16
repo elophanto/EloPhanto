@@ -129,3 +129,11 @@ def test_plan_rules_declare_the_register_canon() -> None:
 
     assert "THE REGISTER IS CANON" in _PLAN_RULES
     assert "Never add a new brand mid-goal" in _PLAN_RULES
+
+
+def test_plan_rules_forbid_archiving_and_demand_baseline_on_fresh_runs() -> None:
+    from core.goal_manager import _PLAN_RULES
+
+    assert "never ARCHIVE or remove a register brand" in _PLAN_RULES
+    assert "baseline=true" in _PLAN_RULES
+    assert "rankings are the organ's call" in _PLAN_RULES

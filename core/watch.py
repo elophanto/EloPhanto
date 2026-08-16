@@ -161,6 +161,15 @@ class WatchScore:
 # a narrow slice.
 _RANK_THRESHOLD_PCT = 50.0
 
+# Comparability spread. Even above the rank threshold, a brand measured on
+# 55% of the model and one measured on 95% are not standing on the same
+# ground; ranking them side by side reads as a like-for-like league table
+# when it is not. If the evidence-weight share across would-be ranked
+# brands spreads wider than this, ranking is withheld for the whole field
+# and every row is provisional with the reason stated. Scores still show.
+# The pack says "not yet comparable — collect X, Y" instead of a table.
+_RANK_COMPARABILITY_SPREAD_PCT = 35.0
+
 
 def weighted_points(score: float | None, weight_pct: float) -> float:
     """Weighted contribution of one dimension: ``(score / 5) x weight``.
@@ -265,6 +274,7 @@ def build_scorecard(
     *,
     views: tuple[str, ...] = ("customer_proposition", "transition_priority"),
     rank_threshold_pct: float = _RANK_THRESHOLD_PCT,
+    comparability_spread_pct: float = _RANK_COMPARABILITY_SPREAD_PCT,
 ) -> dict[str, Any]:
     """Full scorecard: every subject scored on the base weighting + each view.
 
@@ -338,6 +348,30 @@ def build_scorecard(
                 + ("…" if len(overall["unscored_dimensions"]) > 4 else "")
             )
 
+    # Field-level comparability: brands that individually clear the rank
+    # threshold still cannot be ranked AGAINST EACH OTHER if their evidence
+    # depth is wildly uneven. A first-pass run that measured one brand on
+    # 75% and another on 30% is not a league table yet.
+    rankable = [r for r in rows if not r["provisional"]]
+    comparability_note = ""
+    if len(rankable) >= 2:
+        shares = [float(r["evidence_weight_pct"]) for r in rankable]
+        spread = max(shares) - min(shares)
+        if spread > comparability_spread_pct:
+            thin = sorted(rankable, key=lambda r: float(r["evidence_weight_pct"]))
+            comparability_note = (
+                f"evidence depth ranges {min(shares):.0f}%–{max(shares):.0f}% "
+                f"across ranked brands (spread {spread:.0f}% > "
+                f"{comparability_spread_pct:.0f}%); ranking withheld until "
+                "coverage is comparable — collect: "
+                + ", ".join(r["name"] for r in thin[:4])
+            )
+            for r in rankable:
+                r["provisional"] = True
+                r["provisional_reason"] = "field not comparable: " + (
+                    f"measured on {float(r['evidence_weight_pct']):.0f}% of the model"
+                )
+
     rows.sort(
         key=lambda r: (
             r["provisional"],
@@ -356,6 +390,7 @@ def build_scorecard(
     total_w = round(sum(float(d.weight_pct) for d in dimensions), 2)
     return {
         "generated_at": datetime.now(UTC).isoformat(),
+        "comparability_note": comparability_note,
         "dimensions": [
             {"name": d.name, "weight_pct": d.weight_pct, "cadence": d.refresh_cadence}
             for d in dimensions
@@ -949,15 +984,31 @@ class WatchManager:
         return build_scorecard(subjects, dimensions, by_subject)
 
     async def evidence_with_names(
-        self, company_id: str, *, limit: int = 2000
+        self,
+        company_id: str,
+        *,
+        limit: int | None = None,
+        include_archived: bool = False,
     ) -> list[dict[str, Any]]:
-        """Live evidence with subject/dimension names resolved — for export."""
+        """Live evidence with subject/dimension names resolved — for export.
+
+        Scoped to the ACTIVE register by default: an archived brand's rows
+        stay in the store (append-only) but do not ship in a deliverable that
+        claims a canonical brand list. Uncapped by default — a silent 2,000-
+        row cap once truncated a 1,900+-row run's export by exactly the rows
+        that would have shown its completeness. Pass ``limit`` for previews.
+        """
         subjects = {
             s.subject_id: s.name
-            for s in await self.list_subjects(company_id, include_archived=True)
+            for s in await self.list_subjects(
+                company_id, include_archived=include_archived
+            )
         }
         dims = {d.dimension_id: d.name for d in await self.list_dimensions(company_id)}
-        rows = await self.list_evidence(company_id, limit=limit)
+        rows = await self.list_evidence(
+            company_id, limit=limit if limit is not None else 1_000_000
+        )
+        rows = [e for e in rows if e.subject_id in subjects]
         return [
             {
                 "subject": subjects.get(e.subject_id, e.subject_id),
