@@ -1062,7 +1062,75 @@ class TestConsentDismissal:
         assert sum(1 for nm, _ in clean.calls if nm == "browser_wait") == 2
 
 
+class TestMarketEvents:
+    """A competitor closing must reach the executive summary and the
+    market-moves slide even in a baseline pack (LuckyLand, 2026-08-16)."""
+
+    def test_closure_claim_is_an_event_and_ordinary_claims_are_not(self) -> None:
+        from core.watch_deck import market_events
+
+        ev = [
+            {"subject": "LuckyLand Slots", "claim": "LuckyLand Slots is closing on September 14, 2026.",
+             "value_text": "2026-09-14", "observed_at": "2026-08-16T10:04:48+00:00",
+             "source_url": "https://www.luckylandslots.com"},
+            {"subject": "LuckyLand Slots", "claim": "LuckyLand Slots is closing on September 14, 2026, with its games remaining available on LuckyLand Casino.",
+             "observed_at": "2026-08-16T10:03:54+00:00"},
+            {"subject": "Pulsz", "claim": "New players can claim a Welcome Bundle with 200% or more extra Gold Coins."},
+            {"subject": "Modo", "claim": "Modo Casino is now available in Florida after launching in the state.",
+             "observed_at": "2026-08-16"},
+        ]
+        got = market_events(ev)
+        # two phrasings of the LuckyLand closure are ONE event
+        assert [e["brand"] for e in got] == ["LuckyLand Slots", "Modo"]
+        assert got[0]["observed_at"] == "2026-08-16" and "closing" in got[0]["claim"]
+
+    def test_events_render_on_summary_and_market_moves(self, tmp_path) -> None:
+        from pptx import Presentation
+
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        card = {
+            "rows": [
+                {"name": "Us", "is_self": True, "rank": 1,
+                 "overall": {"normalized_pct": 60.0, "coverage_pct": 70.0}, "dimensions": {}},
+                {"name": "LuckyLand Slots", "is_self": False, "rank": 2,
+                 "overall": {"normalized_pct": 40.0, "coverage_pct": 65.0}, "dimensions": {}},
+            ],
+            "dimensions": [],
+        }
+        events = [{"brand": "LuckyLand Slots", "claim": "LuckyLand Slots is closing on September 14, 2026.",
+                   "when": "", "observed_at": "2026-08-16", "url": ""}]
+        out = tmp_path / "d.pptx"
+        render_executive_deck(
+            card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+            gaps=[], evidence_count=3, path=out, events=events,
+        )
+        prs = Presentation(str(out))
+        texts = ["\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame) for sl in prs.slides]
+        assert "MARKET EVENT" in texts[1] and "closing on September 14, 2026" in texts[1]
+        moves = next(t for t in texts if "Market moves" in t or "MARKET MOVES" in t.upper())
+        assert "1 market event on record" in moves and "LuckyLand Slots" in moves
+
+
 class TestOfferFacts:
+    def test_headline_welcome_is_the_most_specific_claim_not_the_newest(self) -> None:
+        from tools.watch.tools import _offer_facts
+
+        card = {"rows": [{"name": "Pulsz Bingo", "is_self": True, "rank": None,
+                          "overall": {"normalized_pct": 60.0}}]}
+        ev = [  # newest first — boilerplate is newest
+            {"subject": "Pulsz Bingo", "dimension": "Promotional proposition and generosity",
+             "claim": "No purchase is necessary to play.", "source_url": "u1", "observed_at": "t1"},
+            {"subject": "Pulsz Bingo", "dimension": "Promotional proposition and generosity",
+             "claim": "New users can sign up for 5,000 free Gold Coins.", "source_url": "u2", "observed_at": "t2"},
+            {"subject": "Pulsz Bingo", "dimension": "Promotional proposition and generosity",
+             "claim": "The site offers daily free rewards.", "source_url": "u3", "observed_at": "t3"},
+        ]
+        row = _offer_facts(card, ev, {})[0]
+        assert row["welcome"] == "New users can sign up for 5,000 free Gold Coins."
+        assert row["ongoing"] == "The site offers daily free rewards."
+        assert row["url"] == "u2"
+
     def test_welcome_and_ongoing_from_promo_evidence(self) -> None:
         from tools.watch.tools import _offer_facts
 

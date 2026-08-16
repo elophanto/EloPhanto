@@ -906,6 +906,11 @@ Return STRICT JSON:
   the ongoing propositions have in common, where ours sits. "exhibits" is
   what the storefronts visibly emphasise (offer-led vs game-led vs
   trust-led). Never repeat a chart's numbers back; say what they mean.
+- market_events, when present, are the most material facts in the room: a
+  competitor closing, exiting a state, being acquired, rebranding, launching.
+  Reflect them in the headline or recommendation, in slides.standings /
+  commentary.changes, and in exec.actions where a decision follows (a rival
+  closing means its players are up for grabs on a date). Never bury one.
 - titles: an ACTION TITLE per slide – a sentence someone could disagree with
   ("High 5 leads a thin field"), never a label ("Standings overview").
   At most 10 words each.
@@ -1051,6 +1056,39 @@ _WELCOME_RE = __import__("re").compile(
     r"joining|on registration|\d+\s*%\s*(extra|more|bonus)|no purchase",
     __import__("re").I,
 )
+_BOILERPLATE_RE = __import__("re").compile(
+    r"no purchase (is )?necessary|void where prohibited|free to play", __import__("re").I
+)
+_QUANTITY_RE = __import__("re").compile(
+    r"\d[\d,.]*\s*(%|percent|gc|sc|gold coins?|sweeps? coins?|coins?|free spins?|\$)|"
+    r"\$\s*\d|\b\d{1,3}(,\d{3})+\b",
+    __import__("re").I,
+)
+
+
+def _welcome_score(claim: str, value_text: str = "") -> int:
+    """How much a promotions claim reads as THE welcome offer. 0 = not a
+    welcome claim at all."""
+    text = f"{claim} {value_text}"
+    if not _WELCOME_RE.search(text):
+        return 0
+    score = 1
+    if __import__("re").search(
+        r"welcome|sign[- ]?up|new (player|user|customer)s?|first[- ]time|first purchase|"
+        r"register|joining|on registration",
+        text,
+        __import__("re").I,
+    ):
+        score += 3
+    if _QUANTITY_RE.search(text):
+        score += 3
+    if __import__("re").search(r"\bfree\b|bonus|extra|bundle|gift|package", text, __import__("re").I):
+        score += 1
+    if _BOILERPLATE_RE.search(text) and not _QUANTITY_RE.search(text):
+        score -= 3
+    return max(score, 0)
+
+
 _ONGOING_RE = __import__("re").compile(
     r"daily|every day|ongoing|weekly|login|log-in|wheel|jackpot|giveaway|"
     r"tournament|leaderboard|challenge|quest|social media|refer",
@@ -1089,16 +1127,18 @@ def _offer_facts(
     for r in order:
         name = str(r["name"])
         rows_e = by_brand.get(name, [])
-        welcome = next(
+        # The headline welcome offer is the most SPECIFIC welcome claim on
+        # record, not the newest regex hit: "5,000 free Gold Coins on
+        # sign-up" beats "no purchase is necessary" (legal boilerplate that
+        # merely mentions the funnel). Ties keep newest-first order.
+        scored = sorted(
             (
-                str(e.get("claim"))
-                for e in rows_e
-                if _WELCOME_RE.search(
-                    str(e.get("claim") or "") + " " + str(e.get("value_text") or "")
-                )
+                (_welcome_score(str(e.get("claim") or ""), str(e.get("value_text") or "")), i, e)
+                for i, e in enumerate(rows_e)
             ),
-            "",
+            key=lambda t: (-t[0], t[1]),
         )
+        welcome = str(scored[0][2].get("claim")) if scored and scored[0][0] > 0 else ""
         ongoing = next(
             (
                 str(e.get("claim"))
@@ -1143,6 +1183,7 @@ async def _narrate_for_deck(
     gaps: list[dict[str, Any]],
     evidence: list[dict[str, Any]] | None = None,
     offers: list[dict[str, Any]] | None = None,
+    events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The deck's words. Model-written from facts when a router exists;
     otherwise the computed factual fallback — and the deck labels which."""
@@ -1219,6 +1260,10 @@ async def _narrate_for_deck(
             for d in sorted(
                 card.get("dimensions", []), key=lambda d: -float(d.get("weight_pct") or 0)
             )[:6]
+        ],
+        "market_events": [
+            {"brand": ev["brand"], "claim": ev["claim"], "observed": ev.get("observed_at", "")}
+            for ev in (events or [])
         ],
         "offers_observed": [
             {
@@ -1617,8 +1662,11 @@ class WatchBoardReportTool(_WatchToolBase):
                 from core.watch_deck import render_executive_deck
 
                 ev_rows = await wm.evidence_with_names(cid)
+                from core.watch_deck import market_events
+
                 exhibits = _collect_exhibits(ev_rows, card.get("rows", []), self._config)
                 offers = _offer_facts(card, ev_rows, exhibits)
+                events = market_events(ev_rows)
                 summary = await _narrate_for_deck(
                     self._router,
                     card=card,
@@ -1627,6 +1675,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     gaps=gaps,
                     evidence=ev_rows,
                     offers=offers,
+                    events=events,
                 )
                 deck_written = render_executive_deck(
                     card,
@@ -1637,6 +1686,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     evidence_count=len(ev_rows),
                     screenshots=exhibits,
                     offers=offers,
+                    events=events,
                     path=deck_target,
                 )
             except Exception as e:
@@ -1757,7 +1807,10 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         judge._router = self._router
         judged = await judge._judge(diff) if diff else []
         exhibits = _collect_exhibits(evidence, card.get("rows", []), self._config)
+        from core.watch_deck import market_events
+
         offers = _offer_facts(card, evidence, exhibits)
+        events = market_events(evidence)
         summary = await _narrate_for_deck(
             self._router,
             card=card,
@@ -1766,6 +1819,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
             gaps=gaps,
             evidence=evidence,
             offers=offers,
+            events=events,
         )
         try:
             from core.watch_deck import render_executive_deck
@@ -1779,6 +1833,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 evidence_count=len(evidence),
                 screenshots=exhibits,
                 offers=offers,
+                events=events,
                 path=path,
                 title=str(params.get("title") or "Competitive Intelligence — Executive Briefing"),
                 market_label=str(params.get("market_label") or ""),

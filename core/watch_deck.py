@@ -492,6 +492,76 @@ def _slides_facts(
     return out
 
 
+_EVENT_RE = re.compile(
+    r"\b(is closing|will close|closing on|closes on|shut(?:ting)? down|ceas(?:e|es|ing) "
+    r"operations|exit(?:s|ed|ing)? (?:the )?(?:market|state)|leav(?:es|ing) (?:the )?"
+    r"(?:market|state)|acquired by|acquisition of|merg(?:es|ed|ing) with|rebrand(?:s|ed|ing)?"
+    r"(?: to| as)|now available in|launch(?:es|ed|ing)? in|cease[- ]and[- ]desist|"
+    r"regulator|banned in|no longer (?:available|accept))\b",
+    re.I,
+)
+
+
+def market_events(
+    evidence: list[dict[str, Any]], *, limit: int = 4
+) -> list[dict[str, Any]]:
+    """Corporate / market events on record — closures, exits, acquisitions,
+    rebrands, launches, regulatory notices — read straight from the claims.
+    A baseline pack has no diff to surface them through, and a competitor
+    closing (LuckyLand, 2026-08-16: "closing September 14, 2026" on the
+    homepage) is the most material fact in the room; it must not sit in an
+    appendix row while the market-moves slide says "no material change".
+    Newest first, one per brand × claim."""
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for e in evidence:  # newest first
+        claim = str(e.get("claim") or "").strip()
+        if not claim or not _EVENT_RE.search(claim):
+            continue
+        brand = str(e.get("subject") or "").strip()
+        # Two phrasings of one event ("…is closing on September 14, 2026" and
+        # the same with a trailing clause) are one event: key on the opening.
+        key = (brand, re.sub(r"[^a-z0-9]+", " ", claim.lower()).strip()[:44])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "brand": brand,
+                "claim": claim,
+                "when": str(e.get("value_text") or ""),
+                "observed_at": str(e.get("observed_at") or "")[:10],
+                "url": str(e.get("source_url") or ""),
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _events_banner(s: Any, events: list[dict[str, Any]], y: float) -> float:
+    """A red-eyebrow strip under the headline: 'MARKET EVENT · <claim>'.
+    Returns the y below the strip."""
+    if not events:
+        return y
+    from pptx.util import Pt
+
+    for ev in events[:2]:
+        box = s.shapes.add_shape(1, _in(0.7), _in(y), _in(11.9), _in(0.36))
+        box.fill.solid()
+        box.fill.fore_color.rgb = _rgb(_CARD)
+        box.line.color.rgb = _rgb(_ACCENT)
+        box.line.width = Pt(0.75)
+        box.shadow.inherit = False
+        _text(s, 0.82, y + 0.05, 1.5, 0.28, "MARKET EVENT", size=8.5, bold=True, color=_ACCENT)
+        line = f"{ev['brand']} – {ev['claim']}"
+        if ev.get("observed_at"):
+            line += f"  (observed {ev['observed_at']})"
+        _text(s, 2.3, y + 0.05, 10.2, 0.28, _clean(line, 150), size=10, bold=True, color=_INK)
+        y += 0.44
+    return y
+
+
 def factual_narrative(
     card: dict[str, Any],
     diff: dict[str, Any] | None,
@@ -644,6 +714,7 @@ def _slide_summary(
     narrative: dict[str, Any],
     page: int,
     deck_title: str,
+    events: list[dict[str, Any]] | None = None,
 ) -> None:
     """The executive summary a steering committee reads first, in the shape
     of the reference decks: one column per battleground with numbered
@@ -662,6 +733,7 @@ def _slide_summary(
         y += 0.9
     else:
         y += 0.2
+    y = _events_banner(s, events or [], y)
     _rule(s, y)
     y += 0.22
 
@@ -1768,23 +1840,57 @@ def _slide_changes(
     narrative: dict[str, Any],
     page: int,
     deck_title: str,
+    events: list[dict[str, Any]] | None = None,
 ) -> None:
     s = _blank(prs)
     commentary = (narrative.get("commentary") or {}).get("changes", "")
+    events = events or []
     if diff is None:
-        _header(s, "Market moves", "Baseline established", commentary)
+        n = len(events)
+        title = (
+            f"Baseline established – {n} market event{'s' if n != 1 else ''} on record"
+            if n
+            else "Baseline established"
+        )
+        top = _header(s, "Market moves", title, commentary)
         _text(
             s,
             0.7,
-            2.5,
+            top,
             11.9,
-            1.2,
+            0.8,
             "First reporting cycle. There is no prior snapshot to compare "
             "against, so this pack sets the baseline; the next cycle shows "
-            "what moved.",
-            size=15,
+            "what moved."
+            + (
+                " The events below were read from the brands' own pages during "
+                "this cycle and need no prior snapshot."
+                if events
+                else ""
+            ),
+            size=13,
             color=_BODY,
         )
+        if events:
+            _eyebrow(s, "Market events on record", y=top + 0.95, color=_ACCENT)
+            _bullets(
+                s,
+                0.7,
+                top + 1.3,
+                11.9,
+                6.4 - (top + 1.3),
+                [
+                    f"{ev['brand']} – {ev['claim']}"
+                    + (f" (observed {ev['observed_at']})" if ev.get("observed_at") else "")
+                    for ev in events
+                ],
+                size=12,
+                color=_INK,
+                gap_pt=8,
+                cap=200,
+                accent_bullet=True,
+                max_items=4,
+            )
         _footer(s, deck_title, page)
         return
     n = int(diff.get("material_count", 0))
@@ -2272,6 +2378,7 @@ def render_executive_deck(
     path: str | Path,
     screenshots: dict[str, list[dict[str, str]]] | None = None,
     offers: list[dict[str, Any]] | None = None,
+    events: list[dict[str, Any]] | None = None,
     title: str = "Competitive Intelligence – Executive Briefing",
     market_label: str = "",
 ) -> str:
@@ -2321,7 +2428,7 @@ def render_executive_deck(
         generated=generated,
     )
     page = 2
-    _slide_summary(prs, card, narrative, page, deck_title)
+    _slide_summary(prs, card, narrative, page, deck_title, events=events)
     page += 1
     _slide_glance(
         prs,
@@ -2417,7 +2524,7 @@ def render_executive_deck(
         )
         page += 1
 
-    _slide_changes(prs, diff, narrative, page, deck_title)
+    _slide_changes(prs, diff, narrative, page, deck_title, events=events)
     page += 1
     page += _slide_implications(
         prs,

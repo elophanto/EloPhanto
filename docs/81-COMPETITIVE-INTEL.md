@@ -235,6 +235,18 @@ rank, with an honest blank where the pages read stated none. The
 promotions pages captured during analysis follow as exhibits, each
 captioned with the offer it shows.
 
+**Market events.** Closures, market exits, acquisitions, rebrands, launches
+and regulatory notices are read straight from the claims (`market_events`)
+and shown as a MARKET EVENT strip under the executive-summary headline and
+on the market-moves slide — in a baseline pack too, which has no diff to
+surface them through. The narrator is told they are the most material
+facts in the room and to reflect them in the headline, recommendation and
+actions (LuckyLand, 2026-08-16: "closing September 14, 2026" became the
+pack's headline instead of an appendix row). The offers table's headline
+welcome offer is the most *specific* welcome claim on record — quantity and
+sign-up wording win, "no purchase is necessary" boilerplate loses — not the
+newest regex hit.
+
 **Baseline packs and comparable fields.** A from-scratch analysis has nothing
 to move *from*: pass `baseline=true` to `watch_board_report` (or
 `watch_executive_deck`, or `watch_analyze` when it saves the pack) and no
