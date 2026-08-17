@@ -864,6 +864,23 @@ class WatchManager:
         sql += " ORDER BY is_self DESC, name"
         return [self._to_subject(r) for r in await self._db.execute(sql, (company_id,))]
 
+    async def tag_subject(self, subject_id: str, tag: str) -> None:
+        """Append a tag to a subject (idempotent). Used for cached lookups
+        such as ``app_store:<id>`` — never for status."""
+        rows = await self._db.execute(
+            "SELECT tags FROM watch_subjects WHERE subject_id = ?", (subject_id,)
+        )
+        if not rows:
+            return
+        tags = json.loads(_row_get(rows[0], "tags", "[]") or "[]")
+        if tag in tags:
+            return
+        tags.append(tag)
+        await self._db.execute(
+            "UPDATE watch_subjects SET tags = ?, updated_at = ? WHERE subject_id = ?",
+            (json.dumps(tags), _now(), subject_id),
+        )
+
     async def archive_subject(self, subject_id: str) -> None:
         """Stop tracking a brand. Evidence and scores are retained so past
         scorecards and diffs stay reproducible."""

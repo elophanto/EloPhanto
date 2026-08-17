@@ -2871,6 +2871,263 @@ class WatchQueueTool(_WatchToolBase):
         )
 
 
+# ── Voice of customer (docs/87): what players say, beside the pack ─────
+
+
+class WatchVoiceCollectTool(_WatchToolBase):
+    """Collect what players say about tracked brands — Reddit, App Store —
+    into the organ's second evidence class. Never touches scores."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+        self._config: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_voice_collect"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Voice of customer: collect what PLAYERS say about one tracked brand "
+            "(or all active brands) from public sources — Reddit posts/comments "
+            "and App Store reviews — read each post for theme and sentiment, and "
+            "file short verbatim quotes in watch_voice. Opinion, kept apart from "
+            "the evidence register: nothing here changes a score or the pack; "
+            "the deck and report pick it up as 'What players say' when present. "
+            "Usernames/links are stripped, affiliate posts dropped, cross-posts "
+            "counted once. Register is canon: collects only for existing subjects."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "Brand name from the register. Omit for all active brands.",
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["reddit", "app_store"]},
+                    "description": "Default: reddit + app_store.",
+                },
+                "window_days": {"type": "integer", "description": "Default 30."},
+                "max_posts": {"type": "integer", "description": "Per brand per source. Default 200."},
+                "geo_state": {
+                    "type": "string",
+                    "description": "Route fetches through this state's proxy (e.g. FL); n/a = direct.",
+                },
+                "save": {"type": "boolean", "description": "Default true; false = dry run."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        from core.watch_voice import (
+            brand_aliases,
+            collect_app_store,
+            collect_reddit,
+            find_app_store_id,
+            read_posts,
+        )
+
+        cid = _company(params)
+        wm = self._watch_manager
+        sources = [str(x) for x in (params.get("sources") or ["reddit", "app_store"])]
+        window_days = int(params.get("window_days") or 30)
+        max_posts = int(params.get("max_posts") or 200)
+        save = bool(params.get("save", True))
+        geo_state = str(params.get("geo_state") or "n/a")
+        proxy_url = None
+        if geo_state != "n/a" and self._config is not None and getattr(self._config, "proxy", None):
+            proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
+
+        subjects = await wm.list_subjects(cid)
+        if params.get("subject"):
+            subj = await wm.get_subject_by_name(str(params["subject"]), cid)
+            if subj is None:
+                return ToolResult(
+                    success=False,
+                    error=f"subject {params['subject']!r} is not in the register — the register is canon",
+                )
+            subjects = [subj]
+        dims = [d.name for d in await wm.list_dimensions(cid)]
+        if self._router is None:
+            return ToolResult(success=False, error="no router — voice reading needs the model")
+
+        report: list[dict[str, Any]] = []
+        total_kept = 0
+        for subj in subjects:
+            aliases = brand_aliases(subj.name, subj.url)
+            per: dict[str, Any] = {"subject": subj.name, "sources": {}}
+            posts_all: list[Any] = []
+            if "reddit" in sources:
+                posts, errs = await collect_reddit(
+                    subj.name, aliases, window_days=window_days, proxy_url=proxy_url, max_posts=max_posts
+                )
+                per["sources"]["reddit"] = {"fetched": len(posts), "errors": errs[:3]}
+                posts_all.extend(posts)
+            if "app_store" in sources:
+                app_id = next(
+                    (t.split(":", 1)[1] for t in (subj.tags or []) if str(t).startswith("app_store:")),
+                    None,
+                )
+                if app_id is None:
+                    app_id = await find_app_store_id(subj.name, aliases, proxy_url=proxy_url)
+                    if app_id and save:
+                        await wm.tag_subject(subj.subject_id, f"app_store:{app_id}")
+                if app_id:
+                    posts, errs = await collect_app_store(
+                        app_id, window_days=window_days, proxy_url=proxy_url
+                    )
+                    per["sources"]["app_store"] = {
+                        "app_id": app_id, "fetched": len(posts), "errors": errs[:3]
+                    }
+                    posts_all.extend(posts)
+                else:
+                    per["sources"]["app_store"] = {"fetched": 0, "note": "no iOS app found"}
+            items, dropped = await read_posts(
+                self._router, brand=subj.name, posts=posts_all, dimension_names=dims
+            )
+            kept = 0
+            dup = 0
+            dim_ids = {d.name: d.dimension_id for d in await wm.list_dimensions(cid)}
+            for it in items:
+                if not save:
+                    kept += 1
+                    continue
+                row = await wm.add_voice(
+                    company_id=cid,
+                    subject_id=subj.subject_id,
+                    source=it["post"].source,
+                    theme=it["theme"],
+                    sentiment=it["sentiment"],
+                    quote=it["quote"],
+                    source_url=it["post"].url,
+                    posted_at=it["post"].posted_at,
+                    rating=it["post"].rating,
+                    dimension_id=dim_ids.get(it["dimension"], ""),
+                    geo_hint=it["geo_hint"],
+                    weight=it["post"].weight,
+                )
+                if row is None:
+                    dup += 1
+                else:
+                    kept += 1
+            per.update({"posts": len(posts_all), "kept": kept, "duplicates": dup, "dropped": dropped})
+            total_kept += kept
+            report.append(per)
+        return ToolResult(
+            success=True,
+            data={
+                "company_id": cid,
+                "window_days": window_days,
+                "saved": save,
+                "kept_total": total_kept,
+                "brands": report,
+                "note": "opinion filed in watch_voice; scores and the evidence register untouched",
+            },
+        )
+
+
+class WatchVoiceTool(_WatchToolBase):
+    """Read the voice-of-customer register: rows, the per-brand summary, or
+    the theme diff against the last snapshot."""
+
+    @property
+    def name(self) -> str:
+        return "watch_voice"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Voice of customer, read side. action='summary' (default) — per "
+            "brand: mentions, sentiment split, theme shares with n, top complaint "
+            "and praise, three quotes, dimensions flagged; brands under the "
+            "minimum are 'too few mentions to read'. action='list' — the rows "
+            "(filter by subject/source/theme). action='diff' — rising and falling "
+            "themes since the last snapshot. All of it is what players SAY, not "
+            "observed fact."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["summary", "list", "diff"]},
+                "subject": {"type": "string"},
+                "source": {"type": "string"},
+                "theme": {"type": "string"},
+                "window_days": {"type": "integer", "description": "Default 30."},
+                "limit": {"type": "integer", "description": "list: default 50."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        wm = self._watch_manager
+        action = str(params.get("action") or "summary").lower()
+        if action == "diff":
+            d = await wm.diff_voice_since_snapshot(cid)
+            if d is None:
+                return ToolResult(success=True, data={"baseline": True, "note": "no snapshot yet"})
+            return ToolResult(success=True, data=d)
+        if action == "list":
+            subject_id = None
+            if params.get("subject"):
+                subj = await wm.get_subject_by_name(str(params["subject"]), cid)
+                if subj is None:
+                    return ToolResult(success=False, error="unknown subject")
+                subject_id = subj.subject_id
+            rows = await wm.list_voice(
+                cid,
+                subject_id=subject_id,
+                source=params.get("source") or None,
+                theme=params.get("theme") or None,
+                limit=int(params.get("limit") or 50),
+            )
+            names = {s.subject_id: s.name for s in await wm.list_subjects(cid)}
+            return ToolResult(
+                success=True,
+                data={
+                    "count": len(rows),
+                    "rows": [
+                        {
+                            "brand": names.get(r.subject_id, r.subject_id),
+                            "source": r.source,
+                            "posted_at": r.posted_at[:10],
+                            "theme": r.theme,
+                            "sentiment": r.sentiment,
+                            "rating": r.rating,
+                            "quote": r.quote,
+                            "url": r.source_url,
+                            "weight": r.weight,
+                        }
+                        for r in rows
+                    ],
+                },
+            )
+        summary = await wm.voice_summary(cid, window_days=int(params.get("window_days") or 30))
+        return ToolResult(success=True, data=summary)
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -2886,4 +3143,6 @@ def create_watch_tools() -> list[BaseTool]:
         WatchObserveTool(),
         WatchQueueTool(),
         WatchAnalyzeTool(),
+        WatchVoiceCollectTool(),
+        WatchVoiceTool(),
     ]
