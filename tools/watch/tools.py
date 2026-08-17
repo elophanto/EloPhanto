@@ -3073,6 +3073,7 @@ class WatchVoiceCollectTool(_WatchToolBase):
         super().__init__()
         self._router: Any = None
         self._config: Any = None
+        self._vault: Any = None  # reddit_client_id / reddit_client_secret
 
     @property
     def name(self) -> str:
@@ -3155,15 +3156,34 @@ class WatchVoiceCollectTool(_WatchToolBase):
         if self._router is None:
             return ToolResult(success=False, error="no router — voice reading needs the model")
 
+        reddit_token = ""
+        reddit_note = ""
+        if "reddit" in sources:
+            from core.watch_voice import reddit_app_token
+
+            cid_ = str(self._vault.get("reddit_client_id") or "") if self._vault is not None else ""
+            sec_ = str(self._vault.get("reddit_client_secret") or "") if self._vault is not None else ""
+            if cid_ and sec_:
+                reddit_token, tok_err = await reddit_app_token(cid_, sec_, proxy_url=proxy_url)
+                if tok_err:
+                    reddit_note = f"Reddit OAuth token failed: {tok_err}"
+            else:
+                reddit_note = (
+                    "Reddit skipped: no reddit_client_id / reddit_client_secret in the vault "
+                    "(register a free 'script' app at reddit.com/prefs/apps and vault_set both)"
+                )
         report: list[dict[str, Any]] = []
         total_kept = 0
         for subj in subjects:
             aliases = brand_aliases(subj.name, subj.url)
             per: dict[str, Any] = {"subject": subj.name, "sources": {}}
             posts_all: list[Any] = []
-            if "reddit" in sources:
+            if "reddit" in sources and not reddit_token:
+                per["sources"]["reddit"] = {"fetched": 0, "note": reddit_note}
+            elif "reddit" in sources:
                 posts, errs = await collect_reddit(
-                    subj.name, aliases, window_days=window_days, proxy_url=proxy_url, max_posts=max_posts
+                    subj.name, aliases, window_days=window_days, proxy_url=proxy_url,
+                    max_posts=max_posts, token=reddit_token,
                 )
                 per["sources"]["reddit"] = {"fetched": len(posts), "errors": errs[:3]}
                 posts_all.extend(posts)
@@ -3225,6 +3245,7 @@ class WatchVoiceCollectTool(_WatchToolBase):
                 "saved": save,
                 "kept_total": total_kept,
                 "brands": report,
+                "reddit": "oauth" if reddit_token else (reddit_note or "not requested"),
                 "note": "opinion filed in watch_voice; scores and the evidence register untouched",
             },
         )

@@ -2227,6 +2227,9 @@ class Agent:
             # None, so every run reported "no search_sh_api_key in vault"
             # while the key sat in the vault the whole time.
             "watch_analyze",
+            # watch_voice_collect reads reddit_client_id / reddit_client_secret
+            # (Reddit's OAuth API — unauthenticated JSON is refused since 2026).
+            "watch_voice_collect",
             "solana_balance",
             "solana_token_holders",
             "solana_recent_txs",

@@ -70,10 +70,16 @@ One collector per source, all the same shape `async def collect_<source>(brand,
 *, since, proxy_url, browser_manager, router) -> list[VoiceRow]`, run by
 `collect_voice(subject, sources, window_days)`. Order of build:
 
-1. **Reddit** — public JSON (`/search.json`, `/r/<sub>/search.json`) via
-   `fetch_page_best_effort` with the existing proxy plumbing; subs
-   `sweepstakescasinos`, `SweepstakesCasinos`, brand subs when they exist;
-   query = brand name + aliases (from `watch_subjects.url` host and name).
+1. **Reddit** — the OAuth API (`oauth.reddit.com/search`, `/r/<sub>/search`,
+   thread comments) with an application-only token: a free "script" app
+   registered at reddit.com/prefs/apps, its credentials in the vault as
+   `reddit_client_id` / `reddit_client_secret`. Reddit refuses
+   unauthenticated JSON and HTML from scripts (HTTP 403, verified 2026-08-17
+   direct and through the residential exit), so without the credentials the
+   collector reports *Reddit skipped* and App Store still runs. Subs
+   `sweepstakescasinos`, `SweepstakesCasinos`; query = the brand name;
+   posts are kept when they mention an alias (name, name without
+   "casino", host).
 2. **App Store** — iTunes customer-reviews RSS (`/us/rss/customerreviews/id=…`);
    app id discovered once per subject and cached as the subject tag `app_store:<id>`.
 3. **Google Play** — reviews page via the browser (JS app); same extraction.

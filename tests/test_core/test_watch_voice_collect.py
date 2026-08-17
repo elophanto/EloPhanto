@@ -173,13 +173,18 @@ class TestCollectTool:
                               "Love the games, huge selection and new ones weekly.",
                               posted_at=datetime.now(UTC).isoformat(), rating=5.0, weight=0.8)], []
 
+        async def fake_token(cid, sec, **kw):
+            return "tok", None
+
         monkeypatch.setattr(V, "collect_reddit", fake_reddit)
         monkeypatch.setattr(V, "find_app_store_id", fake_find)
         monkeypatch.setattr(V, "collect_app_store", fake_store)
+        monkeypatch.setattr(V, "reddit_app_token", fake_token)
         t = T.WatchVoiceCollectTool()
         t._watch_manager = wm
         t._router = router
         t._config = None
+        t._vault = {"reddit_client_id": "id", "reddit_client_secret": "sec"}
         return t
 
     @pytest.mark.asyncio
@@ -212,6 +217,19 @@ class TestCollectTool:
         # a second run is all duplicates
         res2 = await t.execute({"subject": "Crown Coins", "company_id": "c1"})
         assert res2.data["kept_total"] == 0 and res2.data["brands"][0]["duplicates"] == 2
+
+    @pytest.mark.asyncio
+    async def test_without_reddit_credentials_reddit_is_skipped_and_says_so(self, wm, monkeypatch) -> None:
+        await wm.add_subject(company_id="c1", name="Crown Coins")
+        t = await self._tool(wm, monkeypatch, router=_Router([
+            {"id": "as_1", "theme": "game_selection", "sentiment": "positive",
+             "quote": "huge selection and new ones weekly", "dimension": "", "geo_hint": ""}]))
+        t._vault = {}
+        res = await t.execute({"subject": "Crown Coins", "company_id": "c1"})
+        assert res.success and "reddit_client_id" in res.data["reddit"]
+        b = res.data["brands"][0]
+        assert b["sources"]["reddit"]["fetched"] == 0 and "vault" in b["sources"]["reddit"]["note"]
+        assert res.data["kept_total"] == 1  # app store still read
 
     @pytest.mark.asyncio
     async def test_register_is_canon_and_dry_run_saves_nothing(self, wm, monkeypatch) -> None:

@@ -36,10 +36,39 @@ _UA = (
     "(KHTML, like Gecko) Chrome/125.0 Safari/537.36"
 )
 
-# Reddit's public JSON is rate-limited; one request a second with a real UA
-# is the polite ceiling and never trips it.
+# Reddit refuses unauthenticated JSON from scripts (HTTP 403, verified
+# 2026-08-17 direct and through the residential exit). The supported route
+# is the OAuth API with an app-only token: a free "script" app registered
+# at reddit.com/prefs/apps, its client id/secret in the vault as
+# reddit_client_id / reddit_client_secret. Read-only, ~100 req/min; one
+# request a second is the polite ceiling and never trips it.
 REDDIT_PAUSE_S = 1.1
+REDDIT_UA = "python:elophanto.watch:v1.0 (competitive intelligence, voice of customer)"
 DEFAULT_REDDIT_SUBS: tuple[str, ...] = ("sweepstakescasinos", "SweepstakesCasinos")
+
+
+async def reddit_app_token(
+    client_id: str, client_secret: str, *, proxy_url: str | None = None, timeout: float = 20.0
+) -> tuple[str, str | None]:
+    """An application-only OAuth token (client_credentials). ``(token, error)``."""
+    import httpx
+
+    kwargs: dict[str, Any] = {"timeout": timeout, "headers": {"User-Agent": REDDIT_UA}}
+    if proxy_url:
+        kwargs["proxy"] = proxy_url
+    try:
+        async with httpx.AsyncClient(**kwargs) as client:
+            resp = await client.post(
+                "https://www.reddit.com/api/v1/access_token",
+                data={"grant_type": "client_credentials"},
+                auth=(client_id, client_secret),
+            )
+            if resp.status_code >= 400:
+                return "", f"HTTP {resp.status_code}"
+            tok = str((resp.json() or {}).get("access_token") or "")
+            return tok, None if tok else "no access_token in response"
+    except Exception as e:
+        return "", f"{type(e).__name__}: {e}"
 
 
 @dataclass(slots=True)
@@ -120,14 +149,17 @@ def quote_is_verbatim(quote: str, text: str) -> bool:
 
 
 async def _get_json(
-    url: str, *, proxy_url: str | None, timeout: float = 20.0
+    url: str, *, proxy_url: str | None, timeout: float = 20.0, bearer: str = ""
 ) -> tuple[Any, str | None]:
     import httpx
 
+    headers = {"User-Agent": REDDIT_UA if bearer else _UA, "Accept": "application/json"}
+    if bearer:
+        headers["Authorization"] = f"bearer {bearer}"
     kwargs: dict[str, Any] = {
         "timeout": timeout,
         "follow_redirects": True,
-        "headers": {"User-Agent": _UA, "Accept": "application/json"},
+        "headers": headers,
     }
     if proxy_url:
         kwargs["proxy"] = proxy_url
@@ -245,22 +277,32 @@ async def collect_reddit(
     max_posts: int = 200,
     with_comments: bool = True,
     pause_s: float = REDDIT_PAUSE_S,
+    token: str = "",
 ) -> tuple[list[VoicePost], list[str]]:
     """Reddit posts (and top-level comments of brand threads) mentioning the
-    brand in the window. Returns ``(posts, errors)``; never raises."""
+    brand in the window, via the OAuth API when ``token`` is given — the
+    only route Reddit still serves to scripts. Returns ``(posts, errors)``;
+    never raises."""
     since_utc = (datetime.now(UTC) - timedelta(days=int(window_days))).timestamp()
     t = "month" if window_days <= 31 else ("year" if window_days <= 366 else "all")
     q = f'"{brand}"'
-    urls = [f"https://www.reddit.com/search.json?q={_q(q)}&sort=new&limit=100&t={t}"]
+    host = "https://oauth.reddit.com" if token else "https://www.reddit.com"
+    suffix = "" if token else ".json"
+    urls = [f"{host}/search{suffix}?q={_q(q)}&sort=new&limit=100&t={t}"]
     for sub in subs:
         urls.append(
-            f"https://www.reddit.com/r/{sub}/search.json?q={_q(q)}&restrict_sr=1&sort=new&limit=100&t={t}"
+            f"{host}/r/{sub}/search{suffix}?q={_q(q)}&restrict_sr=1&sort=new&limit=100&t={t}"
         )
     posts: list[VoicePost] = []
     errors: list[str] = []
     seen: set[str] = set()
+    if not token:
+        errors.append(
+            "no Reddit OAuth token — Reddit refuses unauthenticated requests; store "
+            "reddit_client_id / reddit_client_secret in the vault"
+        )
     for u in urls:
-        payload, err = await _get_json(u, proxy_url=proxy_url)
+        payload, err = await _get_json(u, proxy_url=proxy_url, bearer=token)
         if err:
             errors.append(f"{u.split('?')[0]}: {err}")
         for p in parse_reddit_listing(payload, aliases=aliases, since_utc=since_utc):
@@ -280,9 +322,13 @@ async def collect_reddit(
         for th in threads:
             if len(posts) >= max_posts:
                 break
-            payload, err = await _get_json(
-                f"{th.url.rstrip('/')}.json?limit=60", proxy_url=proxy_url
+            th_api = (
+                th.url.replace("https://www.reddit.com", "https://oauth.reddit.com").rstrip("/")
+                + "?limit=60"
+                if token
+                else f"{th.url.rstrip('/')}.json?limit=60"
             )
+            payload, err = await _get_json(th_api, proxy_url=proxy_url, bearer=token)
             if err:
                 errors.append(f"comments {th.post_id}: {err}")
             for c in parse_reddit_comments(
