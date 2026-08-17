@@ -2620,6 +2620,7 @@ class Agent:
             "watch_analyze",
             "watch_voice_collect",
             "watch_voice",
+            "watch_voice_report",
         ):
             tool = self._registry.get(tool_name)
             if tool is None:

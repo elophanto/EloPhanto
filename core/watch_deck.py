@@ -492,6 +492,45 @@ def _slides_facts(
     return out
 
 
+def _voice_facts(voice: dict[str, Any] | None) -> dict[str, list[str]]:
+    """Computed reading of the voice summary — the 'What players say'
+    panel's fallback. Shares with n; opinion, never fact."""
+    if not voice or not voice.get("mentions"):
+        return {"observations": [], "implications": []}
+    brands = [b for b in voice.get("brands", []) if not b.get("too_few")]
+    obs: list[str] = []
+    imps: list[str] = []
+    obs.append(
+        f"{voice['mentions']} public mentions across {len(voice.get('sources') or [])} source"
+        f"{'s' if len(voice.get('sources') or []) != 1 else ''} in {voice.get('window_days', 30)} days; "
+        f"{len(brands)} of {len(voice.get('brands', []))} brands have enough to read."
+    )
+    field = voice.get("field_themes") or {}
+    if field:
+        top = max(field.items(), key=lambda kv: kv[1]["share"] * kv[1]["neg_share"])
+        obs.append(
+            f"Field-wide, the loudest complaint theme is {top[0].replace('_', ' ')} "
+            f"({int(round(top[1]['share'] * 100))}% of mentions, {int(round(top[1]['neg_share'] * 100))}% negative)."
+        )
+    worst = max(brands, key=lambda b: b.get("neg_share", 0.0), default=None)
+    if worst:
+        obs.append(
+            f"{worst['name']} draws the most negative sentiment "
+            f"({int(round(worst['neg_share'] * 100))}% of {worst['n']} mentions)"
+            + (f", mostly {worst['top_complaint'].replace('_', ' ')}." if worst.get("top_complaint") else ".")
+        )
+    us = next((b for b in brands if b.get("is_self")), None)
+    if us:
+        obs.append(
+            f"We sit at {int(round(us['neg_share'] * 100))}% negative on {us['n']} mentions"
+            + (f"; top complaint {us['top_complaint'].replace('_', ' ')}." if us.get("top_complaint") else ".")
+        )
+        if us.get("flags"):
+            imps.append("Players flag " + ", ".join(us["flags"][:2]) + " for us — read those deep dives.")
+    imps.append("Sentiment, not fact: verify a theme on the page before acting on it.")
+    return {"observations": obs[:4], "implications": imps[:3]}
+
+
 _EVENT_RE = re.compile(
     r"\b(is closing|will close|closing on|closes on|shut(?:ting)? down|ceas(?:e|es|ing) "
     r"operations|exit(?:s|ed|ing)? (?:the )?(?:market|state)|leav(?:es|ing) (?:the )?"
@@ -567,6 +606,8 @@ def factual_narrative(
     diff: dict[str, Any] | None,
     judged: list[dict[str, Any]],
     gaps: list[dict[str, Any]],
+    *,
+    voice: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The deck's words when no model is available: numbers only, no claims.
 
@@ -660,6 +701,9 @@ def factual_narrative(
             obs.append("Not yet observed for any brand.")
         by_dim.append({"dimension": dn, "observations": obs})
 
+    slides = _slides_facts(card)
+    if voice and voice.get("mentions"):
+        slides["voice"] = _voice_facts(voice)
     return {
         "headline": "",
         "bullets": bullets[:5],
@@ -667,7 +711,7 @@ def factual_narrative(
         "profiles": [],
         "titles": {},
         "commentary": {},
-        "slides": _slides_facts(card),
+        "slides": slides,
         "next_steps": next_steps[:4],
         "source": "facts",
     }
@@ -1548,6 +1592,7 @@ def _slide_profile(
     exhibits: list[dict[str, str]],
     page: int,
     deck_title: str,
+    voice_brand: dict[str, Any] | None = None,
 ) -> None:
     """One competitor, one slide: their scores and storefront on the left,
     what they are doing and what it means for us on the right — the
@@ -1665,23 +1710,27 @@ def _slide_profile(
                     color=_MUTED,
                 )
 
-    # Right: observations → implications, model-written from filed facts.
+    # Right: observations → implications, model-written from filed facts —
+    # and, when players have said enough about this brand, what they say.
     x = 6.1
+    has_voice = bool(voice_brand) and not voice_brand.get("too_few") and (voice_brand.get("quotes") or [])
     _eyebrow(s, "Observations", y=top + 0.1, x=x, color=_PEER)
     _bullets(
         s,
         x,
         top + 0.45,
         6.4,
-        2.9,
+        1.9 if has_voice else 2.9,
         [str(o) for o in profile.get("observations") or []]
         or ["No narrative available – see the workbook for this brand's facts."],
         size=11.5,
         gap_pt=8,
         cap=150,
         accent_bullet=False,
-        max_items=4,
+        max_items=3 if has_voice else 4,
     )
+    if has_voice:
+        _voice_strip(s, voice_brand, x=x, y=top + 2.4, w=6.4)
     imp_y = top + 3.3
     _eyebrow(s, "Implications for us", y=imp_y, x=x, color=_ACCENT)
     _bullets(
@@ -1705,6 +1754,204 @@ def _slide_profile(
         "means not observed, never zero. Observations and implications are "
         "model-written from this brand's filed facts.",
     )
+
+
+_VOICE_LABEL = "What players say — sentiment from public posts, not observed product fact."
+
+
+def _theme_label(theme: str) -> str:
+    return {
+        "redemption_speed": "Redemption speed",
+        "kyc_friction": "KYC friction",
+        "support": "Support",
+        "fairness_rtp": "Fairness / RTP",
+        "promo_value": "Promo value",
+        "app_stability": "App stability",
+        "account_bans": "Account bans",
+        "vip_treatment": "VIP treatment",
+        "game_selection": "Game selection",
+        "payments": "Payments",
+        "other": "Other",
+    }.get(theme, theme.replace("_", " ").title())
+
+
+def _neg_bg(share: float, neg: float) -> str:
+    """Cell colour: intensity by share, hue by negative share."""
+    if share <= 0:
+        return _WHITE
+    if neg >= 0.6:
+        return "FDE2E2" if share < 0.25 else "F9B4B4"
+    if neg <= 0.3:
+        return "E3F4E8" if share < 0.25 else "B9E4C7"
+    return "F3F4F6" if share < 0.25 else "E5E7EB"
+
+
+def _slide_voice(
+    prs: Any,
+    voice: dict[str, Any],
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+) -> None:
+    """Brands × themes: the share of each brand's mentions on a theme,
+    coloured by how negative they are, with n — and the reading panel.
+    Opinion, labelled as such on the slide."""
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    title = (narrative.get("titles") or {}).get("voice") or "What players say about the field"
+    top = _header(
+        s,
+        f"What players say · {voice.get('window_days', 30)}-day window",
+        title,
+        (narrative.get("commentary") or {}).get("voice", ""),
+    )
+    brands = sorted(
+        voice.get("brands", []),
+        key=lambda b: (not b.get("is_self"), b.get("too_few", False), -b.get("n", 0)),
+    )[:14]
+    themes = [
+        t
+        for t, v in sorted(
+            (voice.get("field_themes") or {}).items(), key=lambda kv: -kv[1]["share"]
+        )
+        if t != "other"
+    ][:8]
+    if not brands or not themes:
+        _text(s, 0.7, top + 0.2, 8.0, 1.0, "Nothing collected yet.", size=15, color=_BODY)
+        _footer(s, deck_title, page)
+        return
+    total_w = 8.2
+    first_w = 1.9
+    n_w = 0.75
+    th_w = (total_w - first_w - n_w) / len(themes)
+    shape = s.shapes.add_table(
+        len(brands) + 1,
+        2 + len(themes),
+        Inches(0.7),
+        Inches(top),
+        Inches(total_w),
+        Inches(min(0.3 * (len(brands) + 1), 6.2 - top)),
+    )
+    tbl = shape.table
+    tbl.columns[0].width = Inches(first_w)
+    tbl.columns[1].width = Inches(n_w)
+    for ci in range(len(themes)):
+        tbl.columns[2 + ci].width = Inches(th_w)
+
+    def cell_write(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8) -> None:
+        cell = tbl.cell(r, c)
+        cell.text = text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _rgb(bg)
+        cell.margin_left = cell.margin_right = Inches(0.03)
+        cell.margin_top = cell.margin_bottom = Inches(0.01)
+        for p in cell.text_frame.paragraphs:
+            for run in p.runs:
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.color.rgb = _rgb(fg)
+
+    cell_write(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
+    cell_write(0, 1, "n", bg=_INK, fg=_WHITE, bold=True)
+    for ci, t in enumerate(themes):
+        cell_write(0, 2 + ci, _theme_label(t), bg=_INK, fg=_WHITE, bold=True, size=7)
+    for ri, b in enumerate(brands, start=1):
+        bg = _SELF_ROW if b.get("is_self") else _WHITE
+        cell_write(ri, 0, f"{b['name']}{'  (us)' if b.get('is_self') else ''}", bg=bg, bold=bool(b.get("is_self")))
+        cell_write(ri, 1, str(b.get("n", 0)), bg=bg)
+        if b.get("too_few"):
+            cell_write(ri, 2, "too few mentions to read", bg=_GAP_BG, fg=_MUTED, size=7)
+            for ci in range(1, len(themes)):
+                cell_write(ri, 2 + ci, "", bg=_GAP_BG)
+            continue
+        for ci, t in enumerate(themes):
+            cell = (b.get("themes") or {}).get(t)
+            if not cell:
+                cell_write(ri, 2 + ci, "", bg=bg)
+                continue
+            share = float(cell.get("share", 0.0))
+            neg = float(cell.get("neg_share", 0.0))
+            cell_write(
+                ri, 2 + ci, f"{int(round(share * 100))}%", bg=_neg_bg(share, neg),
+                fg=_INK, bold=share >= 0.25,
+            )
+    panel = (narrative.get("slides") or {}).get("voice") or _voice_facts(voice)
+    _sidebar(
+        s,
+        [str(o) for o in panel.get("observations") or []],
+        [str(i) for i in panel.get("implications") or []],
+        top=top,
+    )
+    _text(
+        s, 0.7, 6.32, 11.9, 0.3,
+        f"{_VOICE_LABEL}  Cell = share of that brand's mentions on the theme; red = mostly negative, "
+        f"green = mostly positive. Sources: {', '.join(voice.get('sources') or [])}. "
+        "Quotes are short, cited, and carry no usernames.",
+        size=8, italic=True, color=_MUTED,
+    )
+    _judgement_note(s, str(narrative.get("source") or "facts"))
+    _footer(s, deck_title, page)
+
+
+def _slide_voice_changes(
+    prs: Any,
+    vdiff: dict[str, Any] | None,
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+) -> None:
+    """Rising and falling themes since the last cycle."""
+    s = _blank(prs)
+    commentary = (narrative.get("commentary") or {}).get("voice_changes", "")
+    if not vdiff or vdiff.get("baseline"):
+        top = _header(s, "What players say · movement", "Sentiment baseline set", commentary)
+        _text(
+            s, 0.7, top, 11.9, 0.9,
+            "First cycle with voice of customer collected. There is no prior reading to compare "
+            "against; the next cycle shows which themes rose and fell.",
+            size=13, color=_BODY,
+        )
+        _footer(s, deck_title, page)
+        return
+    n = int(vdiff.get("material_count", 0))
+    title = (narrative.get("titles") or {}).get("voice_changes") or (
+        f"{n} theme{'s' if n != 1 else ''} moved this cycle" if n else "No theme moved materially"
+    )
+    top = _header(s, "What players say · movement", title, commentary)
+    lines = []
+    for c in vdiff.get("changed", [])[:8]:
+        arrow = "▲" if c["direction"] == "rising" else "▼"
+        lines.append(
+            f"{arrow} {c['brand']}{'  (us)' if c.get('is_self') else ''} – {_theme_label(c['theme'])}: "
+            f"{int(round(c['share_from'] * 100))}% → {int(round(c['share_to'] * 100))}% of mentions, "
+            f"{int(round(c['neg_from'] * 100))}% → {int(round(c['neg_to'] * 100))}% negative "
+            f"(n {c['n_from']} → {c['n_to']})"
+        )
+    _bullets(s, 0.7, top, 11.9, 6.2 - top, lines or ["Nothing moved past the reporting threshold."],
+             size=11.5, color=_INK, gap_pt=7, cap=200, accent_bullet=True, max_items=8)
+    _text(s, 0.7, 6.32, 11.9, 0.3, _VOICE_LABEL, size=8, italic=True, color=_MUTED)
+    _footer(s, deck_title, page)
+
+
+def _voice_strip(slide: Any, vb: dict[str, Any], *, x: float, y: float, w: float) -> None:
+    """Three lines under a deep dive: what players say about this brand."""
+    _eyebrow(slide, f"What players say · n={vb.get('n', 0)}", y=y, x=x, color=_PEER)
+    quotes = vb.get("quotes") or []
+    lines = []
+    for q in quotes[:2]:
+        lines.append(f"“{_clean(q.get('quote', ''), 120)}” — {q.get('source', '')}, {q.get('posted_at', '')}")
+    meta = []
+    if vb.get("top_complaint"):
+        meta.append(f"top complaint {_theme_label(vb['top_complaint']).lower()}")
+    if vb.get("top_praise"):
+        meta.append(f"top praise {_theme_label(vb['top_praise']).lower()}")
+    if vb.get("flags"):
+        meta.append("players flag " + ", ".join(vb["flags"][:2]))
+    if meta:
+        lines.append(" · ".join(meta))
+    _bullets(slide, x, y + 0.3, w, 0.95, lines, size=9.5, color=_BODY, gap_pt=3, cap=170,
+             accent_bullet=False, max_items=3)
 
 
 def _slide_offers(
@@ -2400,10 +2647,16 @@ def render_executive_deck(
     screenshots: dict[str, list[dict[str, str]]] | None = None,
     offers: list[dict[str, Any]] | None = None,
     events: list[dict[str, Any]] | None = None,
+    voice: dict[str, Any] | None = None,
+    voice_diff: dict[str, Any] | None = None,
     title: str = "Competitive Intelligence – Executive Briefing",
     market_label: str = "",
 ) -> str:
     """Write the deck. Returns the path written.
+
+    ``voice`` (a voice summary) and ``voice_diff`` add the 'What players
+    say' slides and the quote strips on deep dives; absent, the deck is
+    exactly the pack it always was.
 
     ``summary`` is the narrative dict — ``{headline, bullets, exec, profiles,
     titles, commentary, next_steps, source}`` — model-written when a router
@@ -2499,6 +2752,16 @@ def render_executive_deck(
             )
             page += 1
 
+    # What players say — the second evidence class, on top of the pack and
+    # only when something was collected. Opinion, labelled as such.
+    voice_by_brand: dict[str, dict[str, Any]] = {}
+    if voice and voice.get("mentions"):
+        _slide_voice(prs, voice, narrative, page, deck_title)
+        page += 1
+        _slide_voice_changes(prs, voice_diff, narrative, page, deck_title)
+        page += 1
+        voice_by_brand = {str(b.get("name")): b for b in voice.get("brands", [])}
+
     # Competitor deep dives — one slide per profiled brand, in the model's
     # order (the ranked leader first). Only brands that exist in the card.
     by_name = {r["name"]: r for r in rows}
@@ -2514,6 +2777,7 @@ def render_executive_deck(
             shots.get(row["name"], []),
             page,
             deck_title,
+            voice_brand=voice_by_brand.get(row["name"]),
         )
         page += 1
 
@@ -2576,4 +2840,120 @@ def render_executive_deck(
     out.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out))
     logger.info("Executive deck written: %s (%d slides)", out, len(prs.slides))
+    return str(out)
+
+
+def render_voice_deck(
+    voice: dict[str, Any],
+    *,
+    voice_diff: dict[str, Any] | None,
+    narrative: dict[str, Any] | None,
+    path: str | Path,
+    title: str = "Voice of Customer – What Players Say",
+    market_label: str = "",
+) -> str:
+    """The standalone voice-of-customer deck: the same components as the
+    pack's voice slides, on their own — title, the field heatmap, movement,
+    one slide per brand with enough mentions, method, closing."""
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    narrative = narrative or {}
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    generated = datetime.now(UTC).isoformat()
+    deck_title = _clean(title, 70)
+    brands = voice.get("brands", [])
+    readable = [b for b in brands if not b.get("too_few")]
+    _slide_title(
+        prs,
+        title=title,
+        market=market_label or "Voice of customer",
+        period=f"{voice.get('window_days', 30)}-day window · generated {generated[:10]}",
+        basis=(
+            f"{voice.get('mentions', 0):,} public mentions · {len(brands)} brands tracked · "
+            f"{len(readable)} with enough to read · sources: {', '.join(voice.get('sources') or []) or '—'}"
+        ),
+        generated=generated,
+    )
+    page = 2
+    _slide_voice(prs, voice, narrative, page, deck_title)
+    page += 1
+    _slide_voice_changes(prs, voice_diff, narrative, page, deck_title)
+    page += 1
+    for b in sorted(readable, key=lambda b: (not b.get("is_self"), -b.get("n", 0)))[:12]:
+        s = _blank(prs)
+        top = _header(
+            s,
+            f"{b['name']}{'  (us)' if b.get('is_self') else ''} · n={b.get('n', 0)}",
+            f"{b['name']} – "
+            + (
+                f"players complain about {_theme_label(b['top_complaint']).lower()}"
+                if b.get("top_complaint") and b.get("neg_share", 0) >= 0.4
+                else f"players mostly praise {_theme_label(b['top_praise']).lower()}"
+                if b.get("top_praise")
+                else "what players say"
+            ),
+        )
+        # left: theme shares as bars
+        y = top + 0.1
+        themes = sorted((b.get("themes") or {}).items(), key=lambda kv: -kv[1]["share"])[:8]
+        for t, v in themes:
+            _text(s, 0.7, y, 2.2, 0.26, _theme_label(t), size=9.5, color=_BODY)
+            bar = s.shapes.add_shape(1, Inches(2.95), Inches(y + 0.05), Inches(max(0.05, 2.9 * v["share"])), Inches(0.16))
+            bar.fill.solid()
+            bar.fill.fore_color.rgb = _rgb("DC2626" if v["neg_share"] >= 0.6 else ("16A34A" if v["neg_share"] <= 0.3 else _PEER))
+            bar.line.fill.background()
+            bar.shadow.inherit = False
+            _text(s, 5.9, y, 1.0, 0.26, f"{int(round(v['share'] * 100))}% · n{v['n']}", size=8.5, color=_MUTED)
+            y += 0.34
+        _text(
+            s, 0.7, y + 0.15, 5.4, 0.6,
+            f"{int(round(b.get('neg_share', 0) * 100))}% negative · {int(round(b.get('pos_share', 0) * 100))}% positive"
+            + (f" · avg rating {b['avg_rating']}" if b.get("avg_rating") is not None else "")
+            + f" · sources: {', '.join(b.get('sources') or [])}",
+            size=9.5, color=_BODY,
+        )
+        # right: quotes + flags
+        x = 6.9
+        _eyebrow(s, "In their words", y=top + 0.1, x=x, color=_PEER)
+        _bullets(
+            s, x, top + 0.45, 5.7, 2.9,
+            [f"“{_clean(q.get('quote', ''), 200)}” — {q.get('source', '')}, {q.get('posted_at', '')}" for q in (b.get("quotes") or [])[:3]]
+            or ["No quotable mention in the window."],
+            size=11, color=_INK, gap_pt=8, cap=260, accent_bullet=False, max_items=3,
+        )
+        if b.get("flags"):
+            _eyebrow(s, "Players flag", y=top + 3.45, x=x, color=_ACCENT)
+            _bullets(s, x, top + 3.8, 5.7, min(0.8, 6.25 - (top + 3.8)), [str(f) for f in b["flags"][:2]],
+                     size=10.5, color=_BODY, gap_pt=4, cap=100, accent_bullet=True, max_items=2)
+        _text(s, 0.7, 6.32, 11.9, 0.3, _VOICE_LABEL, size=8, italic=True, color=_MUTED)
+        _footer(s, deck_title, page)
+        page += 1
+    # method
+    s = _blank(prs)
+    top = _header(s, "Method", "How to read these numbers")
+    _bullets(
+        s, 0.7, top, 11.9, 5.5,
+        [
+            "Sources are public posts and reviews (Reddit posts and comments, App Store reviews); "
+            "each post is read for one theme from a fixed vocabulary and a sentiment, and a short "
+            "verbatim quote is kept with its URL and date.",
+            "Numbers are shares of a brand's own mentions, always with n. Volume differs a hundredfold "
+            "between brands, so absolutes are never compared; brands under "
+            f"{voice.get('min_mentions', 15)} mentions are shown as 'too few to read'.",
+            "Usernames, handles, emails and links are stripped before reading; affiliate and referral "
+            "posts are dropped; cross-posts count once; posts are weighted by visible credibility.",
+            "This is what players SAY. It never moves a scorecard number; a theme may flag a "
+            "dimension for the reader to check on the page.",
+        ],
+        size=11.5, color=_BODY, gap_pt=8, cap=320, accent_bullet=True, max_items=4,
+    )
+    _footer(s, deck_title, page)
+    page += 1
+    _slide_closing(prs, narrative, deck_title)
+    out = Path(path).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(out))
     return str(out)

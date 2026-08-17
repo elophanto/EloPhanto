@@ -667,6 +667,16 @@ class WatchScorecardTool(_WatchToolBase):
                 from core.watch_xlsx import render_scorecard_xlsx
             except ImportError as e:  # openpyxl missing
                 return ToolResult(success=False, error=f"xlsx export unavailable: {e}")
+            voice_rows: list[dict[str, Any]] = []
+            if str(params.get("voice") or "auto").lower() != "false":
+                try:
+                    voice_rows = _voice_rows_for_export(
+                        await wm.list_voice(cid, limit=5000),
+                        await wm.list_subjects(cid),
+                        await wm.list_dimensions(cid),
+                    )
+                except Exception:
+                    voice_rows = []
             written = render_scorecard_xlsx(
                 card,
                 dimensions=await wm.list_dimensions(cid),
@@ -674,6 +684,7 @@ class WatchScorecardTool(_WatchToolBase):
                 staleness=await wm.staleness(cid),
                 path=path,
                 title=str(params.get("title") or "Competitive Scorecard"),
+                voice_rows=voice_rows or None,
             )
             return ToolResult(
                 success=True,
@@ -875,12 +886,12 @@ Return STRICT JSON:
           "by_dimension": [{"dimension": str, "observations": [str, ...]}],
           "recommendation": str, "actions": [str, ...]},
  "titles": {"standings": str, "versus": str, "dimensions": str, "offers": str,
-            "changes": str, "coverage": str},
+            "changes": str, "coverage": str, "voice": str},
  "commentary": {"standings": str, "versus": str, "dimensions": str, "offers": str,
-                "changes": str, "coverage": str, "glance": str},
+                "changes": str, "coverage": str, "glance": str, "voice": str},
  "slides": {"standings": {"observations": [str, ...], "implications": [str, ...]},
             "versus": {...}, "dimensions": {...}, "offers": {...},
-            "exhibits": {...}, "coverage": {...}},
+            "exhibits": {...}, "coverage": {...}, "voice": {...} (only when voice_of_customer given)},
  "profiles": [{"brand": str, "title": str,
                "observations": [str, ...], "implications": [str, ...]}],
  "next_steps": [str, ...]}
@@ -906,6 +917,14 @@ Return STRICT JSON:
   the ongoing propositions have in common, where ours sits. "exhibits" is
   what the storefronts visibly emphasise (offer-led vs game-led vs
   trust-led). Never repeat a chart's numbers back; say what they mean.
+- voice_of_customer, when present, is what PLAYERS SAY — sentiment, not
+  fact. Write titles.voice (an action title for the 'What players say'
+  slide) and slides.voice {observations, implications}: which brand draws
+  the most negative sentiment and on what theme, where we sit, what a
+  rising complaint theme means for us. Never state a voice theme as a
+  product fact ("X's redemptions are slow"); say what players say ("players
+  complain about X's redemption speed, 62% of 40 mentions negative"). Never
+  let it change a score claim. Shares with n; skip brands marked too_few.
 - market_events, when present, are the most material facts in the room: a
   competitor closing, exiting a state, being acquired, rebranding, launching.
   Reflect them in the headline or recommendation, in slides.standings /
@@ -1184,14 +1203,18 @@ async def _narrate_for_deck(
     evidence: list[dict[str, Any]] | None = None,
     offers: list[dict[str, Any]] | None = None,
     events: list[dict[str, Any]] | None = None,
+    voice: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The deck's words. Model-written from facts when a router exists;
     otherwise the computed factual fallback — and the deck labels which."""
     from core.watch_deck import _slides_facts, factual_narrative
 
-    fallback = factual_narrative(card, diff, judged, gaps)
+    fallback = factual_narrative(card, diff, judged, gaps, voice=voice)
     if offers:
+        voice_panel = (fallback.get("slides") or {}).get("voice")
         fallback["slides"] = _slides_facts(card, offers)
+        if voice_panel:
+            fallback["slides"]["voice"] = voice_panel
     if router is None:
         return fallback
     import json as _json
@@ -1261,6 +1284,30 @@ async def _narrate_for_deck(
                 card.get("dimensions", []), key=lambda d: -float(d.get("weight_pct") or 0)
             )[:6]
         ],
+        "voice_of_customer": (
+            {
+                "window_days": voice.get("window_days"),
+                "mentions": voice.get("mentions"),
+                "sources": voice.get("sources"),
+                "field_themes": voice.get("field_themes"),
+                "brands": [
+                    {
+                        "brand": b.get("name"),
+                        "is_self": b.get("is_self"),
+                        "n": b.get("n"),
+                        "too_few": b.get("too_few"),
+                        "neg_share": b.get("neg_share"),
+                        "top_complaint": b.get("top_complaint"),
+                        "top_praise": b.get("top_praise"),
+                        "flags": b.get("flags"),
+                        "quotes": [q.get("quote") for q in (b.get("quotes") or [])[:2]],
+                    }
+                    for b in voice.get("brands", [])
+                ],
+            }
+            if voice
+            else None
+        ),
         "market_events": [
             {"brand": ev["brand"], "claim": ev["claim"], "observed": ev.get("observed_at", "")}
             for ev in (events or [])
@@ -1339,7 +1386,7 @@ async def _narrate_for_deck(
             }
             for k, v in slides_raw.items()
             if isinstance(v, dict)
-            and k in ("standings", "versus", "dimensions", "offers", "exhibits", "coverage")
+            and k in ("standings", "versus", "dimensions", "offers", "exhibits", "coverage", "voice")
         }
         return {
             "headline": str(data.get("headline") or "").strip(),
@@ -1382,6 +1429,94 @@ async def _narrate_for_deck(
 
         logging.getLogger(__name__).warning("deck narrative failed: %s", e)
         return fallback
+
+
+async def _voice_for_pack(
+    wm: Any, cid: str, params: dict[str, Any], *, window_days: int = 30
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """The voice summary and theme diff to lay on top of a pack — or
+    ``(None, None)`` when voice is off or nothing was collected. 'auto'
+    (default) means: present when rows exist. Never raises: voice must not
+    break the pack it rides on."""
+    mode = str(params.get("voice") or "auto").lower()
+    if mode == "false":
+        return None, None
+    try:
+        summary = await wm.voice_summary(cid, window_days=window_days)
+    except Exception:
+        return None, None
+    if not summary.get("mentions") and mode != "true":
+        return None, None
+    try:
+        vdiff = await wm.diff_voice_since_snapshot(cid)
+    except Exception:
+        vdiff = None
+    return summary, vdiff
+
+
+def _voice_rows_for_export(rows: list[Any], subjects: list[Any], dims: list[Any]) -> list[dict[str, Any]]:
+    names = {s.subject_id: s.name for s in subjects}
+    dnames = {d.dimension_id: d.name for d in dims}
+    return [
+        {
+            "brand": names.get(r.subject_id, r.subject_id),
+            "source": r.source,
+            "posted_at": r.posted_at or r.observed_at,
+            "theme": r.theme,
+            "sentiment": r.sentiment,
+            "rating": r.rating,
+            "quote": r.quote,
+            "dimension": dnames.get(r.dimension_id, ""),
+            "geo_hint": r.geo_hint,
+            "weight": r.weight,
+            "url": r.source_url,
+        }
+        for r in rows
+    ]
+
+
+def _voice_markdown(voice: dict[str, Any], vdiff: dict[str, Any] | None) -> list[str]:
+    """The 'What players say' section of the board report."""
+    lines = ["## What players say", ""]
+    lines.append(
+        f"_{voice.get('label', '')}_ {voice.get('mentions', 0)} public mentions in "
+        f"{voice.get('window_days', 30)} days from {', '.join(voice.get('sources') or []) or 'no source'}; "
+        f"brands under {voice.get('min_mentions', 15)} mentions are not read."
+    )
+    lines.append("")
+    lines.append("| Brand | n | Negative | Top complaint | Top praise | Players flag |")
+    lines.append("|---|---:|---:|---|---|---|")
+    for b in voice.get("brands", []):
+        if b.get("too_few"):
+            lines.append(f"| {b['name']}{' (us)' if b.get('is_self') else ''} | {b.get('n', 0)} | — | too few mentions to read | | |")
+            continue
+        lines.append(
+            f"| {b['name']}{' (us)' if b.get('is_self') else ''} | {b.get('n', 0)} | "
+            f"{int(round(b.get('neg_share', 0) * 100))}% | "
+            f"{(b.get('top_complaint') or '').replace('_', ' ')} | "
+            f"{(b.get('top_praise') or '').replace('_', ' ')} | {', '.join(b.get('flags') or [])} |"
+        )
+    lines.append("")
+    for b in voice.get("brands", []):
+        if b.get("too_few") or not b.get("quotes"):
+            continue
+        q = b["quotes"][0]
+        lines.append(f"- **{b['name']}** — “{q['quote']}” ({q['source']}, {q['posted_at']})")
+    lines.append("")
+    if vdiff and not vdiff.get("baseline") and vdiff.get("changed"):
+        lines.append("**Rising and falling since the last cycle:**")
+        for c in vdiff["changed"][:6]:
+            arrow = "▲" if c["direction"] == "rising" else "▼"
+            lines.append(
+                f"- {arrow} {c['brand']} · {c['theme'].replace('_', ' ')}: "
+                f"{int(round(c['share_from'] * 100))}% → {int(round(c['share_to'] * 100))}% of mentions, "
+                f"{int(round(c['neg_from'] * 100))}% → {int(round(c['neg_to'] * 100))}% negative"
+            )
+        lines.append("")
+    elif vdiff and vdiff.get("baseline"):
+        lines.append("_First cycle with voice collected — movement appears next cycle._")
+        lines.append("")
+    return lines
 
 
 class WatchBoardReportTool(_WatchToolBase):
@@ -1432,6 +1567,16 @@ class WatchBoardReportTool(_WatchToolBase):
                         "snapshot; the report and deck say 'baseline', not "
                         "'N material changes'. Use for 'fresh', 'from scratch' "
                         "or first-run analyses. Default false."
+                    ),
+                },
+                "voice": {
+                    "type": "string",
+                    "enum": ["auto", "true", "false"],
+                    "description": (
+                        "Voice of customer on top of the pack: 'auto' (default) "
+                        "adds the 'What players say' section/slides when voice "
+                        "rows exist for this company; 'false' leaves them out; "
+                        "'true' insists (empty section if nothing collected)."
                     ),
                 },
                 "deck": {
@@ -1619,6 +1764,11 @@ class WatchBoardReportTool(_WatchToolBase):
                 "",
             ]
 
+        # ── What players say (voice of customer, on top; docs/87) ──
+        voice, voice_diff = await _voice_for_pack(wm, cid, params)
+        if voice is not None:
+            lines += _voice_markdown(voice, voice_diff)
+
         # ── Evidence gaps ──
         never = [g for g in gaps if g["status"] == "never_observed"]
         stale = [g for g in gaps if g["status"] == "stale"]
@@ -1676,6 +1826,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     evidence=ev_rows,
                     offers=offers,
                     events=events,
+                    voice=voice,
                 )
                 deck_written = render_executive_deck(
                     card,
@@ -1687,6 +1838,8 @@ class WatchBoardReportTool(_WatchToolBase):
                     screenshots=exhibits,
                     offers=offers,
                     events=events,
+                    voice=voice,
+                    voice_diff=voice_diff,
                     path=deck_target,
                 )
             except Exception as e:
@@ -1769,6 +1922,16 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                         "Default false."
                     ),
                 },
+                "voice": {
+                    "type": "string",
+                    "enum": ["auto", "true", "false"],
+                    "description": (
+                        "Voice of customer on top of the pack: 'auto' (default) "
+                        "adds the 'What players say' section/slides when voice "
+                        "rows exist for this company; 'false' leaves them out; "
+                        "'true' insists (empty section if nothing collected)."
+                    ),
+                },
                 "company_id": {"type": "string"},
             },
         }
@@ -1811,6 +1974,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
 
         offers = _offer_facts(card, evidence, exhibits)
         events = market_events(evidence)
+        voice, voice_diff = await _voice_for_pack(wm, cid, params)
         summary = await _narrate_for_deck(
             self._router,
             card=card,
@@ -1820,6 +1984,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
             evidence=evidence,
             offers=offers,
             events=events,
+            voice=voice,
         )
         try:
             from core.watch_deck import render_executive_deck
@@ -1834,6 +1999,8 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 screenshots=exhibits,
                 offers=offers,
                 events=events,
+                voice=voice,
+                voice_diff=voice_diff,
                 path=path,
                 title=str(params.get("title") or "Competitive Intelligence — Executive Briefing"),
                 market_label=str(params.get("market_label") or ""),
@@ -2796,6 +2963,10 @@ class WatchQueueTool(_WatchToolBase):
             "type": "object",
             "properties": {
                 "action": {"type": "string", "enum": ["list", "schedule"]},
+                "voice": {
+                    "type": "boolean",
+                    "description": "schedule: also install the weekly voice-of-customer collection. Default true.",
+                },
                 "cadence": {
                     "type": "string",
                     "enum": ["weekly", "monthly", "quarterly"],
@@ -2846,6 +3017,26 @@ class WatchQueueTool(_WatchToolBase):
                     company_id=cid,
                 )
                 created.append(f"{name} ({cron})")
+            # Voice of customer rides its own weekly cadence (docs/87): a
+            # week of posts is a readable batch, and the monthly pack then
+            # has four weeks behind its 30-day window.
+            if bool(params.get("voice", True)):
+                name = "Voice of customer · weekly"
+                if name in existing:
+                    await self._scheduler.delete_schedule(existing[name])
+                await self._scheduler.create_schedule(
+                    name=name,
+                    task_goal=(
+                        f"Collect voice of customer for every active brand of {cid}: "
+                        "call watch_voice_collect (all subjects, sources reddit + "
+                        "app_store, window_days=14). Do not add or archive brands; do "
+                        "not score anything — this is what players say, filed apart."
+                    ),
+                    cron_expression="0 8 * * 3",
+                    description="Auto-created by watch_queue action=schedule",
+                    company_id=cid,
+                )
+                created.append(f"{name} (0 8 * * 3)")
             return ToolResult(success=True, data={"schedules": created})
 
         gaps = await self._watch_manager.staleness(cid)
@@ -3128,6 +3319,140 @@ class WatchVoiceTool(_WatchToolBase):
         return ToolResult(success=True, data=summary)
 
 
+class WatchVoiceReportTool(_WatchToolBase):
+    """The standalone voice-of-customer pack — report, deck, workbook — for
+    when only what players say is wanted."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_voice_report"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Voice of customer as its own pack: a markdown report, an executive "
+            "deck (.pptx: field heatmap of brands × themes, rising/falling since "
+            "last cycle, one slide per brand with quotes and flags, method) and a "
+            "workbook (summary + every quote), from watch_voice only. Use when the "
+            "customer wants what players say on its own; the competitor pack picks "
+            "the same material up automatically when present. Opinion, labelled."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Where to write the report (.md); deck and workbook land beside it.",
+                },
+                "window_days": {"type": "integer", "description": "Default 30."},
+                "title": {"type": "string"},
+                "market_label": {"type": "string"},
+                "take_snapshot": {
+                    "type": "boolean",
+                    "description": "Snapshot after reporting so the next cycle can diff. Default true.",
+                },
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        wm = self._watch_manager
+        window_days = int(params.get("window_days") or 30)
+        voice = await wm.voice_summary(cid, window_days=window_days)
+        if not voice.get("mentions"):
+            return ToolResult(
+                success=False,
+                error="nothing collected yet — run watch_voice_collect first",
+            )
+        vdiff = await wm.diff_voice_since_snapshot(cid)
+        title = str(params.get("title") or "Voice of Customer — What Players Say")
+        lines = [f"# {title}", ""] + _voice_markdown(voice, vdiff)
+        lines += [
+            "## Method",
+            "",
+            "Public posts and reviews, read for one theme (fixed vocabulary) and a sentiment; a short "
+            "verbatim quote is kept with URL and date. Shares of a brand's own mentions, always with n; "
+            f"brands under {voice.get('min_mentions', 15)} mentions are not read. Usernames stripped, "
+            "affiliate posts dropped, cross-posts once. What players SAY — never a scorecard number.",
+        ]
+        report = "\n".join(lines)
+        written: dict[str, str] = {}
+        errors: dict[str, str] = {}
+        if params.get("path"):
+            from pathlib import Path
+
+            p = Path(str(params["path"])).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(report, encoding="utf-8")
+            written["report"] = str(p)
+            narrative: dict[str, Any] = {}
+            try:
+                if self._router is not None:
+                    from core.watch_deck import factual_narrative
+
+                    # The pack's narrator wants a scorecard; standalone we take
+                    # the computed reading — the slides carry it verbatim.
+                    narrative = factual_narrative({"rows": [], "dimensions": []}, None, [], [], voice=voice)
+                    narrative["next_steps"] = [
+                        "Collect again next cycle; the movement slide fills in",
+                        "Check every flagged dimension on the brand's own pages",
+                    ]
+            except Exception:
+                narrative = {}
+            try:
+                from core.watch_deck import render_voice_deck
+
+                written["deck"] = render_voice_deck(
+                    voice,
+                    voice_diff=vdiff,
+                    narrative=narrative,
+                    path=p.with_suffix(".pptx"),
+                    title=title,
+                    market_label=str(params.get("market_label") or ""),
+                )
+            except Exception as e:
+                errors["deck"] = str(e)
+            try:
+                from core.watch_xlsx import render_voice_xlsx
+
+                rows = _voice_rows_for_export(
+                    await wm.list_voice(cid, limit=5000),
+                    await wm.list_subjects(cid),
+                    await wm.list_dimensions(cid),
+                )
+                written["workbook"] = render_voice_xlsx(rows, path=p.with_suffix(".xlsx"), summary=voice)
+            except Exception as e:
+                errors["workbook"] = str(e)
+        snap_id = None
+        if params.get("take_snapshot", True):
+            snap_id = await wm.take_snapshot(cid, label="voice report")
+        return ToolResult(
+            success=True,
+            data={
+                "markdown": report,
+                "written": written,
+                "errors": errors,
+                "snapshot_id": snap_id,
+                "mentions": voice.get("mentions"),
+                "brands_readable": len([b for b in voice.get("brands", []) if not b.get("too_few")]),
+            },
+        )
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -3145,4 +3470,5 @@ def create_watch_tools() -> list[BaseTool]:
         WatchAnalyzeTool(),
         WatchVoiceCollectTool(),
         WatchVoiceTool(),
+        WatchVoiceReportTool(),
     ]

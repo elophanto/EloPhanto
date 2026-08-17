@@ -54,8 +54,10 @@ def render_scorecard_xlsx(
     staleness: list[dict[str, Any]],
     path: str | Path,
     title: str = "Competitive Scorecard",
+    voice_rows: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Write the four-sheet workbook. Returns the path written."""
+    """Write the four-sheet workbook — five when ``voice_rows`` (what
+    players say, docs/87) are given. Returns the path written."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -287,8 +289,98 @@ def render_scorecard_xlsx(
         )
     _autosize(ws4, {"A": 22, "B": 34, "C": 12, "D": 24, "E": 12, "F": 16})
 
+    if voice_rows:
+        write_voice_sheet(wb, voice_rows)
+
     out = Path(path).expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(out))
     logger.info("watch: scorecard workbook written to %s", out)
+    return str(out)
+
+
+def write_voice_sheet(wb: Any, voice_rows: list[dict[str, Any]]) -> None:
+    """The 'Voice' sheet: what players said, one row per quote — opinion,
+    kept on its own sheet, never mixed into Evidence."""
+    from openpyxl.styles import Font
+
+    ws = wb.create_sheet("Voice")
+    ws.append(["What players say — sentiment from public posts, not observed product fact"])
+    ws["A1"].font = Font(bold=True, size=12)
+    ws.append(
+        [
+            "One row per quote. Usernames stripped, affiliate posts dropped, cross-posts once. "
+            "Weight = visible credibility (0-1). Dimension = the model dimension the theme flags "
+            "for a reader; it never moves a score."
+        ]
+    )
+    ws["A2"].font = Font(italic=True, size=9, color="6B7280")
+    ws.append([])
+    hdr = [
+        "Brand", "Source", "Posted", "Theme", "Sentiment", "Rating", "Quote", "Flags dimension",
+        "Geo hint", "Weight", "URL",
+    ]
+    ws.append(hdr)
+    _style_header(ws, 4, len(hdr))
+    ws.freeze_panes = "A5"
+    for r in voice_rows:
+        ws.append(
+            [
+                r.get("brand", ""),
+                r.get("source", ""),
+                str(r.get("posted_at", ""))[:10],
+                r.get("theme", ""),
+                r.get("sentiment", ""),
+                r.get("rating") if r.get("rating") is not None else "",
+                r.get("quote", ""),
+                r.get("dimension", ""),
+                r.get("geo_hint", ""),
+                r.get("weight", ""),
+                r.get("url", ""),
+            ]
+        )
+    _autosize(ws, {"A": 22, "B": 11, "C": 12, "D": 18, "E": 11, "F": 8, "G": 70, "H": 32, "I": 10, "J": 8, "K": 50})
+
+
+def render_voice_xlsx(
+    voice_rows: list[dict[str, Any]], *, path: str | Path, summary: dict[str, Any] | None = None
+) -> str:
+    """Standalone voice workbook: a Summary sheet (per brand) and the Voice rows."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["Voice of customer — what players say"])
+    ws["A1"].font = Font(bold=True, size=13)
+    if summary:
+        ws.append([f"{summary.get('window_days', 30)}-day window · {summary.get('mentions', 0)} mentions · "
+                   f"sources: {', '.join(summary.get('sources') or [])}"])
+        ws["A2"].font = Font(italic=True, size=9, color="6B7280")
+    ws.append([])
+    hdr = ["Brand", "Mentions", "Readable", "Negative %", "Positive %", "Avg rating", "Top complaint",
+           "Top praise", "Flags", "Sources"]
+    ws.append(hdr)
+    _style_header(ws, 4, len(hdr))
+    for b in (summary or {}).get("brands", []):
+        ws.append(
+            [
+                f"{b.get('name', '')}{' (us)' if b.get('is_self') else ''}",
+                b.get("n", 0),
+                "no — too few" if b.get("too_few") else "yes",
+                round(float(b.get("neg_share", 0.0)) * 100),
+                round(float(b.get("pos_share", 0.0)) * 100),
+                b.get("avg_rating") if b.get("avg_rating") is not None else "",
+                b.get("top_complaint") or "",
+                b.get("top_praise") or "",
+                ", ".join(b.get("flags") or []),
+                ", ".join(b.get("sources") or []),
+            ]
+        )
+    _autosize(ws, {"A": 24, "B": 10, "C": 14, "D": 11, "E": 11, "F": 11, "G": 20, "H": 20, "I": 40, "J": 20})
+    write_voice_sheet(wb, voice_rows)
+    out = Path(path).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(str(out))
     return str(out)

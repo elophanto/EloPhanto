@@ -1,6 +1,7 @@
 # 87 — Voice of Customer (watch organ, second evidence class)
 
-*Status: designed 2026-08-17, awaiting go-ahead. Nothing in this document is built.*
+*Status: designed and built 2026-08-17 (steps 1–5). Google Play, Trustpilot/BBB and X
+collectors are the remaining step 6.*
 
 The competitive-intelligence organ ([81](81-COMPETITIVE-INTEL.md)) records **what a
 brand says and does** — its pages, read and photographed, scored against the
@@ -147,6 +148,30 @@ UA); the collector sleeps between calls and stops at `max_posts` (default 200
 per brand per run). App-store RSS returns the latest 500 reviews per app.
 Trustpilot/BBB terms restrict wholesale reuse: quotes are ≤ 240 chars, cited
 by URL, no bulk republication.
+
+## What shipped (2026-08-17)
+
+- `watch_voice` table (`core/database.py`), `WatchVoice` record, `WatchManager.add_voice /
+  list_voice / voice_summary / tag_subject / diff_voice_since_snapshot`; `summarize_voice`,
+  `diff_voice`, `voice_dedupe_key` in `core/watch.py`. Snapshots carry `voice` only when
+  there is one.
+- `core/watch_voice.py`: `collect_reddit` (search JSON field-wide + per sub, top-level
+  comments of brand threads), `collect_app_store` (+ `find_app_store_id`, cached as the
+  subject tag `app_store:<id>`), `read_posts` with `VOICE_READ_SYSTEM` (verbatim-quote
+  verification, vocabulary validation, dimension flag with a deterministic fallback),
+  `strip_pii`, `is_affiliate`, `brand_aliases`.
+- Tools: `watch_voice_collect`, `watch_voice` (summary | list | diff), `watch_voice_report`
+  (standalone md + pptx + xlsx); `voice=auto|true|false` on `watch_board_report`,
+  `watch_executive_deck` and the xlsx export; `watch_queue action=schedule` also installs
+  *Voice of customer · weekly* (Wednesdays 08:00, `window_days=14`).
+- Deck (`core/watch_deck.py`): `_slide_voice` (brands × themes heatmap + reading panel),
+  `_slide_voice_changes` (rising / falling), a quote strip on deep dives
+  (`_slide_profile(voice_brand=)`), `render_voice_deck` standalone; `factual_narrative(voice=)`
+  and the narrator's `voice_of_customer` facts + rules (`titles.voice`, `slides.voice`).
+- Workbook (`core/watch_xlsx.py`): `write_voice_sheet` (the *Voice* sheet, only when rows
+  exist), `render_voice_xlsx` (Summary + Voice).
+- Tests: `tests/test_core/test_watch_voice*.py` — including the guarantee that a deck /
+  report / workbook with no voice rows is byte-for-byte the pack it always was.
 
 ## Build order (each step ships green with the pack unchanged)
 

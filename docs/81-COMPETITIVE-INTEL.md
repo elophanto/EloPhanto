@@ -247,6 +247,14 @@ welcome offer is the most *specific* welcome claim on record — quantity and
 sign-up wording win, "no purchase is necessary" boilerplate loses — not the
 newest regex hit.
 
+**Voice of customer (docs/87).** What players *say* — Reddit and App Store,
+read for theme and sentiment, filed as short verbatim quotes in
+`watch_voice`, a second evidence class beside this register. It never moves
+a score; a theme may flag a dimension for the reader. When rows exist the
+report, deck and workbook pick it up (`voice=auto`) as *What players say*
+— heatmap, movement, quote strips on deep dives, a Voice sheet — and it
+ships on its own via `watch_voice_report`. See [87](87-VOICE-OF-CUSTOMER.md).
+
 **Baseline packs and comparable fields.** A from-scratch analysis has nothing
 to move *from*: pass `baseline=true` to `watch_board_report` (or
 `watch_executive_deck`, or `watch_analyze` when it saves the pack) and no
