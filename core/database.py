@@ -411,6 +411,39 @@ _SCHEMA = [
         payload_json TEXT NOT NULL DEFAULT '{}'
     )
     """,
+    # Voice of customer — what PLAYERS say about a tracked brand (Reddit,
+    # app-store reviews, complaint boards). A second evidence class beside
+    # watch_evidence: opinion, not observed fact. Never enters scoring; a
+    # theme may flag a dimension (dimension_id) but cannot move its score.
+    # No usernames or PII are stored; quotes are short and cited by URL.
+    # See docs/87-VOICE-OF-CUSTOMER.md.
+    """
+    CREATE TABLE IF NOT EXISTS watch_voice (
+        voice_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        subject_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        source_url TEXT NOT NULL DEFAULT '',
+        posted_at TEXT NOT NULL DEFAULT '',
+        observed_at TEXT NOT NULL,
+        exit_ip TEXT NOT NULL DEFAULT '',
+        rating REAL,
+        theme TEXT NOT NULL,
+        sentiment TEXT NOT NULL
+            CHECK (sentiment IN ('negative','neutral','positive')),
+        quote TEXT NOT NULL DEFAULT '',
+        dimension_id TEXT NOT NULL DEFAULT '',
+        geo_hint TEXT NOT NULL DEFAULT '',
+        weight REAL NOT NULL DEFAULT 1.0,
+        dedupe_key TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (company_id, subject_id, dedupe_key)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_watch_voice_lookup
+        ON watch_voice(company_id, subject_id, posted_at)
+    """,
     # Dream journal — every dream-phase ideation persists here so the next
     # cycle's dream can see what was already proposed (and not picked).
     # Kills the amnesia that caused dream to keep re-proposing the same

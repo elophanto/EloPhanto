@@ -66,6 +66,34 @@ VALID_SOURCE_TYPES: tuple[str, ...] = (
 
 _CONFIDENCE_POINTS: dict[str, float] = {"high": 3.0, "medium": 2.0, "low": 1.0}
 
+# ── Voice of customer (second evidence class; docs/87) ─────────────────
+# Fixed vocabularies so cycles compare. Opinion, never fact: nothing here
+# is read by score_subject / build_scorecard.
+VOICE_SOURCES: tuple[str, ...] = (
+    "reddit",
+    "app_store",
+    "google_play",
+    "trustpilot",
+    "bbb",
+    "x",
+    "web",
+)
+VOICE_THEMES: tuple[str, ...] = (
+    "redemption_speed",
+    "kyc_friction",
+    "support",
+    "fairness_rtp",
+    "promo_value",
+    "app_stability",
+    "account_bans",
+    "vip_treatment",
+    "game_selection",
+    "payments",
+    "other",
+)
+VOICE_SENTIMENTS: tuple[str, ...] = ("negative", "neutral", "positive")
+VOICE_MIN_MENTIONS = 15  # below this a brand is "too few mentions to read"
+
 # Refresh cadence in days — drives the staleness queue (P3) and is reported
 # beside every score so a reader can see how old the evidence is.
 CADENCE_DAYS: dict[str, int] = {"weekly": 7, "monthly": 30, "quarterly": 91}
@@ -174,6 +202,232 @@ _RANK_THRESHOLD_PCT = 50.0
 # reason stated. Scores still show; the pack says "not yet comparable —
 # collect X, Y" instead of drawing a table.
 _RANK_COMPARABILITY_SPREAD_PCT = 35.0
+
+
+@dataclass(slots=True)
+class WatchVoice:
+    """One thing a player said about a brand — opinion with provenance."""
+
+    voice_id: str
+    subject_id: str
+    source: str
+    theme: str
+    sentiment: str
+    company_id: str = "elophanto-self"
+    source_url: str = ""
+    posted_at: str = ""
+    observed_at: str = ""
+    exit_ip: str = ""
+    rating: float | None = None
+    quote: str = ""
+    dimension_id: str = ""
+    geo_hint: str = ""
+    weight: float = 1.0
+    dedupe_key: str = ""
+    created_at: str = ""
+
+
+def voice_dedupe_key(quote: str, source_url: str = "") -> str:
+    """Cross-posts and re-scrapes count once: key on the normalised quote
+    (or the URL when the quote is empty)."""
+    import hashlib
+
+    base = " ".join((quote or "").lower().split())[:200] or (source_url or "").lower()
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()[:20]
+
+
+def _pick_quote(
+    rows: list[WatchVoice], sentiment: str, theme: str | None, *, same: bool
+) -> dict[str, str] | None:
+    """The most credible, most recent quote of that sentiment on (or off) a
+    theme — the deck shows three per brand."""
+    best = max(
+        (
+            r
+            for r in rows
+            if r.quote and r.sentiment == sentiment and ((r.theme == theme) if same else (r.theme != theme))
+        ),
+        key=lambda r: (r.weight, r.posted_at or r.observed_at),
+        default=None,
+    )
+    if best is None:
+        return None
+    return {
+        "quote": best.quote,
+        "source": best.source,
+        "url": best.source_url,
+        "posted_at": (best.posted_at or best.observed_at)[:10],
+        "theme": best.theme,
+        "sentiment": best.sentiment,
+    }
+
+
+def summarize_voice(
+    rows: list[WatchVoice],
+    subjects: list[WatchSubject],
+    *,
+    window_days: int = 30,
+    min_mentions: int = VOICE_MIN_MENTIONS,
+    now: str = "",
+) -> dict[str, Any]:
+    """The reading of what players said, per brand and field-wide.
+
+    Pure computation. Every number is a SHARE with its n — volume differs
+    a hundredfold between brands, so absolutes would mislead — and brands
+    under ``min_mentions`` are marked ``too_few`` rather than charted.
+    Rows are weighted by their credibility ``weight``.
+    """
+    from datetime import timedelta
+
+    now_dt = datetime.fromisoformat(now) if now else datetime.now(UTC)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=UTC)
+    since = (now_dt - timedelta(days=int(window_days))).isoformat()
+    name_of = {s.subject_id: s.name for s in subjects}
+    is_self = {s.subject_id: bool(s.is_self) for s in subjects}
+    in_window = [r for r in rows if (r.posted_at or r.observed_at) >= since]
+
+    def _weighted(rs: list[WatchVoice]) -> float:
+        return sum(max(0.0, min(1.0, r.weight)) for r in rs) or 0.0
+
+    per: list[dict[str, Any]] = []
+    for subj in subjects:
+        rs = [r for r in in_window if r.subject_id == subj.subject_id]
+        n = len(rs)
+        w = _weighted(rs)
+        themes: dict[str, dict[str, Any]] = {}
+        for t in VOICE_THEMES:
+            trs = [r for r in rs if r.theme == t]
+            if not trs:
+                continue
+            tw = _weighted(trs)
+            neg = _weighted([r for r in trs if r.sentiment == "negative"])
+            themes[t] = {
+                "n": len(trs),
+                "share": round(tw / w, 3) if w else 0.0,
+                "neg_share": round(neg / tw, 3) if tw else 0.0,
+            }
+        ratings = [r.rating for r in rs if r.rating is not None]
+        neg_w = _weighted([r for r in rs if r.sentiment == "negative"])
+        pos_w = _weighted([r for r in rs if r.sentiment == "positive"])
+        complaint = max(
+            (t for t in themes if t != "other"),
+            key=lambda t: themes[t]["share"] * themes[t]["neg_share"],
+            default=None,
+        )
+        praise = max(
+            (t for t in themes if t != "other"),
+            key=lambda t: themes[t]["share"] * (1.0 - themes[t]["neg_share"]),
+            default=None,
+        )
+
+        quotes = [
+            q
+            for q in (
+                _pick_quote(rs, "negative", complaint, same=True),
+                _pick_quote(rs, "positive", praise, same=True),
+                _pick_quote(rs, "negative", complaint, same=False),
+            )
+            if q
+        ]
+        per.append(
+            {
+                "subject_id": subj.subject_id,
+                "name": name_of.get(subj.subject_id, subj.subject_id),
+                "is_self": is_self.get(subj.subject_id, False),
+                "n": n,
+                "too_few": n < int(min_mentions),
+                "sources": sorted({r.source for r in rs}),
+                "avg_rating": round(sum(ratings) / len(ratings), 2) if ratings else None,
+                "neg_share": round(neg_w / w, 3) if w else 0.0,
+                "pos_share": round(pos_w / w, 3) if w else 0.0,
+                "themes": themes,
+                "top_complaint": complaint,
+                "top_praise": praise,
+                "quotes": quotes,
+                "flags": sorted(
+                    {
+                        r.dimension_id
+                        for r in rs
+                        if r.dimension_id and r.sentiment == "negative"
+                    }
+                ),
+            }
+        )
+
+    field_w = _weighted(in_window)
+    field_themes: dict[str, dict[str, Any]] = {}
+    for t in VOICE_THEMES:
+        trs = [r for r in in_window if r.theme == t]
+        if not trs:
+            continue
+        tw = _weighted(trs)
+        neg = _weighted([r for r in trs if r.sentiment == "negative"])
+        field_themes[t] = {
+            "n": len(trs),
+            "share": round(tw / field_w, 3) if field_w else 0.0,
+            "neg_share": round(neg / tw, 3) if tw else 0.0,
+        }
+    return {
+        "window_days": int(window_days),
+        "since": since,
+        "mentions": len(in_window),
+        "min_mentions": int(min_mentions),
+        "brands": per,
+        "field_themes": field_themes,
+        "sources": sorted({r.source for r in in_window}),
+        "label": "What players say — sentiment from public posts, not observed product fact.",
+    }
+
+
+def diff_voice(
+    old: dict[str, Any] | None,
+    new: dict[str, Any],
+    *,
+    min_share_delta: float = 0.10,
+    min_n: int = 5,
+) -> dict[str, Any]:
+    """Theme deltas between two voice summaries — the monthly 'rising and
+    falling'. Reports a brand × theme when its share of that brand's
+    mentions moved by ``min_share_delta`` or its negative share did, and
+    at least ``min_n`` mentions back the newer number."""
+    changes: list[dict[str, Any]] = []
+    old_brands = {b["name"]: b for b in (old or {}).get("brands", [])}
+    for b in new.get("brands", []):
+        ob = old_brands.get(b["name"], {})
+        for theme, cur in (b.get("themes") or {}).items():
+            if int(cur.get("n", 0)) < min_n:
+                continue
+            prev = (ob.get("themes") or {}).get(theme, {"share": 0.0, "neg_share": 0.0, "n": 0})
+            d_share = float(cur["share"]) - float(prev.get("share", 0.0))
+            d_neg = float(cur["neg_share"]) - float(prev.get("neg_share", 0.0))
+            if abs(d_share) >= min_share_delta or abs(d_neg) >= min_share_delta:
+                changes.append(
+                    {
+                        "brand": b["name"],
+                        "is_self": bool(b.get("is_self")),
+                        "theme": theme,
+                        "n_from": int(prev.get("n", 0)),
+                        "n_to": int(cur["n"]),
+                        "share_from": float(prev.get("share", 0.0)),
+                        "share_to": float(cur["share"]),
+                        "neg_from": float(prev.get("neg_share", 0.0)),
+                        "neg_to": float(cur["neg_share"]),
+                        "direction": "rising"
+                        if (d_neg if abs(d_neg) >= abs(d_share) else d_share) > 0
+                        else "falling",
+                    }
+                )
+    changes.sort(
+        key=lambda c: -max(abs(c["share_to"] - c["share_from"]), abs(c["neg_to"] - c["neg_from"]))
+    )
+    return {
+        "baseline": old is None,
+        "changed": changes,
+        "material_count": len(changes),
+        "from_mentions": int((old or {}).get("mentions", 0)),
+        "to_mentions": int(new.get("mentions", 0)),
+    }
 
 
 def weighted_points(score: float | None, weight_pct: float) -> float:
@@ -1040,10 +1294,165 @@ class WatchManager:
 
     # ── Snapshots + change detection ────────────────────────────────
 
+    # ── Voice of customer (docs/87) ──────────────────────────────────
+
+    async def add_voice(
+        self,
+        *,
+        company_id: str,
+        subject_id: str,
+        source: str,
+        theme: str,
+        sentiment: str,
+        quote: str = "",
+        source_url: str = "",
+        posted_at: str = "",
+        observed_at: str = "",
+        exit_ip: str = "",
+        rating: float | None = None,
+        dimension_id: str = "",
+        geo_hint: str = "",
+        weight: float = 1.0,
+    ) -> WatchVoice | None:
+        """Record one thing a player said. Append-only; a duplicate (same
+        brand, same normalised quote) is ignored and returns None. Never
+        touches watch_evidence or any score."""
+        if source not in VOICE_SOURCES:
+            raise ValueError(f"invalid voice source: {source!r}")
+        if theme not in VOICE_THEMES:
+            raise ValueError(f"invalid voice theme: {theme!r}")
+        if sentiment not in VOICE_SENTIMENTS:
+            raise ValueError(f"invalid voice sentiment: {sentiment!r}")
+        quote = " ".join((quote or "").split())[:240]
+        now = _now()
+        row = WatchVoice(
+            voice_id=_sid("vo"),
+            subject_id=subject_id,
+            source=source,
+            theme=theme,
+            sentiment=sentiment,
+            company_id=company_id,
+            source_url=source_url,
+            posted_at=posted_at,
+            observed_at=observed_at or now,
+            exit_ip=exit_ip,
+            rating=rating,
+            quote=quote,
+            dimension_id=dimension_id,
+            geo_hint=geo_hint,
+            weight=max(0.0, min(1.0, float(weight))),
+            dedupe_key=voice_dedupe_key(quote, source_url),
+            created_at=now,
+        )
+        dup = await self._db.execute(
+            "SELECT 1 FROM watch_voice WHERE company_id = ? AND subject_id = ? "
+            "AND dedupe_key = ?",
+            (company_id, subject_id, row.dedupe_key),
+        )
+        if dup:
+            return None
+        await self._db.execute_insert(
+            "INSERT INTO watch_voice (voice_id, company_id, subject_id, source, "
+            "source_url, posted_at, observed_at, exit_ip, rating, theme, sentiment, "
+            "quote, dimension_id, geo_hint, weight, dedupe_key, created_at) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                row.voice_id,
+                company_id,
+                subject_id,
+                source,
+                source_url,
+                posted_at,
+                row.observed_at,
+                exit_ip,
+                rating,
+                theme,
+                sentiment,
+                row.quote,
+                dimension_id,
+                geo_hint,
+                row.weight,
+                row.dedupe_key,
+                now,
+            ),
+        )
+        return row
+
+    async def list_voice(
+        self,
+        company_id: str,
+        *,
+        subject_id: str | None = None,
+        source: str | None = None,
+        theme: str | None = None,
+        since: str = "",
+        limit: int = 500,
+    ) -> list[WatchVoice]:
+        sql = "SELECT * FROM watch_voice WHERE company_id = ?"
+        args: list[Any] = [company_id]
+        if subject_id:
+            sql += " AND subject_id = ?"
+            args.append(subject_id)
+        if source:
+            sql += " AND source = ?"
+            args.append(source)
+        if theme:
+            sql += " AND theme = ?"
+            args.append(theme)
+        if since:
+            sql += " AND (CASE WHEN posted_at != '' THEN posted_at ELSE observed_at END) >= ?"
+            args.append(since)
+        sql += " ORDER BY (CASE WHEN posted_at != '' THEN posted_at ELSE observed_at END) DESC LIMIT ?"
+        args.append(int(limit))
+        return [self._to_voice(r) for r in await self._db.execute(sql, tuple(args))]
+
+    @staticmethod
+    def _to_voice(r: Any) -> WatchVoice:
+        return WatchVoice(
+            voice_id=r["voice_id"],
+            subject_id=r["subject_id"],
+            source=r["source"],
+            theme=r["theme"],
+            sentiment=r["sentiment"],
+            company_id=r["company_id"],
+            source_url=_row_get(r, "source_url", "") or "",
+            posted_at=_row_get(r, "posted_at", "") or "",
+            observed_at=_row_get(r, "observed_at", "") or "",
+            exit_ip=_row_get(r, "exit_ip", "") or "",
+            rating=_row_get(r, "rating"),
+            quote=_row_get(r, "quote", "") or "",
+            dimension_id=_row_get(r, "dimension_id", "") or "",
+            geo_hint=_row_get(r, "geo_hint", "") or "",
+            weight=float(_row_get(r, "weight", 1.0) or 0.0),
+            dedupe_key=_row_get(r, "dedupe_key", "") or "",
+            created_at=_row_get(r, "created_at", "") or "",
+        )
+
+    async def voice_summary(
+        self,
+        company_id: str,
+        *,
+        window_days: int = 30,
+        min_mentions: int = VOICE_MIN_MENTIONS,
+    ) -> dict[str, Any]:
+        """What players said, per active brand and field-wide, in the window."""
+        subjects = await self.list_subjects(company_id)
+        rows = await self.list_voice(company_id, limit=20000)
+        return summarize_voice(
+            rows, subjects, window_days=window_days, min_mentions=min_mentions
+        )
+
     async def take_snapshot(self, company_id: str, *, label: str = "") -> str:
         """Freeze the current scorecard so future months have something to
-        diff against. Returns the snapshot id."""
+        diff against — and the voice summary beside it, so theme deltas
+        diff the same way. Returns the snapshot id."""
         card = await self.scorecard(company_id)
+        try:
+            voice = await self.voice_summary(company_id)
+            if voice.get("mentions"):
+                card["voice"] = voice
+        except Exception:  # voice must never break a scorecard snapshot
+            pass
         snap_id = _sid("snap")
         await self._db.execute_insert(
             "INSERT INTO watch_snapshots (snapshot_id, company_id, taken_at, "
@@ -1110,6 +1519,28 @@ class WatchManager:
             return None
         new = await self.scorecard(company_id)
         out = diff_scorecards(old, new, min_score_delta=min_score_delta)
+        out["against_snapshot"] = sid
+        return out
+
+    async def diff_voice_since_snapshot(
+        self, company_id: str, *, snapshot_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Theme deltas of the live voice summary against a snapshot's
+        ``voice`` section (default: the latest snapshot). None when there is
+        no snapshot at all; ``baseline: true`` when the snapshot carried no
+        voice — the first cycle."""
+        if snapshot_id:
+            old = await self.get_snapshot(snapshot_id)
+            sid = snapshot_id
+        else:
+            latest = await self.latest_snapshot(company_id)
+            if latest is None:
+                return None
+            sid, old = latest
+        if old is None:
+            return None
+        new = await self.voice_summary(company_id)
+        out = diff_voice(old.get("voice") if isinstance(old, dict) else None, new)
         out["against_snapshot"] = sid
         return out
 
