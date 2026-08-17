@@ -75,7 +75,7 @@ One collector per source, all the same shape `async def collect_<source>(brand,
    `sweepstakescasinos`, `SweepstakesCasinos`, brand subs when they exist;
    query = brand name + aliases (from `watch_subjects.url` host and name).
 2. **App Store** — iTunes customer-reviews RSS (`/us/rss/customerreviews/id=…`);
-   app id discovered once per subject and cached in `watch_subjects.meta`.
+   app id discovered once per subject and cached as the subject tag `app_store:<id>`.
 3. **Google Play** — reviews page via the browser (JS app); same extraction.
 4. **Trustpilot / BBB** — later; grey-area scraping, cite-and-quote only.
 5. **X** — later; the browser session already exists.
@@ -125,20 +125,16 @@ sheet, `voice`, present only when there is data.
 | `watch_voice` | list / summarise VoC rows (`action=list|summary`, filters) |
 | `watch_voice_report` | the standalone pack |
 | `watch_board_report`, `watch_executive_deck` | new optional `voice` param (default `auto`) |
-| `watch_queue` | `cadence=voice_weekly` schedules `watch_voice_collect` for all subjects |
+| `watch_queue` | `action=schedule` also installs *Voice of customer · weekly* (`voice=false` to skip) |
 | `watch_analyze` | **unchanged** — VoC is not part of a page analysis |
 
-## Config
+## Defaults
 
-```yaml
-watch:
-  voice:
-    enabled: true
-    sources: [reddit, app_store]      # order of build; others opt-in
-    window_days: 30
-    min_mentions: 15
-    reddit_subs: [sweepstakescasinos, SweepstakesCasinos]
-```
+No config section: the knobs are tool parameters, so a run can be
+narrowed without editing config — `watch_voice_collect(sources, window_days=30,
+max_posts=200, geo_state)`; `min_mentions=15` (`VOICE_MIN_MENTIONS`); Reddit
+subs `sweepstakescasinos`, `SweepstakesCasinos` (`DEFAULT_REDDIT_SUBS`). The
+weekly schedule installed by `watch_queue` uses `window_days=14`.
 
 ## Costs and limits
 
