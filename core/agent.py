@@ -2624,6 +2624,8 @@ class Agent:
             "watch_voice_collect",
             "watch_voice",
             "watch_voice_report",
+            "watch_weekly_brief",
+            "watch_alerts",
         ):
             tool = self._registry.get(tool_name)
             if tool is None:
@@ -2641,6 +2643,9 @@ class Agent:
             # watch_queue installs the recurring refresh jobs.
             if hasattr(tool, "_scheduler"):
                 tool._scheduler = getattr(self, "_scheduler", None)
+            # The weekly brief and alerts push to the connected channels.
+            if hasattr(tool, "_gateway"):
+                tool._gateway = self._gateway
             # Collection escalates to the real browser when a site is a JS app
             # or blocks plain HTTP — which is most modern consumer sites.
             if hasattr(tool, "_browser_manager"):

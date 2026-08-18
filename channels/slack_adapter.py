@@ -188,6 +188,18 @@ class SlackAdapter(ChannelAdapter):
                         )
                     except Exception:
                         pass
+            elif ntype == "watch":
+                title = str(msg.data.get("title") or "Competitive intelligence")
+                text = f"\U0001f4e1 *{title}*\n\n{str(msg.data.get('text') or '')[:3500]}"
+                for slack_channel, thread_ts in self._session_threads.values():
+                    try:
+                        await self._app.client.chat_postMessage(
+                            channel=slack_channel,
+                            text=text,
+                            thread_ts=thread_ts,
+                        )
+                    except Exception:
+                        pass
             return
 
         # Cross-channel user messages — route to all known threads

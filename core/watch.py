@@ -1459,6 +1459,82 @@ class WatchManager:
             rows, subjects, window_days=window_days, min_mentions=min_mentions
         )
 
+    # ── Alerts (docs/88 §B) ──────────────────────────────────────────
+
+    async def record_alerts(
+        self, company_id: str, candidates: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Store alert candidates that are new for this company (dedupe key);
+        return the ones actually stored, with ids. Resolves subject_id by
+        name when the brand is in the register."""
+        names = {s.name: s.subject_id for s in await self.list_subjects(company_id)}
+        stored: list[dict[str, Any]] = []
+        now = _now()
+        for c in candidates:
+            key = str(c.get("dedupe_key") or "")
+            if not key:
+                continue
+            dup = await self._db.execute(
+                "SELECT 1 FROM watch_alerts WHERE company_id = ? AND dedupe_key = ?",
+                (company_id, key),
+            )
+            if dup:
+                continue
+            aid = _sid("al")
+            await self._db.execute_insert(
+                "INSERT INTO watch_alerts (alert_id, company_id, kind, subject_id, subject_name, "
+                "title, detail, source_url, detected_at, notified_at, dedupe_key) VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+                (
+                    aid,
+                    company_id,
+                    str(c.get("kind") or "other"),
+                    names.get(str(c.get("subject_name") or ""), ""),
+                    str(c.get("subject_name") or ""),
+                    str(c.get("title") or "")[:200],
+                    str(c.get("detail") or "")[:1000],
+                    str(c.get("source_url") or ""),
+                    now,
+                    key,
+                ),
+            )
+            stored.append({**c, "alert_id": aid, "detected_at": now})
+        return stored
+
+    async def list_alerts(
+        self, company_id: str, *, since: str = "", unnotified_only: bool = False, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM watch_alerts WHERE company_id = ?"
+        args: list[Any] = [company_id]
+        if since:
+            sql += " AND detected_at >= ?"
+            args.append(since)
+        if unnotified_only:
+            sql += " AND notified_at IS NULL"
+        sql += " ORDER BY detected_at DESC LIMIT ?"
+        args.append(int(limit))
+        rows = await self._db.execute(sql, tuple(args))
+        return [
+            {
+                "alert_id": r["alert_id"],
+                "kind": r["kind"],
+                "subject_name": _row_get(r, "subject_name", "") or "",
+                "title": r["title"],
+                "detail": _row_get(r, "detail", "") or "",
+                "source_url": _row_get(r, "source_url", "") or "",
+                "detected_at": r["detected_at"],
+                "notified_at": _row_get(r, "notified_at"),
+            }
+            for r in rows
+        ]
+
+    async def mark_alerts_notified(self, alert_ids: list[str]) -> None:
+        now = _now()
+        for aid in alert_ids:
+            await self._db.execute(
+                "UPDATE watch_alerts SET notified_at = ? WHERE alert_id = ?", (now, aid)
+            )
+
     async def take_snapshot(self, company_id: str, *, label: str = "") -> str:
         """Freeze the current scorecard so future months have something to
         diff against — and the voice summary beside it, so theme deltas

@@ -151,6 +151,12 @@ class CLIAdapter(ChannelAdapter):
                 console.print(f"  [{_C_DIM}]{subject}[/]")
                 if snippet:
                     console.print(f"  [{_C_DIM}]{snippet[:200]}[/]\n")
+            elif ntype == "watch":
+                title = str(msg.data.get("title") or "Competitive intelligence")
+                console.print(f"\n  \U0001f4e1 {title}")
+                body = str(msg.data.get("text") or "")
+                if body:
+                    console.print(f"  [{_C_DIM}]{body[:600]}[/]\n")
         elif event == "step_progress":
             tool_name = msg.data.get("tool_name", "")
             step = msg.data.get("step", "")

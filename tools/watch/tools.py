@@ -1070,127 +1070,8 @@ def _brand_facts(card: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[s
     return facts
 
 
-_WELCOME_RE = __import__("re").compile(
-    r"welcome|sign[- ]?up|new (player|user|customer)s?|first[- ]time|register|"
-    r"joining|on registration|\d+\s*%\s*(extra|more|bonus)|no purchase",
-    __import__("re").I,
-)
-_BOILERPLATE_RE = __import__("re").compile(
-    r"no purchase (is )?necessary|void where prohibited|free to play", __import__("re").I
-)
-_QUANTITY_RE = __import__("re").compile(
-    r"\d[\d,.]*\s*(%|percent|gc|sc|gold coins?|sweeps? coins?|coins?|free spins?|\$)|"
-    r"\$\s*\d|\b\d{1,3}(,\d{3})+\b",
-    __import__("re").I,
-)
-
-
-def _welcome_score(claim: str, value_text: str = "") -> int:
-    """How much a promotions claim reads as THE welcome offer. 0 = not a
-    welcome claim at all."""
-    text = f"{claim} {value_text}"
-    if not _WELCOME_RE.search(text):
-        return 0
-    score = 1
-    if __import__("re").search(
-        r"welcome|sign[- ]?up|new (player|user|customer)s?|first[- ]time|first purchase|"
-        r"register|joining|on registration",
-        text,
-        __import__("re").I,
-    ):
-        score += 3
-    if _QUANTITY_RE.search(text):
-        score += 3
-    if __import__("re").search(r"\bfree\b|bonus|extra|bundle|gift|package", text, __import__("re").I):
-        score += 1
-    if _BOILERPLATE_RE.search(text) and not _QUANTITY_RE.search(text):
-        score -= 3
-    return max(score, 0)
-
-
-_ONGOING_RE = __import__("re").compile(
-    r"daily|every day|ongoing|weekly|login|log-in|wheel|jackpot|giveaway|"
-    r"tournament|leaderboard|challenge|quest|social media|refer",
-    __import__("re").I,
-)
-
-
-def _offer_facts(
-    card: dict[str, Any],
-    evidence: list[dict[str, Any]],
-    exhibits: dict[str, list[dict[str, str]]] | None = None,
-) -> list[dict[str, Any]]:
-    """Per brand, the headline welcome offer and the ongoing proposition —
-    verbatim claims from the promotions dimension, newest first — plus the
-    promotions-page exhibit when one was captured. Ranked order, ours
-    included; brands with nothing observed on promotions are listed with
-    the honest blank so the table is a census, not a highlight reel."""
-    rows = card.get("rows", [])
-    order = sorted(
-        rows,
-        key=lambda r: (
-            not r.get("is_self"),
-            r.get("rank") if r.get("rank") is not None else 99,
-            -(float(r["overall"]["normalized_pct"] or 0)),
-        ),
-    )
-    by_brand: dict[str, list[dict[str, Any]]] = {}
-    for e in evidence:  # newest first
-        dim = str(e.get("dimension") or "").lower()
-        if not ("promo" in dim or "loyalty" in dim or "offer" in dim or "bonus" in dim):
-            continue
-        claim = str(e.get("claim") or "").strip()
-        if claim:
-            by_brand.setdefault(str(e.get("subject") or ""), []).append(e)
-    out: list[dict[str, Any]] = []
-    for r in order:
-        name = str(r["name"])
-        rows_e = by_brand.get(name, [])
-        # The headline welcome offer is the most SPECIFIC welcome claim on
-        # record, not the newest regex hit: "5,000 free Gold Coins on
-        # sign-up" beats "no purchase is necessary" (legal boilerplate that
-        # merely mentions the funnel). Ties keep newest-first order.
-        scored = sorted(
-            (
-                (_welcome_score(str(e.get("claim") or ""), str(e.get("value_text") or "")), i, e)
-                for i, e in enumerate(rows_e)
-            ),
-            key=lambda t: (-t[0], t[1]),
-        )
-        welcome = str(scored[0][2].get("claim")) if scored and scored[0][0] > 0 else ""
-        ongoing = next(
-            (
-                str(e.get("claim"))
-                for e in rows_e
-                if str(e.get("claim")) != welcome
-                and _ONGOING_RE.search(
-                    str(e.get("claim") or "") + " " + str(e.get("value_text") or "")
-                )
-            ),
-            "",
-        )
-        if not welcome and rows_e:
-            welcome = str(rows_e[0].get("claim"))  # newest promo claim, whatever it is
-        src_row = next(
-            (e for e in rows_e if str(e.get("claim")) == welcome), rows_e[0] if rows_e else {}
-        )
-        promo_shot = next(
-            (s for s in (exhibits or {}).get(name, []) if s.get("kind") == "promo"),
-            None,
-        )
-        out.append(
-            {
-                "brand": name,
-                "is_self": bool(r.get("is_self")),
-                "rank": r.get("rank"),
-                "welcome": welcome,
-                "ongoing": ongoing,
-                "url": str(src_row.get("source_url") or ""),
-                "observed_at": str(src_row.get("observed_at") or ""),
-                "exhibit": promo_shot,
-            }
-        )
-    return out
+# Offer facts live in core/watch_offers.py (shared with the weekly brief).
+from core.watch_offers import offer_facts as _offer_facts  # noqa: E402
 
 
 async def _narrate_for_deck(
@@ -2967,6 +2848,13 @@ class WatchQueueTool(_WatchToolBase):
                     "type": "boolean",
                     "description": "schedule: also install the weekly voice-of-customer collection. Default true.",
                 },
+                "service": {
+                    "type": "boolean",
+                    "description": (
+                        "schedule: also install the weekly service — Friday brief, daily "
+                        "market pulse, 6-hourly alert check. Default true."
+                    ),
+                },
                 "cadence": {
                     "type": "string",
                     "enum": ["weekly", "monthly", "quarterly"],
@@ -3037,6 +2925,55 @@ class WatchQueueTool(_WatchToolBase):
                     company_id=cid,
                 )
                 created.append(f"{name} (0 8 * * 3)")
+            # The weekly service (docs/88): the Friday brief, the daily market
+            # pulse that keeps alerts fresh, and the 6-hourly alert check —
+            # the last one a direct tool call, no LLM in the loop.
+            if bool(params.get("service", True)):
+                for name, cron, goal, direct in (
+                    (
+                        "Weekly executive brief",
+                        "0 7 * * 5",
+                        (
+                            f"Write this week's competitive brief for {cid}: call "
+                            "watch_weekly_brief with a path under the workspace "
+                            "(weekly-brief-<date>/brief.md) and notify=true. If an "
+                            "executive request was received this week, research it "
+                            "with the watch tools and pass request/answer. Do not add "
+                            "or archive brands."
+                        ),
+                        None,
+                    ),
+                    (
+                        "Daily market pulse",
+                        "0 6 * * *",
+                        (
+                            f"Daily market pulse for {cid}: for every active brand in "
+                            "the register call watch_analyze with max_pages=1, "
+                            "expand_sources=false, deck=false, save=false (homepage "
+                            "only — market events and offer changes surface here). "
+                            "Do not add or archive brands."
+                        ),
+                        None,
+                    ),
+                    (
+                        "Competitive alerts check",
+                        "30 */6 * * *",
+                        "Check competitive alerts and push new ones.",
+                        ("watch_alerts", {"action": "check", "notify": True, "company_id": cid}),
+                    ),
+                ):
+                    if name in existing:
+                        await self._scheduler.delete_schedule(existing[name])
+                    await self._scheduler.create_schedule(
+                        name=name,
+                        task_goal=goal,
+                        cron_expression=cron,
+                        description="Auto-created by watch_queue action=schedule",
+                        company_id=cid,
+                        direct_tool=direct[0] if direct else None,
+                        direct_params=direct[1] if direct else None,
+                    )
+                    created.append(f"{name} ({cron})")
             return ToolResult(success=True, data={"schedules": created})
 
         gaps = await self._watch_manager.staleness(cid)
@@ -3474,6 +3411,199 @@ class WatchVoiceReportTool(_WatchToolBase):
         )
 
 
+# ── The weekly service (docs/88): brief and alerts ─────────────────────
+
+
+async def _broadcast_watch(gateway: Any, *, title: str, text: str) -> bool:
+    """Push a 'watch' notification to every connected channel. False when
+    there is no gateway (direct mode) — the caller reports that honestly."""
+    if gateway is None:
+        return False
+    try:
+        from core.protocol import EventType, event_message
+
+        await gateway.broadcast(
+            event_message("", EventType.NOTIFICATION, {"notification_type": "watch", "title": title, "text": text}),
+            session_id=None,
+        )
+        return True
+    except Exception:
+        return False
+
+
+class WatchWeeklyBriefTool(_WatchToolBase):
+    """The Friday one-pager: what changed this week, market and players,
+    decisions — from the registers, with sources."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+        self._gateway: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_weekly_brief"
+
+    @property
+    def description(self) -> str:
+        return (
+            "The weekly executive brief (one page): fields that changed per brand "
+            "this week (newest claim vs the one before), offers that changed, "
+            "market events, score and player-sentiment movement, and the week's "
+            "executive request with its answer. Writes markdown and a one-slide "
+            "deck; notify=true pushes it to the connected channels; takes a "
+            "'weekly brief' snapshot so next week diffs against this one. Every "
+            "line traces to a register row."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Where to write the .md; the .pptx lands beside it."},
+                "days": {"type": "integer", "description": "Window. Default 7."},
+                "request": {"type": "string", "description": "This week's executive question, if any."},
+                "answer": {"type": "string", "description": "Your answer to it (already researched)."},
+                "notify": {"type": "boolean", "description": "Push to connected channels. Default false."},
+                "take_snapshot": {"type": "boolean", "description": "Default true."},
+                "title": {"type": "string"},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        from core.watch_brief import (
+            build_weekly_brief,
+            narrate_brief,
+            render_brief_markdown,
+            render_brief_slide,
+        )
+
+        cid = _company(params)
+        wm = self._watch_manager
+        brief = await build_weekly_brief(
+            wm,
+            cid,
+            days=int(params.get("days") or 7),
+            request=str(params.get("request") or ""),
+            answer=str(params.get("answer") or ""),
+        )
+        narrative = await narrate_brief(self._router, brief)
+        md = render_brief_markdown(brief, narrative)
+        written: dict[str, str] = {}
+        if params.get("path"):
+            from pathlib import Path
+
+            p = Path(str(params["path"])).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(md, encoding="utf-8")
+            written["markdown"] = str(p)
+            try:
+                written["slide"] = render_brief_slide(
+                    brief, narrative, path=p.with_suffix(".pptx"),
+                    title=str(params.get("title") or "Weekly Competitive Brief"),
+                )
+            except Exception as e:
+                written["slide_error"] = str(e)
+        notified = False
+        if params.get("notify"):
+            head = f"Weekly competitive brief · {brief['period']['since']} → {brief['period']['until']}"
+            notified = await _broadcast_watch(self._gateway, title=head, text=md)
+        snap_id = None
+        if params.get("take_snapshot", True):
+            snap_id = await wm.take_snapshot(cid, label="weekly brief")
+        return ToolResult(
+            success=True,
+            data={
+                "markdown": md,
+                "brief": {k: v for k, v in brief.items() if k not in ("facts_per_brand",)},
+                "narrative_source": "model" if narrative else "facts",
+                "written": written,
+                "notified": notified,
+                "snapshot_id": snap_id,
+            },
+        )
+
+
+class WatchAlertsTool(_WatchToolBase):
+    """Mid-week wake-ups: detect, store once, push."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._gateway: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_alerts"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Competitive alerts. action='check' (default) reads the registers "
+            "for market events observed in the last 48h, regulatory items with an "
+            "effective date inside 30 days or fresh enforcement, and player-"
+            "sentiment spikes; stores each once and, with notify=true, pushes the "
+            "new ones to the connected channels. action='list' shows recent "
+            "alerts. Runs unattended on a schedule; alerts are only as fresh as "
+            "collection, so keep the daily market pulse running."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["check", "list"]},
+                "notify": {"type": "boolean", "description": "check: push new alerts. Default true."},
+                "hours": {"type": "integer", "description": "check: evidence lookback. Default 48."},
+                "limit": {"type": "integer", "description": "list: default 30."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        from core.watch_alerts import detect_alerts, format_alert
+
+        cid = _company(params)
+        wm = self._watch_manager
+        if str(params.get("action") or "check").lower() == "list":
+            rows = await wm.list_alerts(cid, limit=int(params.get("limit") or 30))
+            return ToolResult(success=True, data={"count": len(rows), "alerts": rows})
+        cands = await detect_alerts(wm, cid, hours=int(params.get("hours") or 48))
+        new = await wm.record_alerts(cid, cands)
+        notified = False
+        if new and bool(params.get("notify", True)):
+            text = "\n".join(format_alert(a) for a in new[:8])
+            notified = await _broadcast_watch(
+                self._gateway,
+                title=f"{len(new)} competitive alert{'s' if len(new) != 1 else ''}",
+                text=text,
+            )
+            if notified:
+                await wm.mark_alerts_notified([a["alert_id"] for a in new])
+        return ToolResult(
+            success=True,
+            data={
+                "candidates": len(cands),
+                "new": [{k: v for k, v in a.items() if k != "dedupe_key"} for a in new],
+                "notified": notified,
+            },
+        )
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -3492,4 +3622,6 @@ def create_watch_tools() -> list[BaseTool]:
         WatchVoiceCollectTool(),
         WatchVoiceTool(),
         WatchVoiceReportTool(),
+        WatchWeeklyBriefTool(),
+        WatchAlertsTool(),
     ]

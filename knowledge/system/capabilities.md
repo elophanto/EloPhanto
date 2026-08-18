@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**292 tools across 40 groups.** Every count below is the live
+**294 tools across 40 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -220,7 +220,7 @@ second, screenshot-and-click as last resort.
 `desktop_drag`, `desktop_accessibility`, `desktop_osascript`,
 `desktop_shell`, `desktop_file`, `desktop_connect`, `desktop_cursor`.
 
-## Competitive Intelligence — `watch` (15)
+## Competitive Intelligence — `watch` (17)
 
 Market model as tracked brands × weighted dimensions on an append-only
 evidence register with full provenance. Scores are **refused without
@@ -233,7 +233,8 @@ state, and recorded on the row as `exit_ip`.
 `watch_subject`, `watch_dimension`, `watch_evidence`, `watch_observe`,
 `watch_analyze`, `watch_score`, `watch_scorecard`, `watch_snapshot`,
 `watch_diff`, `watch_queue`, `watch_board_report`, `watch_executive_deck`,
-`watch_voice_collect`, `watch_voice`, `watch_voice_report`.
+`watch_voice_collect`, `watch_voice`, `watch_voice_report`,
+`watch_weekly_brief`, `watch_alerts`.
 
 Voice of customer is the organ's second evidence class: what PLAYERS say
 about a tracked brand (Reddit posts and comments, App Store reviews),
@@ -243,6 +244,16 @@ Opinion, kept apart from the evidence register: it never moves a score;
 a theme may flag a dimension for a reader. The reading is shares with n,
 brands under the minimum are "too few mentions to read", and cycles diff
 by theme (rising / falling). It ships on top of the pack or on its own.
+
+The weekly service (docs/88): `watch_weekly_brief` writes the Friday
+one-pager — fields that changed per brand this week (newest claim vs
+the one before), offers that changed, market events, score and
+player-sentiment movement, the week's executive request — as markdown
+and a one-slide deck, and can push it to the connected channels;
+`watch_alerts` detects market events, regulatory dates and sentiment
+spikes, stores each once and pushes the new ones (a 6-hourly direct-tool
+schedule). `watch_queue action=schedule` installs the brief, a daily
+homepage pulse that keeps alerts fresh, and the alert check.
 
 Four deliverables from one evidence base: the XLSX scorecard, the
 material-change diff, the board report, and the executive deck (~10

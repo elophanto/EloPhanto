@@ -363,6 +363,17 @@ class TelegramChannelAdapter(ChannelAdapter):
                         await self._bot.send_message(uid, text)
                     except Exception as e:
                         logger.warning("Failed to notify user %s: %s", uid, e)
+            elif ntype == "watch":
+                # Competitive-intelligence alerts and the weekly brief
+                # (docs/88): a title and a ready-to-read text.
+                title = str(msg.data.get("title") or "Competitive intelligence")
+                body = str(msg.data.get("text") or "")
+                text = f"\U0001f4e1 {title}\n\n{body[:3500]}"
+                for uid in self._allowed_users:
+                    try:
+                        await self._bot.send_message(uid, text)
+                    except Exception as e:
+                        logger.warning("Failed to notify user %s: %s", uid, e)
             return
 
         # Cross-channel user messages — route to all allowed users

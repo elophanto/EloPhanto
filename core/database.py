@@ -444,6 +444,25 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_watch_voice_lookup
         ON watch_voice(company_id, subject_id, posted_at)
     """,
+    # Alerts — the mid-week wake-ups (docs/88 §B): market events, regulatory
+    # items, player-sentiment spikes. Stored once per (company, dedupe key)
+    # so a re-check never re-notifies; notified_at records the push.
+    """
+    CREATE TABLE IF NOT EXISTS watch_alerts (
+        alert_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        kind TEXT NOT NULL,
+        subject_id TEXT NOT NULL DEFAULT '',
+        subject_name TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '',
+        source_url TEXT NOT NULL DEFAULT '',
+        detected_at TEXT NOT NULL,
+        notified_at TEXT,
+        dedupe_key TEXT NOT NULL,
+        UNIQUE (company_id, dedupe_key)
+    )
+    """,
     # Dream journal — every dream-phase ideation persists here so the next
     # cycle's dream can see what was already proposed (and not picked).
     # Kills the amnesia that caused dream to keep re-proposing the same
