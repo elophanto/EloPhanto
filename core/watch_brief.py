@@ -26,16 +26,94 @@ def _norm(s: str) -> str:
     return _WS_RE.sub(" ", (s or "").strip().lower())
 
 
+def _tokens(s: str) -> set[str]:
+    """Words of three+ letters, and every number however short ('3', '$4')."""
+    return {
+        t
+        for t in re.findall(r"[a-z0-9%$.]+", (s or "").lower())
+        if len(t) > 2 or any(ch.isdigit() for ch in t)
+    }
+
+
+def _really_changed(prev: dict[str, Any], cur: dict[str, Any]) -> bool:
+    """A change is a different VALUE (value_text / value_num) when both
+    carry one, else claims whose word sets differ substantially. Two
+    phrasings of one fact ('The site provides navigation links for…' vs
+    'The navigation provides links for…') are not a change — the
+    2026-08-18 brief listed six of those for one brand."""
+    pv, cv = _norm(str(prev.get("value_text") or "")), _norm(str(cur.get("value_text") or ""))
+    if pv and cv:
+        if pv == cv:
+            return False
+        # both carry a value: numbers decide when present, else the words
+        npv = {t for t in _tokens(pv) if any(ch.isdigit() for ch in t)}
+        ncv = {t for t in _tokens(cv) if any(ch.isdigit() for ch in t)}
+        if npv and ncv:
+            # one value's numbers inside the other's = the same fact at a
+            # different level of detail ('$29.99' vs '$29.99; GC 700; …')
+            return not (npv <= ncv or ncv <= npv)
+        if npv or ncv:
+            # a count on one side, a list on the other ('4 states' vs
+            # 'CT, LA, MI, or WA'): the same fact when the count equals the
+            # number of listed items; else compare the words
+            listed, counted = (pv, cv) if ncv else (cv, pv)
+            items = [x for x in re.split(r",|\bor\b|\band\b|;|/", listed) if x.strip()]
+            nums = {int(t) for t in re.findall(r"\b(\d{1,3})\b", counted)}
+            if len(items) >= 2 and len(items) in nums:
+                return False
+            ta, tb = _words(pv), _words(cv)
+            return not (ta and tb and len(ta & tb) / len(ta | tb) >= 0.5)
+        ta, tb = _tokens(pv), _tokens(cv)
+        if ta and tb and len(ta & tb) / len(ta | tb) >= 0.5:
+            return False
+        return True
+    pn, cn = prev.get("value_num"), cur.get("value_num")
+    if pn is not None and cn is not None:
+        return float(pn) != float(cn)
+    a, b = _tokens(str(prev.get("claim") or "")), _tokens(str(cur.get("claim") or ""))
+    if not a or not b:
+        return _norm(str(prev.get("claim") or "")) != _norm(str(cur.get("claim") or ""))
+    jaccard = len(a & b) / len(a | b)
+    if jaccard >= 0.5:
+        return False
+    # different words but the same numbers → still the same fact
+    na, nb = {t for t in a if any(ch.isdigit() for ch in t)}, {t for t in b if any(ch.isdigit() for ch in t)}
+    if na and na == nb:
+        return False
+    return True
+
+
+def _words(s: str) -> set[str]:
+    """Tokens without the numbers — 'same fact, different value' compares
+    the words; the values are compared separately."""
+    return {t for t in _tokens(s) if not any(ch.isdigit() for ch in t)}
+
+
+def _similarity(a: dict[str, Any], b: dict[str, Any]) -> float:
+    ta, tb = _words(str(a.get("claim") or "")), _words(str(b.get("claim") or ""))
+    if not ta or not tb:
+        ta, tb = _tokens(str(a.get("claim") or "")), _tokens(str(b.get("claim") or ""))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
 def field_changes(
     evidence: list[dict[str, Any]], *, since: str, max_per_brand: int = 6
 ) -> list[dict[str, Any]]:
-    """Per brand: (dimension, sub-criterion) whose newest claim in the window
-    differs from the newest claim before it. Evidence rows are the export
-    dicts (subject, dimension, subcriterion, claim, value_text, observed_at,
-    source_url), newest first. A first-ever observation of a pair is
-    reported as ``before=None`` — new coverage, not a change."""
-    latest_in: dict[tuple[str, str, str], dict[str, Any]] = {}
-    latest_before: dict[tuple[str, str, str], dict[str, Any]] = {}
+    """Per brand: facts whose value changed this week.
+
+    A sub-criterion holds several distinct facts, so 'newest vs previous'
+    would pair different facts (2026-08-18: six false changes for one
+    brand). Instead each claim observed in the window is matched to the
+    most similar prior claim of the same brand × dimension × sub-criterion
+    (word overlap ≥ 0.5 — same fact, restated); a change is reported when
+    that pair's VALUE differs. Pairs never observed before are reported as
+    ``new_coverage``; a genuinely new statement inside a known pair is not
+    a change and is not reported. Evidence rows are the export dicts,
+    newest first."""
+    in_win: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    before: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for e in evidence:  # newest first
         key = (
             str(e.get("subject")),
@@ -43,46 +121,61 @@ def field_changes(
             str(e.get("subcriterion") or ""),
         )
         when = str(e.get("observed_at") or "")
-        if when >= since:
-            latest_in.setdefault(key, e)
-        else:
-            latest_before.setdefault(key, e)
+        (in_win if when >= since else before).setdefault(key, []).append(e)
     out: dict[str, list[dict[str, Any]]] = {}
-    for key, cur in latest_in.items():
-        prev = latest_before.get(key)
-        cur_sig = _norm(str(cur.get("value_text") or "")) or _norm(
-            str(cur.get("claim") or "")
-        )
-        prev_sig = (
-            (
-                _norm(str(prev.get("value_text") or ""))
-                or _norm(str(prev.get("claim") or ""))
-            )
-            if prev
-            else None
-        )
-        if prev is not None and cur_sig == prev_sig:
-            continue
+    for key, curs in in_win.items():
+        prevs = before.get(key, [])
         brand = key[0]
-        out.setdefault(brand, []).append(
-            {
-                "brand": brand,
-                "dimension": key[1],
-                "subcriterion": key[2],
-                "before": (
-                    (str(prev.get("value_text") or prev.get("claim") or "")[:160])
-                    if prev
-                    else None
-                ),
-                "after": str(cur.get("value_text") or cur.get("claim") or "")[:160],
-                "url": str(cur.get("source_url") or ""),
-                "observed_at": str(cur.get("observed_at") or "")[:10],
-                "new_coverage": prev is None,
-            }
-        )
+        if not prevs:
+            cur = curs[0]
+            out.setdefault(brand, []).append(
+                {
+                    "brand": brand,
+                    "dimension": key[1],
+                    "subcriterion": key[2],
+                    "before": None,
+                    "after": str(cur.get("value_text") or cur.get("claim") or "")[:160],
+                    "url": str(cur.get("source_url") or ""),
+                    "observed_at": str(cur.get("observed_at") or "")[:10],
+                    "new_coverage": True,
+                }
+            )
+            continue
+        seen_claims: set[str] = set()
+        seen_pairs: set[tuple[str, str]] = set()
+        for cur in curs:
+            sig = _norm(str(cur.get("claim") or ""))
+            if sig in seen_claims:
+                continue
+            seen_claims.add(sig)
+            best = max(prevs, key=lambda p: _similarity(p, cur))
+            if _similarity(best, cur) < 0.5:
+                continue  # a different fact of the same sub-criterion, not a change
+            if not _really_changed(best, cur):
+                continue
+            after_txt = _norm(str(cur.get("value_text") or cur.get("claim") or ""))
+            after_nums = " ".join(sorted(t for t in _tokens(after_txt) if any(ch.isdigit() for ch in t)))
+            pair = (
+                _norm(str(best.get("value_text") or best.get("claim") or "")),
+                after_nums or after_txt,  # '6 states' and '6 excluded states' are one change
+            )
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            out.setdefault(brand, []).append(
+                {
+                    "brand": brand,
+                    "dimension": key[1],
+                    "subcriterion": key[2],
+                    "before": str(best.get("value_text") or best.get("claim") or "")[:160],
+                    "after": str(cur.get("value_text") or cur.get("claim") or "")[:160],
+                    "url": str(cur.get("source_url") or ""),
+                    "observed_at": str(cur.get("observed_at") or "")[:10],
+                    "new_coverage": False,
+                }
+            )
     rows: list[dict[str, Any]] = []
     for items in out.values():
-        # real changes before new coverage; then by dimension for stable reading
         items.sort(key=lambda c: (c["new_coverage"], c["dimension"], c["subcriterion"]))
         rows.extend(items[:max_per_brand])
     return rows

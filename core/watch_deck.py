@@ -541,6 +541,15 @@ _EVENT_RE = re.compile(
 )
 
 
+_STRONG_EVENT_RE = re.compile(
+    r"\b(is closing|will close|closing on|closes on|shut(?:ting)? down|ceas(?:e|es|ing) "
+    r"operations|exit(?:s|ed|ing)? (?:the )?(?:market|state)|leav(?:es|ing) (?:the )?"
+    r"(?:market|state)|acquired by|acquisition of|merg(?:es|ed|ing) with|cease[- ]and[- ]desist|"
+    r"banned in|no longer (?:available|accept))\b",
+    re.I,
+)
+
+
 def market_events(
     evidence: list[dict[str, Any]], *, limit: int = 4
 ) -> list[dict[str, Any]]:
@@ -556,6 +565,14 @@ def market_events(
     for e in evidence:  # newest first
         claim = str(e.get("claim") or "").strip()
         if not claim or not _EVENT_RE.search(claim):
+            continue
+        # Third-party pages carry the whole industry's news; only the
+        # strong verbs (closing, shutting down, ceasing, exiting, acquired,
+        # cease-and-desist, banned) count there. Launches, rebrands and
+        # 'now available in' count only when the brand's own page says so
+        # (2026-08-18: a High 5 news mention of another operator's launch
+        # was read as a High 5 market event).
+        if str(e.get("source_type") or "") == "third_party" and not _STRONG_EVENT_RE.search(claim):
             continue
         brand = str(e.get("subject") or "").strip()
         # Two phrasings of one event ("…is closing on September 14, 2026" and
