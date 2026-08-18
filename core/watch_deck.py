@@ -2080,6 +2080,94 @@ def _comms_facts(comms: dict[str, Any] | None) -> dict[str, list[str]]:
             imps.append(f"Latest offer seen — {b0['name']}: {b0['latest_offers'][0]['offer']}.")
     imps.append("Cadence and mix are what players actually receive; compare against our own send plan.")
     return {"observations": obs[:4], "implications": imps[:3]}
+def _slide_regulatory(
+    prs: Any,
+    cal: dict[str, Any],
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+) -> None:
+    """The regulatory calendar: dated items ahead, recent actions, operator
+    responses. Third-party items with verified excerpts; not legal advice."""
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    title = (narrative.get("titles") or {}).get("regulatory") or (
+        f"{len(cal.get('ahead') or [])} regulatory date{'s' if len(cal.get('ahead') or []) != 1 else ''} "
+        f"in the next {cal.get('horizon_days', 90)} days"
+    )
+    top = _header(s, "Regulatory calendar", title, (narrative.get("commentary") or {}).get("regulatory", ""))
+    ahead = (cal.get("ahead") or [])[:9]
+    if ahead:
+        shape = s.shapes.add_table(len(ahead) + 1, 5, Inches(0.7), Inches(top), Inches(8.2),
+                                   Inches(min(0.32 * (len(ahead) + 1), 3.6)))
+        tbl = shape.table
+        for ci, w in enumerate((1.0, 0.8, 1.2, 4.0, 1.2)):
+            tbl.columns[ci].width = Inches(w)
+
+        def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8) -> None:
+            cell = tbl.cell(r, c)
+            cell.text = text
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = _rgb(bg)
+            cell.margin_left = cell.margin_right = Inches(0.03)
+            cell.margin_top = cell.margin_bottom = Inches(0.01)
+            for p in cell.text_frame.paragraphs:
+                for run in p.runs:
+                    run.font.size = Pt(size)
+                    run.font.bold = bold
+                    run.font.color.rgb = _rgb(fg)
+
+        for ci, h in enumerate(("Date", "Where", "Kind", "Item", "Status")):
+            cw(0, ci, h, bg=_INK, fg=_WHITE, bold=True)
+        for ri, i in enumerate(ahead, start=1):
+            bg = _CARD if ri % 2 else _WHITE
+            cw(ri, 0, i.get("event_date", ""), bg=bg, bold=True)
+            cw(ri, 1, i.get("jurisdiction", ""), bg=bg)
+            cw(ri, 2, str(i.get("kind", "")).replace("_", " "), bg=bg)
+            cw(ri, 3, _clean(i.get("title", ""), 90), bg=bg)
+            cw(ri, 4, i.get("status", ""), bg=bg)
+        y = top + min(0.32 * (len(ahead) + 1), 3.6) + 0.2
+    else:
+        _text(s, 0.7, top, 8.2, 0.5, "No dated item inside the horizon.", size=12, color=_BODY)
+        y = top + 0.7
+    acts = (cal.get("recent_actions") or [])[:4]
+    if acts:
+        _eyebrow(s, "Enforcement and lawsuits · last 30 days", y=y, x=0.7, color=_ACCENT)
+        _bullets(s, 0.7, y + 0.32, 8.2, max(0.6, 6.2 - (y + 0.32)),
+                 [f"{a['jurisdiction']} · {a['kind']}: {_clean(a['title'], 110)}" for a in acts],
+                 size=10, color=_BODY, gap_pt=4, cap=150, accent_bullet=True, max_items=4)
+    panel = (narrative.get("slides") or {}).get("regulatory") or _regulatory_facts(cal)
+    _sidebar(s, [str(o) for o in panel.get("observations") or []],
+             [str(i) for i in panel.get("implications") or []], top=top)
+    _text(s, 0.7, 6.32, 11.9, 0.3,
+          f"{cal.get('label', '')} Every item carries a source URL and a verified excerpt.",
+          size=8, italic=True, color=_MUTED)
+    _judgement_note(s, str(narrative.get("source") or "facts"))
+    _footer(s, deck_title, page)
+
+
+def _regulatory_facts(cal: dict[str, Any] | None) -> dict[str, list[str]]:
+    if not cal or not cal.get("total"):
+        return {"observations": [], "implications": []}
+    obs: list[str] = []
+    imps: list[str] = []
+    ahead = cal.get("ahead") or []
+    obs.append(f"{cal['total']} regulatory items on record across {len(cal.get('by_jurisdiction') or {})} jurisdictions.")
+    if ahead:
+        n0 = ahead[0]
+        obs.append(f"Next dated item: {n0['jurisdiction']} {n0['kind'].replace('_', ' ')} on {n0['event_date']} — {n0['title']}.")
+        imps.append(f"Decide the {n0['jurisdiction']} plan before {n0['event_date']}.")
+    acts = cal.get("recent_actions") or []
+    if acts:
+        obs.append(f"{len(acts)} enforcement/lawsuit item{'s' if len(acts) != 1 else ''} observed in the last 30 days.")
+    resp = cal.get("operator_responses") or []
+    if resp:
+        obs.append(f"{len(resp)} operator response{'s' if len(resp) != 1 else ''} on record (who left which state, when).")
+    imps.append("Third-party items with verified excerpts — route legal interpretation to counsel.")
+    return {"observations": obs[:4], "implications": imps[:3]}
+
+
 def _slide_offers(
     prs: Any,
     offers: list[dict[str, Any]],
@@ -2776,6 +2864,7 @@ def render_executive_deck(
     voice: dict[str, Any] | None = None,
     voice_diff: dict[str, Any] | None = None,
     comms: dict[str, Any] | None = None,
+    regulatory: dict[str, Any] | None = None,
     title: str = "Competitive Intelligence – Executive Briefing",
     market_label: str = "",
 ) -> str:
@@ -2878,6 +2967,11 @@ def render_executive_deck(
                 commentary=(exhibits_panel.get("observations") or [""])[0] if bi == 0 else "",
             )
             page += 1
+
+    # Regulatory calendar — only when the register has items.
+    if regulatory and regulatory.get("total"):
+        _slide_regulatory(prs, regulatory, narrative, page, deck_title)
+        page += 1
 
     # What they send players — first-party marketing e-mail, only when an
     # inbox is linked and something arrived.

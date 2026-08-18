@@ -2233,6 +2233,8 @@ class Agent:
             # player comms: AgentMail key + per-brand signup credentials.
             "watch_comms_setup",
             "watch_comms_collect",
+            # regulatory tracking searches the web (search_sh_api_key).
+            "watch_regulatory_collect",
             "solana_balance",
             "solana_token_holders",
             "solana_recent_txs",
@@ -2632,6 +2634,8 @@ class Agent:
             "watch_comms_setup",
             "watch_comms_collect",
             "watch_comms",
+            "watch_regulatory_collect",
+            "watch_regulatory",
         ):
             tool = self._registry.get(tool_name)
             if tool is None:

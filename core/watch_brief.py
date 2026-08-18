@@ -152,6 +152,11 @@ async def build_weekly_brief(
         comms = await wm.comms_summary(company_id, window_days=days)
     except Exception:
         comms = None
+    try:
+        reg = await wm.regulatory_calendar(company_id, horizon_days=30)
+        reg_new = await wm.list_regulatory(company_id, since=since, limit=20)
+    except Exception:
+        reg, reg_new = None, []
     per_brand: dict[str, int] = {}
     for e in week_rows:
         per_brand[str(e.get("subject"))] = per_brand.get(str(e.get("subject")), 0) + 1
@@ -225,6 +230,20 @@ async def build_weekly_brief(
             if comms and comms.get("emails")
             else None
         ),
+        "regulatory": (
+            {
+                "ahead": [
+                    {"date": i["event_date"], "jurisdiction": i["jurisdiction"], "kind": i["kind"], "title": i["title"]}
+                    for i in (reg.get("ahead") or [])[:4]
+                ],
+                "new_this_week": [
+                    {"jurisdiction": i["jurisdiction"], "kind": i["kind"], "title": i["title"], "date": i.get("event_date", "")}
+                    for i in reg_new[:4]
+                ],
+            }
+            if reg and (reg.get("ahead") or reg_new)
+            else None
+        ),
         "request": {"question": request, "answer": answer} if request else None,
         "us": [r["name"] for r in rows if r.get("is_self")],
     }
@@ -275,6 +294,12 @@ def brief_facts(brief: dict[str, Any]) -> dict[str, list[str]]:
                 f"Loudest complaint this week: {tc['brand']} – {tc['theme'].replace('_', ' ')} "
                 f"({int(round(tc['neg_share'] * 100))}% negative of {tc['n']} mentions)"
             )
+    rg = brief.get("regulatory")
+    if rg:
+        for i in (rg.get("new_this_week") or [])[:2]:
+            market.append(f"Regulatory: {i['jurisdiction']} {i['kind'].replace('_', ' ')} — {_clean(i['title'], 100)}")
+        for i in (rg.get("ahead") or [])[:1]:
+            decisions.append(f"{i['jurisdiction']} {i['kind'].replace('_', ' ')} on {i['date']}: decide the plan now.")
     c = brief.get("comms")
     if c and c.get("emails"):
         top = sorted(c["brands"], key=lambda b: -b["n"])[:2]
@@ -502,6 +527,7 @@ async def narrate_brief(router: Any, brief: dict[str, Any]) -> dict[str, Any]:
             "score_moves",
             "voice",
             "comms",
+            "regulatory",
             "request",
         )
     }

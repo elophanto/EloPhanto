@@ -472,6 +472,34 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_watch_comms_lookup
         ON watch_comms(company_id, subject_id, received_at)
     """,
+    # Regulatory register (docs/88 §D): bills, effective dates, enforcement,
+    # lawsuits, guidance and operator responses per jurisdiction — read from
+    # public sources with verified excerpts, third-party provenance, and a
+    # dedupe key so a re-collection never files the same item twice.
+    """
+    CREATE TABLE IF NOT EXISTS watch_regulatory (
+        reg_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        jurisdiction TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT '',
+        event_date TEXT NOT NULL DEFAULT '',
+        subjects_json TEXT NOT NULL DEFAULT '[]',
+        source_url TEXT NOT NULL DEFAULT '',
+        source_type TEXT NOT NULL DEFAULT 'third_party',
+        excerpt TEXT NOT NULL DEFAULT '',
+        observed_at TEXT NOT NULL,
+        exit_ip TEXT NOT NULL DEFAULT '',
+        dedupe_key TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (company_id, dedupe_key)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_watch_regulatory_lookup
+        ON watch_regulatory(company_id, jurisdiction, event_date)
+    """,
     # Alerts — the mid-week wake-ups (docs/88 §B): market events, regulatory
     # items, player-sentiment spikes. Stored once per (company, dedupe key)
     # so a re-check never re-notifies; notified_at records the push.

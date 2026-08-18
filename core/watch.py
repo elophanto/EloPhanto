@@ -1593,6 +1593,100 @@ class WatchManager:
         rows = await self.list_comms(company_id, limit=20000)
         return summarize_comms(rows, subjects, window_days=window_days)
 
+    # ── Regulatory register (docs/88 §D) ─────────────────────────────
+
+    async def add_regulatory(
+        self,
+        *,
+        company_id: str,
+        jurisdiction: str,
+        kind: str,
+        title: str,
+        status: str = "",
+        event_date: str = "",
+        subjects: list[str] | None = None,
+        source_url: str = "",
+        excerpt: str = "",
+        exit_ip: str = "",
+        observed_at: str = "",
+    ) -> dict[str, Any] | None:
+        """File one regulatory item. Append-only; a duplicate (same
+        jurisdiction, kind, title, date) is ignored and returns None."""
+        from core.watch_regulatory import REG_KINDS, dedupe_key
+
+        if kind not in REG_KINDS:
+            raise ValueError(f"invalid regulatory kind: {kind!r}")
+        key = dedupe_key(jurisdiction, kind, title, event_date)
+        dup = await self._db.execute(
+            "SELECT 1 FROM watch_regulatory WHERE company_id = ? AND dedupe_key = ?",
+            (company_id, key),
+        )
+        if dup:
+            return None
+        now = _now()
+        rid = _sid("rg")
+        await self._db.execute_insert(
+            "INSERT INTO watch_regulatory (reg_id, company_id, jurisdiction, kind, title, status, "
+            "event_date, subjects_json, source_url, source_type, excerpt, observed_at, exit_ip, "
+            "dedupe_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'third_party', ?, ?, ?, ?, ?)",
+            (
+                rid, company_id, jurisdiction.upper()[:8], kind, title[:200], status[:40],
+                event_date[:10], json.dumps(list(subjects or [])), source_url, excerpt[:240],
+                observed_at or now, exit_ip, key, now,
+            ),
+        )
+        return {
+            "reg_id": rid, "jurisdiction": jurisdiction.upper()[:8], "kind": kind, "title": title[:200],
+            "status": status[:40], "event_date": event_date[:10], "subjects": list(subjects or []),
+            "source_url": source_url, "excerpt": excerpt[:240], "observed_at": observed_at or now,
+        }
+
+    async def list_regulatory(
+        self,
+        company_id: str,
+        *,
+        jurisdiction: str | None = None,
+        kind: str | None = None,
+        since: str = "",
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM watch_regulatory WHERE company_id = ?"
+        args: list[Any] = [company_id]
+        if jurisdiction:
+            sql += " AND jurisdiction = ?"
+            args.append(jurisdiction.upper())
+        if kind:
+            sql += " AND kind = ?"
+            args.append(kind)
+        if since:
+            sql += " AND observed_at >= ?"
+            args.append(since)
+        sql += " ORDER BY (CASE WHEN event_date != '' THEN event_date ELSE observed_at END) DESC LIMIT ?"
+        args.append(int(limit))
+        rows = await self._db.execute(sql, tuple(args))
+        return [
+            {
+                "reg_id": r["reg_id"],
+                "jurisdiction": r["jurisdiction"],
+                "kind": r["kind"],
+                "title": r["title"],
+                "status": _row_get(r, "status", "") or "",
+                "event_date": _row_get(r, "event_date", "") or "",
+                "subjects": json.loads(_row_get(r, "subjects_json", "[]") or "[]"),
+                "source_url": _row_get(r, "source_url", "") or "",
+                "excerpt": _row_get(r, "excerpt", "") or "",
+                "observed_at": r["observed_at"],
+            }
+            for r in rows
+        ]
+
+    async def regulatory_calendar(self, company_id: str, *, horizon_days: int = 90) -> dict[str, Any]:
+        from core.watch_regulatory import regulatory_calendar
+
+        return regulatory_calendar(
+            await self.list_regulatory(company_id, limit=2000), horizon_days=horizon_days
+        )
+
     # ── Alerts (docs/88 §B) ──────────────────────────────────────────
 
     async def record_alerts(
@@ -1684,6 +1778,12 @@ class WatchManager:
             comms = await self.comms_summary(company_id)
             if comms.get("emails"):
                 card["comms"] = comms
+        except Exception:
+            pass
+        try:
+            reg = await self.regulatory_calendar(company_id)
+            if reg.get("total"):
+                card["regulatory"] = {"total": reg["total"], "by_jurisdiction": reg["by_jurisdiction"]}
         except Exception:
             pass
         snap_id = _sid("snap")

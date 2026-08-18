@@ -1424,6 +1424,36 @@ def _comms_rows_for_export(rows: list[Any], subjects: list[Any]) -> list[dict[st
     ]
 
 
+def _regulatory_markdown(cal: dict[str, Any]) -> list[str]:
+    lines = ["## Regulatory calendar", ""]
+    lines.append(f"_{cal.get('label', '')}_ {cal.get('total', 0)} items on record.")
+    lines.append("")
+    if cal.get("ahead"):
+        lines.append(f"**Dated items in the next {cal.get('horizon_days', 90)} days**")
+        lines.append("")
+        lines.append("| Date | Jurisdiction | Kind | Item | Status | Source |")
+        lines.append("|---|---|---|---|---|---|")
+        for i in cal["ahead"][:10]:
+            lines.append(
+                f"| {i['event_date']} | {i['jurisdiction']} | {i['kind'].replace('_', ' ')} | {i['title']} | "
+                f"{i.get('status', '')} | {i.get('source_url', '')} |"
+            )
+        lines.append("")
+    if cal.get("recent_actions"):
+        lines.append("**Enforcement and lawsuits observed in the last 30 days**")
+        lines.append("")
+        for i in cal["recent_actions"][:6]:
+            lines.append(f"- {i['jurisdiction']} · {i['kind']}: {i['title']}" + (f" ({', '.join(i['subjects'])})" if i.get("subjects") else ""))
+        lines.append("")
+    if cal.get("operator_responses"):
+        lines.append("**Operator responses on record**")
+        lines.append("")
+        for i in cal["operator_responses"][:8]:
+            lines.append(f"- {i['jurisdiction']}: {i['title']}" + (f" — {i['event_date']}" if i.get("event_date") else ""))
+        lines.append("")
+    return lines
+
+
 def _comms_markdown(comms: dict[str, Any]) -> list[str]:
     lines = ["## What they send players", ""]
     lines.append(
@@ -1732,6 +1762,18 @@ class WatchBoardReportTool(_WatchToolBase):
                 "",
             ]
 
+        # ── Regulatory calendar (docs/88 §D) ──
+        regulatory = None
+        if str(params.get("voice") or "auto").lower() != "false":
+            try:
+                regulatory = await wm.regulatory_calendar(cid)
+                if not regulatory.get("total"):
+                    regulatory = None
+            except Exception:
+                regulatory = None
+        if regulatory:
+            lines += _regulatory_markdown(regulatory)
+
         # ── What they send players (comms, on top; docs/88) ──
         comms = await _comms_for_pack(wm, cid, params)
         if comms is not None and comms.get("emails"):
@@ -1815,6 +1857,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     voice=voice,
                     voice_diff=voice_diff,
                     comms=comms,
+                    regulatory=regulatory,
                     path=deck_target,
                 )
             except Exception as e:
@@ -1951,6 +1994,14 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         events = market_events(evidence)
         voice, voice_diff = await _voice_for_pack(wm, cid, params)
         comms = await _comms_for_pack(wm, cid, params)
+        regulatory = None
+        if str(params.get("voice") or "auto").lower() != "false":
+            try:
+                regulatory = await wm.regulatory_calendar(cid)
+                if not regulatory.get("total"):
+                    regulatory = None
+            except Exception:
+                regulatory = None
         summary = await _narrate_for_deck(
             self._router,
             card=card,
@@ -1979,6 +2030,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 voice=voice,
                 voice_diff=voice_diff,
                 comms=comms,
+                regulatory=regulatory,
                 path=path,
                 title=str(params.get("title") or "Competitive Intelligence — Executive Briefing"),
                 market_label=str(params.get("market_label") or ""),
@@ -3023,6 +3075,22 @@ class WatchQueueTool(_WatchToolBase):
                 )
                 created.append(f"{name} (0 8 * * 3)")
             if bool(params.get("service", True)):
+                name = "Regulatory tracking · weekly"
+                if name in existing:
+                    await self._scheduler.delete_schedule(existing[name])
+                await self._scheduler.create_schedule(
+                    name=name,
+                    task_goal=(
+                        f"Weekly regulatory tracking for {cid}: call watch_regulatory_collect "
+                        "for the priority states, then watch_alerts action=check. Do not add "
+                        "or archive brands; this is third-party regulatory news, not legal advice."
+                    ),
+                    cron_expression="0 6 * * 2",
+                    description="Auto-created by watch_queue action=schedule",
+                    company_id=cid,
+                )
+                created.append(f"{name} (0 6 * * 2)")
+            if bool(params.get("service", True)):
                 name = "Player comms · weekly"
                 if name in existing:
                     await self._scheduler.delete_schedule(existing[name])
@@ -4028,6 +4096,197 @@ class WatchCommsTool(_WatchToolBase):
         )
 
 
+# ── Regulatory register (docs/88 §D) ───────────────────────────────────
+
+
+class WatchRegulatoryCollectTool(_WatchToolBase):
+    """Search, fetch, extract with verified excerpts, file — per priority
+    state and per tracked brand."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+        self._config: Any = None
+        self._vault: Any = None
+        self._browser_manager: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_regulatory_collect"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Regulatory tracking: for the priority states and every tracked brand, "
+            "search the web, read the pages, and file bills, effective dates, "
+            "enforcement actions, lawsuits, guidance and operator responses (who "
+            "left a state when) in watch_regulatory — each with a verified excerpt, "
+            "URL and date, third-party provenance, deduped. Needs the "
+            "search_sh_api_key vault entry and the model. Not legal advice: the "
+            "register says what was published and where."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "states": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Priority states (codes or names). Default: the proxy state.",
+                },
+                "max_pages": {"type": "integer", "description": "Pages to read per run. Default 24."},
+                "save": {"type": "boolean", "description": "Default true."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        from core.watch_observe import fetch_page_best_effort, search_web
+        from core.watch_regulatory import extract_regulatory, regulatory_queries, state_name
+
+        cid = _company(params)
+        wm = self._watch_manager
+        if self._router is None:
+            return ToolResult(success=False, error="no router — regulatory reading needs the model")
+        api_key = self._vault.get("search_sh_api_key") if self._vault is not None else None
+        if not api_key:
+            return ToolResult(success=False, error="no search_sh_api_key in vault — cannot search")
+        states = [str(x) for x in (params.get("states") or [])]
+        if not states:
+            st = getattr(getattr(self._config, "proxy", None), "state", "") if self._config else ""
+            states = [st] if st else ["FL"]
+        from datetime import UTC, datetime
+
+        subjects = await wm.list_subjects(cid)
+        brands = [s_.name for s_ in subjects]
+        year = datetime.now(UTC).year
+        queries = regulatory_queries(states, brands[:15], year=year)
+        results: list[dict[str, str]] = []
+        for q in queries:
+            results.extend(await search_web(q, api_key=str(api_key), max_results=6))
+        seen: set[str] = set()
+        urls: list[str] = []
+        for r in results:
+            u = str(r.get("url") or "")
+            if u and u not in seen and not any(b in u for b in ("facebook.com", "twitter.com", "x.com/", "youtube.com")):
+                seen.add(u)
+                urls.append(u)
+        urls = urls[: int(params.get("max_pages") or 24)]
+        proxy_url = None
+        if self._config is not None and getattr(self._config, "proxy", None):
+            proxy_url = self._config.proxy.request_proxy_url("n/a") or None
+        save = bool(params.get("save", True))
+        filed: list[dict[str, Any]] = []
+        dup = 0
+        read = 0
+        errors: list[str] = []
+        for u in urls:
+            text, ferr, _method = await fetch_page_best_effort(
+                u, browser_manager=self._browser_manager, proxy_url=proxy_url
+            )
+            if ferr or not text:
+                errors.append(f"{u}: {ferr or 'empty'}")
+                continue
+            read += 1
+            items = await extract_regulatory(self._router, page_text=text, brands=brands, states=states)
+            for it in items:
+                if not save:
+                    filed.append({**it, "source_url": u})
+                    continue
+                row = await wm.add_regulatory(
+                    company_id=cid,
+                    jurisdiction=it["jurisdiction"],
+                    kind=it["kind"],
+                    title=it["title"],
+                    status=it["status"],
+                    event_date=it["event_date"],
+                    subjects=it["subjects"],
+                    source_url=u,
+                    excerpt=it["excerpt"],
+                )
+                if row is None:
+                    dup += 1
+                else:
+                    filed.append(row)
+        return ToolResult(
+            success=True,
+            data={
+                "company_id": cid,
+                "states": [state_name(x) for x in states],
+                "queries": len(queries),
+                "urls": len(urls),
+                "pages_read": read,
+                "filed": len(filed),
+                "duplicates": dup,
+                "items": filed[:20],
+                "errors": errors[:5],
+                "saved": save,
+                "note": "third-party items with verified excerpts; not legal advice",
+            },
+        )
+
+
+class WatchRegulatoryTool(_WatchToolBase):
+    """Read side: the calendar and the rows."""
+
+    @property
+    def name(self) -> str:
+        return "watch_regulatory"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Regulatory register, read side. action='calendar' (default): dated "
+            "items ahead (next 90 days, soonest first), recent enforcement and "
+            "lawsuits, operator responses, counts per jurisdiction. action='list': "
+            "the rows (filter by jurisdiction/kind)."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["calendar", "list"]},
+                "jurisdiction": {"type": "string"},
+                "kind": {"type": "string"},
+                "horizon_days": {"type": "integer", "description": "calendar: default 90."},
+                "limit": {"type": "integer", "description": "list: default 50."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        wm = self._watch_manager
+        if str(params.get("action") or "calendar").lower() == "list":
+            rows = await wm.list_regulatory(
+                cid,
+                jurisdiction=params.get("jurisdiction") or None,
+                kind=params.get("kind") or None,
+                limit=int(params.get("limit") or 50),
+            )
+            return ToolResult(success=True, data={"count": len(rows), "items": rows})
+        return ToolResult(
+            success=True,
+            data=await wm.regulatory_calendar(cid, horizon_days=int(params.get("horizon_days") or 90)),
+        )
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -4051,4 +4310,6 @@ def create_watch_tools() -> list[BaseTool]:
         WatchCommsSetupTool(),
         WatchCommsCollectTool(),
         WatchCommsTool(),
+        WatchRegulatoryCollectTool(),
+        WatchRegulatoryTool(),
     ]

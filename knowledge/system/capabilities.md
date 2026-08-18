@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**297 tools across 40 groups.** Every count below is the live
+**299 tools across 40 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -220,7 +220,7 @@ second, screenshot-and-click as last resort.
 `desktop_drag`, `desktop_accessibility`, `desktop_osascript`,
 `desktop_shell`, `desktop_file`, `desktop_connect`, `desktop_cursor`.
 
-## Competitive Intelligence — `watch` (20)
+## Competitive Intelligence — `watch` (22)
 
 Market model as tracked brands × weighted dimensions on an append-only
 evidence register with full provenance. Scores are **refused without
@@ -235,7 +235,7 @@ state, and recorded on the row as `exit_ip`.
 `watch_diff`, `watch_queue`, `watch_board_report`, `watch_executive_deck`,
 `watch_voice_collect`, `watch_voice`, `watch_voice_report`,
 `watch_weekly_brief`, `watch_alerts`, `watch_comms_setup`, `watch_comms_collect`,
-`watch_comms`.
+`watch_comms`, `watch_regulatory_collect`, `watch_regulatory`.
 
 Voice of customer is the organ's second evidence class: what PLAYERS say
 about a tracked brand (Reddit posts and comments, App Store reviews),
@@ -262,6 +262,15 @@ every marketing e-mail it sends is read into `watch_comms` — category,
 offer, verified excerpt, send day/hour (`watch_comms_collect`) — the
 week-to-week view of acquisition and retention messaging, first-party
 and dated. Deck slide, report section and brief lines when present.
+
+Regulatory tracking: `watch_regulatory_collect` searches per priority
+state and per brand, reads the pages, and files bills, effective dates,
+enforcement, lawsuits, guidance and operator responses with verified
+excerpts and third-party provenance in `watch_regulatory`;
+`watch_regulatory` reads it as a calendar (dated items ahead, recent
+actions, who left which state when). Calendar slide, report section,
+brief lines and alerts (effective dates inside 30 days, fresh
+enforcement) when present. Not legal advice.
 
 Four deliverables from one evidence base: the XLSX scorecard, the
 material-change diff, the board report, and the executive deck (~10
