@@ -677,6 +677,14 @@ class WatchScorecardTool(_WatchToolBase):
                     )
                 except Exception:
                     voice_rows = []
+            comms_rows: list[dict[str, Any]] = []
+            if str(params.get("voice") or "auto").lower() != "false":
+                try:
+                    comms_rows = _comms_rows_for_export(
+                        await wm.list_comms(cid, limit=5000), await wm.list_subjects(cid)
+                    )
+                except Exception:
+                    comms_rows = []
             written = render_scorecard_xlsx(
                 card,
                 dimensions=await wm.list_dimensions(cid),
@@ -685,6 +693,7 @@ class WatchScorecardTool(_WatchToolBase):
                 path=path,
                 title=str(params.get("title") or "Competitive Scorecard"),
                 voice_rows=voice_rows or None,
+                comms_rows=comms_rows or None,
             )
             return ToolResult(
                 success=True,
@@ -925,6 +934,10 @@ Return STRICT JSON:
   product fact ("X's redemptions are slow"); say what players say ("players
   complain about X's redemption speed, 62% of 40 mentions negative"). Never
   let it change a score claim. Shares with n; skip brands marked too_few.
+- player_comms, when present, is what brands SEND players (marketing
+  e-mail we receive first-hand): write titles.comms and slides.comms
+  {observations, implications} — who sends most, what mix, what offers,
+  where we differ. First-party fact, dated; quote offers as given.
 - market_events, when present, are the most material facts in the room: a
   competitor closing, exiting a state, being acquired, rebranding, launching.
   Reflect them in the headline or recommendation, in slides.standings /
@@ -1085,17 +1098,19 @@ async def _narrate_for_deck(
     offers: list[dict[str, Any]] | None = None,
     events: list[dict[str, Any]] | None = None,
     voice: dict[str, Any] | None = None,
+    comms: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The deck's words. Model-written from facts when a router exists;
     otherwise the computed factual fallback — and the deck labels which."""
     from core.watch_deck import _slides_facts, factual_narrative
 
-    fallback = factual_narrative(card, diff, judged, gaps, voice=voice)
+    fallback = factual_narrative(card, diff, judged, gaps, voice=voice, comms=comms)
     if offers:
-        voice_panel = (fallback.get("slides") or {}).get("voice")
+        keep = {k: (fallback.get("slides") or {}).get(k) for k in ("voice", "comms")}
         fallback["slides"] = _slides_facts(card, offers)
-        if voice_panel:
-            fallback["slides"]["voice"] = voice_panel
+        for k, v in keep.items():
+            if v:
+                fallback["slides"][k] = v
     if router is None:
         return fallback
     import json as _json
@@ -1189,6 +1204,26 @@ async def _narrate_for_deck(
             if voice
             else None
         ),
+        "player_comms": (
+            {
+                "window_days": comms.get("window_days"),
+                "emails": comms.get("emails"),
+                "brands": [
+                    {
+                        "brand": b.get("name"),
+                        "is_self": b.get("is_self"),
+                        "n": b.get("n"),
+                        "per_week": b.get("per_week"),
+                        "categories": b.get("categories"),
+                        "latest_offers": b.get("latest_offers"),
+                    }
+                    for b in comms.get("brands", [])
+                    if b.get("inbox")
+                ],
+            }
+            if comms
+            else None
+        ),
         "market_events": [
             {"brand": ev["brand"], "claim": ev["claim"], "observed": ev.get("observed_at", "")}
             for ev in (events or [])
@@ -1267,7 +1302,7 @@ async def _narrate_for_deck(
             }
             for k, v in slides_raw.items()
             if isinstance(v, dict)
-            and k in ("standings", "versus", "dimensions", "offers", "exhibits", "coverage", "voice")
+            and k in ("standings", "versus", "dimensions", "offers", "exhibits", "coverage", "voice", "comms")
         }
         return {
             "headline": str(data.get("headline") or "").strip(),
@@ -1354,6 +1389,58 @@ def _voice_rows_for_export(rows: list[Any], subjects: list[Any], dims: list[Any]
         }
         for r in rows
     ]
+
+
+async def _comms_for_pack(wm: Any, cid: str, params: dict[str, Any], *, window_days: int = 30) -> dict[str, Any] | None:
+    """Player comms summary for the pack — None when off or nothing filed.
+    Rides the same voice=auto|true|false switch (they are the two evidence
+    classes on top of the pack)."""
+    mode = str(params.get("voice") or "auto").lower()
+    if mode == "false":
+        return None
+    try:
+        summary = await wm.comms_summary(cid, window_days=window_days)
+    except Exception:
+        return None
+    if not summary.get("emails") and mode != "true":
+        return None
+    return summary
+
+
+def _comms_rows_for_export(rows: list[Any], subjects: list[Any]) -> list[dict[str, Any]]:
+    names = {s.subject_id: s.name for s in subjects}
+    return [
+        {
+            "brand": names.get(r.subject_id, r.subject_id),
+            "received_at": r.received_at,
+            "category": r.category,
+            "subject": r.subject_line,
+            "offer": r.offer_text,
+            "excerpt": r.excerpt,
+            "sender": r.sender,
+            "inbox": r.inbox,
+        }
+        for r in rows
+    ]
+
+
+def _comms_markdown(comms: dict[str, Any]) -> list[str]:
+    lines = ["## What they send players", ""]
+    lines.append(
+        f"_{comms.get('label', '')}_ {comms.get('emails', 0)} e-mails in {comms.get('window_days', 30)} days "
+        "from the brands with a linked inbox."
+    )
+    lines.append("")
+    lines.append("| Brand | E-mails | /week | Mix | Latest offer |")
+    lines.append("|---|---:|---:|---|---|")
+    for b in comms.get("brands", []):
+        if not b.get("inbox"):
+            continue
+        mix = ", ".join(f"{c.replace('_', ' ')} {n}" for c, n in sorted((b.get("categories") or {}).items(), key=lambda kv: -kv[1])[:3])
+        latest = (b.get("latest_offers") or [{}])[0].get("offer", "") if b.get("latest_offers") else ""
+        lines.append(f"| {b['name']}{' (us)' if b.get('is_self') else ''} | {b.get('n', 0)} | {b.get('per_week', 0):g} | {mix} | {latest} |")
+    lines.append("")
+    return lines
 
 
 def _voice_markdown(voice: dict[str, Any], vdiff: dict[str, Any] | None) -> list[str]:
@@ -1645,6 +1732,11 @@ class WatchBoardReportTool(_WatchToolBase):
                 "",
             ]
 
+        # ── What they send players (comms, on top; docs/88) ──
+        comms = await _comms_for_pack(wm, cid, params)
+        if comms is not None and comms.get("emails"):
+            lines += _comms_markdown(comms)
+
         # ── What players say (voice of customer, on top; docs/87) ──
         voice, voice_diff = await _voice_for_pack(wm, cid, params)
         if voice is not None:
@@ -1708,6 +1800,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     offers=offers,
                     events=events,
                     voice=voice,
+                    comms=comms,
                 )
                 deck_written = render_executive_deck(
                     card,
@@ -1721,6 +1814,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     events=events,
                     voice=voice,
                     voice_diff=voice_diff,
+                    comms=comms,
                     path=deck_target,
                 )
             except Exception as e:
@@ -1856,6 +1950,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         offers = _offer_facts(card, evidence, exhibits)
         events = market_events(evidence)
         voice, voice_diff = await _voice_for_pack(wm, cid, params)
+        comms = await _comms_for_pack(wm, cid, params)
         summary = await _narrate_for_deck(
             self._router,
             card=card,
@@ -1866,6 +1961,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
             offers=offers,
             events=events,
             voice=voice,
+            comms=comms,
         )
         try:
             from core.watch_deck import render_executive_deck
@@ -1882,6 +1978,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 events=events,
                 voice=voice,
                 voice_diff=voice_diff,
+                comms=comms,
                 path=path,
                 title=str(params.get("title") or "Competitive Intelligence — Executive Briefing"),
                 market_label=str(params.get("market_label") or ""),
@@ -2925,6 +3022,20 @@ class WatchQueueTool(_WatchToolBase):
                     company_id=cid,
                 )
                 created.append(f"{name} (0 8 * * 3)")
+            if bool(params.get("service", True)):
+                name = "Player comms · weekly"
+                if name in existing:
+                    await self._scheduler.delete_schedule(existing[name])
+                await self._scheduler.create_schedule(
+                    name=name,
+                    task_goal="Collect this week's player comms.",
+                    cron_expression="0 7 * * 4",
+                    description="Auto-created by watch_queue action=schedule",
+                    company_id=cid,
+                    direct_tool="watch_comms_collect",
+                    direct_params={"company_id": cid},
+                )
+                created.append(f"{name} (0 7 * * 4)")
             # The weekly service (docs/88): the Friday brief, the daily market
             # pulse that keeps alerts fresh, and the 6-hourly alert check —
             # the last one a direct tool call, no LLM in the loop.
@@ -3604,6 +3715,319 @@ class WatchAlertsTool(_WatchToolBase):
         )
 
 
+# ── Player comms (docs/88 §C): what brands send players ────────────────
+
+
+def _agentmail_client(vault: Any, config: Any) -> tuple[Any, str | None]:
+    """The AgentMail client from the vault key the e-mail tools use."""
+    if vault is None:
+        return None, "vault unavailable"
+    ref = getattr(getattr(config, "email", None), "api_key_ref", None) or "agentmail_api_key"
+    key = vault.get(ref)
+    if not key:
+        return None, f"no {ref} in the vault"
+    try:
+        from agentmail import AgentMail
+
+        return AgentMail(api_key=key), None
+    except Exception as e:
+        return None, f"agentmail unavailable: {e}"
+
+
+def _subject_inbox(subj: Any) -> str:
+    return next((str(t).split(":", 1)[1] for t in (subj.tags or []) if str(t).startswith("inbox:")), "")
+
+
+class WatchCommsSetupTool(_WatchToolBase):
+    """Give a tracked brand an inbox of our own and the signup instructions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._vault: Any = None
+        self._config: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_comms_setup"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Player comms, step 1: create an AgentMail inbox for a tracked brand "
+            "(tagged inbox:<address> on the subject), store a signup password in "
+            "the vault, and return the signup instructions — then sign the brand "
+            "up in the browser with that address so its marketing e-mails start "
+            "landing in the inbox. Register is canon: existing subjects only. "
+            "Idempotent: an inbox already linked is returned as is."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "Brand name from the register."},
+                "company_id": {"type": "string"},
+            },
+            "required": ["subject"],
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        from core.watch_comms import inbox_username, signup_password
+
+        cid = _company(params)
+        wm = self._watch_manager
+        subj = await wm.get_subject_by_name(str(params.get("subject") or ""), cid)
+        if subj is None:
+            return ToolResult(success=False, error="subject not in the register — the register is canon")
+        inbox = _subject_inbox(subj)
+        vault_key = f"watch_comms:{subj.subject_id}"
+        if not inbox:
+            client, cerr = _agentmail_client(self._vault, self._config)
+            if client is None:
+                return ToolResult(success=False, error=cerr)
+            try:
+                from agentmail.inboxes.types import CreateInboxRequest
+
+                created = client.inboxes.create(
+                    request=CreateInboxRequest(username=inbox_username(subj.name), display_name="Player")
+                )
+                inbox = str(getattr(created, "inbox_id", "") or "")
+            except Exception as e:
+                return ToolResult(success=False, error=f"inbox creation failed: {e}")
+            if not inbox:
+                return ToolResult(success=False, error="inbox creation returned no address")
+            await wm.tag_subject(subj.subject_id, f"inbox:{inbox}")
+        creds = self._vault.get(vault_key) if self._vault is not None else None
+        if not creds:
+            creds = {"email": inbox, "password": signup_password()}
+            if self._vault is not None:
+                self._vault.set(vault_key, creds)
+        pw = creds.get("password") if isinstance(creds, dict) else ""
+        return ToolResult(
+            success=True,
+            data={
+                "subject": subj.name,
+                "inbox": inbox,
+                "vault_key": vault_key,
+                "next": (
+                    f"In the browser, open {subj.url or 'the brand site'} and sign up (or subscribe to "
+                    f"the newsletter) with e-mail {inbox} and the password stored under vault key "
+                    f"{vault_key}. Accept marketing e-mails. Do NOT make a purchase or verify identity. "
+                    f"Then run watch_comms_collect weekly."
+                ),
+                "password_hint": (pw[:2] + "…") if pw else "",
+            },
+        )
+
+
+class WatchCommsCollectTool(_WatchToolBase):
+    """Read new marketing e-mails from each brand's inbox into watch_comms."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._vault: Any = None
+        self._config: Any = None
+        self._router: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_comms_collect"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Player comms, step 2: for every brand with a linked inbox (or one "
+            "subject), fetch its new e-mails, read each for category (welcome, "
+            "promo offer, daily bonus, reactivation, VIP, tournament, product "
+            "news, transactional) and the offer it carries with a verified "
+            "excerpt, and file them in watch_comms. Message ids dedupe. Nothing "
+            "here changes a score; the deck's 'What they send players' slide, the "
+            "weekly brief and the report pick it up when present."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "One brand; default all linked."},
+                "max_messages": {"type": "integer", "description": "Per inbox per run. Default 100."},
+                "save": {"type": "boolean", "description": "Default true."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        from core.watch_comms import message_text, message_time, read_comms
+
+        cid = _company(params)
+        wm = self._watch_manager
+        client, cerr = _agentmail_client(self._vault, self._config)
+        if client is None:
+            return ToolResult(success=False, error=cerr)
+        if self._router is None:
+            return ToolResult(success=False, error="no router — comms reading needs the model")
+        subjects = await wm.list_subjects(cid)
+        if params.get("subject"):
+            subj = await wm.get_subject_by_name(str(params["subject"]), cid)
+            if subj is None:
+                return ToolResult(success=False, error="subject not in the register — the register is canon")
+            subjects = [subj]
+        save = bool(params.get("save", True))
+        max_messages = int(params.get("max_messages") or 100)
+        report: list[dict[str, Any]] = []
+        kept_total = 0
+        for subj in subjects:
+            inbox = _subject_inbox(subj)
+            if not inbox:
+                continue
+            per: dict[str, Any] = {"subject": subj.name, "inbox": inbox}
+            try:
+                listing = client.inboxes.messages.list(inbox_id=inbox)
+                raw = getattr(listing, "messages", None) or listing
+                raw = list(raw) if not isinstance(raw, list) else raw
+            except Exception as e:
+                per["error"] = f"list failed: {e}"
+                report.append(per)
+                continue
+            known = {c.message_id for c in await wm.list_comms(cid, subject_id=subj.subject_id, limit=5000)}
+            fresh = [m for m in raw if str(getattr(m, "message_id", "") or "") not in known][:max_messages]
+            messages: list[dict[str, Any]] = []
+            for m in fresh:
+                mid = str(getattr(m, "message_id", "") or "")
+                try:
+                    full = client.inboxes.messages.get(inbox_id=inbox, message_id=mid)
+                except Exception:
+                    full = m
+                messages.append(
+                    {
+                        "id": mid,
+                        "subject": str(getattr(m, "subject", "") or ""),
+                        "text": message_text(full)[:6000],
+                        "sender": str(getattr(m, "from_", "") or ""),
+                        "received_at": message_time(m),
+                    }
+                )
+            items, dropped = await read_comms(self._router, brand=subj.name, messages=messages)
+            kept = 0
+            for it in items:
+                if not save:
+                    kept += 1
+                    continue
+                row = await wm.add_comms(
+                    company_id=cid,
+                    subject_id=subj.subject_id,
+                    message_id=it["message"]["id"],
+                    received_at=it["message"]["received_at"],
+                    category=it["category"],
+                    inbox=inbox,
+                    sender=it["message"]["sender"],
+                    subject_line=it["message"]["subject"],
+                    offer_text=it["offer"],
+                    excerpt=it["excerpt"],
+                )
+                if row is not None:
+                    kept += 1
+            per.update({"fetched": len(raw), "new": len(fresh), "kept": kept, "dropped": dropped})
+            kept_total += kept
+            report.append(per)
+        return ToolResult(
+            success=True,
+            data={
+                "company_id": cid,
+                "saved": save,
+                "kept_total": kept_total,
+                "brands": report,
+                "note": (
+                    "linked inboxes only — run watch_comms_setup for a brand first; "
+                    "filed in watch_comms; scores and the evidence register untouched"
+                ),
+            },
+        )
+
+
+class WatchCommsTool(_WatchToolBase):
+    """Read side of player comms."""
+
+    @property
+    def name(self) -> str:
+        return "watch_comms"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Player comms, read side. action='summary' (default): per brand — "
+            "e-mails in the window, per-week cadence, category mix, peak send hour, "
+            "latest offers and subject lines. action='list': the rows."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["summary", "list"]},
+                "subject": {"type": "string"},
+                "window_days": {"type": "integer", "description": "Default 30."},
+                "limit": {"type": "integer", "description": "list: default 50."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        wm = self._watch_manager
+        if str(params.get("action") or "summary").lower() == "list":
+            subject_id = None
+            if params.get("subject"):
+                subj = await wm.get_subject_by_name(str(params["subject"]), cid)
+                if subj is None:
+                    return ToolResult(success=False, error="unknown subject")
+                subject_id = subj.subject_id
+            rows = await wm.list_comms(cid, subject_id=subject_id, limit=int(params.get("limit") or 50))
+            names = {s.subject_id: s.name for s in await wm.list_subjects(cid)}
+            return ToolResult(
+                success=True,
+                data={
+                    "count": len(rows),
+                    "rows": [
+                        {
+                            "brand": names.get(r.subject_id, r.subject_id),
+                            "received_at": r.received_at[:16],
+                            "category": r.category,
+                            "subject": r.subject_line,
+                            "offer": r.offer_text,
+                            "excerpt": r.excerpt,
+                            "sender": r.sender,
+                        }
+                        for r in rows
+                    ],
+                },
+            )
+        return ToolResult(
+            success=True, data=await wm.comms_summary(cid, window_days=int(params.get("window_days") or 30))
+        )
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -3624,4 +4048,7 @@ def create_watch_tools() -> list[BaseTool]:
         WatchVoiceReportTool(),
         WatchWeeklyBriefTool(),
         WatchAlertsTool(),
+        WatchCommsSetupTool(),
+        WatchCommsCollectTool(),
+        WatchCommsTool(),
     ]

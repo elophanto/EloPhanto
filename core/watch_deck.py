@@ -608,6 +608,7 @@ def factual_narrative(
     gaps: list[dict[str, Any]],
     *,
     voice: dict[str, Any] | None = None,
+    comms: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The deck's words when no model is available: numbers only, no claims.
 
@@ -704,6 +705,8 @@ def factual_narrative(
     slides = _slides_facts(card)
     if voice and voice.get("mentions"):
         slides["voice"] = _voice_facts(voice)
+    if comms and comms.get("emails"):
+        slides["comms"] = _comms_facts(comms)
     return {
         "headline": "",
         "bullets": bullets[:5],
@@ -1954,6 +1957,129 @@ def _voice_strip(slide: Any, vb: dict[str, Any], *, x: float, y: float, w: float
              accent_bullet=False, max_items=3)
 
 
+_COMMS_LABEL = "What brands send players — marketing e-mail received in the organ's own inboxes."
+
+
+def _cat_label(c: str) -> str:
+    return {
+        "welcome": "Welcome",
+        "promo_offer": "Promo offer",
+        "daily_bonus": "Daily bonus",
+        "reactivation": "Reactivation",
+        "vip_loyalty": "VIP / loyalty",
+        "tournament_event": "Tournament / event",
+        "product_news": "Product news",
+        "transactional": "Transactional",
+        "other": "Other",
+    }.get(c, c.replace("_", " ").title())
+
+
+def _slide_comms(
+    prs: Any,
+    comms: dict[str, Any],
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+) -> None:
+    """Brands × categories: e-mails sent in the window, cadence per week,
+    the latest offer line — first-party, dated, from our own inboxes."""
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    title = (narrative.get("titles") or {}).get("comms") or "What they send players"
+    top = _header(
+        s,
+        f"Player comms · {comms.get('window_days', 30)}-day window",
+        title,
+        (narrative.get("commentary") or {}).get("comms", ""),
+    )
+    brands = sorted(
+        [b for b in comms.get("brands", []) if b.get("inbox")],
+        key=lambda b: (not b.get("is_self"), -b.get("n", 0)),
+    )[:14]
+    cats = [c for c in ("welcome", "promo_offer", "daily_bonus", "reactivation", "vip_loyalty",
+                        "tournament_event", "product_news")]
+    if not brands:
+        _text(s, 0.7, top + 0.2, 8.0, 1.0, "No inbox linked yet.", size=15, color=_BODY)
+        _footer(s, deck_title, page)
+        return
+    total_w = 8.2
+    first_w, n_w, wk_w = 1.9, 0.6, 0.7
+    c_w = (total_w - first_w - n_w - wk_w) / len(cats)
+    shape = s.shapes.add_table(len(brands) + 1, 3 + len(cats), Inches(0.7), Inches(top), Inches(total_w),
+                               Inches(min(0.3 * (len(brands) + 1), 6.2 - top)))
+    tbl = shape.table
+    tbl.columns[0].width = Inches(first_w)
+    tbl.columns[1].width = Inches(n_w)
+    tbl.columns[2].width = Inches(wk_w)
+    for ci in range(len(cats)):
+        tbl.columns[3 + ci].width = Inches(c_w)
+
+    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8) -> None:
+        cell = tbl.cell(r, c)
+        cell.text = text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _rgb(bg)
+        cell.margin_left = cell.margin_right = Inches(0.03)
+        cell.margin_top = cell.margin_bottom = Inches(0.01)
+        for p in cell.text_frame.paragraphs:
+            for run in p.runs:
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.color.rgb = _rgb(fg)
+
+    cw(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
+    cw(0, 1, "n", bg=_INK, fg=_WHITE, bold=True)
+    cw(0, 2, "/week", bg=_INK, fg=_WHITE, bold=True)
+    for ci, c in enumerate(cats):
+        cw(0, 3 + ci, _cat_label(c), bg=_INK, fg=_WHITE, bold=True, size=7)
+    for ri, b in enumerate(brands, start=1):
+        bg = _SELF_ROW if b.get("is_self") else _WHITE
+        cw(ri, 0, f"{b['name']}{'  (us)' if b.get('is_self') else ''}", bg=bg, bold=bool(b.get("is_self")))
+        cw(ri, 1, str(b.get("n", 0)), bg=bg)
+        cw(ri, 2, f"{b.get('per_week', 0):g}", bg=bg)
+        for ci, c in enumerate(cats):
+            n = int((b.get("categories") or {}).get(c, 0))
+            cw(ri, 3 + ci, str(n) if n else "", bg=("E5E7EB" if n >= 4 else bg))
+    panel = (narrative.get("slides") or {}).get("comms") or _comms_facts(comms)
+    _sidebar(s, [str(o) for o in panel.get("observations") or []],
+             [str(i) for i in panel.get("implications") or []], top=top)
+    _text(s, 0.7, 6.32, 11.9, 0.3,
+          f"{_COMMS_LABEL} Counts are e-mails received in the window; /week is the cadence. "
+          "Brands without a linked inbox are not shown.", size=8, italic=True, color=_MUTED)
+    _judgement_note(s, str(narrative.get("source") or "facts"))
+    _footer(s, deck_title, page)
+
+
+def _comms_facts(comms: dict[str, Any] | None) -> dict[str, list[str]]:
+    if not comms or not comms.get("emails"):
+        return {"observations": [], "implications": []}
+    brands = [b for b in comms.get("brands", []) if b.get("inbox") and b.get("n")]
+    obs: list[str] = []
+    imps: list[str] = []
+    obs.append(
+        f"{comms['emails']} marketing e-mails received from {len(brands)} brands in "
+        f"{comms.get('window_days', 30)} days."
+    )
+    if brands:
+        busiest = max(brands, key=lambda b: b.get("per_week", 0))
+        obs.append(f"{busiest['name']} sends most: {busiest['per_week']:g} e-mails a week.")
+        cat_tot: dict[str, int] = {}
+        for b in brands:
+            for c, n in (b.get("categories") or {}).items():
+                cat_tot[c] = cat_tot.get(c, 0) + n
+        if cat_tot:
+            top = max(cat_tot.items(), key=lambda kv: kv[1])
+            obs.append(f"Most common message type field-wide: {_cat_label(top[0]).lower()} ({top[1]}).")
+        us = next((b for b in brands if b.get("is_self")), None)
+        if us:
+            obs.append(f"We send {us['per_week']:g} a week; peak hour {us.get('peak_hour_utc')} UTC.")
+        with_offers = [b for b in brands if b.get("latest_offers")]
+        if with_offers:
+            b0 = with_offers[0]
+            imps.append(f"Latest offer seen — {b0['name']}: {b0['latest_offers'][0]['offer']}.")
+    imps.append("Cadence and mix are what players actually receive; compare against our own send plan.")
+    return {"observations": obs[:4], "implications": imps[:3]}
 def _slide_offers(
     prs: Any,
     offers: list[dict[str, Any]],
@@ -2649,6 +2775,7 @@ def render_executive_deck(
     events: list[dict[str, Any]] | None = None,
     voice: dict[str, Any] | None = None,
     voice_diff: dict[str, Any] | None = None,
+    comms: dict[str, Any] | None = None,
     title: str = "Competitive Intelligence – Executive Briefing",
     market_label: str = "",
 ) -> str:
@@ -2751,6 +2878,12 @@ def render_executive_deck(
                 commentary=(exhibits_panel.get("observations") or [""])[0] if bi == 0 else "",
             )
             page += 1
+
+    # What they send players — first-party marketing e-mail, only when an
+    # inbox is linked and something arrived.
+    if comms and comms.get("emails"):
+        _slide_comms(prs, comms, narrative, page, deck_title)
+        page += 1
 
     # What players say — the second evidence class, on top of the pack and
     # only when something was collected. Opinion, labelled as such.

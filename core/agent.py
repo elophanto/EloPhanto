@@ -2230,6 +2230,9 @@ class Agent:
             # watch_voice_collect reads reddit_client_id / reddit_client_secret
             # (Reddit's OAuth API — unauthenticated JSON is refused since 2026).
             "watch_voice_collect",
+            # player comms: AgentMail key + per-brand signup credentials.
+            "watch_comms_setup",
+            "watch_comms_collect",
             "solana_balance",
             "solana_token_holders",
             "solana_recent_txs",
@@ -2626,6 +2629,9 @@ class Agent:
             "watch_voice_report",
             "watch_weekly_brief",
             "watch_alerts",
+            "watch_comms_setup",
+            "watch_comms_collect",
+            "watch_comms",
         ):
             tool = self._registry.get(tool_name)
             if tool is None:

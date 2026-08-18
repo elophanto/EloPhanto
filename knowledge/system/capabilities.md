@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**294 tools across 40 groups.** Every count below is the live
+**297 tools across 40 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -220,7 +220,7 @@ second, screenshot-and-click as last resort.
 `desktop_drag`, `desktop_accessibility`, `desktop_osascript`,
 `desktop_shell`, `desktop_file`, `desktop_connect`, `desktop_cursor`.
 
-## Competitive Intelligence — `watch` (17)
+## Competitive Intelligence — `watch` (20)
 
 Market model as tracked brands × weighted dimensions on an append-only
 evidence register with full provenance. Scores are **refused without
@@ -234,7 +234,8 @@ state, and recorded on the row as `exit_ip`.
 `watch_analyze`, `watch_score`, `watch_scorecard`, `watch_snapshot`,
 `watch_diff`, `watch_queue`, `watch_board_report`, `watch_executive_deck`,
 `watch_voice_collect`, `watch_voice`, `watch_voice_report`,
-`watch_weekly_brief`, `watch_alerts`.
+`watch_weekly_brief`, `watch_alerts`, `watch_comms_setup`, `watch_comms_collect`,
+`watch_comms`.
 
 Voice of customer is the organ's second evidence class: what PLAYERS say
 about a tracked brand (Reddit posts and comments, App Store reviews),
@@ -254,6 +255,13 @@ and a one-slide deck, and can push it to the connected channels;
 spikes, stores each once and pushes the new ones (a 6-hourly direct-tool
 schedule). `watch_queue action=schedule` installs the brief, a daily
 homepage pulse that keeps alerts fresh, and the alert check.
+
+Player comms: each brand gets an AgentMail inbox of the organ's own
+(`watch_comms_setup`, then a one-time browser signup); from then on
+every marketing e-mail it sends is read into `watch_comms` — category,
+offer, verified excerpt, send day/hour (`watch_comms_collect`) — the
+week-to-week view of acquisition and retention messaging, first-party
+and dated. Deck slide, report section and brief lines when present.
 
 Four deliverables from one evidence base: the XLSX scorecard, the
 material-change diff, the board report, and the executive deck (~10

@@ -148,6 +148,10 @@ async def build_weekly_brief(
         )
     except Exception:
         voice, voice_diff = None, None
+    try:
+        comms = await wm.comms_summary(company_id, window_days=days)
+    except Exception:
+        comms = None
     per_brand: dict[str, int] = {}
     for e in week_rows:
         per_brand[str(e.get("subject"))] = per_brand.get(str(e.get("subject")), 0) + 1
@@ -193,6 +197,32 @@ async def build_weekly_brief(
                 ][:4],
             }
             if voice
+            else None
+        ),
+        "comms": (
+            {
+                "emails": comms.get("emails", 0),
+                "brands": [
+                    {
+                        "brand": b["name"],
+                        "is_self": b["is_self"],
+                        "n": b["n"],
+                        "top_category": (
+                            max(b["categories"].items(), key=lambda kv: kv[1])[0]
+                            if b.get("categories")
+                            else None
+                        ),
+                        "latest_offer": (
+                            (b.get("latest_offers") or [{}])[0].get("offer", "")
+                            if b.get("latest_offers")
+                            else ""
+                        ),
+                    }
+                    for b in comms.get("brands", [])
+                    if b.get("inbox") and b.get("n")
+                ][:6],
+            }
+            if comms and comms.get("emails")
             else None
         ),
         "request": {"question": request, "answer": answer} if request else None,
@@ -245,6 +275,22 @@ def brief_facts(brief: dict[str, Any]) -> dict[str, list[str]]:
                 f"Loudest complaint this week: {tc['brand']} – {tc['theme'].replace('_', ' ')} "
                 f"({int(round(tc['neg_share'] * 100))}% negative of {tc['n']} mentions)"
             )
+    c = brief.get("comms")
+    if c and c.get("emails"):
+        top = sorted(c["brands"], key=lambda b: -b["n"])[:2]
+        market.append(
+            f"Player e-mail this week: {c['emails']} received; "
+            + ", ".join(
+                f"{b['brand']} {b['n']}"
+                + (f" ({b['top_category'].replace('_', ' ')})" if b.get("top_category") else "")
+                for b in top
+            )
+            + (
+                f". Latest offer — {top[0]['brand']}: {_clean(top[0]['latest_offer'], 80)}"
+                if top and top[0].get("latest_offer")
+                else ""
+            )
+        )
     if not market:
         market.append("No market event or player-sentiment move this week.")
     for ev in brief["market_events"][:1]:
@@ -455,6 +501,7 @@ async def narrate_brief(router: Any, brief: dict[str, Any]) -> dict[str, Any]:
             "market_events",
             "score_moves",
             "voice",
+            "comms",
             "request",
         )
     }

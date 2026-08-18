@@ -55,9 +55,11 @@ def render_scorecard_xlsx(
     path: str | Path,
     title: str = "Competitive Scorecard",
     voice_rows: list[dict[str, Any]] | None = None,
+    comms_rows: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Write the four-sheet workbook — five when ``voice_rows`` (what
-    players say, docs/87) are given. Returns the path written."""
+    """Write the four-sheet workbook — plus a Voice sheet when ``voice_rows``
+    (what players say, docs/87) and a Comms sheet when ``comms_rows`` (what
+    brands send players, docs/88) are given. Returns the path written."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -291,6 +293,8 @@ def render_scorecard_xlsx(
 
     if voice_rows:
         write_voice_sheet(wb, voice_rows)
+    if comms_rows:
+        write_comms_sheet(wb, comms_rows)
 
     out = Path(path).expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -384,3 +388,25 @@ def render_voice_xlsx(
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(out))
     return str(out)
+
+
+def write_comms_sheet(wb: Any, comms_rows: list[dict[str, Any]]) -> None:
+    """The 'Comms' sheet: one row per marketing e-mail a brand sent us."""
+    from openpyxl.styles import Font
+
+    ws = wb.create_sheet("Comms")
+    ws.append(["What brands send players — marketing e-mail received in the organ's own inboxes"])
+    ws["A1"].font = Font(bold=True, size=12)
+    ws.append(["One row per e-mail. Category from a fixed vocabulary; excerpt verified against the mail."])
+    ws["A2"].font = Font(italic=True, size=9, color="6B7280")
+    ws.append([])
+    hdr = ["Brand", "Received", "Category", "Subject line", "Offer", "Excerpt", "Sender", "Inbox"]
+    ws.append(hdr)
+    _style_header(ws, 4, len(hdr))
+    ws.freeze_panes = "A5"
+    for r in comms_rows:
+        ws.append([
+            r.get("brand", ""), str(r.get("received_at", ""))[:16], r.get("category", ""),
+            r.get("subject", ""), r.get("offer", ""), r.get("excerpt", ""), r.get("sender", ""), r.get("inbox", ""),
+        ])
+    _autosize(ws, {"A": 22, "B": 17, "C": 16, "D": 50, "E": 40, "F": 60, "G": 30, "H": 30})

@@ -444,6 +444,34 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_watch_voice_lookup
         ON watch_voice(company_id, subject_id, posted_at)
     """,
+    # Player comms — what brands SEND players (docs/88 §C): one row per
+    # marketing e-mail received in the brand's own AgentMail inbox, read
+    # for a fixed category and the offer it carries, excerpt verified
+    # against the mail. Provenance is the message id + inbox.
+    """
+    CREATE TABLE IF NOT EXISTS watch_comms (
+        comms_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        subject_id TEXT NOT NULL,
+        inbox TEXT NOT NULL DEFAULT '',
+        message_id TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        sender TEXT NOT NULL DEFAULT '',
+        subject_line TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL,
+        offer_text TEXT NOT NULL DEFAULT '',
+        excerpt TEXT NOT NULL DEFAULT '',
+        weekday INTEGER,
+        hour INTEGER,
+        observed_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (company_id, message_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_watch_comms_lookup
+        ON watch_comms(company_id, subject_id, received_at)
+    """,
     # Alerts — the mid-week wake-ups (docs/88 §B): market events, regulatory
     # items, player-sentiment spikes. Stored once per (company, dedupe key)
     # so a re-check never re-notifies; notified_at records the push.

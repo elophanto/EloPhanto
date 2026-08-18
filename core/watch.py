@@ -227,6 +227,28 @@ class WatchVoice:
     created_at: str = ""
 
 
+@dataclass(slots=True)
+class WatchComms:
+    """One marketing e-mail a brand sent to the organ's inbox — what they
+    send players, with the message id as provenance."""
+
+    comms_id: str
+    subject_id: str
+    message_id: str
+    received_at: str
+    category: str
+    company_id: str = "elophanto-self"
+    inbox: str = ""
+    sender: str = ""
+    subject_line: str = ""
+    offer_text: str = ""
+    excerpt: str = ""
+    weekday: int | None = None
+    hour: int | None = None
+    observed_at: str = ""
+    created_at: str = ""
+
+
 def voice_dedupe_key(quote: str, source_url: str = "") -> str:
     """Cross-posts and re-scrapes count once: key on the normalised quote
     (or the URL when the quote is empty)."""
@@ -1459,6 +1481,118 @@ class WatchManager:
             rows, subjects, window_days=window_days, min_mentions=min_mentions
         )
 
+    # ── Player comms (docs/88 §C) ────────────────────────────────────
+
+    async def add_comms(
+        self,
+        *,
+        company_id: str,
+        subject_id: str,
+        message_id: str,
+        received_at: str,
+        category: str,
+        inbox: str = "",
+        sender: str = "",
+        subject_line: str = "",
+        offer_text: str = "",
+        excerpt: str = "",
+    ) -> WatchComms | None:
+        """File one e-mail. Append-only; the same message id filed twice is
+        ignored (None). Never touches evidence or scores."""
+        from core.watch_comms import COMMS_CATEGORIES
+
+        if category not in COMMS_CATEGORIES:
+            raise ValueError(f"invalid comms category: {category!r}")
+        dup = await self._db.execute(
+            "SELECT 1 FROM watch_comms WHERE company_id = ? AND message_id = ?",
+            (company_id, message_id),
+        )
+        if dup:
+            return None
+        weekday: int | None = None
+        hour: int | None = None
+        try:
+            dt = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+            weekday, hour = dt.weekday(), dt.hour
+        except Exception:
+            pass
+        now = _now()
+        row = WatchComms(
+            comms_id=_sid("cm"),
+            subject_id=subject_id,
+            message_id=message_id,
+            received_at=received_at,
+            category=category,
+            company_id=company_id,
+            inbox=inbox,
+            sender=sender[:200],
+            subject_line=subject_line[:300],
+            offer_text=offer_text[:200],
+            excerpt=excerpt[:240],
+            weekday=weekday,
+            hour=hour,
+            observed_at=now,
+            created_at=now,
+        )
+        await self._db.execute_insert(
+            "INSERT INTO watch_comms (comms_id, company_id, subject_id, inbox, message_id, "
+            "received_at, sender, subject_line, category, offer_text, excerpt, weekday, hour, "
+            "observed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                row.comms_id, company_id, subject_id, inbox, message_id, received_at,
+                row.sender, row.subject_line, category, row.offer_text, row.excerpt,
+                weekday, hour, now, now,
+            ),
+        )
+        return row
+
+    async def list_comms(
+        self,
+        company_id: str,
+        *,
+        subject_id: str | None = None,
+        since: str = "",
+        limit: int = 1000,
+    ) -> list[WatchComms]:
+        sql = "SELECT * FROM watch_comms WHERE company_id = ?"
+        args: list[Any] = [company_id]
+        if subject_id:
+            sql += " AND subject_id = ?"
+            args.append(subject_id)
+        if since:
+            sql += " AND received_at >= ?"
+            args.append(since)
+        sql += " ORDER BY received_at DESC LIMIT ?"
+        args.append(int(limit))
+        return [self._to_comms(r) for r in await self._db.execute(sql, tuple(args))]
+
+    @staticmethod
+    def _to_comms(r: Any) -> WatchComms:
+        return WatchComms(
+            comms_id=r["comms_id"],
+            subject_id=r["subject_id"],
+            message_id=r["message_id"],
+            received_at=r["received_at"],
+            category=r["category"],
+            company_id=r["company_id"],
+            inbox=_row_get(r, "inbox", "") or "",
+            sender=_row_get(r, "sender", "") or "",
+            subject_line=_row_get(r, "subject_line", "") or "",
+            offer_text=_row_get(r, "offer_text", "") or "",
+            excerpt=_row_get(r, "excerpt", "") or "",
+            weekday=_row_get(r, "weekday"),
+            hour=_row_get(r, "hour"),
+            observed_at=_row_get(r, "observed_at", "") or "",
+            created_at=_row_get(r, "created_at", "") or "",
+        )
+
+    async def comms_summary(self, company_id: str, *, window_days: int = 30) -> dict[str, Any]:
+        from core.watch_comms import summarize_comms
+
+        subjects = await self.list_subjects(company_id)
+        rows = await self.list_comms(company_id, limit=20000)
+        return summarize_comms(rows, subjects, window_days=window_days)
+
     # ── Alerts (docs/88 §B) ──────────────────────────────────────────
 
     async def record_alerts(
@@ -1545,6 +1679,12 @@ class WatchManager:
             if voice.get("mentions"):
                 card["voice"] = voice
         except Exception:  # voice must never break a scorecard snapshot
+            pass
+        try:
+            comms = await self.comms_summary(company_id)
+            if comms.get("emails"):
+                card["comms"] = comms
+        except Exception:
             pass
         snap_id = _sid("snap")
         await self._db.execute_insert(
