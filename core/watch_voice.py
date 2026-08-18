@@ -594,3 +594,29 @@ async def read_posts(
             )
         dropped["model_skip"] += len([p for p in chunk if p.post_id not in got_ids])
     return items, dropped
+
+
+async def fetch_app_meta(
+    app_id: str, *, proxy_url: str | None = None, country: str = "us"
+) -> dict[str, Any] | None:
+    """The store listing via the iTunes lookup: version, rating, rating
+    count, release notes, release date. None on any failure."""
+    payload, err = await _get_json(
+        f"https://itunes.apple.com/lookup?id={_q(app_id)}&country={country}", proxy_url=proxy_url
+    )
+    if err or not isinstance(payload, dict):
+        return None
+    results = payload.get("results") or []
+    if not results:
+        return None
+    r = results[0]
+    return {
+        "app_id": str(app_id),
+        "store": "app_store",
+        "version": str(r.get("version") or ""),
+        "rating": float(r["averageUserRating"]) if r.get("averageUserRating") is not None else None,
+        "rating_count": int(r["userRatingCount"]) if r.get("userRatingCount") is not None else None,
+        "release_notes": str(r.get("releaseNotes") or "")[:600],
+        "released_at": str(r.get("currentVersionReleaseDate") or "")[:19],
+        "name": str(r.get("trackName") or ""),
+    }

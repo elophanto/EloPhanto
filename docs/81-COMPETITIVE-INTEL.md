@@ -255,6 +255,16 @@ report, deck and workbook pick it up (`voice=auto`) as *What players say*
 — heatmap, movement, quote strips on deep dives, a Voice sheet — and it
 ships on its own via `watch_voice_report`. See [87](87-VOICE-OF-CUSTOMER.md).
 
+**The weekly service (docs/88).** On top of the monthly pack: a Friday
+one-page brief (`watch_weekly_brief` — fields and offers that changed,
+market events, movement, the executive request), mid-week alerts
+(`watch_alerts` — market events, regulatory dates, sentiment spikes,
+pushed to the connected channels), player comms from the organ's own
+inboxes (`watch_comms_*`), a regulatory register and calendar
+(`watch_regulatory_*`), message categories, app release tracking, a demand
+calendar and trend lines once three cycles exist. All of it reads or adds
+registers of the same shape; none of it changes the pack when absent.
+
 **Baseline packs and comparable fields.** A from-scratch analysis has nothing
 to move *from*: pass `baseline=true` to `watch_board_report` (or
 `watch_executive_deck`, or `watch_analyze` when it saves the pack) and no

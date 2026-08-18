@@ -1,6 +1,6 @@
 # 88 — The weekly service: brief, alerts, player comms, regulatory, calendar, trends
 
-*Status: designed 2026-08-18; built in order below. Builds on the watch organ
+*Status: designed and built 2026-08-18 (all sections). Builds on the watch organ
 ([81](81-COMPETITIVE-INTEL.md)) and voice of customer ([87](87-VOICE-OF-CUSTOMER.md)).*
 
 The monthly pack is the product; this turns it into a **weekly service** —
@@ -106,6 +106,34 @@ Alerts as in B. Tools: `watch_regulatory_collect`, `watch_regulatory`
 - **Trends** — once ≥ 3 snapshots: overall score per brand over time (line
   chart), voice negative share over time; a slide in the pack and the brief.
 
+## What shipped (2026-08-18)
+
+- **A. Brief** — `core/watch_brief.py` (`field_changes`, `offer_changes`, `build_weekly_brief`,
+  `brief_facts`, `render_brief_markdown`, `render_brief_slide`, `narrate_brief`),
+  `core/watch_offers.py` (offer facts moved from the tools module), `watch_weekly_brief`.
+- **B. Alerts** — `watch_alerts` table, `core/watch_alerts.py` (`detect_alerts`, event /
+  voice-spike / regulatory candidates), `WatchManager.record_alerts / list_alerts /
+  mark_alerts_notified`, `watch_alerts` tool; a generic `watch` notification type in the
+  Telegram, Discord, Slack and CLI adapters.
+- **C. Player comms** — `watch_comms` table, `core/watch_comms.py` (`read_comms`,
+  `summarize_comms`, inbox naming), `WatchManager.add_comms / list_comms / comms_summary`,
+  `watch_comms_setup` / `watch_comms_collect` / `watch_comms`; deck slide, report section,
+  workbook sheet, brief lines, snapshot section.
+- **D. Regulatory** — `watch_regulatory` table, `core/watch_regulatory.py` (`regulatory_queries`,
+  `extract_regulatory` with verified excerpts, `regulatory_calendar`), `WatchManager.add_regulatory /
+  list_regulatory / regulatory_calendar`, `watch_regulatory_collect` / `watch_regulatory`; calendar
+  slide, report section, brief lines, alerts, snapshot section.
+- **E. Smalls** — `core/watch_calendar.py` (`message_category` / `message_categories`,
+  `demand_calendar` — computed holidays, paydays, SSA/SSI, tax; supplied events),
+  `watch_app_meta` table + `fetch_app_meta` (stored by `watch_voice_collect`) +
+  `WatchManager.app_meta_latest` (brief: "shipped app vX"), `WatchManager.trend_series` +
+  trends slide (≥ 3 scored cycles across days), calendar slide (`calendar=true`,
+  `calendar_events=[…]` on report/deck).
+- Schedules from `watch_queue action=schedule`: Friday brief, daily market pulse, 6-hourly alert
+  check (direct tool), weekly comms collect (direct tool), weekly regulatory tracking, weekly voice.
+- Tests: `test_watch_brief.py`, `test_watch_comms.py`, `test_watch_regulatory.py`,
+  `test_watch_smalls.py` — each pins "absent, the pack is unchanged".
+
 ## Tools added
 
 | tool | what |
@@ -114,7 +142,7 @@ Alerts as in B. Tools: `watch_regulatory_collect`, `watch_regulatory`
 | `watch_alerts` | check (detect + store + optional notify) · list |
 | `watch_comms_setup` · `watch_comms_collect` · `watch_comms` | player comms |
 | `watch_regulatory_collect` · `watch_regulatory` | regulatory register |
-| `watch_queue action=schedule` | also installs weekly brief, 6-hourly alerts, daily pulse, weekly comms + regulatory |
+| `watch_queue action=schedule` | also installs weekly brief, 6-hourly alerts, daily pulse, weekly comms + regulatory (`service=false` to skip) |
 
 ## Build order
 

@@ -500,6 +500,29 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_watch_regulatory_lookup
         ON watch_regulatory(company_id, jurisdiction, event_date)
     """,
+    # App meta (docs/88 §E): the store listing's version, rating, rating
+    # count and release notes per brand at each observation — release
+    # cadence and rating drift, from the same iTunes endpoints VoC uses.
+    """
+    CREATE TABLE IF NOT EXISTS watch_app_meta (
+        meta_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        subject_id TEXT NOT NULL,
+        store TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        version TEXT NOT NULL DEFAULT '',
+        rating REAL,
+        rating_count INTEGER,
+        release_notes TEXT NOT NULL DEFAULT '',
+        released_at TEXT NOT NULL DEFAULT '',
+        observed_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_watch_app_meta_lookup
+        ON watch_app_meta(company_id, subject_id, observed_at)
+    """,
     # Alerts — the mid-week wake-ups (docs/88 §B): market events, regulatory
     # items, player-sentiment spikes. Stored once per (company, dedupe key)
     # so a re-check never re-notifies; notified_at records the push.

@@ -2168,6 +2168,120 @@ def _regulatory_facts(cal: dict[str, Any] | None) -> dict[str, list[str]]:
     return {"observations": obs[:4], "implications": imps[:3]}
 
 
+def _slide_trends(
+    prs: Any,
+    trends: dict[str, Any],
+    card: dict[str, Any],
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+) -> None:
+    """Overall score per brand across the stored cycles — a line chart, our
+    brands in the accent colour, the leader and top peers in slate."""
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    pts = trends.get("points") or []
+    title = (narrative.get("titles") or {}).get("trends") or f"Scores over {len(pts)} cycles"
+    top = _header(s, "Trends", title, (narrative.get("commentary") or {}).get("trends", ""))
+    rows = card.get("rows", [])
+    us = [r["name"] for r in rows if r.get("is_self")]
+    ranked = sorted(
+        [r for r in rows if r["overall"]["normalized_pct"] is not None and not r.get("is_self")],
+        key=lambda r: -float(r["overall"]["normalized_pct"]),
+    )
+    shown = us + [r["name"] for r in ranked[:5]]
+    cd = CategoryChartData()
+    cd.categories = [pt["taken_at"] for pt in pts]
+    for name in shown:
+        cd.add_series(name, [pt["scores"].get(name) for pt in pts])
+    gf = s.shapes.add_chart(XL_CHART_TYPE.LINE_MARKERS, Inches(0.7), Inches(top), Inches(8.2), Inches(6.2 - top), cd)
+    ch = gf.chart
+    ch.has_legend = True
+    ch.legend.position = XL_LEGEND_POSITION.BOTTOM
+    ch.legend.include_in_layout = False
+    ch.legend.font.size = Pt(9)
+    ch.value_axis.maximum_scale = 100
+    ch.value_axis.minimum_scale = 0
+    ch.value_axis.tick_labels.font.size = Pt(9)
+    ch.category_axis.tick_labels.font.size = Pt(9)
+    for i, name in enumerate(shown):
+        ser = ch.series[i]
+        ser.smooth = False
+        ser.format.line.color.rgb = _rgb(_ACCENT if name in us else _PEER)
+        ser.format.line.width = Pt(2.25 if name in us else 1.25)
+    panel = (narrative.get("slides") or {}).get("trends") or _trends_facts(trends, us)
+    _sidebar(s, [str(o) for o in panel.get("observations") or []],
+             [str(i) for i in panel.get("implications") or []], top=top)
+    _text(s, 0.7, 6.32, 11.9, 0.3,
+          "Overall weighted score (0–100) at each stored snapshot; unscored cycles are gaps, never zero.",
+          size=8, italic=True, color=_MUTED)
+    _footer(s, deck_title, page)
+
+
+def _trends_facts(trends: dict[str, Any], us: list[str]) -> dict[str, list[str]]:
+    pts = trends.get("points") or []
+    if len(pts) < 2:
+        return {"observations": [], "implications": []}
+    first, last = pts[0], pts[-1]
+    obs: list[str] = [f"{len(pts)} cycles from {first['taken_at']} to {last['taken_at']}."]
+    moves = []
+    for b in trends.get("brands", []):
+        a, z = first["scores"].get(b), last["scores"].get(b)
+        if a is not None and z is not None:
+            moves.append((b, float(z) - float(a), float(z)))
+    if moves:
+        up = max(moves, key=lambda m: m[1])
+        down = min(moves, key=lambda m: m[1])
+        obs.append(f"Biggest riser: {up[0]} ({up[1]:+.1f} to {up[2]:.1f}).")
+        obs.append(f"Biggest faller: {down[0]} ({down[1]:+.1f} to {down[2]:.1f}).")
+        for u in us:
+            m = next((x for x in moves if x[0] == u), None)
+            if m:
+                obs.append(f"{u}: {m[1]:+.1f} over the period, now {m[2]:.1f}.")
+    return {"observations": obs[:4], "implications": ["Movement is measured against stored cycles; a rise with falling coverage is not a rise."]}
+
+
+def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -> None:
+    """The next eight weeks of dates that move play, week by week."""
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    top = _header(s, "Demand calendar", f"The next {len(cal.get('weeks') or [])} weeks")
+    weeks = (cal.get("weeks") or [])[:8]
+    if not weeks:
+        _footer(s, deck_title, page)
+        return
+    shape = s.shapes.add_table(len(weeks) + 1, 2, Inches(0.7), Inches(top), Inches(11.9), Inches(min(0.5 * (len(weeks) + 1), 6.2 - top)))
+    tbl = shape.table
+    tbl.columns[0].width = Inches(2.2)
+    tbl.columns[1].width = Inches(9.7)
+
+    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 9) -> None:
+        cell = tbl.cell(r, c)
+        cell.text = text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _rgb(bg)
+        cell.margin_left = cell.margin_right = Inches(0.05)
+        cell.margin_top = cell.margin_bottom = Inches(0.02)
+        for p in cell.text_frame.paragraphs:
+            for run in p.runs:
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.color.rgb = _rgb(fg)
+
+    cw(0, 0, "Week of", bg=_INK, fg=_WHITE, bold=True)
+    cw(0, 1, "Dates that move play", bg=_INK, fg=_WHITE, bold=True)
+    for ri, w in enumerate(weeks, start=1):
+        bg = _CARD if ri % 2 else _WHITE
+        cw(ri, 0, w["week_of"], bg=bg, bold=True)
+        cw(ri, 1, " · ".join(f"{i['date'][5:]} {i['label']}" for i in w["items"]) or "—", bg=bg)
+    _text(s, 0.7, 6.32, 11.9, 0.3, _clean(cal.get("note", ""), 200), size=8, italic=True, color=_MUTED)
+    _footer(s, deck_title, page)
+
+
 def _slide_offers(
     prs: Any,
     offers: list[dict[str, Any]],
@@ -2865,6 +2979,8 @@ def render_executive_deck(
     voice_diff: dict[str, Any] | None = None,
     comms: dict[str, Any] | None = None,
     regulatory: dict[str, Any] | None = None,
+    trends: dict[str, Any] | None = None,
+    calendar: dict[str, Any] | None = None,
     title: str = "Competitive Intelligence – Executive Briefing",
     market_label: str = "",
 ) -> str:
@@ -2968,9 +3084,19 @@ def render_executive_deck(
             )
             page += 1
 
+    # Trends — only once three or more scored cycles exist.
+    if trends and int(trends.get("cycles", 0)) >= 3:
+        _slide_trends(prs, trends, card, narrative, page, deck_title)
+        page += 1
+
     # Regulatory calendar — only when the register has items.
     if regulatory and regulatory.get("total"):
         _slide_regulatory(prs, regulatory, narrative, page, deck_title)
+        page += 1
+
+    # Demand calendar — opt-in (an operator aid, not evidence).
+    if calendar and calendar.get("weeks"):
+        _slide_calendar(prs, calendar, page, deck_title)
         page += 1
 
     # What they send players — first-party marketing e-mail, only when an

@@ -1574,8 +1574,22 @@ class WatchBoardReportTool(_WatchToolBase):
                         "Voice of customer on top of the pack: 'auto' (default) "
                         "adds the 'What players say' section/slides when voice "
                         "rows exist for this company; 'false' leaves them out; "
-                        "'true' insists (empty section if nothing collected)."
+                        "'true' insists (empty section if nothing collected). The "
+                        "same switch governs player comms and the regulatory calendar."
                     ),
+                },
+                "trends": {
+                    "type": "boolean",
+                    "description": "Trend slide once ≥3 scored snapshots exist. Default true.",
+                },
+                "calendar": {
+                    "type": "boolean",
+                    "description": "Add the 8-week demand calendar slide (holidays, paydays, benefit and tax dates). Default false.",
+                },
+                "calendar_events": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Operator-supplied events for the calendar: [{date: YYYY-MM-DD, label, kind}]. Sports dates go here — never guessed.",
                 },
                 "deck": {
                     "type": "boolean",
@@ -1762,6 +1776,19 @@ class WatchBoardReportTool(_WatchToolBase):
                 "",
             ]
 
+        trends = None
+        try:
+            trends = await wm.trend_series(cid)
+            if int(trends.get("cycles", 0)) < 3 or not params.get("trends", True):
+                trends = None
+        except Exception:
+            trends = None
+        calendar = None
+        if params.get("calendar"):
+            from core.watch_calendar import demand_calendar
+
+            calendar = demand_calendar(weeks=8, events=params.get("calendar_events") or [])
+
         # ── Regulatory calendar (docs/88 §D) ──
         regulatory = None
         if str(params.get("voice") or "auto").lower() != "false":
@@ -1858,6 +1885,8 @@ class WatchBoardReportTool(_WatchToolBase):
                     voice_diff=voice_diff,
                     comms=comms,
                     regulatory=regulatory,
+                    trends=trends,
+                    calendar=calendar,
                     path=deck_target,
                 )
             except Exception as e:
@@ -1947,8 +1976,22 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                         "Voice of customer on top of the pack: 'auto' (default) "
                         "adds the 'What players say' section/slides when voice "
                         "rows exist for this company; 'false' leaves them out; "
-                        "'true' insists (empty section if nothing collected)."
+                        "'true' insists (empty section if nothing collected). The "
+                        "same switch governs player comms and the regulatory calendar."
                     ),
+                },
+                "trends": {
+                    "type": "boolean",
+                    "description": "Trend slide once ≥3 scored snapshots exist. Default true.",
+                },
+                "calendar": {
+                    "type": "boolean",
+                    "description": "Add the 8-week demand calendar slide (holidays, paydays, benefit and tax dates). Default false.",
+                },
+                "calendar_events": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Operator-supplied events for the calendar: [{date: YYYY-MM-DD, label, kind}]. Sports dates go here — never guessed.",
                 },
                 "company_id": {"type": "string"},
             },
@@ -2002,6 +2045,18 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                     regulatory = None
             except Exception:
                 regulatory = None
+        trends = None
+        try:
+            trends = await wm.trend_series(cid)
+            if int(trends.get("cycles", 0)) < 3 or not params.get("trends", True):
+                trends = None
+        except Exception:
+            trends = None
+        calendar = None
+        if params.get("calendar"):
+            from core.watch_calendar import demand_calendar
+
+            calendar = demand_calendar(weeks=8, events=params.get("calendar_events") or [])
         summary = await _narrate_for_deck(
             self._router,
             card=card,
@@ -2031,6 +2086,8 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 voice_diff=voice_diff,
                 comms=comms,
                 regulatory=regulatory,
+                trends=trends,
+                calendar=calendar,
                 path=path,
                 title=str(params.get("title") or "Competitive Intelligence — Executive Briefing"),
                 market_label=str(params.get("market_label") or ""),
@@ -3320,6 +3377,24 @@ class WatchVoiceCollectTool(_WatchToolBase):
                         "app_id": app_id, "fetched": len(posts), "errors": errs[:3]
                     }
                     posts_all.extend(posts)
+                    # The listing itself — version, rating, release notes —
+                    # from the same endpoints; release cadence over time.
+                    try:
+                        from core.watch_voice import fetch_app_meta
+
+                        meta = await fetch_app_meta(app_id, proxy_url=proxy_url)
+                        if meta and save:
+                            await wm.add_app_meta(
+                                company_id=cid, subject_id=subj.subject_id, store="app_store",
+                                app_id=app_id, version=meta["version"], rating=meta["rating"],
+                                rating_count=meta["rating_count"], release_notes=meta["release_notes"],
+                                released_at=meta["released_at"],
+                            )
+                        if meta:
+                            per["sources"]["app_store"]["version"] = meta["version"]
+                            per["sources"]["app_store"]["rating"] = meta["rating"]
+                    except Exception:
+                        pass
                 else:
                     per["sources"]["app_store"] = {"fetched": 0, "note": "no iOS app found"}
             items, dropped = await read_posts(

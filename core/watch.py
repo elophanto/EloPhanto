@@ -1593,6 +1593,59 @@ class WatchManager:
         rows = await self.list_comms(company_id, limit=20000)
         return summarize_comms(rows, subjects, window_days=window_days)
 
+    # ── App meta (docs/88 §E) ─────────────────────────────────────────
+
+    async def add_app_meta(
+        self,
+        *,
+        company_id: str,
+        subject_id: str,
+        store: str,
+        app_id: str,
+        version: str = "",
+        rating: float | None = None,
+        rating_count: int | None = None,
+        release_notes: str = "",
+        released_at: str = "",
+    ) -> dict[str, Any]:
+        """Record the store listing as observed now (append-only; the
+        history is the release cadence)."""
+        now = _now()
+        mid = _sid("am")
+        await self._db.execute_insert(
+            "INSERT INTO watch_app_meta (meta_id, company_id, subject_id, store, app_id, version, "
+            "rating, rating_count, release_notes, released_at, observed_at, created_at) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (mid, company_id, subject_id, store, app_id, version[:40], rating, rating_count,
+             release_notes[:600], released_at[:19], now, now),
+        )
+        return {"meta_id": mid, "subject_id": subject_id, "store": store, "app_id": app_id,
+                "version": version, "rating": rating, "rating_count": rating_count,
+                "release_notes": release_notes[:600], "released_at": released_at, "observed_at": now}
+
+    async def app_meta_latest(self, company_id: str) -> dict[str, dict[str, Any]]:
+        """Latest listing per subject, with the previous version for a
+        'new release' flag."""
+        rows = await self._db.execute(
+            "SELECT * FROM watch_app_meta WHERE company_id = ? ORDER BY observed_at DESC",
+            (company_id,),
+        )
+        out: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            sid = r["subject_id"]
+            cur = out.get(sid)
+            if cur is None:
+                out[sid] = {
+                    "store": r["store"], "app_id": r["app_id"], "version": _row_get(r, "version", "") or "",
+                    "rating": _row_get(r, "rating"), "rating_count": _row_get(r, "rating_count"),
+                    "release_notes": _row_get(r, "release_notes", "") or "",
+                    "released_at": _row_get(r, "released_at", "") or "", "observed_at": r["observed_at"],
+                    "previous_version": None,
+                }
+            elif cur.get("previous_version") is None and (_row_get(r, "version", "") or "") != cur["version"]:
+                cur["previous_version"] = _row_get(r, "version", "") or ""
+        return out
+
     # ── Regulatory register (docs/88 §D) ─────────────────────────────
 
     async def add_regulatory(
@@ -1854,6 +1907,42 @@ class WatchManager:
         out = diff_scorecards(old, new, min_score_delta=min_score_delta)
         out["against_snapshot"] = sid
         return out
+
+    async def trend_series(self, company_id: str, *, limit: int = 24) -> dict[str, Any]:
+        """Overall score per brand over the stored snapshots (oldest first)
+        and voice negative share where present — the trend lines the pack
+        shows once three or more cycles exist."""
+        rows = await self._db.execute(
+            "SELECT snapshot_id, taken_at, label, payload_json FROM watch_snapshots "
+            "WHERE company_id = ? ORDER BY taken_at ASC",
+            (company_id,),
+        )
+        points: list[dict[str, Any]] = []
+        for r in rows[-int(limit):]:
+            try:
+                payload = json.loads(r["payload_json"] or "{}")
+            except Exception:
+                continue
+            scores = {
+                str(row.get("name")): row.get("overall", {}).get("normalized_pct")
+                for row in payload.get("rows", [])
+            }
+            if not any(v is not None for v in scores.values()):
+                continue
+            neg = {
+                str(b.get("name")): b.get("neg_share")
+                for b in (payload.get("voice") or {}).get("brands", [])
+                if not b.get("too_few")
+            }
+            points.append({"taken_at": str(r["taken_at"])[:10], "label": _row_get(r, "label", "") or "",
+                           "scores": scores, "voice_neg": neg})
+        # one point per day (the last snapshot of that day)
+        by_day: dict[str, dict[str, Any]] = {}
+        for pt in points:
+            by_day[pt["taken_at"]] = pt
+        pts = [by_day[d] for d in sorted(by_day)]
+        brands = sorted({b for pt in pts for b in pt["scores"]})
+        return {"points": pts, "brands": brands, "cycles": len(pts)}
 
     async def diff_voice_since_snapshot(
         self, company_id: str, *, snapshot_id: str | None = None

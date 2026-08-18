@@ -157,6 +157,19 @@ async def build_weekly_brief(
         reg_new = await wm.list_regulatory(company_id, since=since, limit=20)
     except Exception:
         reg, reg_new = None, []
+    try:
+        app_meta = await wm.app_meta_latest(company_id)
+    except Exception:
+        app_meta = {}
+    releases = []
+    for r in card.get("rows", []):
+        m = app_meta.get(str(r.get("subject_id") or ""))
+        if m and str(m.get("observed_at") or "") >= since and m.get("previous_version") and m["previous_version"] != m["version"]:
+            releases.append({"brand": r["name"], "version": m["version"], "was": m["previous_version"],
+                             "notes": (m.get("release_notes") or "")[:140], "rating": m.get("rating")})
+    from core.watch_calendar import demand_calendar
+
+    cal2 = demand_calendar(weeks=2, now=now_dt.isoformat())
     per_brand: dict[str, int] = {}
     for e in week_rows:
         per_brand[str(e.get("subject"))] = per_brand.get(str(e.get("subject")), 0) + 1
@@ -244,6 +257,10 @@ async def build_weekly_brief(
             if reg and (reg.get("ahead") or reg_new)
             else None
         ),
+        "releases": releases[:4],
+        "calendar_next": [
+            f"{i['date'][5:]} {i['label']}" for w in cal2["weeks"] for i in w["items"]
+        ][:8],
         "request": {"question": request, "answer": answer} if request else None,
         "us": [r["name"] for r in rows if r.get("is_self")],
     }
@@ -294,6 +311,8 @@ def brief_facts(brief: dict[str, Any]) -> dict[str, list[str]]:
                 f"Loudest complaint this week: {tc['brand']} – {tc['theme'].replace('_', ' ')} "
                 f"({int(round(tc['neg_share'] * 100))}% negative of {tc['n']} mentions)"
             )
+    for rel in (brief.get("releases") or [])[:2]:
+        changed.append(f"{rel['brand']} shipped app v{rel['version']} (was {rel['was']})" + (f": {_clean(rel['notes'], 70)}" if rel.get("notes") else ""))
     rg = brief.get("regulatory")
     if rg:
         for i in (rg.get("new_this_week") or [])[:2]:
@@ -333,6 +352,8 @@ def brief_facts(brief: dict[str, Any]) -> dict[str, list[str]]:
         decisions.append(
             f"Requested: {_clean(brief['request']['question'], 90)} — answer below."
         )
+    if brief.get("calendar_next"):
+        decisions.append("Coming up: " + "; ".join(brief["calendar_next"][:3]) + ".")
     if not decisions:
         decisions.append("Hold course; nothing this week needs a decision.")
     return {"changed": changed[:4], "market": market[:4], "decisions": decisions[:3]}
@@ -528,6 +549,8 @@ async def narrate_brief(router: Any, brief: dict[str, Any]) -> dict[str, Any]:
             "voice",
             "comms",
             "regulatory",
+            "releases",
+            "calendar_next",
             "request",
         )
     }
