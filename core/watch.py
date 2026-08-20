@@ -291,6 +291,7 @@ def summarize_voice(
     window_days: int = 30,
     min_mentions: int = VOICE_MIN_MENTIONS,
     now: str = "",
+    dimension_names: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """The reading of what players said, per brand and field-wide.
 
@@ -337,11 +338,19 @@ def summarize_voice(
             key=lambda t: themes[t]["share"] * themes[t]["neg_share"],
             default=None,
         )
+        # The praise theme is a DIFFERENT theme when one exists — 'fairness
+        # both top complaint and top praise' told a reader nothing
+        # (2026-08-20 pack, Jackpota/McLuck).
+        praise_pool = [t for t in themes if t != "other" and t != complaint] or [
+            t for t in themes if t != "other"
+        ]
         praise = max(
-            (t for t in themes if t != "other"),
+            praise_pool,
             key=lambda t: themes[t]["share"] * (1.0 - themes[t]["neg_share"]),
             default=None,
         )
+        if praise is not None and themes[praise]["neg_share"] > 0.5:
+            praise = None  # nothing genuinely praised
 
         quotes = [
             q
@@ -369,7 +378,7 @@ def summarize_voice(
                 "quotes": quotes,
                 "flags": sorted(
                     {
-                        r.dimension_id
+                        (dimension_names or {}).get(r.dimension_id, r.dimension_id)
                         for r in rs
                         if r.dimension_id and r.sentiment == "negative"
                     }
@@ -1477,8 +1486,13 @@ class WatchManager:
         """What players said, per active brand and field-wide, in the window."""
         subjects = await self.list_subjects(company_id)
         rows = await self.list_voice(company_id, limit=20000)
+        dims = {d.dimension_id: d.name for d in await self.list_dimensions(company_id)}
         return summarize_voice(
-            rows, subjects, window_days=window_days, min_mentions=min_mentions
+            rows,
+            subjects,
+            window_days=window_days,
+            min_mentions=min_mentions,
+            dimension_names=dims,
         )
 
     # ── Player comms (docs/88 §C) ────────────────────────────────────
