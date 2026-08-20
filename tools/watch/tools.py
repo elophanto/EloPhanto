@@ -3148,19 +3148,29 @@ class WatchQueueTool(_WatchToolBase):
                 )
                 created.append(f"{name} (0 6 * * 2)")
             if bool(params.get("service", True)):
+                # Agent task, not direct_tool: the scheduler refuses the
+                # direct path for non-SAFE tools (watch_comms_collect is
+                # MODERATE), and on 2026-08-20 that refusal aborted the whole
+                # schedule call before the brief/pulse/alert schedules were
+                # created. Every creation below is also independent now.
                 name = "Player comms · weekly"
                 if name in existing:
                     await self._scheduler.delete_schedule(existing[name])
-                await self._scheduler.create_schedule(
-                    name=name,
-                    task_goal="Collect this week's player comms.",
-                    cron_expression="0 7 * * 4",
-                    description="Auto-created by watch_queue action=schedule",
-                    company_id=cid,
-                    direct_tool="watch_comms_collect",
-                    direct_params={"company_id": cid},
-                )
-                created.append(f"{name} (0 7 * * 4)")
+                try:
+                    await self._scheduler.create_schedule(
+                        name=name,
+                        task_goal=(
+                            f"Collect this week's player comms for {cid}: call "
+                            "watch_comms_collect for all brands with a linked inbox. "
+                            "Do not add or archive brands; do not score anything."
+                        ),
+                        cron_expression="0 7 * * 4",
+                        description="Auto-created by watch_queue action=schedule",
+                        company_id=cid,
+                    )
+                    created.append(f"{name} (0 7 * * 4)")
+                except Exception as e:
+                    created.append(f"{name} FAILED: {e}")
             # The weekly service (docs/88): the Friday brief, the daily market
             # pulse that keeps alerts fresh, and the 6-hourly alert check —
             # the last one a direct tool call, no LLM in the loop.
@@ -3200,16 +3210,19 @@ class WatchQueueTool(_WatchToolBase):
                 ):
                     if name in existing:
                         await self._scheduler.delete_schedule(existing[name])
-                    await self._scheduler.create_schedule(
-                        name=name,
-                        task_goal=goal,
-                        cron_expression=cron,
-                        description="Auto-created by watch_queue action=schedule",
-                        company_id=cid,
-                        direct_tool=direct[0] if direct else None,
-                        direct_params=direct[1] if direct else None,
-                    )
-                    created.append(f"{name} ({cron})")
+                    try:
+                        await self._scheduler.create_schedule(
+                            name=name,
+                            task_goal=goal,
+                            cron_expression=cron,
+                            description="Auto-created by watch_queue action=schedule",
+                            company_id=cid,
+                            direct_tool=direct[0] if direct else None,
+                            direct_params=direct[1] if direct else None,
+                        )
+                        created.append(f"{name} ({cron})")
+                    except Exception as e:
+                        created.append(f"{name} FAILED: {e}")
             return ToolResult(success=True, data={"schedules": created})
 
         gaps = await self._watch_manager.staleness(cid)
