@@ -3295,10 +3295,6 @@ class WatchVoiceCollectTool(_WatchToolBase):
                 },
                 "window_days": {"type": "integer", "description": "Default 30."},
                 "max_posts": {"type": "integer", "description": "Per brand per source. Default 200."},
-                "geo_state": {
-                    "type": "string",
-                    "description": "Route fetches through this state's proxy (e.g. FL); n/a = direct.",
-                },
                 "save": {"type": "boolean", "description": "Default true; false = dry run."},
                 "company_id": {"type": "string"},
             },
@@ -3325,10 +3321,11 @@ class WatchVoiceCollectTool(_WatchToolBase):
         window_days = int(params.get("window_days") or 30)
         max_posts = int(params.get("max_posts") or 200)
         save = bool(params.get("save", True))
-        geo_state = str(params.get("geo_state") or "n/a")
+        # Always direct — smart IP policy (docs/88): opinions and app-store
+        # reviews carry no geo claim; the state-pinned exit is spent only on
+        # storefront observation. (2026-08-20: geo_state=FL was passed here
+        # and routed even iTunes through the metered exit.)
         proxy_url = None
-        if geo_state != "n/a" and self._config is not None and getattr(self._config, "proxy", None):
-            proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
 
         subjects = await wm.list_subjects(cid)
         if params.get("subject"):

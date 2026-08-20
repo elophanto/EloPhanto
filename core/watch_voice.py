@@ -197,8 +197,13 @@ async def _get_json_browser(browser_manager: Any, url: str) -> tuple[Any, str | 
         res = await browser_manager.call_tool("browser_eval", {"expression": "location.host"})
         host = str(_val(res) or "")
         if "reddit.com" not in host:
-            await browser_manager.call_tool("browser_navigate", {"url": "https://www.reddit.com/"})
-            await browser_manager.call_tool("browser_wait", {"ms": 1500})
+            # A same-origin page is needed for fetch(); robots.txt is a few
+            # hundred bytes — the app homepage is tens of megabytes of shell
+            # and media and burned the proxy allowance on 2026-08-20.
+            await browser_manager.call_tool(
+                "browser_navigate", {"url": "https://www.reddit.com/robots.txt"}
+            )
+            await browser_manager.call_tool("browser_wait", {"ms": 800})
         start_expr = (
             "window.__watch_json = undefined;"
             f"fetch({json.dumps(url)}, {{headers: {{'Accept': 'application/json'}}, credentials: 'include'}})"
