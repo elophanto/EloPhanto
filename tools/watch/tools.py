@@ -3246,7 +3246,8 @@ class WatchVoiceCollectTool(_WatchToolBase):
         super().__init__()
         self._router: Any = None
         self._config: Any = None
-        self._vault: Any = None  # reddit_client_id / reddit_client_secret
+        self._vault: Any = None  # optional reddit_client_id / reddit_client_secret
+        self._browser_manager: Any = None  # Reddit's public JSON via real Chrome
 
     @property
     def name(self) -> str:
@@ -3340,10 +3341,10 @@ class WatchVoiceCollectTool(_WatchToolBase):
                 reddit_token, tok_err = await reddit_app_token(cid_, sec_, proxy_url=proxy_url)
                 if tok_err:
                     reddit_note = f"Reddit OAuth token failed: {tok_err}"
-            else:
-                reddit_note = (
-                    "Reddit skipped: no reddit_client_id / reddit_client_secret in the vault "
-                    "(register a free 'script' app at reddit.com/prefs/apps and vault_set both)"
+            if not reddit_token and self._browser_manager is None:
+                reddit_note = reddit_note or (
+                    "Reddit skipped: no browser and no reddit_client_id / "
+                    "reddit_client_secret in the vault"
                 )
         report: list[dict[str, Any]] = []
         total_kept = 0
@@ -3351,12 +3352,13 @@ class WatchVoiceCollectTool(_WatchToolBase):
             aliases = brand_aliases(subj.name, subj.url)
             per: dict[str, Any] = {"subject": subj.name, "sources": {}}
             posts_all: list[Any] = []
-            if "reddit" in sources and not reddit_token:
+            if "reddit" in sources and not reddit_token and self._browser_manager is None:
                 per["sources"]["reddit"] = {"fetched": 0, "note": reddit_note}
             elif "reddit" in sources:
                 posts, errs = await collect_reddit(
                     subj.name, aliases, window_days=window_days, proxy_url=proxy_url,
                     max_posts=max_posts, token=reddit_token,
+                    browser_manager=None if reddit_token else self._browser_manager,
                 )
                 per["sources"]["reddit"] = {"fetched": len(posts), "errors": errs[:3]}
                 posts_all.extend(posts)
@@ -3436,7 +3438,15 @@ class WatchVoiceCollectTool(_WatchToolBase):
                 "saved": save,
                 "kept_total": total_kept,
                 "brands": report,
-                "reddit": "oauth" if reddit_token else (reddit_note or "not requested"),
+                "reddit": (
+                    "oauth"
+                    if reddit_token
+                    else (
+                        "browser"
+                        if "reddit" in sources and self._browser_manager is not None
+                        else (reddit_note or "not requested")
+                    )
+                ),
                 "note": "opinion filed in watch_voice; scores and the evidence register untouched",
             },
         )
@@ -4255,9 +4265,12 @@ class WatchRegulatoryCollectTool(_WatchToolBase):
                 seen.add(u)
                 urls.append(u)
         urls = urls[: int(params.get("max_pages") or 24)]
+        # Direct, no proxy — smart IP policy (docs/88): the state-pinned exit
+        # exists to prove what a Florida CUSTOMER sees and is spent only on
+        # storefront observation. News, legislatures and court reports carry
+        # no geo claim, cost proxy gigabytes for nothing, and some sites
+        # treat datacenter-ish exits worse than a plain connection.
         proxy_url = None
-        if self._config is not None and getattr(self._config, "proxy", None):
-            proxy_url = self._config.proxy.request_proxy_url("n/a") or None
         save = bool(params.get("save", True))
         filed: list[dict[str, Any]] = []
         dup = 0

@@ -134,6 +134,20 @@ Alerts as in B. Tools: `watch_regulatory_collect`, `watch_regulatory`
 - Tests: `test_watch_brief.py`, `test_watch_comms.py`, `test_watch_regulatory.py`,
   `test_watch_smalls.py` — each pins "absent, the pack is unchanged".
 
+## IP policy (smart routing)
+
+The state-pinned residential exit exists to prove **what a Florida customer
+sees**, and only storefront observation spends it (`watch_analyze` /
+`watch_observe`, exit-verified, stamped on the row). Everything else goes
+direct: voice of customer (Reddit, App Store), app meta, regulatory pages,
+player-comms reading — no geo claim, no proxy. The browser honours
+`proxy.bypass` in config for the same split (bypassed domains leave on the
+machine's own IP); reddit.com belongs there. Reddit additionally challenges
+fresh automated sessions ("prove your humanity") regardless of IP — the
+check is completed once by a human in the agent's Chrome window and the
+session persists in the profile copy; the collector's error says exactly
+that when it happens.
+
 ## Tools added
 
 | tool | what |

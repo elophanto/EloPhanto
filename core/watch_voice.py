@@ -173,6 +173,73 @@ async def _get_json(
         return None, f"{type(e).__name__}: {e}"
 
 
+async def _get_json_browser(browser_manager: Any, url: str) -> tuple[Any, str | None]:
+    """Fetch a JSON URL with the agent's real Chrome — the route that works
+    without Reddit API credentials. Navigating to ``.json`` no longer helps
+    (Reddit serves the app shell to navigations, verified 2026-08-18), but a
+    ``fetch()`` from a reddit.com page — same cookies, same fingerprint, a
+    data request rather than a navigation — is served the JSON. browser_eval
+    is synchronous, so the fetch is started and its result polled."""
+    if browser_manager is None:
+        return None, "browser unavailable"
+    def _val(res: Any) -> Any:
+        """browser_eval returns {success, resultJson} — the value JSON-encoded."""
+        raw = (res or {}).get("resultJson") if isinstance(res, dict) else None
+        if not isinstance(raw, str):
+            return None
+        raw = raw.removesuffix("...[truncated]")
+        try:
+            return json.loads(raw)
+        except Exception:
+            return None
+
+    try:
+        res = await browser_manager.call_tool("browser_eval", {"expression": "location.host"})
+        host = str(_val(res) or "")
+        if "reddit.com" not in host:
+            await browser_manager.call_tool("browser_navigate", {"url": "https://www.reddit.com/"})
+            await browser_manager.call_tool("browser_wait", {"ms": 1500})
+        start_expr = (
+            "window.__watch_json = undefined;"
+            f"fetch({json.dumps(url)}, {{headers: {{'Accept': 'application/json'}}, credentials: 'include'}})"
+            ".then(r => r.text()).then(t => { window.__watch_json = t; })"
+            ".catch(e => { window.__watch_json = 'ERR:' + (e && e.message || e); });"
+            "'started'"
+        )
+        await browser_manager.call_tool("browser_eval", {"expression": start_expr})
+        text = ""
+        for _ in range(20):  # up to ~10s
+            await browser_manager.call_tool("browser_wait", {"ms": 500})
+            res = await browser_manager.call_tool(
+                "browser_eval",
+                {"expression": "window.__watch_json", "maxLength": 2_000_000},
+            )
+            val = _val(res)
+            if val is None:
+                continue
+            text = val if isinstance(val, str) else json.dumps(val)
+            if text:
+                break
+        if not text:
+            return None, "fetch did not complete"
+        if text.startswith("ERR:"):
+            return None, f"fetch failed: {text[4:120]}"
+        try:
+            return json.loads(text), None
+        except Exception:
+            if "prove your humanity" in text.lower() or "theme-beta" in text[:2000]:
+                return None, (
+                    "Reddit challenged the browser session ('prove your humanity'). "
+                    "Open reddit.com in the agent's Chrome window and complete the "
+                    "check once — the session persists in the profile copy. "
+                    "Alternatively store reddit_client_id / reddit_client_secret "
+                    "in the vault for the API route."
+                )
+            return None, "response was not JSON (blocked or interstitial)"
+    except Exception as e:
+        return None, f"browser: {type(e).__name__}: {e}"
+
+
 def _reddit_weight(score: int, num_comments: int, is_comment: bool) -> float:
     base = 0.6 if is_comment else 0.7
     if score >= 5:
@@ -278,11 +345,13 @@ async def collect_reddit(
     with_comments: bool = True,
     pause_s: float = REDDIT_PAUSE_S,
     token: str = "",
+    browser_manager: Any = None,
 ) -> tuple[list[VoicePost], list[str]]:
     """Reddit posts (and top-level comments of brand threads) mentioning the
-    brand in the window, via the OAuth API when ``token`` is given — the
-    only route Reddit still serves to scripts. Returns ``(posts, errors)``;
-    never raises."""
+    brand in the window. Two routes: the OAuth API when ``token`` is given,
+    else the agent's real Chrome reading the public ``.json`` endpoints —
+    plain HTTP is refused (403, verified 2026-08-17), a real browser is
+    served. Returns ``(posts, errors)``; never raises."""
     since_utc = (datetime.now(UTC) - timedelta(days=int(window_days))).timestamp()
     t = "month" if window_days <= 31 else ("year" if window_days <= 366 else "all")
     q = f'"{brand}"'
@@ -296,13 +365,21 @@ async def collect_reddit(
     posts: list[VoicePost] = []
     errors: list[str] = []
     seen: set[str] = set()
-    if not token:
+    if not token and browser_manager is None:
         errors.append(
-            "no Reddit OAuth token — Reddit refuses unauthenticated requests; store "
-            "reddit_client_id / reddit_client_secret in the vault"
+            "no Reddit route — neither OAuth credentials (reddit_client_id / "
+            "reddit_client_secret in the vault) nor a browser to read the "
+            "public JSON with"
         )
+        return [], errors
+
+    async def _fetch(u: str) -> tuple[Any, str | None]:
+        if token:
+            return await _get_json(u, proxy_url=proxy_url, bearer=token)
+        return await _get_json_browser(browser_manager, u)
+
     for u in urls:
-        payload, err = await _get_json(u, proxy_url=proxy_url, bearer=token)
+        payload, err = await _fetch(u)
         if err:
             errors.append(f"{u.split('?')[0]}: {err}")
         for p in parse_reddit_listing(payload, aliases=aliases, since_utc=since_utc):
@@ -328,7 +405,7 @@ async def collect_reddit(
                 if token
                 else f"{th.url.rstrip('/')}.json?limit=60"
             )
-            payload, err = await _get_json(th_api, proxy_url=proxy_url, bearer=token)
+            payload, err = await _fetch(th_api)
             if err:
                 errors.append(f"comments {th.post_id}: {err}")
             for c in parse_reddit_comments(

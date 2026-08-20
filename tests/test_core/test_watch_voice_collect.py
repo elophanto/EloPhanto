@@ -107,6 +107,52 @@ class TestParsers:
         assert got[0].rating == 3.0 and got[0].source == "app_store" and "id123" in got[0].url
 
 
+class TestBrowserRedditRoute:
+    @pytest.mark.asyncio
+    async def test_public_json_is_read_through_the_real_browser(self) -> None:
+        """No OAuth credentials: the collector reads reddit's .json with the
+        agent's Chrome (plain HTTP gets 403; a real browser is served)."""
+        from core.watch_voice import collect_reddit
+
+        now = datetime.now(UTC).timestamp()
+        listing = {"data": {"children": [
+            {"kind": "t3", "data": {"name": "t3_a", "title": "Crown Coins redemption slow?",
+                                    "selftext": "Took 9 days for me.", "permalink": "/r/sweepstakescasinos/comments/a/x/",
+                                    "created_utc": now - 3600, "score": 12, "num_comments": 2,
+                                    "subreddit": "sweepstakescasinos"}},
+        ]}}
+
+        class _B:
+            """The bridge contract: browser_eval starts the fetch in the page
+            and a later eval reads window.__watch_json."""
+
+            def __init__(self) -> None:
+                self.fetched: list[str] = []
+                self._pending: str | None = None
+
+            async def call_tool(self, name, params):
+                if name == "browser_eval":
+                    expr = params["expression"]
+                    if expr == "location.host":
+                        return {"success": True, "resultJson": json.dumps("www.reddit.com")}
+                    if "fetch(" in expr:
+                        self.fetched.append(json.loads(expr.split("fetch(", 1)[1].split(", {headers", 1)[0]))
+                        self._pending = json.dumps(listing)
+                        return {"success": True, "resultJson": json.dumps("started")}
+                    if "window.__watch_json" in expr:
+                        return {"success": True, "resultJson": json.dumps(self._pending)}
+                return {"success": True}
+
+        b = _B()
+        posts, errs = await collect_reddit("Crown Coins", ["Crown Coins"], window_days=30,
+                                           browser_manager=b, with_comments=False, pause_s=0)
+        assert [p.post_id for p in posts] == ["t3_a"] and not errs
+        assert all(".json" in u for u in b.fetched)  # the public endpoints, not oauth
+        # neither token nor browser: honest error, no fetch
+        none_posts, none_errs = await collect_reddit("Crown Coins", ["Crown Coins"], window_days=30, pause_s=0)
+        assert none_posts == [] and "no Reddit route" in none_errs[0]
+
+
 class _Router:
     """Returns whatever the test says, per batch."""
 
