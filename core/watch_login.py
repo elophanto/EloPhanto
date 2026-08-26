@@ -459,6 +459,48 @@ async def wait_out_challenge(bm: Any, seconds: int) -> str:
     return "challenge"
 
 
+async def switch_browser_exit(bm: Any, proxy_cfg: Any, state: str) -> tuple[bool, dict[str, Any]]:
+    """Point the browser at the exit serving ``state``, and PROVE it.
+
+    These accounts are geo-bound — Chumba runs GeoComply — so a session
+    opened from the wrong state can be refused with the right password,
+    and a session opened from an unverified exit cannot honestly be
+    called a session in that state. Returns ``(ok, detail)``; the browser
+    is left on the new exit only when the check passed.
+    """
+    from core.watch_observe import (
+        clear_exit_verification_cache,
+        pin_password,
+        verify_browser_exit,
+    )
+
+    want = (state or "").strip().upper()
+    if not want or want == "N/A" or bm is None or proxy_cfg is None:
+        return True, {"state": "n/a"}
+    if getattr(bm, "_watch_exit_state", "") == want:
+        return True, {"state": want, "cached": True}
+    if not proxy_cfg.request_proxy_url(want):
+        # No exit promises this state — never pretend one does.
+        return False, {"error": f"no configured exit for {want}"}
+    entry = proxy_cfg.exit_for_state(want) or {}
+    host = str(entry.get("host") or proxy_cfg.host)
+    port = int(entry.get("port") or proxy_cfg.port)
+    scheme = str(entry.get("type") or proxy_cfg.type or "http")
+    try:
+        await bm.close()  # the exit is chosen at launch; a new one needs a new Chrome
+    except Exception as e:
+        logger.debug("watch_login: browser close before exit switch: %s", e)
+    bm.proxy_server = f"{scheme}://{host}:{port}"
+    bm.proxy_username = str(entry.get("username") or proxy_cfg.username)
+    bm.proxy_password = pin_password(str(entry.get("password") or proxy_cfg.password))
+    bm.proxy_bypass = list(getattr(proxy_cfg, "bypass", []) or [])
+    clear_exit_verification_cache()
+    ok, detail = await verify_browser_exit(bm, want)
+    if ok:
+        bm._watch_exit_state = want
+    return ok, {**detail, "state": want}
+
+
 def recent_attempt(results_path: str, brand: str, *, within_hours: float) -> dict[str, Any] | None:
     """The last verdict for this brand, if it is still fresh.
 
@@ -495,13 +537,19 @@ async def login_to_site(
     *,
     screenshot_path: str = "",
     assist_seconds: int = 0,
+    exit_state: str = "",
 ) -> dict[str, Any]:
     """Log the browser into one brand. Never raises; the verdict is read
-    from the page, so a failure cannot be reported as a session."""
+    from the page, so a failure cannot be reported as a session.
+
+    ``exit_state`` only labels the result — the caller switches the exit
+    (:func:`switch_browser_exit`) so one switch can serve many brands."""
     from datetime import UTC, datetime
     brand = str(creds.get("brand") or "")
     url = str(creds.get("url") or "")
     out: dict[str, Any] = {"brand": brand, "url": url, "verdict": "error", "note": ""}
+    if exit_state:
+        out["exit_state"] = exit_state
     if bm is None or not url:
         out["note"] = "no browser or no url"
         return out

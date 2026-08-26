@@ -239,6 +239,46 @@ class TestRejection:
         assert "incorrect password" in login_error("Sorry, incorrect password entered").lower()
 
 
+class TestExitSwitching:
+    """These accounts are geo-bound (Chumba runs GeoComply): a login from
+    the wrong state can be refused with the right password. The exit is
+    proven before any sign-in, never assumed."""
+
+    @pytest.mark.asyncio
+    async def test_an_unpromised_state_is_refused_not_faked(self) -> None:
+        from types import SimpleNamespace
+
+        from core.watch_login import switch_browser_exit
+
+        cfg = SimpleNamespace(
+            request_proxy_url=lambda st: "" if st == "NV" else "http://u:p@x:1",
+            exit_for_state=lambda st: None, host="x", port=1, type="http",
+            username="u", password="p", bypass=[],
+        )
+        b = _Browser(pages={"u": {}}, start="u")
+        ok, detail = await switch_browser_exit(b, cfg, "NV")
+        assert not ok and "no configured exit" in detail["error"]
+
+    @pytest.mark.asyncio
+    async def test_no_switch_needed_when_already_on_that_exit(self) -> None:
+        from types import SimpleNamespace
+
+        from core.watch_login import switch_browser_exit
+
+        b = _Browser(pages={"u": {}}, start="u")
+        b._watch_exit_state = "TX"
+        cfg = SimpleNamespace(request_proxy_url=lambda st: "http://u:p@x:1")
+        ok, detail = await switch_browser_exit(b, cfg, "TX")
+        assert ok and detail["cached"] and not b.calls  # Chrome untouched
+
+    @pytest.mark.asyncio
+    async def test_na_is_a_no_op(self) -> None:
+        from core.watch_login import switch_browser_exit
+
+        ok, detail = await switch_browser_exit(_Browser(pages={}, start="u"), object(), "n/a")
+        assert ok and detail["state"] == "n/a"
+
+
 class TestCooldown:
     """Repeated sign-in attempts lock accounts — a brand checked recently is
     reported from the stored verdict, not signed into again."""

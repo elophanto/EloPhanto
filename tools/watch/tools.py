@@ -4526,8 +4526,11 @@ class WatchLoginTool(_WatchToolBase):
                 "geo_state": {
                     "type": "string",
                     "description": (
-                        "Sign in through this state's exit (e.g. FL) so the session "
-                        "matches the market being observed. Default: the configured state."
+                        "Force every brand through this state's exit (e.g. TX). By "
+                        "default each brand uses the state stored with its credentials "
+                        "(these accounts are geo-bound — a login from the wrong state "
+                        "can be refused with the right password), falling back to the "
+                        "configured exit. The exit is proven before any sign-in."
                     ),
                 },
                 "retry_after_hours": {
@@ -4561,7 +4564,12 @@ class WatchLoginTool(_WatchToolBase):
             return err
         if self._browser_manager is None:
             return ToolResult(success=False, error="no browser — watch_login needs the real browser")
-        from core.watch_login import login_to_site, recent_attempt, session_state
+        from core.watch_login import (
+            login_to_site,
+            recent_attempt,
+            session_state,
+            switch_browser_exit,
+        )
 
         cid = _company(params)
         wm = self._watch_manager
@@ -4585,16 +4593,34 @@ class WatchLoginTool(_WatchToolBase):
         shots = Path(
             str(getattr(self._config, "workspace", "") or ".")
         ) / "login-checks"
+        proxy_cfg = getattr(self._config, "proxy", None)
+        default_state = str(
+            params.get("geo_state") or getattr(proxy_cfg, "state", "") or ""
+        ).upper()
+
+        def _wanted_state(creds: dict[str, Any]) -> str:
+            """Where this account lives: the call's state, else the one stored
+            with the credentials, else the configured exit."""
+            return str(
+                params.get("geo_state") or creds.get("geo") or default_state or ""
+            ).upper()
+
         rows: list[dict[str, Any]] = []
         results_file = shots / "results.json"
         # Every failed attempt counts against the brand's own limiter, so a
         # brand checked recently is reported from the last result instead of
         # being signed into again (retry_after_hours=0 forces a fresh try).
         cooldown = float(params.get("retry_after_hours", 12) or 0)
+        # Group by state so one browser restart serves every brand on that
+        # exit, instead of thrashing Chrome between brands.
+        todo: list[tuple[Any, str, dict[str, Any]]] = []
         for subj in subjects:
             domain, creds = _vault_creds_for(self._vault, subj.url)
-            if creds is None:
-                continue
+            if creds is not None:
+                todo.append((subj, domain, creds))
+        todo.sort(key=lambda t: (_wanted_state(t[2]), t[0].name))
+        current_state = ""
+        for subj, domain, creds in todo:
             if cooldown > 0:
                 cached = recent_attempt(str(results_file), subj.name, within_hours=cooldown)
                 if cached is not None:
@@ -4602,11 +4628,26 @@ class WatchLoginTool(_WatchToolBase):
                     continue
             creds = {**creds, "brand": subj.name, "url": creds.get("url") or subj.url}
             shots.mkdir(parents=True, exist_ok=True)
+            want_state = _wanted_state(creds)
+            if want_state and want_state != current_state:
+                ok, detail = await switch_browser_exit(
+                    self._browser_manager, proxy_cfg, want_state
+                )
+                if not ok:
+                    rows.append({
+                        "brand": subj.name, "domain": domain, "verdict": "no_exit",
+                        "note": f"cannot reach a verified {want_state} exit: "
+                                f"{detail.get('error') or detail}",
+                        "exit_state": want_state,
+                    })
+                    continue
+                current_state = want_state
             res = await login_to_site(
                 self._browser_manager,
                 creds,
                 screenshot_path=str(shots / f"{domain.replace('.', '-')}.jpg"),
                 assist_seconds=int(params.get("assist_seconds") or 0),
+                exit_state=want_state,
             )
             res["domain"] = domain
             rows.append(res)
