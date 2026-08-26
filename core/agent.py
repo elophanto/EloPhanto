@@ -2235,6 +2235,8 @@ class Agent:
             "watch_comms_collect",
             # regulatory tracking searches the web (search_sh_api_key).
             "watch_regulatory_collect",
+            # watch_login reads the per-brand site credentials.
+            "watch_login",
             "solana_balance",
             "solana_token_holders",
             "solana_recent_txs",
@@ -2636,6 +2638,7 @@ class Agent:
             "watch_comms",
             "watch_regulatory_collect",
             "watch_regulatory",
+            "watch_login",
         ):
             tool = self._registry.get(tool_name)
             if tool is None:

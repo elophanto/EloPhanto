@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**299 tools across 40 groups.** Every count below is the live
+**300 tools across 40 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -220,7 +220,7 @@ second, screenshot-and-click as last resort.
 `desktop_drag`, `desktop_accessibility`, `desktop_osascript`,
 `desktop_shell`, `desktop_file`, `desktop_connect`, `desktop_cursor`.
 
-## Competitive Intelligence — `watch` (22)
+## Competitive Intelligence — `watch` (23)
 
 Market model as tracked brands × weighted dimensions on an append-only
 evidence register with full provenance. Scores are **refused without
@@ -235,7 +235,7 @@ state, and recorded on the row as `exit_ip`.
 `watch_diff`, `watch_queue`, `watch_board_report`, `watch_executive_deck`,
 `watch_voice_collect`, `watch_voice`, `watch_voice_report`,
 `watch_weekly_brief`, `watch_alerts`, `watch_comms_setup`, `watch_comms_collect`,
-`watch_comms`, `watch_regulatory_collect`, `watch_regulatory`.
+`watch_comms`, `watch_regulatory_collect`, `watch_regulatory`, `watch_login`.
 
 Voice of customer is the organ's second evidence class: what PLAYERS say
 about a tracked brand (Reddit posts and comments, App Store reviews),
@@ -271,6 +271,18 @@ excerpts and third-party provenance in `watch_regulatory`;
 actions, who left which state when). Calendar slide, report section,
 brief lines and alerts (effective dates inside 30 days, fresh
 enforcement) when present. Not legal advice.
+
+Logged-in observation: `watch_login` signs the real browser into a
+tracked brand with the site credentials the vault holds (its own login
+page, the consent overlay, the credentials, a checkbox anti-bot widget
+clicked like any other control), and reports the session state read from
+the page — never assumed. An image or audio anti-bot puzzle is reported
+as `challenge` and never solved; an operator clears it once in the
+visible window (`assist_seconds`) and the session persists for later
+runs. `watch_analyze` / `watch_observe` then take `customer_state`
+(`registered`, `verified`, `purchaser`, …) and stamp every row with what
+the session really was — a third-party page is never stamped logged-in,
+because it looks the same to everyone.
 
 Four deliverables from one evidence base: the XLSX scorecard, the
 material-change diff, the board report, and the executive deck (~10

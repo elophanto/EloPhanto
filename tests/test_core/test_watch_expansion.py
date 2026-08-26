@@ -136,7 +136,7 @@ async def wm(tmp_path):
     await db.close()
 
 
-async def _analyze(wm, monkeypatch, *, vault_key, search_results):
+async def _analyze(wm, monkeypatch, *, vault_key, search_results, customer_state=""):
     from tools.watch.tools import WatchAnalyzeTool
 
     await wm.upsert_dimension(
@@ -193,8 +193,10 @@ async def _analyze(wm, monkeypatch, *, vault_key, search_results):
     t._router = SiteThenExpandRouter()
     t._config = None
     t._vault = _Vault(vault_key)
-    return await t.execute({"subject": "McLuck", "company_id": "c1",
-                            "save": False, "deck": False})
+    params = {"subject": "McLuck", "company_id": "c1", "save": False, "deck": False}
+    if customer_state:
+        params["customer_state"] = customer_state
+    return await t.execute(params)
 
 
 class TestExpansionInAnalyze:
@@ -1231,3 +1233,51 @@ class TestOfferFacts:
         us = offers[0]
         assert us["welcome"] == "Weekly wheel spin for members."  # newest promo claim when no welcome
         assert offers[2]["welcome"] == "" and offers[2]["ongoing"] == ""  # census, honest blank
+
+
+class TestCustomerStateProvenance:
+    """A logged-in read must be stamped logged-in. watch_observe and
+    watch_analyze hardcoded customer_state='logged_out' (2026-08-24), so
+    evidence collected with site credentials would have claimed to be what
+    a logged-out visitor sees — the same class of false provenance the
+    geo_state rules exist to prevent."""
+
+    @pytest.mark.asyncio
+    async def test_analyze_stamps_the_session_state_and_third_party_never_lies(
+        self, wm, monkeypatch
+    ) -> None:
+        res = await _analyze(
+            wm, monkeypatch, vault_key="sk-test",
+            search_results=[{"url": "https://reviews.example/mcluck",
+                             "title": "McLuck review", "snippet": ""}],
+            customer_state="registered",
+        )
+        assert res.success, res.error
+        rows = await wm.list_evidence("c1")
+        first = [e for e in rows if e.source_type == "site"]
+        third = [e for e in rows if e.source_type == "third_party"]
+        assert first and all(e.customer_state == "registered" for e in first)
+        # a third-party page is the same for everyone — never stamped logged-in
+        assert third and all(e.customer_state == "logged_out" for e in third)
+
+    @pytest.mark.asyncio
+    async def test_default_is_logged_out_and_a_bogus_state_is_refused(
+        self, wm, monkeypatch
+    ) -> None:
+        res = await _analyze(
+            wm, monkeypatch, vault_key="sk-test", search_results=[],
+        )
+        assert res.success
+        rows = await wm.list_evidence("c1")
+        assert rows and all(e.customer_state == "logged_out" for e in rows)
+
+        from tools.watch.tools import WatchObserveTool
+
+        t = WatchObserveTool()
+        t._watch_manager = wm
+        t._router = _Router()  # past the "needs a model" guard
+        bad = await t.execute({
+            "subject": "McLuck", "company_id": "c1",
+            "dimension": "Game portfolio", "customer_state": "whale",
+        })
+        assert not bad.success and "invalid customer_state" in bad.error

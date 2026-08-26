@@ -19,8 +19,11 @@ Design: tmp/competitive-intel-organ-spec.md
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
+from core.watch import VALID_CUSTOMER_STATES
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 
@@ -2217,6 +2220,17 @@ class WatchObserveTool(_WatchToolBase):
                         "from proxy.pool when configured."
                     ),
                 },
+                "customer_state": {
+                    "type": "string",
+                    "enum": ["logged_out", "registered", "verified", "purchaser", "redeemer", "vip"],
+                    "description": (
+                        "What the browser session actually IS while reading — "
+                        "'logged_out' (default) or the account state you are "
+                        "logged in as. Stamped on every row: never claim a "
+                        "logged-in state you are not in. Site credentials live "
+                        "in the vault (vault_lookup <domain>)."
+                    ),
+                },
                 "max_claims": {
                     "type": "integer",
                     "description": "Per page. Default 8.",
@@ -2265,6 +2279,15 @@ class WatchObserveTool(_WatchToolBase):
             urls = [subj.url]
 
         geo_state = str(params.get("geo_state") or "n/a")
+        customer_state = str(params.get("customer_state") or "logged_out")
+        if customer_state not in VALID_CUSTOMER_STATES:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"invalid customer_state {customer_state!r} — one of "
+                    f"{', '.join(VALID_CUSTOMER_STATES)}"
+                ),
+            )
         proxy_url = None
         if self._config is not None and getattr(self._config, "proxy", None):
             proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
@@ -2343,8 +2366,7 @@ class WatchObserveTool(_WatchToolBase):
                     source_url=url,
                     source_type="site",
                     geo_state=geo_state,
-                    # Agent collection is logged-out only, by policy.
-                    customer_state="logged_out",
+                    customer_state=customer_state,
                     # Quoted from a live page and substring-verified: solid on
                     # provenance, but a marketing page is still the brand
                     # talking about itself — hence medium, not high.
@@ -2448,6 +2470,17 @@ class WatchAnalyzeTool(_WatchToolBase):
                 "geo_state": {
                     "type": "string",
                     "description": "Observe as this US state.",
+                },
+                "customer_state": {
+                    "type": "string",
+                    "enum": ["logged_out", "registered", "verified", "purchaser", "redeemer", "vip"],
+                    "description": (
+                        "What the browser session actually IS while reading — "
+                        "'logged_out' (default) or the account state you are "
+                        "logged in as. Stamped on every row: never claim a "
+                        "logged-in state you are not in. Site credentials live "
+                        "in the vault (vault_lookup <domain>)."
+                    ),
                 },
                 "max_pages": {
                     "type": "integer",
@@ -2572,6 +2605,15 @@ class WatchAnalyzeTool(_WatchToolBase):
                 return ToolResult(success=False, error="no matching dimensions")
 
         geo_state = str(params.get("geo_state") or "n/a")
+        customer_state = str(params.get("customer_state") or "logged_out")
+        if customer_state not in VALID_CUSTOMER_STATES:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"invalid customer_state {customer_state!r} — one of "
+                    f"{', '.join(VALID_CUSTOMER_STATES)}"
+                ),
+            )
         proxy_url = None
         if self._config is not None and getattr(self._config, "proxy", None):
             proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
@@ -2755,7 +2797,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                     source_url=page["url"],
                     source_type="site",
                     geo_state=geo_state,
-                    customer_state="logged_out",
+                    customer_state=customer_state,
                     confidence="medium",
                     excerpt=str(c.get("excerpt") or "")[:1000],
                     screenshot_path=shots.get(str(page.get("url") or ""), ""),
@@ -2850,6 +2892,9 @@ class WatchAnalyzeTool(_WatchToolBase):
                             # authority than the brand's own words.
                             source_type="third_party",
                             geo_state=geo_state,
+                            # A third-party page is the same for everyone —
+                            # the session state of OUR browser says nothing
+                            # about it, so it is never stamped logged-in.
                             customer_state="logged_out",
                             confidence="low",
                             excerpt=str(c.get("excerpt") or "")[:1000],
@@ -4385,6 +4430,169 @@ class WatchRegulatoryTool(_WatchToolBase):
         )
 
 
+# ── Logged-in observation (docs/88): the agent signs in itself ─────────
+
+
+def _vault_creds_for(vault: Any, url: str) -> tuple[str, dict[str, Any] | None]:
+    """The stored credentials for a brand's site, resolved the way
+    vault_lookup resolves them (exact key, else a domain match)."""
+    if vault is None or not url:
+        return "", None
+    domain = (
+        url.lower()
+        .removeprefix("https://")
+        .removeprefix("http://")
+        .removeprefix("www.")
+        .split("/")[0]
+    )
+    got = vault.get(domain)
+    if not got:
+        for key in vault.list_keys():
+            if key and ("." in key) and (key in domain or domain in key):
+                got = vault.get(key)
+                domain = key
+                break
+    if isinstance(got, str):
+        try:
+            got = json.loads(got)
+        except Exception:
+            return domain, None
+    return domain, got if isinstance(got, dict) and got.get("password") else None
+
+
+class WatchLoginTool(_WatchToolBase):
+    """Sign the agent's browser into tracked brands, so collection can read
+    what a registered player sees."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._vault: Any = None
+        self._browser_manager: Any = None
+        self._config: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_login"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Log the agent's real browser into tracked brands using the site "
+            "credentials in the vault, so watch_analyze / watch_observe can then "
+            "collect with customer_state='registered' — what a signed-in player "
+            "sees (coin packages, VIP tiers, real daily bonuses), which no "
+            "logged-out read can show. Opens the brand's login page, handles the "
+            "consent overlay, types the credentials, clicks a checkbox anti-bot "
+            "widget if one appears, and reports the session state READ FROM THE "
+            "PAGE. It never solves an image/audio challenge — that is reported as "
+            "'challenge'. action='status' checks the current session without "
+            "typing anything. Register is canon: tracked subjects only."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["login", "status"]},
+                "subject": {
+                    "type": "string",
+                    "description": "Brand name from the register. Omit for every brand with stored credentials.",
+                },
+                "geo_state": {
+                    "type": "string",
+                    "description": (
+                        "Sign in through this state's exit (e.g. FL) so the session "
+                        "matches the market being observed. Default: the configured state."
+                    ),
+                },
+                "assist_seconds": {
+                    "type": "integer",
+                    "description": (
+                        "If a brand shows an image/audio anti-bot puzzle, pause this "
+                        "many seconds so the operator can clear it in the visible "
+                        "Chrome window; the session then persists and later runs need "
+                        "no human. 0 (default) reports 'challenge' and moves on."
+                    ),
+                },
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        if self._browser_manager is None:
+            return ToolResult(success=False, error="no browser — watch_login needs the real browser")
+        from core.watch_login import login_to_site, session_state
+
+        cid = _company(params)
+        wm = self._watch_manager
+        subjects = await wm.list_subjects(cid)
+        if params.get("subject"):
+            subj = await wm.get_subject_by_name(str(params["subject"]), cid)
+            if subj is None:
+                return ToolResult(
+                    success=False,
+                    error=f"subject {params['subject']!r} is not in the register — the register is canon",
+                )
+            subjects = [subj]
+
+        if str(params.get("action") or "login").lower() == "status":
+            state, hits_in, hits_out = await session_state(self._browser_manager)
+            return ToolResult(
+                success=True,
+                data={"session": state, "signals_in": hits_in, "signals_out": hits_out},
+            )
+
+        shots = Path(
+            str(getattr(self._config, "workspace", "") or ".")
+        ) / "login-checks"
+        rows: list[dict[str, Any]] = []
+        for subj in subjects:
+            domain, creds = _vault_creds_for(self._vault, subj.url)
+            if creds is None:
+                continue
+            creds = {**creds, "brand": subj.name, "url": creds.get("url") or subj.url}
+            shots.mkdir(parents=True, exist_ok=True)
+            res = await login_to_site(
+                self._browser_manager,
+                creds,
+                screenshot_path=str(shots / f"{domain.replace('.', '-')}.jpg"),
+                assist_seconds=int(params.get("assist_seconds") or 0),
+            )
+            res["domain"] = domain
+            rows.append(res)
+        if not rows:
+            return ToolResult(
+                success=False,
+                error=(
+                    "no stored credentials for any tracked brand — put them in the "
+                    "vault keyed by domain (vault_set <domain>)"
+                ),
+            )
+        ok = [r for r in rows if r["verdict"] in ("logged_in", "already_logged_in")]
+        return ToolResult(
+            success=True,
+            data={
+                "company_id": cid,
+                "logged_in": len(ok),
+                "attempted": len(rows),
+                "results": rows,
+                "note": (
+                    "sessions live in the browser profile; collect now with "
+                    "watch_analyze customer_state='registered' so the rows say what "
+                    "they really are. Verdict 'challenge' means an image/audio "
+                    "anti-bot puzzle — not solved here by design."
+                ),
+            },
+        )
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -4410,4 +4618,5 @@ def create_watch_tools() -> list[BaseTool]:
         WatchCommsTool(),
         WatchRegulatoryCollectTool(),
         WatchRegulatoryTool(),
+        WatchLoginTool(),
     ]
