@@ -202,7 +202,58 @@ async def click_anti_bot_checkbox(bm: Any, *, rounds: int = 2) -> str:
 # ── The login itself ───────────────────────────────────────────────────
 
 
-async def open_login_form(bm: Any, url: str) -> str:
+_EMAIL_ONLY_JS = (
+    "(() => {"
+    "const vis = s => [...document.querySelectorAll(s)].filter(e => e.offsetParent !== null);"
+    "if (vis('input[type=password]').length) return 'password';"
+    "const bad = /search|promo|code|coupon|zip|phone/i;"
+    "const em = vis('input[type=email],input[name*=email i],input[id*=email i]')"
+    ".filter(e => !bad.test((e.name||'') + (e.id||'') + (e.placeholder||'')));"
+    "return em.length ? 'email-only' : 'none';})()"
+)
+_NEXT_JS = (
+    "(() => {"
+    "const words = /(next|continue|proceed|submit|log ?in|sign ?in)/i;"
+    "const social = /(google|apple|facebook|twitter|discord)/i;"
+    "const b = [...document.querySelectorAll('button,[role=button],input[type=submit],a')]"
+    ".filter(e => e.offsetParent !== null && !e.disabled"
+    " && !e.closest('header,nav,[class*=header],[class*=navbar]')"
+    " && words.test((e.innerText || e.value || '').trim())"
+    " && !social.test((e.innerText || e.value || '').trim()))[0];"
+    "if (!b) return 'none';"
+    "b.scrollIntoView({block:'center'}); b.click();"
+    "return (b.innerText || b.value || 'next').trim().slice(0, 18);})()"
+)
+
+
+async def _wait_for_form(bm: Any, seconds: float = 12.0) -> bool:
+    """Panels animate, and a login click often NAVIGATES — WOW Vegas takes
+    the browser to /login, which needs more than a couple of seconds
+    (2026-08-26: reported 'no form' while the form was on its way)."""
+    for _ in range(max(1, int(seconds / 1.2))):
+        await bm.call_tool("browser_wait", {"ms": 1200})
+        if await has_password_field(bm):
+            return True
+    return False
+
+
+async def _email_first_step(bm: Any, username: str) -> str:
+    """Some brands ask for the e-mail, then the password on the next screen
+    (McLuck). Complete the first step so the password field can appear."""
+    if not username:
+        return ""
+    if str(await _eval(bm, _EMAIL_ONLY_JS) or "") != "email-only":
+        return ""
+    await _eval(bm, _focus_js("email"))
+    await bm.call_tool("browser_type_text", {"text": username})
+    pressed = str(await _eval(bm, _NEXT_JS) or "none")
+    if pressed == "none":
+        await bm.call_tool("browser_press_key", {"key": "Enter"})
+        pressed = "Enter"
+    return f"e-mail step via '{pressed}'" if await _wait_for_form(bm, 8) else ""
+
+
+async def open_login_form(bm: Any, url: str, username: str = "") -> str:
     """Get a visible password field on screen, the way a person does it:
     click the login control, and when that opens a SIGN-UP panel — as
     several of these brands do — click the "already have an account"
@@ -213,17 +264,21 @@ async def open_login_form(bm: Any, url: str) -> str:
     if await has_password_field(bm):
         return "form already open"
     notes: list[str] = []
+    # Clear the consent overlay FIRST: while it is up the login control is
+    # not reachable and the click lands on the banner (High 5, 2026-08-26).
+    await dismiss_consent(bm)
     for label in LOGIN_ENTRY:
         matched = await _click_text(bm, label)
         if matched and label.lower() in matched.lower():
             notes.append(f"clicked '{matched.strip()[:18]}'")
             break
-    # Panels animate in; give the form a moment before deciding.
-    for _ in range(4):
-        await bm.call_tool("browser_wait", {"ms": 1200})
-        if await has_password_field(bm):
-            return "; ".join(notes) or "form on the page"
+    if await _wait_for_form(bm, 12):
+        return "; ".join(notes) or "form on the page"
     await dismiss_consent(bm)
+    step = await _email_first_step(bm, username)
+    if step:
+        notes.append(step)
+        return "; ".join(notes)
 
     # A sign-up panel: the real login hides behind its switch link.
     for label in SWITCH_TO_LOGIN:
@@ -231,18 +286,24 @@ async def open_login_form(bm: Any, url: str) -> str:
         if not matched or label.split()[0] not in matched.lower():
             continue
         notes.append(f"switched via '{matched.strip()[:22]}'")
-        for _ in range(4):
-            await bm.call_tool("browser_wait", {"ms": 1200})
-            if await has_password_field(bm):
-                return "; ".join(notes)
+        if await _wait_for_form(bm, 10):
+            return "; ".join(notes)
+        step = await _email_first_step(bm, username)
+        if step:
+            notes.append(step)
+            return "; ".join(notes)
         break
 
     # Still nothing on screen — ask for the login page itself, once.
     await bm.call_tool("browser_navigate", {"url": url.rstrip("/") + "/login"})
-    await bm.call_tool("browser_wait", {"ms": 3500})
+    await bm.call_tool("browser_wait", {"ms": 2500})
     await dismiss_consent(bm)
-    if await has_password_field(bm):
+    if await _wait_for_form(bm, 8):
         notes.append("fell back to /login")
+        return "; ".join(notes)
+    step = await _email_first_step(bm, username)
+    if step:
+        notes.append("fell back to /login; " + step)
         return "; ".join(notes)
     return "; ".join(notes + ["no form found"]) if notes else "no form found"
 
@@ -458,7 +519,7 @@ async def login_to_site(
         if state == "logged_in":
             out.update(verdict="already_logged_in", note="session already active")
         else:
-            note = await open_login_form(bm, url)
+            note = await open_login_form(bm, url, str(creds.get("username") or ""))
             if not await has_password_field(bm):
                 out.update(verdict="no_form", note=note)
             else:
