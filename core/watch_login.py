@@ -398,6 +398,36 @@ async def wait_out_challenge(bm: Any, seconds: int) -> str:
     return "challenge"
 
 
+def recent_attempt(results_path: str, brand: str, *, within_hours: float) -> dict[str, Any] | None:
+    """The last verdict for this brand, if it is still fresh.
+
+    Repeated sign-in attempts are how accounts get locked: every failure
+    counts against the brand's own limiter, and "Login failed, please try
+    again" is what a limiter says too. So a brand checked recently is not
+    checked again — the cache is a safety rail, not an optimisation.
+    """
+    from datetime import UTC, datetime
+    from pathlib import Path as _P
+
+    try:
+        rows = json.loads(_P(results_path).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    now = datetime.now(UTC)
+    for row in rows if isinstance(rows, list) else []:
+        if str(row.get("brand")) != brand or not row.get("checked_at"):
+            continue
+        try:
+            when = datetime.fromisoformat(str(row["checked_at"]))
+        except Exception:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        if (now - when).total_seconds() <= within_hours * 3600:
+            return row
+    return None
+
+
 async def login_to_site(
     bm: Any,
     creds: dict[str, Any],
@@ -407,6 +437,7 @@ async def login_to_site(
 ) -> dict[str, Any]:
     """Log the browser into one brand. Never raises; the verdict is read
     from the page, so a failure cannot be reported as a session."""
+    from datetime import UTC, datetime
     brand = str(creds.get("brand") or "")
     url = str(creds.get("url") or "")
     out: dict[str, Any] = {"brand": brand, "url": url, "verdict": "error", "note": ""}
@@ -473,4 +504,5 @@ async def login_to_site(
                 logger.debug("watch_login: capture failed: %s", e)
     except Exception as e:  # a login attempt never takes the caller down
         out.update(verdict="error", note=f"{type(e).__name__}: {e}")
+    out["checked_at"] = datetime.now(UTC).isoformat()
     return out

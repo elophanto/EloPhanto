@@ -4506,6 +4506,15 @@ class WatchLoginTool(_WatchToolBase):
                         "matches the market being observed. Default: the configured state."
                     ),
                 },
+                "retry_after_hours": {
+                    "type": "number",
+                    "description": (
+                        "Do not sign in again if this brand was checked within this "
+                        "many hours — report the stored verdict instead. Default 12. "
+                        "Repeated failed attempts are how accounts get locked; 0 forces "
+                        "a fresh attempt."
+                    ),
+                },
                 "assist_seconds": {
                     "type": "integer",
                     "description": (
@@ -4528,7 +4537,7 @@ class WatchLoginTool(_WatchToolBase):
             return err
         if self._browser_manager is None:
             return ToolResult(success=False, error="no browser — watch_login needs the real browser")
-        from core.watch_login import login_to_site, session_state
+        from core.watch_login import login_to_site, recent_attempt, session_state
 
         cid = _company(params)
         wm = self._watch_manager
@@ -4553,10 +4562,20 @@ class WatchLoginTool(_WatchToolBase):
             str(getattr(self._config, "workspace", "") or ".")
         ) / "login-checks"
         rows: list[dict[str, Any]] = []
+        results_file = shots / "results.json"
+        # Every failed attempt counts against the brand's own limiter, so a
+        # brand checked recently is reported from the last result instead of
+        # being signed into again (retry_after_hours=0 forces a fresh try).
+        cooldown = float(params.get("retry_after_hours", 12) or 0)
         for subj in subjects:
             domain, creds = _vault_creds_for(self._vault, subj.url)
             if creds is None:
                 continue
+            if cooldown > 0:
+                cached = recent_attempt(str(results_file), subj.name, within_hours=cooldown)
+                if cached is not None:
+                    rows.append({**cached, "from_cache": True})
+                    continue
             creds = {**creds, "brand": subj.name, "url": creds.get("url") or subj.url}
             shots.mkdir(parents=True, exist_ok=True)
             res = await login_to_site(
@@ -4567,6 +4586,11 @@ class WatchLoginTool(_WatchToolBase):
             )
             res["domain"] = domain
             rows.append(res)
+            try:  # keep the cache current as we go
+                shots.mkdir(parents=True, exist_ok=True)
+                results_file.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+            except Exception:
+                pass
         if not rows:
             return ToolResult(
                 success=False,

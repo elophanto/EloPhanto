@@ -239,6 +239,37 @@ class TestRejection:
         assert "incorrect password" in login_error("Sorry, incorrect password entered").lower()
 
 
+class TestCooldown:
+    """Repeated sign-in attempts lock accounts — a brand checked recently is
+    reported from the stored verdict, not signed into again."""
+
+    def test_a_fresh_result_is_reused_and_a_stale_one_is_not(self, tmp_path) -> None:
+        import json as _json
+        from datetime import UTC, datetime, timedelta
+
+        from core.watch_login import recent_attempt
+
+        f = tmp_path / "results.json"
+        now = datetime.now(UTC)
+        f.write_text(_json.dumps([
+            {"brand": "Fresh", "verdict": "rejected",
+             "checked_at": (now - timedelta(hours=2)).isoformat()},
+            {"brand": "Stale", "verdict": "logged_in",
+             "checked_at": (now - timedelta(hours=30)).isoformat()},
+        ]))
+        assert recent_attempt(str(f), "Fresh", within_hours=12)["verdict"] == "rejected"
+        assert recent_attempt(str(f), "Stale", within_hours=12) is None
+        assert recent_attempt(str(f), "Unknown", within_hours=12) is None
+        assert recent_attempt(str(tmp_path / "nope.json"), "Fresh", within_hours=12) is None
+
+    @pytest.mark.asyncio
+    async def test_every_attempt_is_stamped_so_the_cooldown_can_work(self) -> None:
+        b = _Browser(pages={"https://b.example": LOBBY}, start="https://b.example")
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example",
+                                      "username": "u", "password": "p"})
+        assert res["checked_at"]
+
+
 class TestLoginToSite:
     @pytest.mark.asyncio
     async def test_end_to_end_verdict_and_credentials_used(self) -> None:
