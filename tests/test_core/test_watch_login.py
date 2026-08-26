@@ -65,11 +65,11 @@ class _Browser:
             expr = params["expression"]
             if "location.href" in expr:
                 return {"success": True, "resultJson": json.dumps(self.url)}
-            if "input[type=password]" in expr and "length" in expr:
+            if expr.startswith("[...document.querySelectorAll('input[type=password]')]"):
                 return {"success": True, "resultJson": json.dumps(1 if self.page.get("password") else 0)}
             if "out.kind" in expr or "g-recaptcha-response" in expr:
                 return {"success": True, "resultJson": json.dumps(json.dumps(self.widget))}
-            if "closest('form')" in expr:  # the form's own submit button
+            if "no-password" in expr:  # the form's own submit button
                 if not self.page.get("password"):
                     return {"success": True, "resultJson": json.dumps("no-password")}
                 if self.page.get("submit_disabled"):
@@ -103,14 +103,49 @@ class TestSessionVerdict:
 
 
 class TestFormDiscovery:
+    """A person clicks the login control; they do not guess URLs."""
+
     @pytest.mark.asyncio
-    async def test_direct_login_path_is_preferred(self) -> None:
+    async def test_the_visible_control_is_clicked_not_a_url_guessed(self) -> None:
+        home = {"text": "Play now", "password": False, "clickable": ["Log In"],
+                "click_to": {"Log In": "https://b.example/#login"}}
         b = _Browser(
-            pages={"https://b.example": LOGGED_OUT, "https://b.example/login": FORM},
+            pages={"https://b.example": home, "https://b.example/#login": FORM},
             start="https://b.example",
         )
         note = await open_login_form(b, "https://b.example")
-        assert note == "form at /login" and b.url == "https://b.example/login"
+        assert "clicked 'Log In'" in note
+        assert not [c for c in b.calls if c[0] == "browser_navigate"]  # no URL guessing
+
+    @pytest.mark.asyncio
+    async def test_a_signup_panel_is_switched_to_login(self) -> None:
+        """Pulsz: the header 'Log In' opens the SIGN-UP panel; the real form
+        is behind 'Already got an account? Log in >'."""
+        home = {"text": "Play now", "password": False, "clickable": ["Log In"],
+                "click_to": {"Log In": "https://b.example/register"}}
+        signup = {"text": "Sign up with email. Already got an account? Log in >",
+                  "password": False, "clickable": ["Already got an account? Log in >"],
+                  "click_to": {"Already got an account? Log in >": "https://b.example/login"}}
+        b = _Browser(
+            pages={"https://b.example": home, "https://b.example/register": signup,
+                   "https://b.example/login": FORM},
+            start="https://b.example",
+        )
+        note = await open_login_form(b, "https://b.example")
+        assert "clicked 'Log In'" in note and "switched via" in note
+        assert b.url == "https://b.example/login"
+
+    @pytest.mark.asyncio
+    async def test_login_url_is_the_last_resort_not_the_first(self) -> None:
+        home = {"text": "Play now", "password": False, "clickable": []}
+        b = _Browser(
+            pages={"https://b.example": home, "https://b.example/login": FORM},
+            start="https://b.example",
+        )
+        note = await open_login_form(b, "https://b.example")
+        assert "fell back to /login" in note
+        navs = [c[1]["url"] for c in b.calls if c[0] == "browser_navigate"]
+        assert navs == ["https://b.example/login"]  # exactly one, and only after clicking failed
 
     @pytest.mark.asyncio
     async def test_a_missing_label_does_not_kill_the_flow(self) -> None:
@@ -120,7 +155,7 @@ class TestFormDiscovery:
             start="https://b.example",
         )
         note = await open_login_form(b, "https://b.example")  # must not raise
-        assert note == "no form found"
+        assert "no form found" in note
 
 
 class TestAntiBot:
@@ -179,25 +214,52 @@ class TestSubmitIsFormScoped:
         assert "disabled" in await submit_login_form(b)
 
 
+class TestRejection:
+    @pytest.mark.asyncio
+    async def test_the_sites_own_rejection_is_reported_verbatim(self) -> None:
+        """Chumba, 2026-08-26: filled, submitted, and answered 'Login failed,
+        please try again' — an automation report of 'logged_out' would have
+        sent someone hunting a bug that was not there."""
+        rejected = {"text": "Welcome Back! Login failed, please try again or contact support.",
+                    "password": True, "clickable": [], "click_to": {}}
+        home = {**LOGGED_OUT, "click_to": {"Log In": "https://b.example/login"}}
+        b = _Browser(
+            pages={"https://b.example": home, "https://b.example/login": rejected},
+            start="https://b.example",
+        )
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example",
+                                      "username": "u", "password": "stale"})
+        assert res["verdict"] == "rejected"
+        assert "login failed" in res["message"].lower()
+
+    def test_an_ordinary_page_is_not_a_rejection(self) -> None:
+        from core.watch_login import login_error
+
+        assert login_error("Play our games and win big prizes today") == ""
+        assert "incorrect password" in login_error("Sorry, incorrect password entered").lower()
+
+
 class TestLoginToSite:
     @pytest.mark.asyncio
     async def test_end_to_end_verdict_and_credentials_used(self) -> None:
+        home = {**LOGGED_OUT, "click_to": {"Log In": "https://b.example/login"}}
         b = _Browser(
-            pages={"https://b.example": LOGGED_OUT, "https://b.example/login": FORM,
+            pages={"https://b.example": home, "https://b.example/login": FORM,
                    "https://b.example/lobby": LOBBY},
             start="https://b.example",
         )
         res = await login_to_site(
             b, {"brand": "B", "url": "https://b.example", "username": "u@e.com", "password": "pw"}
         )
-        assert res["verdict"] == "logged_in" and "form at /login" in res["note"]
+        assert res["verdict"] == "logged_in" and "clicked 'Log In'" in res["note"]
         assert b.typed[:2] == ["u@e.com", "pw"]
 
     @pytest.mark.asyncio
     async def test_a_failed_login_is_never_reported_as_a_session(self) -> None:
         stuck = {**FORM, "submits_on_enter": False, "click_to": {}}  # submit does nothing
+        home = {**LOGGED_OUT, "click_to": {"Log In": "https://b.example/login"}}
         b = _Browser(
-            pages={"https://b.example": LOGGED_OUT, "https://b.example/login": stuck},
+            pages={"https://b.example": home, "https://b.example/login": stuck},
             start="https://b.example",
         )
         res = await login_to_site(

@@ -4586,8 +4586,12 @@ class WatchLoginTool(_WatchToolBase):
                 "note": (
                     "sessions live in the browser profile; collect now with "
                     "watch_analyze customer_state='registered' so the rows say what "
-                    "they really are. Verdict 'challenge' means an image/audio "
-                    "anti-bot puzzle — not solved here by design."
+                    "they really are. Verdicts: 'challenge' = an image/audio anti-bot "
+                    "puzzle, not solved here by design (an operator clears it once via "
+                    "assist_seconds); 'rejected' = the site refused the attempt and its "
+                    "own message is in `message` — a stale password, an account state "
+                    "and a failed anti-bot score all read the same, so a human decides; "
+                    "'no_form' = no login form found."
                 ),
             },
         )

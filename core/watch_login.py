@@ -35,6 +35,17 @@ LOGGED_IN_WORDS = (
 LOGGED_OUT_WORDS = (
     "log in", "login", "sign in", "create account", "register", "join now",
 )
+# What a rejected login says. Telling "the credentials are wrong" apart
+# from "the automation missed the button" is the whole point of a login
+# check (Chumba, 2026-08-26: "Login failed, please try again" — the form
+# was filled and submitted correctly, the account simply did not open).
+LOGIN_ERROR_PHRASES = (
+    "login failed", "incorrect password", "invalid password", "wrong password",
+    "incorrect email", "invalid email", "credentials", "do not match",
+    "doesn't match", "does not match", "no account", "account not found",
+    "please try again", "account is locked", "account has been suspended",
+    "too many attempts", "temporarily locked",
+)
 LOGIN_ENTRY = ("Log In", "Login", "Sign In", "Sign in", "LOG IN", "LOGIN")
 SWITCH_TO_LOGIN = (
     "already got an account", "already have an account", "log in",
@@ -43,7 +54,6 @@ SWITCH_TO_LOGIN = (
 SUBMIT_LABELS = (
     "Log In", "Login", "Sign In", "Continue", "Submit", "LOG IN", "LOGIN NOW",
 )
-LOGIN_PATHS = ("/login", "/log-in", "/signin", "/sign-in", "/account/login")
 
 EMAIL_SELECTOR = (
     "input[type=email],"
@@ -193,59 +203,92 @@ async def click_anti_bot_checkbox(bm: Any, *, rounds: int = 2) -> str:
 
 
 async def open_login_form(bm: Any, url: str) -> str:
-    """Get a visible password field on screen. Returns a short note."""
+    """Get a visible password field on screen, the way a person does it:
+    click the login control, and when that opens a SIGN-UP panel — as
+    several of these brands do — click the "already have an account"
+    switch inside it. Only if clicking gets nowhere is ``/login`` tried,
+    once, as a fallback. Returns a short note."""
     from core.watch_observe import dismiss_consent
 
-    note = ""
-    base = url.rstrip("/")
     if await has_password_field(bm):
         return "form already open"
-    for path in LOGIN_PATHS:
-        await bm.call_tool("browser_navigate", {"url": base + path})
-        await bm.call_tool("browser_wait", {"ms": 3500})
-        await dismiss_consent(bm)
-        if await has_password_field(bm):
-            return f"form at {path}"
-    # No login route: the header control, then the "already have an
-    # account" link several brands hide the real form behind.
-    await bm.call_tool("browser_navigate", {"url": url})
-    await bm.call_tool("browser_wait", {"ms": 3000})
-    await dismiss_consent(bm)
+    notes: list[str] = []
     for label in LOGIN_ENTRY:
-        matched = (await _click_text(bm, label)).lower()
-        if matched and label.lower() in matched:
-            note = f"opened via '{label}'"
+        matched = await _click_text(bm, label)
+        if matched and label.lower() in matched.lower():
+            notes.append(f"clicked '{matched.strip()[:18]}'")
             break
-    await bm.call_tool("browser_wait", {"ms": 3000})
-    if not await has_password_field(bm):
-        for label in SWITCH_TO_LOGIN:
-            matched = (await _click_text(bm, label, exact=False)).lower()
-            if matched and label.split()[0] in matched:
-                await bm.call_tool("browser_wait", {"ms": 3000})
-                if await has_password_field(bm):
-                    note += f"; switched via '{matched[:24]}'"
-                    break
-    return note or "no form found"
+    # Panels animate in; give the form a moment before deciding.
+    for _ in range(4):
+        await bm.call_tool("browser_wait", {"ms": 1200})
+        if await has_password_field(bm):
+            return "; ".join(notes) or "form on the page"
+    await dismiss_consent(bm)
+
+    # A sign-up panel: the real login hides behind its switch link.
+    for label in SWITCH_TO_LOGIN:
+        matched = await _click_text(bm, label, exact=False)
+        if not matched or label.split()[0] not in matched.lower():
+            continue
+        notes.append(f"switched via '{matched.strip()[:22]}'")
+        for _ in range(4):
+            await bm.call_tool("browser_wait", {"ms": 1200})
+            if await has_password_field(bm):
+                return "; ".join(notes)
+        break
+
+    # Still nothing on screen — ask for the login page itself, once.
+    await bm.call_tool("browser_navigate", {"url": url.rstrip("/") + "/login"})
+    await bm.call_tool("browser_wait", {"ms": 3500})
+    await dismiss_consent(bm)
+    if await has_password_field(bm):
+        notes.append("fell back to /login")
+        return "; ".join(notes)
+    return "; ".join(notes + ["no form found"]) if notes else "no form found"
 
 
+# The form's own submit button. Three traps, all seen live on 2026-08-26:
+# the site header's "Log In" link (clicking it abandons the filled form),
+# the social buttons — "Continue with Apple/Google/Facebook" — which sit
+# right above the fields and match a naive "continue", and forms whose
+# button lives outside the password field's wrapper. So: score candidates
+# (real login wording and a submit type win, social providers are
+# disqualified, below-the-field beats above) and take the best.
 _SUBMIT_JS = (
     "(() => {"
     "const pw = [...document.querySelectorAll('input[type=password]')]"
     ".filter(e => e.offsetParent !== null)[0];"
     "if (!pw) return 'no-password';"
-    "const scope = pw.closest('form') || pw.closest('div[class*=modal],div[class*=login],section') "
-    "|| document.body;"
-    "const words = /(log ?in|sign ?in|continue|submit)/i;"
-    "let btn = scope.querySelector('button[type=submit],input[type=submit]');"
-    "if (!btn) {"
-    "  const cands = [...scope.querySelectorAll('button,[role=button],a')]"
-    "    .filter(b => b.offsetParent !== null && !b.disabled && words.test(b.innerText || b.value || ''));"
-    "  btn = cands[0];"
-    "}"
-    "if (!btn) return 'no-button';"
-    "if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return 'disabled';"
+    "const strong = /^\\s*(log ?in|sign ?in|log ?in now|submit)/i;"
+    "const weak = /(log ?in|sign ?in|continue|submit|enter)/i;"
+    "const social = /(google|apple|facebook|twitter|discord|steam|metamask|phone|sms)/i;"
+    "const pwTop = pw.getBoundingClientRect().top;"
+    "const form = pw.closest('form');"
+    "const label = b => (b.innerText || b.value || b.getAttribute('aria-label') || '').trim();"
+    "let cands = [...document.querySelectorAll("
+    "'button,input[type=submit],input[type=button],[role=button],a,"
+    "div[class*=btn],div[class*=button],span[class*=btn],span[class*=button]')]"
+    ".filter(b => b.offsetParent !== null && !b.disabled"
+    " && b.getAttribute('aria-disabled') !== 'true'"
+    " && !b.closest('header,nav,[class*=header],[class*=navbar]')"
+    " && weak.test(label(b)) && !social.test(label(b))"
+    " && !(b.tagName === 'A' && b.getAttribute('href')"
+    "      && !/^#|javascript:/.test(b.getAttribute('href'))"
+    "      && !/log|sign/i.test(b.getAttribute('href'))));"
+    "if (!cands.length) return 'no-button';"
+    "const score = b => {"
+    "  const t = label(b); let s = 0;"
+    "  if (strong.test(t)) s += 4;"
+    "  if ((b.type || '') === 'submit') s += 3;"
+    "  if (form && form.contains(b)) s += 2;"
+    "  const top = b.getBoundingClientRect().top;"
+    "  if (top >= pwTop) s += 2;"
+    "  return s - Math.abs(top - pwTop) / 1000;"
+    "};"
+    "cands.sort((a, b) => score(b) - score(a));"
+    "const btn = cands[0];"
     "btn.scrollIntoView({block: 'center'}); btn.click();"
-    "return 'clicked:' + ((btn.innerText || btn.value || 'submit').trim().slice(0, 20));})()"
+    "return 'clicked:' + (label(btn) || 'submit').slice(0, 20);})()"
 )
 
 
@@ -259,10 +302,21 @@ async def submit_login_form(bm: Any) -> str:
     search to the element holding the password field.
     """
     got = str(await _eval(bm, _SUBMIT_JS) or "")
-    if got.startswith("clicked:"):
+    if got.startswith("clicked:") and got[8:].strip():
         return f"submitted via '{got[8:]}'"
     if got == "disabled":
         return "submit disabled (anti-bot or validation)"
+    # The JS cannot see into a shadow root, and these apps put the button
+    # there (Chumba, 2026-08-26: the visible "LOG IN" exists in no light-DOM
+    # query). The bridge's own matcher pierces shadow DOM — use it, then
+    # confirm by the form going away rather than by the click's own word.
+    for label in ("LOG IN", "Log In", "Login", "LOGIN", "Sign In", "Sign in"):
+        matched = await _click_text(bm, label)
+        if not matched or "log" not in matched.lower() and "sign" not in matched.lower():
+            continue
+        await bm.call_tool("browser_wait", {"ms": 2500})
+        if not await has_password_field(bm):
+            return f"submitted via '{matched.strip()[:18]}'"
     # Last resort: Enter in the password box, which most forms accept.
     await _eval(bm, _focus_js("password"))
     await bm.call_tool("browser_press_key", {"key": "Enter"})
@@ -286,6 +340,29 @@ async def fill_and_submit(bm: Any, username: str, password: str) -> str:
     note += "; " + await submit_login_form(bm)
     await bm.call_tool("browser_wait", {"ms": 7000})
     return note
+
+
+def login_error(text: str) -> str:
+    """The site's own rejection message, if it is showing one. This says
+    the attempt was REFUSED, not why: "Login failed, please try again"
+    covers a stale password, a locked account and a failed anti-bot score
+    alike."""
+    low = (text or "").lower()
+    for phrase in LOGIN_ERROR_PHRASES:
+        i = low.find(phrase)
+        if i >= 0:
+            start = max(0, i - 60)
+            return " ".join(text[start : i + 90].split())[:150]
+    return ""
+
+
+async def page_text(bm: Any) -> str:
+    from core.watch_observe import _result_text
+
+    try:
+        return _result_text(await bm.call_tool("browser_extract", {}))
+    except Exception:
+        return ""
 
 
 async def session_state(bm: Any) -> tuple[str, list[str], list[str]]:
@@ -368,8 +445,16 @@ async def login_to_site(
                         note += "; challenge cleared by operator; " + await submit_login_form(bm)
                         await bm.call_tool("browser_wait", {"ms": 7000})
                 state, hits_in, hits_out = await session_state(bm)
+                rejection = login_error(await page_text(bm)) if state != "logged_in" else ""
                 if state == "logged_in":
                     out.update(verdict="logged_in", note=note)
+                elif rejection:
+                    # The site ANSWERED — the form went through and was
+                    # refused. Why is not knowable from here: a wrong
+                    # password, an account state, or an invisible anti-bot
+                    # score can all produce the same words. Report what it
+                    # said and let a human read it.
+                    out.update(verdict="rejected", note=note, message=rejection)
                 elif "captcha challenge" in note:
                     out.update(verdict="challenge", note=note)
                 else:
