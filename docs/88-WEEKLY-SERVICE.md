@@ -134,6 +134,50 @@ Alerts as in B. Tools: `watch_regulatory_collect`, `watch_regulatory`
 - Tests: `test_watch_brief.py`, `test_watch_comms.py`, `test_watch_regulatory.py`,
   `test_watch_smalls.py` — each pins "absent, the pack is unchanged".
 
+## F. Logged-in observation (`core/watch_login.py`, `watch_login`)
+
+The register has always had `customer_state` (`logged_out` · `registered`
+· `verified` · `purchaser` · `redeemer` · `vip`), but every collection ran
+logged out because nothing logged in — and worse, `watch_observe` /
+`watch_analyze` HARDCODED `logged_out`, so evidence gathered with
+credentials would have claimed to be what a visitor sees. Both now take
+and stamp `customer_state`; a third-party page is never stamped logged-in,
+because it looks the same to everyone.
+
+`watch_login` signs the agent's own Chrome in, per brand, with the
+credentials the vault holds keyed by domain (`vault_lookup <domain>`):
+
+1. clear the consent overlay **first** — while it is up the login control
+   is not reachable and the click lands on the banner;
+2. click the visible login control, the way a person does — no URL
+   guessing — and when that opens a SIGN-UP panel, click its "already have
+   an account" switch; `/login` is a last resort, not the first move;
+3. give the form up to 12s to arrive: a login click often *navigates*;
+4. complete an e-mail-first step when the password screen comes second;
+5. type the credentials, click a checkbox anti-bot widget if one appears
+   (a control, like consent — an image or audio puzzle is reported as
+   `challenge` and never solved);
+6. submit the form's OWN button — scored, because the site header's
+   "Log In" link and the "Continue with Apple/Google" buttons both match
+   naive text, and some brands keep the real button in a shadow root where
+   only the bridge's matcher can reach it;
+7. read the verdict from the page: `logged_in`, `already_logged_in`,
+   `rejected` (with the site's own message — a stale password, a locked
+   account and a failed anti-bot score all read alike, so a human judges),
+   `challenge`, `no_form`, `unreachable`.
+
+**Never twice in a row.** Every attempt is stamped and stored; a brand
+checked within `retry_after_hours` (default 12) is reported from that
+result instead of being signed into again. Repeated failures are how
+accounts lock — the cooldown is a safety rail, not an optimisation.
+
+Sessions live in the browser profile, so collection that follows is
+unattended: `watch_analyze customer_state='registered'` reads what a
+signed-in player sees — coin packages, VIP tiers, real daily bonuses —
+and every row says what the session was. `watch_queue action=schedule`
+installs *Site sessions · weekly* so the agent refreshes them itself.
+`scripts/check_site_logins.py` is a thin CLI over the same code.
+
 ## IP policy (smart routing)
 
 The state-pinned residential exit exists to prove **what a Florida customer

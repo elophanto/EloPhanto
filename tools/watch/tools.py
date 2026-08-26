@@ -3177,6 +3177,30 @@ class WatchQueueTool(_WatchToolBase):
                 )
                 created.append(f"{name} (0 8 * * 3)")
             if bool(params.get("service", True)):
+                # Sessions expire; the agent refreshes them itself. The
+                # 12h cooldown inside watch_login means a brand that is
+                # already signed in costs nothing here.
+                name = "Site sessions · weekly"
+                if name in existing:
+                    await self._scheduler.delete_schedule(existing[name])
+                try:
+                    await self._scheduler.create_schedule(
+                        name=name,
+                        task_goal=(
+                            f"Refresh the signed-in sessions for {cid}: call watch_login "
+                            "(all brands). Report the verdicts; do NOT retry a brand the "
+                            "tool reports from cache, and do not attempt a brand twice in "
+                            "one run — repeated failures lock accounts. Brands that come "
+                            "back 'rejected' need their stored credentials checked by the "
+                            "operator; 'challenge' means an anti-bot puzzle, leave it."
+                        ),
+                        cron_expression="0 5 * * 1",
+                        description="Auto-created by watch_queue action=schedule",
+                        company_id=cid,
+                    )
+                    created.append(f"{name} (0 5 * * 1)")
+                except Exception as e:
+                    created.append(f"{name} FAILED: {e}")
                 name = "Regulatory tracking · weekly"
                 if name in existing:
                     await self._scheduler.delete_schedule(existing[name])
