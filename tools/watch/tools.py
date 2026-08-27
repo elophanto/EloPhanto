@@ -1495,6 +1495,67 @@ async def _catalog_for_pack(wm: Any, cid: str, params: dict[str, Any]) -> dict[s
     return cat if cat.get("items") else None
 
 
+async def _tone_for_pack(wm: Any, cid: str, params: dict[str, Any], router: Any) -> dict[str, Any] | None:
+    """How each brand talks, built from copy already collected — promotions,
+    marketing lines and e-mails. None when off or when there is no copy."""
+    if str(params.get("voice") or "auto").lower() == "false" or not params.get("tone", True):
+        return None
+    from core.watch_tone import copy_samples, read_tone, summarize_tone, tone_features
+
+    try:
+        subjects = await wm.list_subjects(cid)
+        evidence = await wm.evidence_with_names(cid)
+        catalog = await wm.list_catalog(cid)
+        comms = await wm.list_comms(cid, limit=5000)
+    except Exception:
+        return None
+    by_subject: dict[str, list[dict[str, Any]]] = {}
+    for e in evidence:
+        by_subject.setdefault(str(e.get("subject") or ""), []).append(e)
+    brands: list[dict[str, Any]] = []
+    for subj in subjects:
+        samples = copy_samples(
+            brand=subj.name,
+            evidence=by_subject.get(subj.name, []),
+            catalog=[c for c in catalog if c.subject_id == subj.subject_id],
+            comms=[c for c in comms if c.subject_id == subj.subject_id],
+        )
+        if not samples:
+            continue
+        brands.append({
+            "name": subj.name,
+            "is_self": bool(subj.is_self),
+            "samples": samples,
+            "features": tone_features([s["text"] for s in samples]),
+        })
+    if not brands:
+        return None
+    return summarize_tone(brands, await read_tone(router, brands))
+
+
+def _tone_markdown(tone: dict[str, Any]) -> list[str]:
+    lines = ["## Tone of voice", ""]
+    lines.append(f"_{tone.get('label', '')}_")
+    lines.append("")
+    lines.append("| Brand | Voice | CAPS | !/line | Urgency /100w | In its own words |")
+    lines.append("|---|---|---:|---:|---:|---|")
+    for b in tone.get("brands", []):
+        f = b["features"]
+        line = b.get("signature") or (b["quotes"][0]["text"] if b.get("quotes") else "")
+        lines.append(
+            f"| {b['name']}{' (us)' if b['is_self'] else ''} | {b.get('register') or '—'} | "
+            f"{f.get('caps_pct', 0):g}% | {f.get('exclaims_per_line', 0):g} | "
+            f"{f.get('urgency_per_100w', 0):g} | “{line[:110]}” |"
+        )
+    lines.append("")
+    for b in tone.get("brands", []):
+        if b.get("traits"):
+            lines.append(f"- **{b['name']}** — {'; '.join(b['traits'])}"
+                         + (f" Avoids: {b['avoid']}." if b.get("avoid") else ""))
+    lines.append("")
+    return lines
+
+
 def _catalog_markdown(cat: dict[str, Any]) -> list[str]:
     t = cat.get("totals", {})
     lines = ["## Raw data: providers, packages, promotions, games", ""]
@@ -1645,6 +1706,14 @@ class WatchBoardReportTool(_WatchToolBase):
                         "rows exist for this company; 'false' leaves them out; "
                         "'true' insists (empty section if nothing collected). The "
                         "same switch governs player comms and the regulatory calendar."
+                    ),
+                },
+                "tone": {
+                    "type": "boolean",
+                    "description": (
+                        "Tone-of-voice slide and section — how each brand talks to players, "
+                        "measured from copy already collected (promotions, site lines, "
+                        "e-mails). Default true."
                     ),
                 },
                 "trends": {
@@ -1858,6 +1927,11 @@ class WatchBoardReportTool(_WatchToolBase):
 
             calendar = demand_calendar(weeks=8, events=params.get("calendar_events") or [])
 
+        # ── Tone of voice ──
+        tone = await _tone_for_pack(wm, cid, params, self._router)
+        if tone:
+            lines += _tone_markdown(tone)
+
         # ── Raw data appendix (docs/89) ──
         catalog = await _catalog_for_pack(wm, cid, params)
         if catalog:
@@ -1960,6 +2034,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     comms=comms,
                     regulatory=regulatory,
                     catalog=catalog,
+                    tone=tone,
                     trends=trends,
                     calendar=calendar,
                     path=deck_target,
@@ -2055,6 +2130,14 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                         "same switch governs player comms and the regulatory calendar."
                     ),
                 },
+                "tone": {
+                    "type": "boolean",
+                    "description": (
+                        "Tone-of-voice slide and section — how each brand talks to players, "
+                        "measured from copy already collected (promotions, site lines, "
+                        "e-mails). Default true."
+                    ),
+                },
                 "trends": {
                     "type": "boolean",
                     "description": "Trend slide once ≥3 scored snapshots exist. Default true.",
@@ -2121,6 +2204,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
             except Exception:
                 regulatory = None
         catalog = await _catalog_for_pack(wm, cid, params)
+        tone = await _tone_for_pack(wm, cid, params, self._router)
         trends = None
         try:
             trends = await wm.trend_series(cid)
@@ -2163,6 +2247,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 comms=comms,
                 regulatory=regulatory,
                 catalog=catalog,
+                tone=tone,
                 trends=trends,
                 calendar=calendar,
                 path=path,

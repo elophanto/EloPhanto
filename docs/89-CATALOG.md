@@ -77,3 +77,23 @@ the slides are the readable summary of it.
 
 `watch_queue action=schedule` folds catalog collection into the weekly
 refresh, after the sessions are signed in.
+
+
+## Tone of voice (`core/watch_tone.py`)
+
+Added the same day, from the same client conversation. No new collection:
+the words are already in the registers — promotions and their terms
+(catalog), marketing lines (evidence), and what lands in a player's inbox
+(comms). The read is two layers:
+
+* **Measured habits**, deterministic and checkable: share of words in
+  CAPITALS, exclamation marks per line, urgency and reward words per 100
+  words, emoji per line, second person, line length.
+* **A characterisation** — register ("loud and urgent"), two or three
+  traits, and a *signature line*. The signature must be one of the brand's
+  own sampled lines; a line the model produced that the brand never wrote
+  is dropped, and a brand with no samples is never characterised.
+
+One slide (brand · voice · CAPS · !/line · urgency · its own words), a
+report section with the traits, and `tone=false` to leave it out. The
+measurements alone render when no model is available.

@@ -295,6 +295,12 @@ sheet per kind carry it into the pack; collect it signed in
 (`customer_state='registered'`) and the store and real promotions are
 visible.
 
+Tone of voice: how each brand talks to players, read from copy already
+collected — measured habits (CAPS share, exclamations, urgency and reward
+words, emoji, second person, line length) plus a short characterisation
+whose signature line must be one the brand actually wrote. One slide and
+a report section; `tone=false` to omit.
+
 Four deliverables from one evidence base: the XLSX scorecard, the
 material-change diff, the board report, and the executive deck (~10
 board slides, .pptx) — `watch_analyze` writes all of them, and a board

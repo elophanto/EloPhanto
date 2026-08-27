@@ -2299,6 +2299,66 @@ def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -
     _footer(s, deck_title, page)
 
 
+def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page: int, deck_title: str) -> None:
+    """How each brand talks to players: measured habits, then the voice,
+    with a line of its own to prove it."""
+    from pptx.util import Inches, Pt
+
+    s = _blank(prs)
+    rows = tone.get("brands", [])[:14]
+    title = (narrative.get("titles") or {}).get("tone") or (
+        f"{tone.get('loudest', '')} shouts loudest; {tone.get('most_urgent', '')} pushes hardest"
+        if tone.get("loudest") and tone.get("most_urgent")
+        else "How the field talks to players"
+    )
+    top = _header(s, "Tone of voice", title, (narrative.get("commentary") or {}).get("tone", ""))
+    if not rows:
+        _footer(s, deck_title, page)
+        return
+    shape = s.shapes.add_table(
+        len(rows) + 1, 6, Inches(0.7), Inches(top), Inches(11.9),
+        Inches(min(0.34 * (len(rows) + 1), 5.9 - top)),
+    )
+    tbl = shape.table
+    for ci, w in enumerate((1.9, 1.9, 0.8, 0.9, 0.9, 5.5)):
+        tbl.columns[ci].width = Inches(w)
+
+    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8) -> None:
+        cell = tbl.cell(r, c)
+        cell.text = text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _rgb(bg)
+        cell.margin_left = cell.margin_right = Inches(0.04)
+        cell.margin_top = cell.margin_bottom = Inches(0.01)
+        for p in cell.text_frame.paragraphs:
+            for run in p.runs:
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.color.rgb = _rgb(fg)
+
+    for ci, h in enumerate(("Brand", "Voice", "CAPS", "!/line", "Urgency", "In its own words")):
+        cw(0, ci, h, bg=_INK, fg=_WHITE, bold=True)
+    for ri, b in enumerate(rows, start=1):
+        bg = _SELF_ROW if b["is_self"] else (_CARD if ri % 2 else _WHITE)
+        f = b["features"]
+        cw(ri, 0, f"{b['name']}{'  (us)' if b['is_self'] else ''}", bg=bg, bold=b["is_self"])
+        cw(ri, 1, _clean(b.get("register") or "—", 26), bg=bg)
+        cw(ri, 2, f"{f.get('caps_pct', 0):g}%", bg=bg)
+        cw(ri, 3, f"{f.get('exclaims_per_line', 0):g}", bg=bg)
+        cw(ri, 4, f"{f.get('urgency_per_100w', 0):g}", bg=bg)
+        line = b.get("signature") or (b["quotes"][0]["text"] if b.get("quotes") else "")
+        cw(ri, 5, f"“{_clean(line, 90)}”" if line else "", bg=bg, size=7.5)
+    _text(
+        s, 0.7, 6.32, 11.9, 0.32,
+        f"{tone.get('label', '')} CAPS = share of words in capitals, Urgency = urgency words per "
+        "100 words; both measured, not judged. Quotes are verbatim from the brand's own pages "
+        "and e-mails.",
+        size=8, italic=True, color=_MUTED,
+    )
+    _judgement_note(s, str(tone.get("source") or "facts"))
+    _footer(s, deck_title, page)
+
+
 def _slide_providers(prs: Any, catalog: dict[str, Any], page: int, deck_title: str) -> None:
     """Which studios each brand carries — the client's "game providers"."""
     from pptx.util import Inches, Pt
@@ -3159,6 +3219,7 @@ def render_executive_deck(
     comms: dict[str, Any] | None = None,
     regulatory: dict[str, Any] | None = None,
     catalog: dict[str, Any] | None = None,
+    tone: dict[str, Any] | None = None,
     trends: dict[str, Any] | None = None,
     calendar: dict[str, Any] | None = None,
     title: str = "Competitive Intelligence – Executive Briefing",
@@ -3365,6 +3426,11 @@ def render_executive_deck(
     page += 1
     _slide_heatmap(prs, card, page, deck_title)
     page += 1
+    # How they talk to players — from their own copy, when there is any.
+    if tone and tone.get("brands"):
+        _slide_tone(prs, tone, narrative, page, deck_title)
+        page += 1
+
     # Appendix · raw data (docs/89) — the inventory behind the scores.
     if catalog and catalog.get("items"):
         if catalog["totals"].get("provider"):
