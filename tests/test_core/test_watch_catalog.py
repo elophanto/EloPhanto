@@ -335,6 +335,67 @@ class TestLadderHygiene:
         assert "40 promotions on record" in promo          # the total, not just what fits
 
 
+class TestPerBrandDetail:
+    """The client asked for the raw data, not a summary of it: the deck
+    carries a page per brand with every provider, the whole ladder, the
+    promotions and the titles (2026-08-27: the appendix showed 12 ticked
+    providers and five sample games while 39 and 44 were held)."""
+
+    def test_a_page_per_brand_lists_what_is_held_and_counts_the_rest(self, tmp_path) -> None:
+        from pptx import Presentation
+
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        provs = [f"Studio {i}" for i in range(60)]
+        games = [f"Game {i}" for i in range(70)]
+        catalog = {
+            "items": 140, "label": "Raw inventory…",
+            "totals": {"provider": 60, "coin_package": 2, "promotion": 3, "game": 70},
+            "third_party_only": [],
+            "brands": [{
+                "subject_id": "s", "name": "Pulsz", "is_self": True,
+                "counts": {"provider": 60, "coin_package": 2, "promotion": 3, "game": 70},
+                "providers": provs, "games_sample": games[:12], "games_full": games,
+                "sources": {"provider": ["site"]},
+                "packages": [
+                    {"name": "$1.99", "price_usd": 1.99, "coins": "30,000 Gold Coins",
+                     "detail": "", "url": "u", "source_type": "site"},
+                    {"name": "$4.99", "price_usd": 4.99, "coins": "79,500 Gold Coins",
+                     "detail": "", "url": "u", "source_type": "site"},
+                ],
+                "promotions": [{"name": f"Promo {i}", "detail": "terms", "image": "", "url": "u"}
+                               for i in range(3)],
+                "promotions_full": [{"name": f"Promo {i}", "detail": "terms", "image": "", "url": "u"}
+                                    for i in range(3)],
+                "customer_states": ["logged_out"], "observed_at": "2026-08-27",
+            }],
+        }
+        card = {"rows": [], "dimensions": []}
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, catalog=catalog)
+        prs = Presentation(str(out))
+        page = next(
+            sl for sl in prs.slides
+            if any(sh.has_text_frame and sh.text_frame.text.startswith("RAW DATA · PULSZ")
+                   for sh in sl.shapes)
+        )
+        text = "\n".join(sh.text_frame.text for sh in page.shapes if sh.has_text_frame)
+        assert "60 providers · 2 packages · 3 promotions · 70 titles read" in text
+        assert "Studio 0" in text and "Studio 43" in text          # the list itself, not a tick
+        assert "$1.99 → 30,000 Gold Coins" in text                 # the ladder, rung by rung
+        assert "Promo 0" in text and "Game 0" in text
+        assert "more in the workbook" in text                      # and what did not fit is counted
+        # nothing runs off the page
+        W, H = prs.slide_width, prs.slide_height
+        assert not [
+            sh for sh in page.shapes
+            if sh.left is not None and (sh.left < 0 or sh.top < 0
+                                        or sh.left + sh.width > W + 18288
+                                        or sh.top + sh.height > H + 18288)
+        ]
+
+
 class TestRegister:
     @pytest.mark.asyncio
     async def test_recollection_updates_rather_than_duplicating(self, wm) -> None:
@@ -422,7 +483,8 @@ class TestDeckAndWorkbook:
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=a)
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=b,
                               catalog=self._catalog())
-        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 4
+        # four field-level slides + one raw-data page for the brand itself
+        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 5
         texts = []
         for sl in Presentation(str(b)).slides:
             parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]

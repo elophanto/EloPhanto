@@ -2359,6 +2359,70 @@ def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page:
     _footer(s, deck_title, page)
 
 
+def _slide_brand_raw(prs: Any, brand: dict[str, Any], page: int, deck_title: str) -> None:
+    """One brand, everything held on it — the client asked for the raw
+    data, not a summary of it: every provider, the whole ladder, the
+    promotions and the titles, with anything that will not fit named as a
+    count so the reader knows the workbook has the rest."""
+    s = _blank(prs)
+    c = brand["counts"]
+    top = _header(
+        s,
+        f"Raw data · {brand['name']}{'  (us)' if brand.get('is_self') else ''}",
+        f"{c.get('provider', 0)} providers · {c.get('coin_package', 0)} packages · "
+        f"{c.get('promotion', 0)} promotions · {c.get('game', 0)} titles read",
+    )
+
+    def more(items: list[Any], shown: int) -> str:
+        extra = len(items) - shown
+        return f"  (+{extra} more in the workbook)" if extra > 0 else ""
+
+    # Providers and the ladder share the first band.
+    provs = [str(p_) for p_ in brand.get("providers") or []]
+    _eyebrow(s, "Game providers carried", y=top, x=0.7, color=_PEER)
+    _text(s, 0.7, top + 0.26, 5.6, 1.5,
+          (", ".join(provs[:44]) + more(provs, 44)) if provs else "—",
+          size=7.5, color=_BODY, line=1.15)
+
+    pkgs = brand.get("packages") or []
+    pkg_lines = []
+    for pkg in pkgs[:10]:
+        price = f"${pkg['price_usd']:.2f}" if pkg.get("price_usd") is not None else str(pkg["name"])
+        grant = pkg.get("coins") or pkg.get("detail") or ""
+        pkg_lines.append(f"{price} → {_clean(grant, 52)}" if grant else price)
+    if more(pkgs, 10):
+        pkg_lines.append(more(pkgs, 10).strip())
+    _eyebrow(s, "Coin packages", y=top, x=6.6, color=_PEER)
+    _bullets(s, 6.6, top + 0.26, 6.0, 1.5, pkg_lines or ["—"], size=8, color=_BODY,
+             gap_pt=2, cap=90, accent_bullet=False, max_items=11)
+
+    promos = brand.get("promotions_full") or brand.get("promotions") or []
+    plines = [
+        _clean(p_["name"], 44) + (f" — {_clean(p_.get('detail') or '', 78)}" if p_.get("detail") else "")
+        for p_ in promos[:8]
+    ]
+    if more(promos, 8):
+        plines.append(more(promos, 8).strip())
+    _eyebrow(s, "Promotions running", y=top + 1.95, x=0.7, color=_PEER)
+    _bullets(s, 0.7, top + 2.2, 11.9, 1.9, plines or ["—"], size=8, color=_BODY,
+             gap_pt=2, cap=130, accent_bullet=True, max_items=9)
+
+    games = [str(g) for g in brand.get("games_full") or brand.get("games_sample") or []]
+    _eyebrow(s, "Games read", y=top + 4.2, x=0.7, color=_PEER)
+    _text(s, 0.7, top + 4.46, 11.9, 1.05,
+          (", ".join(games[:55]) + more(games, 55)) if games else "—",
+          size=7, color=_BODY, line=1.12)
+
+    _text(
+        s, 0.7, 6.72, 11.9, 0.28,
+        f"Everything held on {brand['name']}, as printed; read "
+        f"{', '.join(brand.get('customer_states') or ['logged_out'])}, latest "
+        f"{brand.get('observed_at', '')}. The source of every item is in the workbook.",
+        size=7.5, italic=True, color=_MUTED,
+    )
+    _footer(s, deck_title, page)
+
+
 def _slide_providers(prs: Any, catalog: dict[str, Any], page: int, deck_title: str) -> None:
     """Which studios each brand carries — the client's "game providers"."""
     from pptx.util import Inches, Pt
@@ -3469,6 +3533,12 @@ def render_executive_deck(
             page += 1
         if catalog["totals"].get("game"):
             _slide_games(prs, catalog, page, deck_title)
+            page += 1
+        # …then the detail itself, one page per brand.
+        for brand_row in catalog.get("brands", [])[:16]:
+            if not any(brand_row["counts"].values()):
+                continue
+            _slide_brand_raw(prs, brand_row, page, deck_title)
             page += 1
 
     _slide_method(prs, card, diff, page, deck_title)

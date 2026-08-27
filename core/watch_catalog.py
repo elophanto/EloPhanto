@@ -248,8 +248,13 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
                 "promotions": [
                     {"name": r.name, "detail": r.detail, "image": r.image_path, "url": r.source_url}
                     for r in mine if r.kind == "promotion"
-                ][:12],
+                ],
                 "games_sample": [r.name for r in mine if r.kind == "game"][:12],
+                "games_full": [r.name for r in mine if r.kind == "game"],
+                "promotions_full": [
+                    {"name": r.name, "detail": r.detail, "image": r.image_path, "url": r.source_url}
+                    for r in mine if r.kind == "promotion"
+                ],
                 "customer_states": sorted({r.customer_state for r in mine}),
                 "observed_at": max((r.observed_at for r in mine), default="")[:10],
             }
