@@ -120,6 +120,10 @@ RULES
 - Copy names EXACTLY as printed. Do not translate, expand, tidy or invent.
 - Only what is on THIS page. No brand knowledge, no guessing at a
   catalogue you cannot see.
+- The item must belong to THE NAMED BRAND. Review pages, comparison
+  tables and directories list several operators at once: take only what
+  the page attributes to this brand, never what it attributes to another
+  operator, to "similar sites", or to the site's own business.
 - Keep the page's own order (index 0, 1, 2 …) — a price ladder is
   meaningless out of order.
 - Navigation labels, categories and headings are not items: "Slots",
@@ -214,6 +218,13 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
             [r for r in mine if r.kind == "coin_package"],
             key=lambda r: (r.price_usd if r.price_usd is not None else 9e9, r.sort_index),
         )
+        # Where each kind came from — a ladder read off a review site is a
+        # weaker fact than one read off the store, and the deck says so.
+        sources = {
+            k: sorted({r.source_type for r in mine if r.kind == k})
+            for k in CATALOG_KINDS
+            if any(r.kind == k for r in mine)
+        }
         per.append(
             {
                 "subject_id": s.subject_id,
@@ -221,9 +232,10 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
                 "is_self": bool(s.is_self),
                 "counts": counts,
                 "providers": [r.name for r in mine if r.kind == "provider"][:40],
+                "sources": sources,
                 "packages": [
                     {"name": r.name, "price_usd": r.price_usd, "coins": r.coins_text,
-                     "detail": r.detail, "url": r.source_url}
+                     "detail": r.detail, "url": r.source_url, "source_type": r.source_type}
                     for r in ladder
                 ],
                 "promotions": [
@@ -236,9 +248,16 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
             }
         )
     per.sort(key=lambda b: (not b["is_self"], b["name"]))
+    third_party_only = [
+        f"{b['name']} {k}"
+        for b in per
+        for k, srcs in b.get("sources", {}).items()
+        if srcs == ["third_party"]
+    ]
     return {
         "brands": per,
         "totals": totals,
+        "third_party_only": third_party_only,
         "items": sum(totals.values()),
         "kinds": list(CATALOG_KINDS),
         "label": "Raw inventory as printed on each brand's own pages — not scored.",
@@ -275,6 +294,39 @@ _RESEARCH_QUERIES: dict[str, tuple[str, ...]] = {
 # Sites that mostly resell affiliate links carry stale ladders; the brand's
 # own domain and known trackers come first.
 _LOW_TRUST = re.compile(r"coupon|promo-?code|deal|bonus-?code|casino-?bonus", re.I)
+# Pages that exist to list OTHER operators: whatever they enumerate mostly
+# belongs to somebody else (2026-08-27: a "sites-like/luckyland" page gave
+# LuckyLand a provider it does not carry, and a game studio's own services
+# page gave it another).
+_COMPARISON = re.compile(
+    r"sites?-like|alternatives?|similar-?(to|sites)|vs-|versus|competitors?|"
+    r"best-\d|top-\d|-vs-",
+    re.I,
+)
+
+
+def research_page_ok(url: str, text: str, brand: str, aliases: list[str] | None = None) -> bool:
+    """Is this public page actually ABOUT the brand?
+
+    A page reached by searching the brand's name may still be about ten
+    other operators, or about the search engine's idea of a related
+    business. Require the brand in the URL, or named repeatedly in the
+    text; and never read a comparison/alternatives page for inventory —
+    everything it lists belongs to someone."""
+    hay_url = (url or "").lower()
+    if _COMPARISON.search(hay_url):
+        return False
+    names = [brand, *(aliases or [])]
+    url_slug = re.sub(r"[^a-z0-9]+", "", hay_url)
+    # The brand in the address, under any of the names players use —
+    # "time2play.com/casinos/reviews/modo/" is about Modo Casino.
+    for candidate in names:
+        slug = re.sub(r"[^a-z0-9]+", "", (candidate or "").lower())
+        if len(slug) >= 4 and slug in url_slug:
+            return True
+    low = (text or "").lower()
+    mentions = sum(low.count(n.lower()) for n in names if n)
+    return mentions >= 3
 
 
 def research_queries(brand: str, kinds: list[str], *, year: int) -> list[tuple[str, str]]:

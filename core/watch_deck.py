@@ -2415,7 +2415,8 @@ def _slide_providers(prs: Any, catalog: dict[str, Any], page: int, deck_title: s
     _text(
         s, 0.7, 6.32, 11.9, 0.3,
         f"{catalog.get('label', '')} The twelve most widely carried studios are shown; "
-        "every provider observed is in the workbook.",
+        "every provider observed is in the workbook with the page it was read from — "
+        "brand sites and public reviews both, and the workbook says which.",
         size=8, italic=True, color=_MUTED,
     )
     _footer(s, deck_title, page)
@@ -2437,11 +2438,11 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
             rows.append((b, pkg))
     rows = rows[:16]
     shape = s.shapes.add_table(
-        len(rows) + 1, 4, Inches(0.7), Inches(top), Inches(11.9),
+        len(rows) + 1, 5, Inches(0.7), Inches(top), Inches(11.9),
         Inches(min(0.32 * (len(rows) + 1), 6.1 - top)),
     )
     tbl = shape.table
-    for ci, w in enumerate((2.2, 1.4, 3.4, 4.9)):
+    for ci, w in enumerate((2.1, 1.2, 3.3, 4.0, 1.3)):
         tbl.columns[ci].width = Inches(w)
 
     def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8) -> None:
@@ -2457,7 +2458,7 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
                 run.font.bold = bold
                 run.font.color.rgb = _rgb(fg)
 
-    for ci, h in enumerate(("Brand", "Price", "What it grants", "Notes")):
+    for ci, h in enumerate(("Brand", "Price", "What it grants", "Notes", "Read from")):
         cw(0, ci, h, bg=_INK, fg=_WHITE, bold=True)
     for ri, (b, pkg) in enumerate(rows, start=1):
         bg = _SELF_ROW if b["is_self"] else (_CARD if ri % 2 else _WHITE)
@@ -2465,12 +2466,21 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
         price = f"${pkg['price_usd']:.2f}" if pkg.get("price_usd") is not None else _clean(pkg["name"], 14)
         cw(ri, 1, price, bg=bg, bold=True)
         cw(ri, 2, _clean(pkg.get("coins") or pkg["name"], 60), bg=bg)
-        cw(ri, 3, _clean(pkg.get("detail") or "", 90), bg=bg, size=7.5)
+        cw(ri, 3, _clean(pkg.get("detail") or "", 70), bg=bg, size=7.5)
+        cw(ri, 4, "the brand" if pkg.get("source_type") == "site" else "review site",
+           bg=bg, size=7.5, fg=_INK if pkg.get("source_type") == "site" else _MUTED)
+    third = [t for t in (catalog.get("third_party_only") or []) if t.endswith("coin_package")]
     _text(
-        s, 0.7, 6.32, 11.9, 0.3,
-        "Prices and grants exactly as printed on each brand's store page; a store read "
-        "while signed out shows what a visitor is offered, not a player's own prices. "
-        "Every package observed is in the workbook.",
+        s, 0.7, 6.28, 11.9, 0.4,
+        "Prices and grants exactly as printed, with the source of each row. "
+        + (
+            f"{len(third)} brand{'s' if len(third) != 1 else ''} could only be read from "
+            "review sites — those stores are behind a login, so treat those ladders as "
+            "reported, not observed. "
+            if third
+            else ""
+        )
+        + "Every package observed is in the workbook with its URL and date.",
         size=8, italic=True, color=_MUTED,
     )
     _footer(s, deck_title, page)

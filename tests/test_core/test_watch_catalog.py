@@ -200,6 +200,81 @@ class TestResearchFirst:
         assert loud.data["needs_sign_in"] == ["McLuck:coin_package"]
 
 
+class TestAttribution:
+    """A page reached by searching a brand may be about ten other brands —
+    or about somebody's own business (2026-08-27: a game studio's services
+    page gave LuckyLand a provider it does not carry)."""
+
+    def test_comparison_and_unrelated_pages_are_refused(self) -> None:
+        from core.watch_catalog import research_page_ok
+        from core.watch_voice import brand_aliases
+
+        ll = brand_aliases("LuckyLand Slots", "https://www.luckylandslots.com")
+        assert not research_page_ok(
+            "https://www.wagertalk.com/sites-like/luckyland", "LuckyLand " * 9,
+            "LuckyLand Slots", ll,
+        )
+        assert not research_page_ok(
+            "https://www.juegostudio.com/game-development-services",
+            "We build games for clients", "LuckyLand Slots", ll,
+        )
+        assert not research_page_ok("https://x.example/z", "A page about tractors", "Pulsz", ["Pulsz"])
+
+    def test_brand_pages_and_reviews_are_accepted(self) -> None:
+        from core.watch_catalog import research_page_ok
+        from core.watch_voice import brand_aliases
+
+        assert research_page_ok("https://www.mcluck.com/providers", "…", "McLuck", ["McLuck"])
+        # the short name in the URL is enough — "…/reviews/modo/"
+        assert research_page_ok(
+            "https://time2play.com/casinos/reviews/modo/", "Modo review",
+            "Modo Casino", brand_aliases("Modo Casino", "https://www.modo.us"),
+        )
+        # or the brand named repeatedly in the text
+        assert research_page_ok(
+            "https://x.example/y", "Pulsz is great. Pulsz pays. Pulsz has games.",
+            "Pulsz", ["Pulsz"],
+        )
+
+
+class TestProvenanceIsVisible:
+    def test_a_ladder_read_off_a_review_site_says_so(self, tmp_path) -> None:
+        from pptx import Presentation
+
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        catalog = {
+            "items": 2, "label": "Raw inventory…",
+            "totals": {"coin_package": 2}, "third_party_only": ["Pulsz coin_package"],
+            "brands": [{
+                "subject_id": "s", "name": "Pulsz", "is_self": True,
+                "counts": {"coin_package": 2}, "providers": [], "games_sample": [],
+                "promotions": [], "customer_states": ["logged_out"], "observed_at": "2026-08-27",
+                "sources": {"coin_package": ["third_party"]},
+                "packages": [
+                    {"name": "$1.99", "price_usd": 1.99, "coins": "30,000 Gold Coins",
+                     "detail": "", "url": "https://review.example", "source_type": "third_party"},
+                    {"name": "$4.99", "price_usd": 4.99, "coins": "79,500 Gold Coins",
+                     "detail": "", "url": "https://www.pulsz.com/store", "source_type": "site"},
+                ],
+            }],
+        }
+        card = {"rows": [], "dimensions": []}
+        out = tmp_path / "p.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, catalog=catalog)
+        texts = []
+        for sl in Presentation(str(out)).slides:
+            parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]
+            for sh in sl.shapes:
+                if sh.has_table:
+                    parts += [c.text for r in sh.table.rows for c in r.cells]
+            texts.append("\n".join(parts))
+        slide = next(t for t in texts if "Coin packages" in t)
+        assert "review site" in slide and "the brand" in slide
+        assert "reported, not observed" in slide  # the caveat is on the page, not implied
+
+
 class TestRegister:
     @pytest.mark.asyncio
     async def test_recollection_updates_rather_than_duplicating(self, wm) -> None:

@@ -4961,6 +4961,7 @@ class WatchCatalogCollectTool(_WatchToolBase):
             extract_catalog,
             rank_catalog_pages,
             rank_research_urls,
+            research_page_ok,
             research_queries,
         )
         from core.watch_observe import (
@@ -4970,6 +4971,7 @@ class WatchCatalogCollectTool(_WatchToolBase):
             screenshot_filename,
             search_web,
         )
+        from core.watch_voice import brand_aliases
 
         cid = _company(params)
         wm = self._watch_manager
@@ -5095,6 +5097,9 @@ class WatchCatalogCollectTool(_WatchToolBase):
                         u, browser_manager=self._browser_manager, proxy_url=proxy_url
                     )
                     if ferr or not text:
+                        continue
+                    if not research_page_ok(u, text, subj.name, brand_aliases(subj.name, subj.url)):
+                        per["kinds"][kind].setdefault("skipped_pages", []).append(u[:70])
                         continue
                     items = await extract_catalog(
                         self._router, kind=kind, brand=subj.name, page_text=text
