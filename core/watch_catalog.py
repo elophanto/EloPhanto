@@ -243,3 +243,68 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
         "kinds": list(CATALOG_KINDS),
         "label": "Raw inventory as printed on each brand's own pages — not scored.",
     }
+
+
+# ── Public research: most of this is on the open internet ──────────────
+#
+# Providers, price ladders, promotions and game lists are published by the
+# brands themselves and repeated by review sites and aggregators. Reading
+# those costs nothing and needs no session; a login is worth spending only
+# on what public pages do not answer, and the state-pinned exit is worth
+# spending only where a geo claim is actually made.
+
+_RESEARCH_QUERIES: dict[str, tuple[str, ...]] = {
+    "provider": (
+        '"{brand}" game providers list software studios',
+        '"{brand}" casino games by provider Pragmatic Hacksaw',
+    ),
+    "coin_package": (
+        '"{brand}" coin packages price gold coins sweeps coins',
+        '"{brand}" purchase price list $ package review',
+    ),
+    "promotion": (
+        '"{brand}" promotions current offers bonus {year}',
+        '"{brand}" promo daily bonus welcome offer {year}',
+    ),
+    "game": (
+        '"{brand}" game list slots titles available',
+        '"{brand}" popular games catalogue',
+    ),
+}
+
+# Sites that mostly resell affiliate links carry stale ladders; the brand's
+# own domain and known trackers come first.
+_LOW_TRUST = re.compile(r"coupon|promo-?code|deal|bonus-?code|casino-?bonus", re.I)
+
+
+def research_queries(brand: str, kinds: list[str], *, year: int) -> list[tuple[str, str]]:
+    """(kind, query) pairs for the public web, in build order."""
+    out: list[tuple[str, str]] = []
+    for kind in kinds:
+        for template in _RESEARCH_QUERIES.get(kind, ()):
+            out.append((kind, template.format(brand=brand, year=year)))
+    return out
+
+
+def rank_research_urls(
+    results: list[dict[str, str]], *, brand_host: str = "", limit: int = 3
+) -> list[str]:
+    """Best public pages to read: the brand's own domain first, then
+    ordinary editorial, coupon farms last."""
+    scored: list[tuple[float, str]] = []
+    seen: set[str] = set()
+    for r in results:
+        url = str(r.get("url") or "")
+        if not url.startswith("http") or url in seen:
+            continue
+        seen.add(url)
+        score = 0.0
+        if brand_host and brand_host in url:
+            score += 3
+        if _LOW_TRUST.search(url):
+            score -= 2
+        if _NEVER.search(url):
+            continue
+        scored.append((score, url))
+    scored.sort(key=lambda t: -t[0])
+    return [u for _, u in scored[:limit]]

@@ -3367,11 +3367,13 @@ class WatchQueueTool(_WatchToolBase):
                     await self._scheduler.create_schedule(
                         name=name,
                         task_goal=(
-                            f"Refresh the raw inventory for {cid}: call watch_login first "
-                            "so the stores are visible, then watch_catalog_collect with "
-                            "customer_state='registered' for every brand that reported a "
-                            "session and customer_state='logged_out' for the rest. Do not "
-                            "add or archive brands; do not score anything."
+                            f"Refresh the raw inventory for {cid}: call watch_catalog_collect "
+                            "for every brand (research=true, sign_in_if_missing=true). It "
+                            "reads the brands' own public pages and the open web first — no "
+                            "session, no metered exit. Only if the receipt lists "
+                            "needs_sign_in entries, run watch_login for those brands and "
+                            "re-run watch_catalog_collect for them with the matching "
+                            "customer_state. Do not add or archive brands; do not score."
                         ),
                         cron_expression="30 5 * * 1",
                         description="Auto-created by watch_queue action=schedule",
@@ -4909,10 +4911,36 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 "customer_state": {
                     "type": "string",
                     "enum": ["logged_out", "registered", "verified", "purchaser", "redeemer", "vip"],
-                    "description": "What the browser session IS while reading. Stamped on every row.",
+                    "description": (
+                        "What the browser session IS while reading — stamped on every row. "
+                        "Only set this when you have actually signed in (watch_login)."
+                    ),
                 },
-                "geo_state": {"type": "string", "description": "Read as this US state (e.g. FL)."},
-                "max_pages": {"type": "integer", "description": "Pages read per brand. Default 8."},
+                "research": {
+                    "type": "boolean",
+                    "description": (
+                        "Search the open web for what the brand's own pages did not answer "
+                        "(providers, price ladders, promotions, game lists are widely "
+                        "published). Default true — it is free and needs no session."
+                    ),
+                },
+                "sign_in_if_missing": {
+                    "type": "boolean",
+                    "description": (
+                        "Last resort: after public pages AND web research still leave a kind "
+                        "empty, sign in (watch_login) and read the brand's own store/promotions "
+                        "again. Default false — a session costs proxy traffic and login attempts."
+                    ),
+                },
+                "geo_state": {
+                    "type": "string",
+                    "description": (
+                        "Read as this US state (e.g. FL). Default 'n/a' — direct, no proxy: "
+                        "providers, packages and game lists carry no geo claim, so the "
+                        "state-pinned exit is not spent on them."
+                    ),
+                },
+                "max_pages": {"type": "integer", "description": "Brand pages read per brand. Default 8."},
                 "save": {"type": "boolean", "description": "Default true; false = dry run."},
                 "company_id": {"type": "string"},
             },
@@ -4927,8 +4955,20 @@ class WatchCatalogCollectTool(_WatchToolBase):
             return err
         if self._router is None:
             return ToolResult(success=False, error="no router — catalog reading needs the model")
-        from core.watch_catalog import CATALOG_KINDS, extract_catalog, rank_catalog_pages
-        from core.watch_observe import capture_page_screenshot, collect_pages, screenshot_filename
+        from core.watch_catalog import (
+            CATALOG_KINDS,
+            extract_catalog,
+            rank_catalog_pages,
+            rank_research_urls,
+            research_queries,
+        )
+        from core.watch_observe import (
+            capture_page_screenshot,
+            collect_pages,
+            fetch_page_best_effort,
+            screenshot_filename,
+            search_web,
+        )
 
         cid = _company(params)
         wm = self._watch_manager
@@ -4957,9 +4997,31 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 )
             subjects = [subj]
 
+        from datetime import UTC, datetime
+
+        research = bool(params.get("research", True))
+        sign_in_if_missing = bool(params.get("sign_in_if_missing", False))
+        search_key = self._vault.get("search_sh_api_key") if self._vault is not None else None
         shots_root = Path(str(getattr(self._config, "workspace", "") or ".")) / "catalog-shots"
         report: list[dict[str, Any]] = []
         total_new = 0
+        year = datetime.now(UTC).year
+
+        async def _file(kind: str, items: list[dict[str, Any]], *, subj: Any, url: str,
+                        source_type: str, shot: str, session: str) -> int:
+            """Store what a page yielded; returns how many rows were new."""
+            new_rows = 0
+            for item in items:
+                if not save:
+                    continue
+                _row, is_new = await wm.add_catalog_item(
+                    company_id=cid, subject_id=subj.subject_id, kind=kind,
+                    brand_name=subj.name, source_url=url, source_type=source_type,
+                    image_path=shot if kind == "promotion" else "",
+                    customer_state=session, geo_state=geo_state, **item,
+                )
+                new_rows += 1 if is_new else 0
+            return new_rows
         for subj in subjects:
             if not subj.url:
                 continue
@@ -5005,10 +5067,52 @@ class WatchCatalogCollectTool(_WatchToolBase):
                             **item,
                         )
                         new += 1 if is_new else 0
-                per["kinds"][kind] = {"found": found, "new": new, "pages": len(by_kind.get(kind, []))}
+                per["kinds"][kind] = {
+                    "found": found, "new": new, "pages": len(by_kind.get(kind, [])),
+                    "from": "brand site" if found else "",
+                }
                 if kind == "promotion" and shot:
                     per["kinds"][kind]["image"] = shot
                 total_new += new
+
+                # Public research: whatever the brand's own pages did not
+                # answer is usually published elsewhere, and reading it costs
+                # no session and no metered exit.
+                if found or not research or not search_key:
+                    continue
+                brand_host = (subj.url or "").split("//")[-1].split("/")[0].removeprefix("www.")
+                urls: list[str] = []
+                for _kind, query in research_queries(subj.name, [kind], year=year):
+                    hits = await search_web(query, api_key=str(search_key), max_results=6)
+                    urls.extend(rank_research_urls(hits, brand_host=brand_host, limit=2))
+                seen_urls: set[str] = set()
+                for u in urls[:3]:
+                    if u in seen_urls:
+                        continue
+                    seen_urls.add(u)
+                    text, ferr, _m = await fetch_page_best_effort(
+                        u, browser_manager=self._browser_manager, proxy_url=proxy_url
+                    )
+                    if ferr or not text:
+                        continue
+                    items = await extract_catalog(
+                        self._router, kind=kind, brand=subj.name, page_text=text
+                    )
+                    if not items:
+                        continue
+                    found += len(items)
+                    new += await _file(
+                        kind, items, subj=subj, url=u,
+                        source_type="third_party", shot="", session=customer_state,
+                    )
+                if found:
+                    per["kinds"][kind].update(
+                        {"found": found, "new": new, "from": "public research"}
+                    )
+                    total_new += new
+                elif sign_in_if_missing:
+                    # Only now is a session worth its cost.
+                    per["kinds"][kind]["needs_sign_in"] = True
             report.append(per)
         return ToolResult(
             success=True,
@@ -5021,9 +5125,14 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 "brands": report,
                 "note": (
                     "raw inventory in watch_catalog — appendix slides and one workbook "
-                    "sheet per kind; never scored. Collect again with "
-                    "customer_state='registered' after watch_login to see the store."
+                    "sheet per kind; never scored. Public pages and open-web research "
+                    "first; kinds marked needs_sign_in found nothing public and are the "
+                    "only ones worth a watch_login + re-run with customer_state set."
                 ),
+                "needs_sign_in": sorted({
+                    f"{b['subject']}:{k}"
+                    for b in report for k, v in b["kinds"].items() if v.get("needs_sign_in")
+                }),
             },
         )
 

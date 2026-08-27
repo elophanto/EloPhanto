@@ -99,6 +99,107 @@ class TestExtraction:
         assert await extract_catalog(_Router([]), kind="nonsense", brand="B", page_text="x") == []
 
 
+class TestResearchFirst:
+    """Public pages and the open web first; a session is spent only on what
+    they cannot answer, and the metered exit is not spent at all."""
+
+    def test_queries_name_the_brand_and_the_kind(self) -> None:
+        from core.watch_catalog import research_queries
+
+        qs = dict(research_queries("McLuck", ["provider", "coin_package"], year=2026))
+        assert any("providers" in q for k, q in research_queries("McLuck", ["provider"], year=2026))
+        assert "coin packages" in " ".join(
+            q for k, q in research_queries("McLuck", ["coin_package"], year=2026)
+        )
+        assert qs  # both kinds produced queries
+
+    def test_the_brands_own_domain_outranks_coupon_farms(self) -> None:
+        from core.watch_catalog import rank_research_urls
+
+        got = rank_research_urls(
+            [
+                {"url": "https://promo-codes.example/mcluck-bonus"},
+                {"url": "https://www.mcluck.com/providers"},
+                {"url": "https://casinoreview.example/mcluck"},
+                {"url": "https://www.mcluck.com/terms"},   # legal pages never
+                {"url": "not-a-url"},
+            ],
+            brand_host="mcluck.com",
+        )
+        assert got[0] == "https://www.mcluck.com/providers"
+        assert got[-1] == "https://promo-codes.example/mcluck-bonus"
+        assert all("terms" not in u for u in got)
+
+    @pytest.mark.asyncio
+    async def test_research_fills_what_the_site_missed_and_marks_the_source(
+        self, wm, monkeypatch
+    ) -> None:
+        import core.watch_observe as wo
+        from tools.watch import tools as T
+
+        await wm.add_subject(company_id="c1", name="McLuck", url="https://www.mcluck.com")
+
+        async def fake_collect(start_url, **kw):
+            # the brand's own pages say nothing about providers
+            return [{"url": "https://www.mcluck.com/providers", "title": "Providers",
+                     "text": "Our lobby is powered by great games.", "error": None, "method": "http"}]
+
+        async def fake_search(query, *, api_key, **kw):
+            assert api_key == "sk-test"
+            return [{"url": "https://review.example/mcluck", "title": "review", "snippet": ""}]
+
+        async def fake_fetch(url, **kw):
+            assert kw.get("proxy_url") is None, "research must not spend the metered exit"
+            return ("McLuck carries Pragmatic Play and Hacksaw Gaming titles.", None, "http")
+
+        monkeypatch.setattr(wo, "collect_pages", fake_collect)
+        monkeypatch.setattr(wo, "search_web", fake_search)
+        monkeypatch.setattr(wo, "fetch_page_best_effort", fake_fetch)
+
+        t = T.WatchCatalogCollectTool()
+        t._watch_manager, t._config, t._browser_manager = wm, None, None
+        t._vault = {"search_sh_api_key": "sk-test"}
+        t._router = _Router([{"name": "Pragmatic Play", "detail": "", "index": 0},
+                             {"name": "Hacksaw Gaming", "detail": "", "index": 1}])
+        res = await t.execute({"company_id": "c1", "kinds": ["provider"]})
+        assert res.success, res.error
+        kinds = res.data["brands"][0]["kinds"]["provider"]
+        assert kinds["from"] == "public research" and kinds["found"] == 2
+        rows = await wm.list_catalog("c1")
+        assert {r.name for r in rows} == {"Pragmatic Play", "Hacksaw Gaming"}
+        assert all(r.source_type == "third_party" for r in rows)
+        assert all(r.geo_state == "n/a" for r in rows)  # no geo claim, no proxy
+
+    @pytest.mark.asyncio
+    async def test_nothing_public_marks_the_kind_for_sign_in_only_when_asked(
+        self, wm, monkeypatch
+    ) -> None:
+        import core.watch_observe as wo
+        from tools.watch import tools as T
+
+        await wm.add_subject(company_id="c1", name="McLuck", url="https://www.mcluck.com")
+
+        async def empty_pages(start_url, **kw):
+            return [{"url": "https://www.mcluck.com/store", "title": "Store",
+                     "text": "Sign in to see your prices.", "error": None, "method": "http"}]
+
+        async def no_hits(query, *, api_key, **kw):
+            return []
+
+        monkeypatch.setattr(wo, "collect_pages", empty_pages)
+        monkeypatch.setattr(wo, "search_web", no_hits)
+
+        t = T.WatchCatalogCollectTool()
+        t._watch_manager, t._config, t._browser_manager = wm, None, None
+        t._vault = {"search_sh_api_key": "sk-test"}
+        t._router = _Router([])
+        quiet = await t.execute({"company_id": "c1", "kinds": ["coin_package"]})
+        assert quiet.data["needs_sign_in"] == []  # not asked, so not suggested
+        loud = await t.execute({"company_id": "c1", "kinds": ["coin_package"],
+                                "sign_in_if_missing": True})
+        assert loud.data["needs_sign_in"] == ["McLuck:coin_package"]
+
+
 class TestRegister:
     @pytest.mark.asyncio
     async def test_recollection_updates_rather_than_duplicating(self, wm) -> None:

@@ -242,6 +242,7 @@ class WatchCatalogItem:
     coins_text: str = ""
     sort_index: int = 0
     source_url: str = ""
+    source_type: str = "site"
     image_path: str = ""
     customer_state: str = "logged_out"
     geo_state: str = "n/a"
@@ -1643,6 +1644,7 @@ class WatchManager:
         coins_text: str = "",
         sort_index: int = 0,
         source_url: str = "",
+        source_type: str = "site",
         image_path: str = "",
         customer_state: str = "logged_out",
         geo_state: str = "n/a",
@@ -1668,6 +1670,7 @@ class WatchManager:
             "kind": kind, "name": name[:150], "detail": detail[:400],
             "price_usd": price_usd, "coins_text": coins_text[:200],
             "sort_index": int(sort_index), "source_url": source_url,
+            "source_type": source_type,
             "image_path": image_path, "customer_state": customer_state,
             "geo_state": geo_state, "observed_at": now,
         }
@@ -1675,21 +1678,22 @@ class WatchManager:
             cid_ = existing[0]["catalog_id"]
             await self._db.execute(
                 "UPDATE watch_catalog SET detail = ?, price_usd = ?, coins_text = ?, "
-                "sort_index = ?, source_url = ?, image_path = ?, customer_state = ?, "
-                "geo_state = ?, exit_ip = ?, observed_at = ? WHERE catalog_id = ?",
+                "sort_index = ?, source_url = ?, source_type = ?, image_path = ?, "
+                "customer_state = ?, geo_state = ?, exit_ip = ?, observed_at = ? "
+                "WHERE catalog_id = ?",
                 (row["detail"], price_usd, row["coins_text"], row["sort_index"], source_url,
-                 image_path, customer_state, geo_state, exit_ip, now, cid_),
+                 source_type, image_path, customer_state, geo_state, exit_ip, now, cid_),
             )
             return {**row, "catalog_id": cid_}, False
         new_id = _sid("ct")
         await self._db.execute_insert(
             "INSERT INTO watch_catalog (catalog_id, company_id, subject_id, kind, name, "
-            "detail, price_usd, coins_text, sort_index, source_url, image_path, "
+            "detail, price_usd, coins_text, sort_index, source_url, source_type, image_path, "
             "customer_state, geo_state, exit_ip, observed_at, dedupe_key, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (new_id, company_id, subject_id, kind, row["name"], row["detail"], price_usd,
-             row["coins_text"], row["sort_index"], source_url, image_path, customer_state,
-             geo_state, exit_ip, now, key, now),
+             row["coins_text"], row["sort_index"], source_url, source_type, image_path,
+             customer_state, geo_state, exit_ip, now, key, now),
         )
         return {**row, "catalog_id": new_id}, True
 
@@ -1726,6 +1730,7 @@ class WatchManager:
             coins_text=_row_get(r, "coins_text", "") or "",
             sort_index=int(_row_get(r, "sort_index", 0) or 0),
             source_url=_row_get(r, "source_url", "") or "",
+            source_type=_row_get(r, "source_type", "site") or "site",
             image_path=_row_get(r, "image_path", "") or "",
             customer_state=_row_get(r, "customer_state", "logged_out") or "logged_out",
             geo_state=_row_get(r, "geo_state", "n/a") or "n/a",

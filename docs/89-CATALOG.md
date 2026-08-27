@@ -39,6 +39,20 @@ player comms ([88](88-WEEKLY-SERVICE.md) §C).
 
 ## Collection (`core/watch_catalog.py`, `watch_catalog_collect`)
 
+**Research first, sign in last.** Nearly all of this is public: the brands
+publish their providers, ladders, promotions and lobbies, and review sites
+repeat them. So the order is (1) the brand's own public pages, (2) the open
+web — targeted queries per kind, the brand's own domain ranked first and
+coupon farms last, filed as `third_party` — and only then (3) a signed-in
+read, and only for the kinds still empty (`sign_in_if_missing`, reported as
+`needs_sign_in`). A session costs proxy traffic and login attempts; those
+are spent on what nothing public answers.
+
+Reads default to **direct, no proxy**: a provider list or a game title
+carries no geo claim, so the state-pinned exit is not spent on it. Pass
+`geo_state` only when the state actually matters (a store's prices).
+
+
 Per brand: rank its readable pages for each kind (`catalog_page_kind` —
 `providers`/`store`/`promotions`/`games` by URL and title), fetch the best
 few with the existing `fetch_page_best_effort` (browser escalation
