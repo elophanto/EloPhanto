@@ -2237,6 +2237,8 @@ class Agent:
             "watch_regulatory_collect",
             # watch_login reads the per-brand site credentials.
             "watch_login",
+            # watch_catalog_collect researches the open web (search_sh_api_key).
+            "watch_catalog_collect",
             "solana_balance",
             "solana_token_holders",
             "solana_recent_txs",

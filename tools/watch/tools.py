@@ -4879,6 +4879,7 @@ class WatchCatalogCollectTool(_WatchToolBase):
         self._router: Any = None
         self._config: Any = None
         self._browser_manager: Any = None
+        self._vault: Any = None  # search_sh_api_key, for open-web research
 
     @property
     def name(self) -> str:
