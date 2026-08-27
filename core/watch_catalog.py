@@ -188,13 +188,20 @@ async def extract_catalog(
             index = int(it.get("index", i))
         except Exception:
             index = i
+        price = parse_price(f"{name} {detail} {coins}") if kind == "coin_package" else None
+        if kind == "coin_package" and price is None:
+            # Review-site prose yields lines like "30$ … like 12 coins";
+            # a ladder rung without a readable price is not a rung.
+            continue
+        if kind == "coin_package" and coins.strip().lower() == name.strip().lower():
+            coins = ""  # "$1.99 grants $1.99" says nothing — leave it blank
         out.append(
             {
                 "name": name,
                 "detail": detail,
                 "coins_text": coins,
                 "sort_index": index,
-                "price_usd": parse_price(f"{name} {detail}") if kind == "coin_package" else None,
+                "price_usd": price,
             }
         )
         if len(out) >= max_items:

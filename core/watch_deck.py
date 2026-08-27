@@ -2428,7 +2428,14 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
 
     s = _blank(prs)
     brands = [b for b in catalog.get("brands", []) if b["packages"]]
-    top = _header(s, "Appendix · raw data", "Coin packages, as priced on each store")
+    third_pkg = [t for t in (catalog.get("third_party_only") or []) if t.endswith("coin_package")]
+    all_reported = len(third_pkg) >= len(brands) and brands
+    top = _header(
+        s, "Appendix · raw data",
+        "Coin packages, as reported by public sources"
+        if all_reported
+        else "Coin packages, as priced on each store",
+    )
     if not brands:
         _footer(s, deck_title, page)
         return
@@ -2465,11 +2472,14 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
         cw(ri, 0, f"{b['name']}{'  (us)' if b['is_self'] else ''}", bg=bg, bold=b["is_self"])
         price = f"${pkg['price_usd']:.2f}" if pkg.get("price_usd") is not None else _clean(pkg["name"], 14)
         cw(ri, 1, price, bg=bg, bold=True)
-        cw(ri, 2, _clean(pkg.get("coins") or pkg["name"], 60), bg=bg)
+        grant = pkg.get("coins") or ""
+        if not grant or grant.strip().lower() == str(pkg["name"]).strip().lower():
+            grant = pkg.get("detail") or "—"   # never restate the price as its own grant
+        cw(ri, 2, _clean(grant, 60), bg=bg)
         cw(ri, 3, _clean(pkg.get("detail") or "", 70), bg=bg, size=7.5)
         cw(ri, 4, "the brand" if pkg.get("source_type") == "site" else "review site",
            bg=bg, size=7.5, fg=_INK if pkg.get("source_type") == "site" else _MUTED)
-    third = [t for t in (catalog.get("third_party_only") or []) if t.endswith("coin_package")]
+    third = third_pkg
     _text(
         s, 0.7, 6.28, 11.9, 0.4,
         "Prices and grants exactly as printed, with the source of each row. "
@@ -2493,7 +2503,12 @@ def _slide_promotions_raw(prs: Any, catalog: dict[str, Any], page: int, deck_tit
     for b in catalog.get("brands", []):
         for promo in b["promotions"][:4]:
             rows.append((b["name"], promo))
-    top = _header(s, "Appendix · raw data", f"{len(rows)} promotions running, as listed")
+    total = int((catalog.get("totals") or {}).get("promotion", len(rows)))
+    top = _header(
+        s, "Appendix · raw data",
+        f"{total} promotions on record"
+        + (f" — {min(len(rows), 12)} shown" if total > min(len(rows), 12) else ", as listed"),
+    )
     if not rows:
         _footer(s, deck_title, page)
         return

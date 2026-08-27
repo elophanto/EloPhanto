@@ -275,6 +275,66 @@ class TestProvenanceIsVisible:
         assert "reported, not observed" in slide  # the caveat is on the page, not implied
 
 
+class TestLadderHygiene:
+    """A price ladder read off review-site prose picks up junk rungs and
+    tautologies (2026-08-27 deck: 'Card Crush 30$ → like 12 coins', and
+    'Crown Coins $1.99 → $1.99')."""
+
+    @pytest.mark.asyncio
+    async def test_a_rung_without_a_readable_price_is_dropped(self) -> None:
+        page = "Packages start at 30$ and you get like 12 coins. The $9.99 tier gives 25 Mystery Coins."
+        r = _Router([
+            {"name": "30$", "coins": "like 12 coins", "detail": "", "index": 0},
+            {"name": "$9.99", "coins": "25 Mystery Coins", "detail": "", "index": 1},
+        ])
+        got = await extract_catalog(r, kind="coin_package", brand="B", page_text=page)
+        assert [g["name"] for g in got] == ["$9.99"] and got[0]["price_usd"] == 9.99
+
+    @pytest.mark.asyncio
+    async def test_a_grant_that_only_repeats_the_price_is_blanked(self) -> None:
+        page = "The $1.99 package is available."
+        r = _Router([{"name": "$1.99", "coins": "$1.99", "detail": "Min. package", "index": 0}])
+        got = await extract_catalog(r, kind="coin_package", brand="B", page_text=page)
+        assert got[0]["coins_text"] == "" and got[0]["price_usd"] == 1.99
+
+    def test_the_slide_shows_the_detail_instead_and_names_the_source(self, tmp_path) -> None:
+        from pptx import Presentation
+
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        catalog = {
+            "items": 1, "label": "Raw inventory…", "totals": {"coin_package": 1, "promotion": 40},
+            "third_party_only": ["Crown coin_package"],
+            "brands": [{
+                "subject_id": "s", "name": "Crown", "is_self": False,
+                "counts": {"coin_package": 1, "promotion": 2}, "providers": [], "games_sample": [],
+                "sources": {"coin_package": ["third_party"]},
+                "promotions": [{"name": "August Deal", "detail": "", "image": "", "url": "u"}],
+                "packages": [{"name": "$1.99", "price_usd": 1.99, "coins": "",
+                              "detail": "Its coin split is not published", "url": "u",
+                              "source_type": "third_party"}],
+                "customer_states": ["logged_out"], "observed_at": "2026-08-27",
+            }],
+        }
+        card = {"rows": [], "dimensions": []}
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, catalog=catalog)
+        texts = []
+        for sl in Presentation(str(out)).slides:
+            parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]
+            for sh in sl.shapes:
+                if sh.has_table:
+                    parts += [c.text for r in sh.table.rows for c in r.cells]
+            texts.append("\n".join(parts))
+        pkg = next(t for t in texts if "Coin packages" in t)
+        assert "as reported by public sources" in pkg      # not "as priced on each store"
+        assert "Its coin split is not published" in pkg    # detail stands in for the grant
+        assert "$1.99\n$1.99" not in pkg                   # never the price twice
+        promo = next(t for t in texts if "promotions on record" in t)
+        assert "40 promotions on record" in promo          # the total, not just what fits
+
+
 class TestRegister:
     @pytest.mark.asyncio
     async def test_recollection_updates_rather_than_duplicating(self, wm) -> None:
