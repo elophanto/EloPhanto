@@ -56,6 +56,7 @@ def render_scorecard_xlsx(
     title: str = "Competitive Scorecard",
     voice_rows: list[dict[str, Any]] | None = None,
     comms_rows: list[dict[str, Any]] | None = None,
+    catalog_rows: list[dict[str, Any]] | None = None,
 ) -> str:
     """Write the four-sheet workbook — plus a Voice sheet when ``voice_rows``
     (what players say, docs/87) and a Comms sheet when ``comms_rows`` (what
@@ -295,6 +296,8 @@ def render_scorecard_xlsx(
         write_voice_sheet(wb, voice_rows)
     if comms_rows:
         write_comms_sheet(wb, comms_rows)
+    if catalog_rows:
+        write_catalog_sheets(wb, catalog_rows)
 
     out = Path(path).expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -410,3 +413,52 @@ def write_comms_sheet(wb: Any, comms_rows: list[dict[str, Any]]) -> None:
             r.get("subject", ""), r.get("offer", ""), r.get("excerpt", ""), r.get("sender", ""), r.get("inbox", ""),
         ])
     _autosize(ws, {"A": 22, "B": 17, "C": 16, "D": 50, "E": 40, "F": 60, "G": 30, "H": 30})
+
+
+_CATALOG_SHEETS = (
+    ("provider", "Providers", ["Brand", "Provider", "Detail", "Source", "Read as", "Observed"]),
+    ("coin_package", "Coin packages",
+     ["Brand", "Price USD", "Package", "What it grants", "Notes", "Source", "Read as", "Observed"]),
+    ("promotion", "Promotions",
+     ["Brand", "Promotion", "Terms", "Image", "Source", "Read as", "Observed"]),
+    ("game", "Games", ["Brand", "Game", "Category / studio", "Source", "Read as", "Observed"]),
+)
+
+
+def write_catalog_sheets(wb: Any, catalog_rows: list[dict[str, Any]]) -> None:
+    """One sheet per catalog kind — the raw data itself (docs/89): every
+    provider, every price point, every promotion, every game title, each
+    with the page it was read from and the session it was read in."""
+    from openpyxl.styles import Font
+
+    for kind, title, hdr in _CATALOG_SHEETS:
+        rows = [r for r in catalog_rows if r.get("kind") == kind]
+        if not rows:
+            continue
+        ws = wb.create_sheet(title)
+        ws.append([f"{title} — as printed on each brand's own pages (not scored)"])
+        ws["A1"].font = Font(bold=True, size=12)
+        ws.append([])
+        ws.append(hdr)
+        _style_header(ws, 3, len(hdr))
+        ws.freeze_panes = "A4"
+        for r in sorted(rows, key=lambda x: (str(x.get("brand", "")), x.get("sort_index", 0))):
+            common_tail = [
+                r.get("url", ""), r.get("session", "logged_out"), str(r.get("observed_at", ""))[:10],
+            ]
+            if kind == "coin_package":
+                ws.append([
+                    r.get("brand", ""), r.get("price_usd", ""), r.get("name", ""),
+                    r.get("coins", ""), r.get("detail", ""), *common_tail,
+                ])
+            elif kind == "promotion":
+                ws.append([
+                    r.get("brand", ""), r.get("name", ""), r.get("detail", ""),
+                    r.get("image", ""), *common_tail,
+                ])
+            else:
+                ws.append([
+                    r.get("brand", ""), r.get("name", ""), r.get("detail", ""), *common_tail,
+                ])
+        widths = {"A": 22, "B": 34, "C": 42, "D": 40, "E": 30, "F": 46, "G": 14, "H": 12}
+        _autosize(ws, {k: v for k, v in widths.items() if k <= chr(ord("A") + len(hdr) - 1)})

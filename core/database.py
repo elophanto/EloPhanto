@@ -500,6 +500,36 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_watch_regulatory_lookup
         ON watch_regulatory(company_id, jurisdiction, event_date)
     """,
+    # Catalog (docs/89): the raw inventory behind the scores — providers,
+    # coin packages, promotions, games. Not judgements, so never scored;
+    # every row is an item as printed, with the page it came from, the
+    # session state it was read in, and (for promotions) a picture.
+    """
+    CREATE TABLE IF NOT EXISTS watch_catalog (
+        catalog_id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL DEFAULT 'elophanto-self',
+        subject_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '',
+        price_usd REAL,
+        coins_text TEXT NOT NULL DEFAULT '',
+        sort_index INTEGER NOT NULL DEFAULT 0,
+        source_url TEXT NOT NULL DEFAULT '',
+        image_path TEXT NOT NULL DEFAULT '',
+        customer_state TEXT NOT NULL DEFAULT 'logged_out',
+        geo_state TEXT NOT NULL DEFAULT 'n/a',
+        exit_ip TEXT NOT NULL DEFAULT '',
+        observed_at TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (company_id, dedupe_key)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_watch_catalog_lookup
+        ON watch_catalog(company_id, subject_id, kind, sort_index)
+    """,
     # App meta (docs/88 §E): the store listing's version, rating, rating
     # count and release notes per brand at each observation — release
     # cadence and rating drift, from the same iTunes endpoints VoC uses.

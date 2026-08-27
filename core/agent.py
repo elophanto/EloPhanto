@@ -2639,6 +2639,8 @@ class Agent:
             "watch_regulatory_collect",
             "watch_regulatory",
             "watch_login",
+            "watch_catalog_collect",
+            "watch_catalog",
         ):
             tool = self._registry.get(tool_name)
             if tool is None:

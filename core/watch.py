@@ -228,6 +228,28 @@ class WatchVoice:
 
 
 @dataclass(slots=True)
+class WatchCatalogItem:
+    """One inventory item as printed — a provider, a coin package, a
+    promotion or a game (docs/89). Never scored."""
+
+    catalog_id: str
+    subject_id: str
+    kind: str
+    name: str
+    company_id: str = "elophanto-self"
+    detail: str = ""
+    price_usd: float | None = None
+    coins_text: str = ""
+    sort_index: int = 0
+    source_url: str = ""
+    image_path: str = ""
+    customer_state: str = "logged_out"
+    geo_state: str = "n/a"
+    exit_ip: str = ""
+    observed_at: str = ""
+
+
+@dataclass(slots=True)
 class WatchComms:
     """One marketing e-mail a brand sent to the organ's inbox — what they
     send players, with the message id as provenance."""
@@ -1607,6 +1629,117 @@ class WatchManager:
         rows = await self.list_comms(company_id, limit=20000)
         return summarize_comms(rows, subjects, window_days=window_days)
 
+    # ── Catalog: the raw inventory (docs/89) ─────────────────────────
+
+    async def add_catalog_item(
+        self,
+        *,
+        company_id: str,
+        subject_id: str,
+        kind: str,
+        name: str,
+        detail: str = "",
+        price_usd: float | None = None,
+        coins_text: str = "",
+        sort_index: int = 0,
+        source_url: str = "",
+        image_path: str = "",
+        customer_state: str = "logged_out",
+        geo_state: str = "n/a",
+        exit_ip: str = "",
+        brand_name: str = "",
+    ) -> tuple[dict[str, Any], bool]:
+        """File one inventory item. Returns ``(row, is_new)``: a re-collection
+        UPDATES the item (a price ladder changes; a duplicate row would be a
+        lie about the catalogue's size) rather than inserting again."""
+        from core.watch_catalog import CATALOG_KINDS, dedupe_key
+
+        if kind not in CATALOG_KINDS:
+            raise ValueError(f"invalid catalog kind: {kind!r}")
+        if customer_state not in VALID_CUSTOMER_STATES:
+            raise ValueError(f"invalid customer_state: {customer_state!r}")
+        key = dedupe_key(brand_name or subject_id, kind, name)
+        now = _now()
+        existing = await self._db.execute(
+            "SELECT catalog_id FROM watch_catalog WHERE company_id = ? AND dedupe_key = ?",
+            (company_id, key),
+        )
+        row = {
+            "kind": kind, "name": name[:150], "detail": detail[:400],
+            "price_usd": price_usd, "coins_text": coins_text[:200],
+            "sort_index": int(sort_index), "source_url": source_url,
+            "image_path": image_path, "customer_state": customer_state,
+            "geo_state": geo_state, "observed_at": now,
+        }
+        if existing:
+            cid_ = existing[0]["catalog_id"]
+            await self._db.execute(
+                "UPDATE watch_catalog SET detail = ?, price_usd = ?, coins_text = ?, "
+                "sort_index = ?, source_url = ?, image_path = ?, customer_state = ?, "
+                "geo_state = ?, exit_ip = ?, observed_at = ? WHERE catalog_id = ?",
+                (row["detail"], price_usd, row["coins_text"], row["sort_index"], source_url,
+                 image_path, customer_state, geo_state, exit_ip, now, cid_),
+            )
+            return {**row, "catalog_id": cid_}, False
+        new_id = _sid("ct")
+        await self._db.execute_insert(
+            "INSERT INTO watch_catalog (catalog_id, company_id, subject_id, kind, name, "
+            "detail, price_usd, coins_text, sort_index, source_url, image_path, "
+            "customer_state, geo_state, exit_ip, observed_at, dedupe_key, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (new_id, company_id, subject_id, kind, row["name"], row["detail"], price_usd,
+             row["coins_text"], row["sort_index"], source_url, image_path, customer_state,
+             geo_state, exit_ip, now, key, now),
+        )
+        return {**row, "catalog_id": new_id}, True
+
+    async def list_catalog(
+        self,
+        company_id: str,
+        *,
+        subject_id: str | None = None,
+        kind: str | None = None,
+        limit: int = 20000,
+    ) -> list[WatchCatalogItem]:
+        sql = "SELECT * FROM watch_catalog WHERE company_id = ?"
+        args: list[Any] = [company_id]
+        if subject_id:
+            sql += " AND subject_id = ?"
+            args.append(subject_id)
+        if kind:
+            sql += " AND kind = ?"
+            args.append(kind)
+        sql += " ORDER BY kind, sort_index, name LIMIT ?"
+        args.append(int(limit))
+        return [self._to_catalog(r) for r in await self._db.execute(sql, tuple(args))]
+
+    @staticmethod
+    def _to_catalog(r: Any) -> WatchCatalogItem:
+        return WatchCatalogItem(
+            catalog_id=r["catalog_id"],
+            subject_id=r["subject_id"],
+            kind=r["kind"],
+            name=r["name"],
+            company_id=r["company_id"],
+            detail=_row_get(r, "detail", "") or "",
+            price_usd=_row_get(r, "price_usd"),
+            coins_text=_row_get(r, "coins_text", "") or "",
+            sort_index=int(_row_get(r, "sort_index", 0) or 0),
+            source_url=_row_get(r, "source_url", "") or "",
+            image_path=_row_get(r, "image_path", "") or "",
+            customer_state=_row_get(r, "customer_state", "logged_out") or "logged_out",
+            geo_state=_row_get(r, "geo_state", "n/a") or "n/a",
+            exit_ip=_row_get(r, "exit_ip", "") or "",
+            observed_at=_row_get(r, "observed_at", "") or "",
+        )
+
+    async def catalog_summary(self, company_id: str) -> dict[str, Any]:
+        from core.watch_catalog import summarize_catalog
+
+        return summarize_catalog(
+            await self.list_catalog(company_id), await self.list_subjects(company_id)
+        )
+
     # ── App meta (docs/88 §E) ─────────────────────────────────────────
 
     async def add_app_meta(
@@ -1845,6 +1978,12 @@ class WatchManager:
             comms = await self.comms_summary(company_id)
             if comms.get("emails"):
                 card["comms"] = comms
+        except Exception:
+            pass
+        try:
+            cat = await self.catalog_summary(company_id)
+            if cat.get("items"):
+                card["catalog"] = {"items": cat["items"], "totals": cat["totals"]}
         except Exception:
             pass
         try:

@@ -265,6 +265,14 @@ inboxes (`watch_comms_*`), a regulatory register and calendar
 calendar and trend lines once three cycles exist. All of it reads or adds
 registers of the same shape; none of it changes the pack when absent.
 
+**The raw data behind the scores (docs/89).** Providers, coin packages,
+promotions and game titles as printed — `watch_catalog_collect` reads them
+off the brand's own pages, keeps an item only when its name is on the page,
+photographs the promotions page, and stamps every row with the session and
+state it was read in. Four appendix slides and one workbook sheet per kind;
+never scored, because a list is not a judgement. See
+[89](89-CATALOG.md).
+
 **Baseline packs and comparable fields.** A from-scratch analysis has nothing
 to move *from*: pass `baseline=true` to `watch_board_report` (or
 `watch_executive_deck`, or `watch_analyze` when it saves the pack) and no

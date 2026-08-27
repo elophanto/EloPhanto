@@ -27,6 +27,10 @@ from core.watch import VALID_CUSTOMER_STATES
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 
+def _slug(name: str) -> str:
+    return "".join(ch if ch.isalnum() else "-" for ch in (name or "").lower()).strip("-")
+
+
 def _company(params: dict[str, Any]) -> str:
     """Resolve the owning company — explicit arg wins, else the active one."""
     from core.company import current_company_id
@@ -688,6 +692,14 @@ class WatchScorecardTool(_WatchToolBase):
                     )
                 except Exception:
                     comms_rows = []
+            catalog_rows: list[dict[str, Any]] = []
+            if str(params.get("voice") or "auto").lower() != "false":
+                try:
+                    catalog_rows = _catalog_rows_for_export(
+                        await wm.list_catalog(cid), await wm.list_subjects(cid)
+                    )
+                except Exception:
+                    catalog_rows = []
             written = render_scorecard_xlsx(
                 card,
                 dimensions=await wm.list_dimensions(cid),
@@ -697,6 +709,7 @@ class WatchScorecardTool(_WatchToolBase):
                 title=str(params.get("title") or "Competitive Scorecard"),
                 voice_rows=voice_rows or None,
                 comms_rows=comms_rows or None,
+                catalog_rows=catalog_rows or None,
             )
             return ToolResult(
                 success=True,
@@ -1457,6 +1470,59 @@ def _regulatory_markdown(cal: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _catalog_rows_for_export(rows: list[Any], subjects: list[Any]) -> list[dict[str, Any]]:
+    names = {s.subject_id: s.name for s in subjects}
+    return [
+        {
+            "brand": names.get(r.subject_id, r.subject_id), "kind": r.kind, "name": r.name,
+            "detail": r.detail, "price_usd": r.price_usd, "coins": r.coins_text,
+            "sort_index": r.sort_index, "url": r.source_url, "image": r.image_path,
+            "session": r.customer_state, "observed_at": r.observed_at,
+        }
+        for r in rows
+    ]
+
+
+async def _catalog_for_pack(wm: Any, cid: str, params: dict[str, Any]) -> dict[str, Any] | None:
+    """The raw inventory to lay in the appendix — None when off or empty.
+    Rides the same voice=auto|true|false switch as the other classes."""
+    if str(params.get("voice") or "auto").lower() == "false":
+        return None
+    try:
+        cat = await wm.catalog_summary(cid)
+    except Exception:
+        return None
+    return cat if cat.get("items") else None
+
+
+def _catalog_markdown(cat: dict[str, Any]) -> list[str]:
+    t = cat.get("totals", {})
+    lines = ["## Raw data: providers, packages, promotions, games", ""]
+    lines.append(
+        f"_{cat.get('label', '')}_ {t.get('provider', 0)} providers, "
+        f"{t.get('coin_package', 0)} coin packages, {t.get('promotion', 0)} promotions and "
+        f"{t.get('game', 0)} game titles read across {len(cat.get('brands', []))} brands; "
+        "every item is in the workbook with its source URL."
+    )
+    lines.append("")
+    lines.append("| Brand | Providers | Packages | Promotions | Games | Cheapest package | Read as |")
+    lines.append("|---|---:|---:|---:|---:|---|---|")
+    for b in cat.get("brands", []):
+        c = b["counts"]
+        cheapest = ""
+        priced = [p for p in b["packages"] if p.get("price_usd") is not None]
+        if priced:
+            p0 = priced[0]
+            cheapest = f"${p0['price_usd']:.2f}" + (f" — {p0['coins']}" if p0.get("coins") else "")
+        lines.append(
+            f"| {b['name']}{' (us)' if b['is_self'] else ''} | {c.get('provider', 0)} | "
+            f"{c.get('coin_package', 0)} | {c.get('promotion', 0)} | {c.get('game', 0)} | "
+            f"{cheapest} | {', '.join(b['customer_states'])} |"
+        )
+    lines.append("")
+    return lines
+
+
 def _comms_markdown(comms: dict[str, Any]) -> list[str]:
     lines = ["## What they send players", ""]
     lines.append(
@@ -1792,6 +1858,11 @@ class WatchBoardReportTool(_WatchToolBase):
 
             calendar = demand_calendar(weeks=8, events=params.get("calendar_events") or [])
 
+        # ── Raw data appendix (docs/89) ──
+        catalog = await _catalog_for_pack(wm, cid, params)
+        if catalog:
+            lines += _catalog_markdown(catalog)
+
         # ── Regulatory calendar (docs/88 §D) ──
         regulatory = None
         if str(params.get("voice") or "auto").lower() != "false":
@@ -1888,6 +1959,7 @@ class WatchBoardReportTool(_WatchToolBase):
                     voice_diff=voice_diff,
                     comms=comms,
                     regulatory=regulatory,
+                    catalog=catalog,
                     trends=trends,
                     calendar=calendar,
                     path=deck_target,
@@ -2048,6 +2120,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                     regulatory = None
             except Exception:
                 regulatory = None
+        catalog = await _catalog_for_pack(wm, cid, params)
         trends = None
         try:
             trends = await wm.trend_series(cid)
@@ -2089,6 +2162,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                 voice_diff=voice_diff,
                 comms=comms,
                 regulatory=regulatory,
+                catalog=catalog,
                 trends=trends,
                 calendar=calendar,
                 path=path,
@@ -3199,6 +3273,26 @@ class WatchQueueTool(_WatchToolBase):
                         company_id=cid,
                     )
                     created.append(f"{name} (0 5 * * 1)")
+                except Exception as e:
+                    created.append(f"{name} FAILED: {e}")
+                name = "Raw catalog · weekly"
+                if name in existing:
+                    await self._scheduler.delete_schedule(existing[name])
+                try:
+                    await self._scheduler.create_schedule(
+                        name=name,
+                        task_goal=(
+                            f"Refresh the raw inventory for {cid}: call watch_login first "
+                            "so the stores are visible, then watch_catalog_collect with "
+                            "customer_state='registered' for every brand that reported a "
+                            "session and customer_state='logged_out' for the rest. Do not "
+                            "add or archive brands; do not score anything."
+                        ),
+                        cron_expression="30 5 * * 1",
+                        description="Auto-created by watch_queue action=schedule",
+                        company_id=cid,
+                    )
+                    created.append(f"{name} (30 5 * * 1)")
                 except Exception as e:
                     created.append(f"{name} FAILED: {e}")
                 name = "Regulatory tracking · weekly"
@@ -4686,6 +4780,237 @@ class WatchLoginTool(_WatchToolBase):
         )
 
 
+# ── Catalog: the raw inventory behind the scores (docs/89) ─────────────
+
+
+class WatchCatalogCollectTool(_WatchToolBase):
+    """Read each brand's providers, coin packages, promotions and games as
+    printed, with a picture of the promotions page."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._router: Any = None
+        self._config: Any = None
+        self._browser_manager: Any = None
+
+    @property
+    def name(self) -> str:
+        return "watch_catalog_collect"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Collect the RAW INVENTORY behind the scores: game providers, coin "
+            "packages (the price ladder, with what each grants), promotions (with "
+            "a screenshot of the promotions page) and the game list — as printed "
+            "on each brand's own pages, verified to be on the page, never scored. "
+            "This is what a client means by 'just the raw data'. Runs logged out "
+            "by default; pass customer_state='registered' after watch_login so the "
+            "store and the real promotions are visible, and every row is stamped "
+            "with the session it was read in. Register is canon."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "Brand name; omit for all active brands."},
+                "kinds": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["provider", "coin_package", "promotion", "game"]},
+                    "description": "Default: all four.",
+                },
+                "customer_state": {
+                    "type": "string",
+                    "enum": ["logged_out", "registered", "verified", "purchaser", "redeemer", "vip"],
+                    "description": "What the browser session IS while reading. Stamped on every row.",
+                },
+                "geo_state": {"type": "string", "description": "Read as this US state (e.g. FL)."},
+                "max_pages": {"type": "integer", "description": "Pages read per brand. Default 8."},
+                "save": {"type": "boolean", "description": "Default true; false = dry run."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.MODERATE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        if self._router is None:
+            return ToolResult(success=False, error="no router — catalog reading needs the model")
+        from core.watch_catalog import CATALOG_KINDS, extract_catalog, rank_catalog_pages
+        from core.watch_observe import capture_page_screenshot, collect_pages, screenshot_filename
+
+        cid = _company(params)
+        wm = self._watch_manager
+        kinds = [k for k in (params.get("kinds") or CATALOG_KINDS) if k in CATALOG_KINDS]
+        customer_state = str(params.get("customer_state") or "logged_out")
+        if customer_state not in VALID_CUSTOMER_STATES:
+            return ToolResult(
+                success=False,
+                error=f"invalid customer_state {customer_state!r} — one of {', '.join(VALID_CUSTOMER_STATES)}",
+            )
+        geo_state = str(params.get("geo_state") or "n/a")
+        proxy_url = None
+        if self._config is not None and getattr(self._config, "proxy", None):
+            proxy_url = self._config.proxy.request_proxy_url(geo_state) or None
+        if geo_state != "n/a" and not proxy_url:
+            return _no_exit_for_state(geo_state)
+        save = bool(params.get("save", True))
+
+        subjects = await wm.list_subjects(cid)
+        if params.get("subject"):
+            subj = await wm.get_subject_by_name(str(params["subject"]), cid)
+            if subj is None:
+                return ToolResult(
+                    success=False,
+                    error=f"subject {params['subject']!r} is not in the register — the register is canon",
+                )
+            subjects = [subj]
+
+        shots_root = Path(str(getattr(self._config, "workspace", "") or ".")) / "catalog-shots"
+        report: list[dict[str, Any]] = []
+        total_new = 0
+        for subj in subjects:
+            if not subj.url:
+                continue
+            pages = await collect_pages(
+                subj.url,
+                browser_manager=self._browser_manager,
+                proxy_url=proxy_url,
+                max_pages=int(params.get("max_pages") or 8),
+            )
+            readable = [p for p in pages if not p.get("error") and p.get("text")]
+            by_kind = rank_catalog_pages(readable)
+            per: dict[str, Any] = {"subject": subj.name, "pages_read": len(readable), "kinds": {}}
+            for kind in kinds:
+                found = 0
+                new = 0
+                shot = ""
+                for page in by_kind.get(kind, []):
+                    items = await extract_catalog(
+                        self._router, kind=kind, brand=subj.name, page_text=str(page.get("text") or "")
+                    )
+                    if not items:
+                        continue
+                    if kind == "promotion" and save and not shot and self._browser_manager is not None:
+                        # "maybe some images for the promotions" — the page the
+                        # offers were read from, consent already dismissed.
+                        target = shots_root / _slug(subj.name) / screenshot_filename(str(page.get("url") or ""))
+                        shot = await capture_page_screenshot(
+                            self._browser_manager, str(page.get("url") or ""), str(target)
+                        )
+                    for item in items:
+                        found += 1
+                        if not save:
+                            continue
+                        _row, is_new = await wm.add_catalog_item(
+                            company_id=cid,
+                            subject_id=subj.subject_id,
+                            kind=kind,
+                            brand_name=subj.name,
+                            source_url=str(page.get("url") or ""),
+                            image_path=shot if kind == "promotion" else "",
+                            customer_state=customer_state,
+                            geo_state=geo_state,
+                            **item,
+                        )
+                        new += 1 if is_new else 0
+                per["kinds"][kind] = {"found": found, "new": new, "pages": len(by_kind.get(kind, []))}
+                if kind == "promotion" and shot:
+                    per["kinds"][kind]["image"] = shot
+                total_new += new
+            report.append(per)
+        return ToolResult(
+            success=True,
+            data={
+                "company_id": cid,
+                "customer_state": customer_state,
+                "geo_state": geo_state,
+                "saved": save,
+                "new_items": total_new,
+                "brands": report,
+                "note": (
+                    "raw inventory in watch_catalog — appendix slides and one workbook "
+                    "sheet per kind; never scored. Collect again with "
+                    "customer_state='registered' after watch_login to see the store."
+                ),
+            },
+        )
+
+
+class WatchCatalogTool(_WatchToolBase):
+    """Read side of the catalog."""
+
+    @property
+    def name(self) -> str:
+        return "watch_catalog"
+
+    @property
+    def description(self) -> str:
+        return (
+            "The raw inventory, read side. action='summary' (default): per brand — "
+            "counts by kind, the provider list, the coin-package price ladder, the "
+            "promotions with their images, a sample of games. action='list': the "
+            "rows themselves (filter by subject/kind)."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["summary", "list"]},
+                "subject": {"type": "string"},
+                "kind": {"type": "string", "enum": ["provider", "coin_package", "promotion", "game"]},
+                "limit": {"type": "integer", "description": "list: default 200."},
+                "company_id": {"type": "string"},
+            },
+        }
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        return PermissionLevel.SAFE
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        if (err := self._guard()) is not None:
+            return err
+        cid = _company(params)
+        wm = self._watch_manager
+        if str(params.get("action") or "summary").lower() == "list":
+            subject_id = None
+            if params.get("subject"):
+                subj = await wm.get_subject_by_name(str(params["subject"]), cid)
+                if subj is None:
+                    return ToolResult(success=False, error="unknown subject")
+                subject_id = subj.subject_id
+            rows = await wm.list_catalog(
+                cid, subject_id=subject_id, kind=params.get("kind") or None,
+                limit=int(params.get("limit") or 200),
+            )
+            names = {s.subject_id: s.name for s in await wm.list_subjects(cid)}
+            return ToolResult(
+                success=True,
+                data={
+                    "count": len(rows),
+                    "items": [
+                        {
+                            "brand": names.get(r.subject_id, r.subject_id), "kind": r.kind,
+                            "name": r.name, "detail": r.detail, "price_usd": r.price_usd,
+                            "coins": r.coins_text, "url": r.source_url, "image": r.image_path,
+                            "session": r.customer_state, "observed_at": r.observed_at[:10],
+                        }
+                        for r in rows
+                    ],
+                },
+            )
+        return ToolResult(success=True, data=await wm.catalog_summary(cid))
+
+
 def create_watch_tools() -> list[BaseTool]:
     """All competitive-intelligence tools."""
     return [
@@ -4712,4 +5037,6 @@ def create_watch_tools() -> list[BaseTool]:
         WatchRegulatoryCollectTool(),
         WatchRegulatoryTool(),
         WatchLoginTool(),
+        WatchCatalogCollectTool(),
+        WatchCatalogTool(),
     ]
