@@ -104,11 +104,49 @@ Club* (only when tiers exist), *Providers / Games* (every studio, the
 titles read, "+N more in the workbook" when cut). The workbook's sheets
 carry the same columns, and a *Loyalty tiers* sheet.
 
+## Game portfolio — the client's own matrix (2026-09-01)
+
+The client's sheet (`game_portfolio.csv`, semicolon-separated) is a
+Provider × Brand matrix: column A their studio list (59 names), the header
+row their brand columns, every cell empty for us to fill. So:
+
+* `canonical_provider` gives one key per studio however it is printed —
+  "BGaming" / "B Gaming" / "BGAMING", "Relax" / "Relax Gaming", "2×2" /
+  "2 By 2", "4TP" / "4ThePlayer", "Gamzik" / "Gamzix" — while the rows in
+  the register stay as printed. 136 printed forms collapse to 127 studios.
+* `read_provider_universe(path)` reads their sheet; `brand_key` matches
+  their brand labels to the register's ("LuckyLand Casino" = "LuckyLand
+  Slots", "High5 Casino" = "High 5 Casino").
+* `provider_matrix(items, brands, universe, universe_brands)` builds the
+  matrix. With their list, rows follow it first — including studios on the
+  list that nothing has shown yet (empty row, grey on the slide), so the
+  gap is visible — then studios we observed that are not on their list,
+  marked `*`. A cell is ● when the brand carries the studio (a site read
+  beats a review read), with the number of that studio's titles read when
+  any; a game's `detail` counts as its studio only when it names a known
+  studio, so "Jackpot Slots" never becomes a provider. Brands only on
+  their sheet (Spinfinite) and only in the register are reported, never
+  reconciled — the register is canon.
+* Deck: *Game portfolio – N studios × M brands (i of k)*, 26 rows a page,
+  every studio; replaces the twelve-most-common slide. Workbook: a *Game
+  portfolio* sheet first among the catalog sheets, same cells, plus
+  *Brands* and *On client list* columns.
+* `providers_from=<path>` on `watch_executive_deck`, `watch_board_report`
+  (and its workbook) and `watch_catalog action=matrix`; without it the
+  matrix is what was observed, most-carried first.
+
+Against their list on 2026-09-01: 51 of 59 seen, 8 not yet (Ajoy, Deck of
+Dice, G Games, GameArt, Hacksaw RGS, LivePlay, Toucan Games, Zoot), 76
+observed that they do not list. The thin brands are LuckyLand (0 studios on
+record), High 5 (7), Card Crush (8), Pulsz Bingo (10): their lobbies are
+behind a login, which is what `watch_catalog_collect kinds=provider,game
+sign_in_if_missing=true` is for.
+
 ## In the pack
 
 Appendix, after the method slide, only when rows exist:
 
-* **Providers** — brand × provider matrix, ticked; counts per brand.
+* **Game portfolio** — Provider × Brand, every studio, paginated (above).
 * **Coin packages** — the price ladder per brand, cheapest to dearest,
   with what each grants; ours highlighted.
 * **Promotions** — the table (name, terms, dates) plus the captured

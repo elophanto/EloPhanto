@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -420,9 +421,183 @@ async def extract_catalog(
     return out
 
 
-def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
-    """Counts per brand × kind, each brand's price ladder, and the promotions
-    that carry a picture. Pure computation."""
+# ── Game portfolio: Provider × Brand ─────────────────────────────────
+# The client's own sheet is a matrix — one row per studio, one column per
+# brand — and its column A is their list of studios. Brands and review
+# sites print the same studio five ways ("BGaming", "B Gaming", "BGAMING",
+# "Relax", "Relax Gaming"), so the matrix works on a canonical key and
+# shows one printed form; the rows stay as printed in the register.
+_PROVIDER_SUFFIX = re.compile(
+    r"\s*\b(?:gaming|games|game|studios?|entertainment|interactive|slots|software|ltd|inc|limited|group)\b\.?\s*$",
+    re.I,
+)
+_PROVIDER_ALIASES = {
+    "b": "bgaming", "4tp": "4theplayer", "gamzik": "gamzix", "btg": "bigtime",
+    "vgw": "virtualgamingworlds", "1x2network": "1x2", "1x2gaming": "1x2",
+    "n2": "n2live", "peterandsons": "petersons", "m2playmicrogaming": "m2play",
+}
+
+
+def canonical_provider(name: str) -> str:
+    """One key for every way a studio gets printed. Never shown — the
+    printed form is; this only decides which printed forms are one studio."""
+    n = re.sub(r"\(.*?\)", "", name or "")             # "4TP (is this 4 the player?)"
+    n = re.sub(r"(\d)\s*[x×]\s*(\d)", r"\1by\2", n)      # "2×2", "2 By 2", "2By2"
+    prev = None
+    while prev != n:                                     # "Evoplay Entertainment Games"
+        prev, n = n, _PROVIDER_SUFFIX.sub("", n).strip()
+    key = re.sub(r"[^a-z0-9]", "", n.lower())
+    if not key:                                          # the whole name was a suffix word
+        key = re.sub(r"[^a-z0-9]", "", (name or "").lower())
+    m = re.match(r"^(.{3,}?)(games|gaming|studios?)$", key)   # "ElaGames", "FantasmaGames"
+    if m:
+        key = m.group(1)
+    return _PROVIDER_ALIASES.get(key, key)
+
+
+def brand_key(name: str) -> str:
+    """'LuckyLand Casino', 'LuckyLand Slots' and 'High5 Casino' vs 'High 5
+    Casino' are the same brands under different labels."""
+    n = re.sub(r"\b(?:casino|slots|social|sweepstakes)\b", "", name or "", flags=re.I)
+    return re.sub(r"[^a-z0-9]", "", n.lower())
+
+
+def read_provider_universe(path: str | Path) -> dict[str, Any]:
+    """The client's game-portfolio sheet: column A is their studio list, the
+    header row's other cells are their brand columns. Semicolon or comma
+    separated; a count row ("155") and blank rows are skipped."""
+    import csv
+
+    text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
+    head = "\n".join(text.splitlines()[:5])
+    delim = ";" if head.count(";") > head.count(",") else ","
+    providers: list[str] = []
+    brands: list[str] = []
+    seen_header = False
+    for row in csv.reader(text.splitlines(), delimiter=delim):
+        if not row:
+            continue
+        first = row[0].strip()
+        if not seen_header:
+            if "provider" in first.lower() or "studio" in first.lower():
+                seen_header = True
+                brands = [c.strip() for c in row[1:] if c.strip()]
+            continue
+        if not first or first.isdigit() or first.lower() in {"total", "count"}:
+            continue
+        providers.append(" ".join(first.split()))
+    if not seen_header:      # no header row: every non-empty first cell is a studio
+        providers = [
+            " ".join(r[0].split()) for r in csv.reader(text.splitlines(), delimiter=delim)
+            if r and r[0].strip() and not r[0].strip().isdigit()
+        ]
+    return {"providers": providers, "brands": brands, "path": str(path)}
+
+
+def provider_matrix(
+    items: list[dict[str, Any]],
+    brands: list[dict[str, Any]],
+    universe: list[str] | None = None,
+    universe_brands: list[str] | None = None,
+) -> dict[str, Any]:
+    """Provider × Brand. ``items`` are catalog rows as dicts (brand, kind,
+    name, detail, source_type); ``brands`` the register's order ({name,
+    is_self}). With ``universe`` (the client's list) the rows follow that
+    list first, and studios we observed that are not on it come after,
+    marked; a studio on the list that nothing has shown yet stays a row
+    with empty cells — the client can see the gap, not just our answer."""
+    order = [b["name"] for b in brands]
+    forms: dict[str, dict[str, int]] = {}
+    carried: dict[str, dict[str, str]] = {}
+    for it in items:
+        if it.get("kind") != "provider":
+            continue
+        key = canonical_provider(it.get("name", ""))
+        if not key:
+            continue
+        forms.setdefault(key, {})
+        forms[key][it["name"]] = forms[key].get(it["name"], 0) + 1
+        src = it.get("source_type") or "site"
+        prev = carried.setdefault(key, {}).get(it["brand"])
+        if prev is None or (src == "site" and prev != "site"):
+            carried[key][it["brand"]] = src
+    games: dict[str, dict[str, int]] = {}
+    known = set(carried) | {canonical_provider(u) for u in (universe or [])}
+    for it in items:
+        if it.get("kind") != "game" or not it.get("detail"):
+            continue
+        key = canonical_provider(it["detail"])
+        if key in known:     # "Jackpot Slots" / "TABLE GAMES" are categories, not studios
+            games.setdefault(key, {})
+            games[key][it["brand"]] = games[key].get(it["brand"], 0) + 1
+
+    def display(key: str, fallback: str = "") -> str:
+        printed = forms.get(key)
+        if printed:
+            return max(printed.items(), key=lambda kv: (kv[1], -len(kv[0])))[0]
+        return re.sub(r"\s*\(.*?\)", "", fallback).strip() or key
+
+    rows: list[dict[str, Any]] = []
+    listed: set[str] = set()
+    for label in universe or []:
+        key = canonical_provider(label)
+        if not key or key in listed:
+            continue
+        listed.add(key)
+        rows.append({"key": key, "name": display(key, label), "on_client_list": True})
+    for key in sorted(set(carried) - listed,
+                      key=lambda k: (-len(carried[k]), display(k).lower())):
+        rows.append({"key": key, "name": display(key), "on_client_list": not universe})
+    for row in rows:
+        key = row["key"]
+        cells = {}
+        for b in order:
+            src = carried.get(key, {}).get(b)
+            cells[b] = {"carried": src is not None, "source": src or "",
+                        "games": games.get(key, {}).get(b, 0)}
+        row["brands"] = cells
+        row["brand_count"] = sum(1 for c in cells.values() if c["carried"])
+        row["observed"] = row["brand_count"] > 0
+    ours = {brand_key(b): b for b in order}
+    theirs = [brand_key(b) for b in (universe_brands or [])]
+    return {
+        "providers": rows,
+        "brands": order,
+        "counts": {
+            "observed": len(carried),
+            "on_client_list": len(listed),
+            "both": sum(1 for r in rows if r["on_client_list"] and r["observed"]),
+            "list_only": sum(1 for r in rows if r["on_client_list"] and not r["observed"]),
+            "observed_only": sum(1 for r in rows if not r["on_client_list"]),
+        },
+        "brands_only_on_client_list": [
+            b for b in (universe_brands or []) if brand_key(b) not in ours
+        ],
+        "brands_only_in_register": [b for k, b in ours.items() if theirs and k not in theirs],
+    }
+
+
+def catalog_items(rows: list[Any], subjects: list[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Register rows → the plain dicts the matrix reads, and the brand order
+    (ours first, then the register's alphabetical)."""
+    names = {s.subject_id: s.name for s in subjects}
+    items = [
+        {"brand": names.get(r.subject_id, r.subject_id), "kind": r.kind, "name": r.name,
+         "detail": r.detail, "source_type": getattr(r, "source_type", "site")}
+        for r in rows if r.subject_id in names
+    ]
+    brands = sorted(({"name": s.name, "is_self": bool(s.is_self)} for s in subjects
+                     if any(r.subject_id == s.subject_id for r in rows)),
+                    key=lambda b: (not b["is_self"], b["name"]))
+    return items, brands
+
+
+def summarize_catalog(
+    rows: list[Any], subjects: list[Any], universe: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Counts per brand × kind, each brand's price ladder, the promotions
+    that carry a picture, and the Provider × Brand matrix (following the
+    client's own studio list when ``universe`` is given). Pure computation."""
     per: list[dict[str, Any]] = []
     totals: dict[str, int] = {}
     for s in subjects:
@@ -449,7 +624,7 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
                 "name": s.name,
                 "is_self": bool(s.is_self),
                 "counts": counts,
-                "providers": [r.name for r in mine if r.kind == "provider"][:40],
+                "providers": [r.name for r in mine if r.kind == "provider"][:200],   # raw data: all of them
                 "sources": sources,
                 "packages": [
                     {"name": r.name, "price_usd": r.price_usd, "coins": r.coins_text,
@@ -486,10 +661,17 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
         for k, srcs in b.get("sources", {}).items()
         if srcs == ["third_party"]
     ]
+    items, order = catalog_items(rows, subjects)
+    matrix = provider_matrix(
+        items, order,
+        universe=(universe or {}).get("providers"),
+        universe_brands=(universe or {}).get("brands"),
+    ) if totals.get("provider") else None
     return {
         "brands": per,
         "totals": totals,
         "third_party_only": third_party_only,
+        "matrix": matrix,
         "items": sum(totals.values()),
         "kinds": list(CATALOG_KINDS),
         "label": "Raw inventory as printed on each brand's own pages — not scored.",

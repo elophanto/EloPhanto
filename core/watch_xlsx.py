@@ -57,6 +57,7 @@ def render_scorecard_xlsx(
     voice_rows: list[dict[str, Any]] | None = None,
     comms_rows: list[dict[str, Any]] | None = None,
     catalog_rows: list[dict[str, Any]] | None = None,
+    provider_universe: dict[str, Any] | None = None,
 ) -> str:
     """Write the four-sheet workbook — plus a Voice sheet when ``voice_rows``
     (what players say, docs/87) and a Comms sheet when ``comms_rows`` (what
@@ -297,7 +298,7 @@ def render_scorecard_xlsx(
     if comms_rows:
         write_comms_sheet(wb, comms_rows)
     if catalog_rows:
-        write_catalog_sheets(wb, catalog_rows)
+        write_catalog_sheets(wb, catalog_rows, provider_universe)
 
     out = Path(path).expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -429,11 +430,77 @@ _CATALOG_SHEETS = (
 )
 
 
-def write_catalog_sheets(wb: Any, catalog_rows: list[dict[str, Any]]) -> None:
+def write_portfolio_sheet(wb: Any, catalog_rows: list[dict[str, Any]],
+                          universe: dict[str, Any] | None = None) -> None:
+    """The client's own game-portfolio layout: one row per studio, one
+    column per brand, ● where the brand carries it (with the number of that
+    studio's titles read, when any). Rows follow the client's list when one
+    is given; studios observed that are not on it are marked."""
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
+
+    from core.watch_catalog import provider_matrix
+
+    if not any(r.get("kind") == "provider" for r in catalog_rows):
+        return
+    seen: dict[str, bool] = {}
+    for r in catalog_rows:
+        seen.setdefault(str(r.get("brand", "")), bool(r.get("is_self")))
+    brands = sorted(({"name": n, "is_self": v} for n, v in seen.items()),
+                    key=lambda b: (not b["is_self"], b["name"]))
+    matrix = provider_matrix(
+        catalog_rows, brands,
+        universe=(universe or {}).get("providers"),
+        universe_brands=(universe or {}).get("brands"),
+    )
+    ws = wb.create_sheet("Game portfolio")
+    c = matrix["counts"]
+    ws.append([
+        f"Game portfolio — {c['observed']} studios observed across {len(matrix['brands'])} brands"
+        + (f"; {c['both']} of the {c['on_client_list']} on the client's list seen, "
+           f"{c['list_only']} not yet, {c['observed_only']} observed that are not on the list"
+           if universe else "")
+        + ". ● carried, as printed on the brand's pages or public reviews (Providers sheet says which); "
+          "a number is that studio's titles read."
+    ])
+    ws["A1"].font = Font(bold=True, size=12)
+    ws.append([])
+    hdr = ["Game provider", *matrix["brands"], "Brands"] + (["On client list"] if universe else [])
+    ws.append(hdr)
+    _style_header(ws, 3, len(hdr))
+    ws.freeze_panes = "B4"
+    for row in matrix["providers"]:
+        cells = []
+        for b in matrix["brands"]:
+            cell = row["brands"][b]
+            cells.append(("●" + (f" {cell['games']}" if cell["games"] else "")) if cell["carried"] else "")
+        ws.append([row["name"] + ("" if row["on_client_list"] else " *"), *cells, row["brand_count"]]
+                  + (["yes" if row["on_client_list"] else "no"] if universe else []))
+    for i in range(2, len(hdr) + 1):
+        ws.column_dimensions[get_column_letter(i)].width = 14
+        for r_ in range(4, ws.max_row + 1):
+            ws.cell(row=r_, column=i).alignment = Alignment(horizontal="center")
+    ws.column_dimensions["A"].width = 30
+    if universe:
+        ws.append([])
+        ws.append(["* observed by us, not on the client's list"])
+        if matrix["brands_only_on_client_list"]:
+            ws.append(["Brands on the client's sheet not in the register: "
+                       + ", ".join(matrix["brands_only_on_client_list"])])
+        if matrix["brands_only_in_register"]:
+            ws.append(["Brands in the register not on the client's sheet: "
+                       + ", ".join(matrix["brands_only_in_register"])])
+
+
+def write_catalog_sheets(wb: Any, catalog_rows: list[dict[str, Any]],
+                         universe: dict[str, Any] | None = None) -> None:
     """One sheet per catalog kind — the raw data itself (docs/89): every
     provider, every price point, every promotion, every game title, each
-    with the page it was read from and the session it was read in."""
+    with the page it was read from and the session it was read in. The
+    Game portfolio matrix comes first — it is the client's own layout."""
     from openpyxl.styles import Font
+
+    write_portfolio_sheet(wb, catalog_rows, universe)
 
     for kind, title, hdr in _CATALOG_SHEETS:
         rows = [r for r in catalog_rows if r.get("kind") == kind]

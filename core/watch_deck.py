@@ -2511,67 +2511,103 @@ def _slide_brand_library(prs: Any, brand: dict[str, Any], page: int, deck_title:
     _footer(s, deck_title, page)
 
 
-def _slide_providers(prs: Any, catalog: dict[str, Any], page: int, deck_title: str) -> None:
-    """Which studios each brand carries — the client's "game providers"."""
+def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: str) -> int:
+    """The client's own game-portfolio layout — one row per studio, one
+    column per brand, ● where carried — paginated so every studio is on a
+    page, not the twelve most common. Returns the next page number."""
     from pptx.util import Inches, Pt
 
-    s = _blank(prs)
-    brands = [b for b in catalog.get("brands", []) if b["counts"].get("provider")]
-    top = _header(
-        s, "Appendix · raw data",
-        f"Game providers carried, {len(brands)} brand{'s' if len(brands) != 1 else ''} observed",
-    )
-    if not brands:
+    matrix = catalog.get("matrix")
+    if not matrix:
+        # A summary without the matrix (an older caller) still gets the
+        # page: the per-brand provider lists are enough to build it.
+        from core.watch_catalog import provider_matrix
+
+        matrix = provider_matrix(
+            [{"brand": b["name"], "kind": "provider", "name": p, "detail": "", "source_type": "site"}
+             for b in catalog.get("brands", []) for p in (b.get("providers") or [])],
+            [{"name": b["name"], "is_self": bool(b.get("is_self"))} for b in catalog.get("brands", [])],
+        )
+    rows = matrix.get("providers") or []
+    brands = matrix.get("brands") or []
+    if not rows or not brands:
+        return page
+    per_page = 26
+    pages = [rows[i:i + per_page] for i in range(0, len(rows), per_page)]
+    self_names = {b["name"] for b in catalog.get("brands", []) if b.get("is_self")}
+    c = matrix.get("counts", {})
+    listed = c.get("on_client_list", 0)
+
+    def short(name: str) -> str:
+        n = re.sub(r"\s+(?:Casino|Slots)$", "", name, flags=re.I)
+        return _clean(n, 14)
+
+    for pi, chunk in enumerate(pages, start=1):
+        s = _blank(prs)
+        top = _header(
+            s, "Appendix · raw data",
+            f"Game portfolio – {c.get('observed', len(rows))} studios × {len(brands)} brands"
+            + (f"  ({pi} of {len(pages)})" if len(pages) > 1 else ""),
+        )
+        prov_w = 2.3
+        col_w = (11.9 - prov_w - 0.45) / max(1, len(brands))
+        shape = s.shapes.add_table(
+            len(chunk) + 1, 2 + len(brands), Inches(0.7), Inches(top), Inches(11.9),
+            Inches(0.17 * (len(chunk) + 1)),
+        )
+        tbl = shape.table
+        tbl.columns[0].width = Inches(prov_w)
+        for ci in range(len(brands)):
+            tbl.columns[1 + ci].width = Inches(col_w)
+        tbl.columns[1 + len(brands)].width = Inches(0.45)
+        for r_ in tbl.rows:
+            r_.height = Inches(0.17)
+
+        def cw(r: int, col: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False,
+               size: float = 6.5, center: bool = False, tbl: Any = tbl) -> None:
+            from pptx.enum.text import PP_ALIGN
+
+            cell = tbl.cell(r, col)
+            cell.text = text
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = _rgb(bg)
+            cell.margin_left = cell.margin_right = Inches(0.03)
+            cell.margin_top = cell.margin_bottom = Inches(0.0)
+            for p_ in cell.text_frame.paragraphs:
+                if center:
+                    p_.alignment = PP_ALIGN.CENTER
+                for run in p_.runs:
+                    run.font.size = Pt(size)
+                    run.font.bold = bold
+                    run.font.color.rgb = _rgb(fg)
+
+        cw(0, 0, "Game provider", bg=_INK, fg=_WHITE, bold=True, size=7)
+        for ci, b in enumerate(brands):
+            cw(0, 1 + ci, short(b) + ("  (us)" if b in self_names else ""),
+               bg=_ACCENT if b in self_names else _INK, fg=_WHITE, bold=True, size=6, center=True)
+        cw(0, 1 + len(brands), "n", bg=_INK, fg=_WHITE, bold=True, size=6.5, center=True)
+        for ri, row in enumerate(chunk, start=1):
+            bg = _CARD if ri % 2 else _WHITE
+            cw(ri, 0, _clean(row["name"], 30) + ("" if row.get("on_client_list", True) else " *"),
+               bg=bg, size=6.5, fg=_INK if row.get("observed") else _MUTED)
+            for ci, b in enumerate(brands):
+                cell = row["brands"].get(b) or {}
+                mark = ("●" + (f" {cell['games']}" if cell.get("games") else "")) if cell.get("carried") else ""
+                cw(ri, 1 + ci, mark, bg=(_SELF_ROW if (b in self_names and cell.get("carried")) else bg),
+                   size=6.5, center=True)
+            cw(ri, 1 + len(brands), str(row.get("brand_count", 0)), bg=bg, size=6.5, center=True)
+        _text(
+            s, 0.7, 6.72, 11.9, 0.28,
+            "● carried, as printed on the brand's pages or public reviews (the workbook says which); "
+            "a number is that studio's titles read; n = brands carrying it."
+            + (f" Rows follow the client's list of {listed}; * = observed, not on their list; "
+               "a grey row is on their list and not yet seen." if listed else
+               " Sorted by how many brands carry the studio."),
+            size=7, italic=True, color=_MUTED,
+        )
         _footer(s, deck_title, page)
-        return
-    every: dict[str, int] = {}
-    for b in brands:
-        for prov in b["providers"]:
-            every[prov] = every.get(prov, 0) + 1
-    shown = [p for p, _ in sorted(every.items(), key=lambda kv: (-kv[1], kv[0]))][:12]
-    shape = s.shapes.add_table(
-        len(brands) + 1, 2 + len(shown), Inches(0.7), Inches(top), Inches(11.9),
-        Inches(min(0.3 * (len(brands) + 1), 6.1 - top)),
-    )
-    tbl = shape.table
-    tbl.columns[0].width = Inches(2.0)
-    tbl.columns[1].width = Inches(0.7)
-    for ci in range(len(shown)):
-        tbl.columns[2 + ci].width = Inches((11.9 - 2.7) / max(1, len(shown)))
-
-    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 7.5) -> None:
-        cell = tbl.cell(r, c)
-        cell.text = text
-        cell.fill.solid()
-        cell.fill.fore_color.rgb = _rgb(bg)
-        cell.margin_left = cell.margin_right = Inches(0.03)
-        cell.margin_top = cell.margin_bottom = Inches(0.01)
-        for p in cell.text_frame.paragraphs:
-            for run in p.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
-
-    cw(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True, size=8)
-    cw(0, 1, "n", bg=_INK, fg=_WHITE, bold=True, size=8)
-    for ci, prov in enumerate(shown):
-        cw(0, 2 + ci, _clean(prov, 22), bg=_INK, fg=_WHITE, bold=True, size=6.5)
-    for ri, b in enumerate(brands[:16], start=1):
-        bg = _SELF_ROW if b["is_self"] else _WHITE
-        cw(ri, 0, f"{b['name']}{'  (us)' if b['is_self'] else ''}", bg=bg, bold=b["is_self"], size=8)
-        cw(ri, 1, str(b["counts"].get("provider", 0)), bg=bg, size=8)
-        carried = {p.lower() for p in b["providers"]}
-        for ci, prov in enumerate(shown):
-            hit = prov.lower() in carried
-            cw(ri, 2 + ci, "●" if hit else "", bg=(_CARD if hit else bg), size=8)
-    _text(
-        s, 0.7, 6.32, 11.9, 0.3,
-        f"{catalog.get('label', '')} The twelve most widely carried studios are shown; "
-        "every provider observed is in the workbook with the page it was read from — "
-        "brand sites and public reviews both, and the workbook says which.",
-        size=8, italic=True, color=_MUTED,
-    )
-    _footer(s, deck_title, page)
+        page += 1
+    return page
 
 
 def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: str) -> None:
@@ -3611,8 +3647,7 @@ def render_executive_deck(
     # Appendix · raw data (docs/89) — the inventory behind the scores.
     if catalog and catalog.get("items"):
         if catalog["totals"].get("provider"):
-            _slide_providers(prs, catalog, page, deck_title)
-            page += 1
+            page = _slides_portfolio(prs, catalog, page, deck_title)
         if catalog["totals"].get("coin_package"):
             _slide_packages(prs, catalog, page, deck_title)
             page += 1

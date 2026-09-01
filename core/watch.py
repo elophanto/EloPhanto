@@ -1755,11 +1755,15 @@ class WatchManager:
             meta=_loads_meta(_row_get(r, "meta_json", "{}")),
         )
 
-    async def catalog_summary(self, company_id: str) -> dict[str, Any]:
+    async def catalog_summary(
+        self, company_id: str, universe: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """``universe``: the client's own studio list (read_provider_universe),
+        so the Provider × Brand matrix follows their sheet."""
         from core.watch_catalog import summarize_catalog
 
         return summarize_catalog(
-            await self.list_catalog(company_id), await self.list_subjects(company_id)
+            await self.list_catalog(company_id), await self.list_subjects(company_id), universe,
         )
 
     # ── App meta (docs/88 §E) ─────────────────────────────────────────

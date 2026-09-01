@@ -710,6 +710,7 @@ class WatchScorecardTool(_WatchToolBase):
                 voice_rows=voice_rows or None,
                 comms_rows=comms_rows or None,
                 catalog_rows=catalog_rows or None,
+                provider_universe=_provider_universe(params),
             )
             return ToolResult(
                 success=True,
@@ -1474,18 +1475,35 @@ def _catalog_rows_for_export(rows: list[Any], subjects: list[Any]) -> list[dict[
     from core.watch_catalog import promo_fields
 
     names = {s.subject_id: s.name for s in subjects}
+    selves = {s.subject_id for s in subjects if getattr(s, "is_self", False)}
     return [
         {
             "brand": names.get(r.subject_id, r.subject_id), "kind": r.kind, "name": r.name,
             "detail": r.detail, "price_usd": r.price_usd, "coins": r.coins_text,
             "sort_index": r.sort_index, "url": r.source_url, "image": r.image_path,
             "session": r.customer_state, "observed_at": r.observed_at,
-            "source_type": r.source_type, **(r.meta or {}),
+            "source_type": r.source_type, "is_self": r.subject_id in selves, **(r.meta or {}),
             # the workbook's Benefit / How to claim / Frequency read like the deck's
             **(promo_fields(r.name, r.detail, r.meta) if r.kind == "promotion" else {}),
         }
         for r in rows
     ]
+
+
+def _provider_universe(params: dict[str, Any]) -> dict[str, Any] | None:
+    """The client's own studio list (``providers_from``: their game-portfolio
+    sheet as CSV), when given and readable — else None and the matrix
+    follows what was observed."""
+    path = str(params.get("providers_from") or "").strip()
+    if not path:
+        return None
+    from core.watch_catalog import read_provider_universe
+
+    try:
+        uni = read_provider_universe(path)
+    except Exception:
+        return None
+    return uni if uni.get("providers") else None
 
 
 async def _catalog_for_pack(wm: Any, cid: str, params: dict[str, Any]) -> dict[str, Any] | None:
@@ -1494,7 +1512,7 @@ async def _catalog_for_pack(wm: Any, cid: str, params: dict[str, Any]) -> dict[s
     if str(params.get("voice") or "auto").lower() == "false":
         return None
     try:
-        cat = await wm.catalog_summary(cid)
+        cat = await wm.catalog_summary(cid, _provider_universe(params))
     except Exception:
         return None
     return cat if cat.get("items") else None
@@ -1712,6 +1730,12 @@ class WatchBoardReportTool(_WatchToolBase):
                         "'true' insists (empty section if nothing collected). The "
                         "same switch governs player comms and the regulatory calendar."
                     ),
+                },
+                "providers_from": {
+                    "type": "string",
+                    "description": "Path to the client's own game-portfolio sheet (CSV; column A = "
+                                   "studios, header row = their brands). The Provider × Brand matrix "
+                                   "then follows their list and marks what is not on it.",
                 },
                 "tone": {
                     "type": "boolean",
@@ -2134,6 +2158,12 @@ class WatchExecutiveDeckTool(_WatchToolBase):
                         "'true' insists (empty section if nothing collected). The "
                         "same switch governs player comms and the regulatory calendar."
                     ),
+                },
+                "providers_from": {
+                    "type": "string",
+                    "description": "Path to the client's own game-portfolio sheet (CSV; column A = "
+                                   "studios, header row = their brands). The Provider × Brand matrix "
+                                   "then follows their list and marks what is not on it.",
                 },
                 "tone": {
                     "type": "boolean",
@@ -5164,7 +5194,9 @@ class WatchCatalogTool(_WatchToolBase):
             "The raw inventory, read side. action='summary' (default): per brand — "
             "counts by kind, the provider list, the coin-package price ladder, the "
             "promotions with their images, a sample of games. action='list': the "
-            "rows themselves (filter by subject/kind)."
+            "rows themselves (filter by subject/kind). action='matrix': the game "
+            "portfolio as Provider × Brand (the client's own layout), following "
+            "their studio list when providers_from is given."
         )
 
     @property
@@ -5172,10 +5204,14 @@ class WatchCatalogTool(_WatchToolBase):
         return {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["summary", "list"]},
+                "action": {"type": "string", "enum": ["summary", "list", "matrix"]},
                 "subject": {"type": "string"},
                 "kind": {"type": "string", "enum": ["provider", "coin_package", "promotion", "loyalty_tier", "game"]},
                 "limit": {"type": "integer", "description": "list: default 200."},
+                "providers_from": {
+                    "type": "string",
+                    "description": "matrix: path to the client's game-portfolio CSV (column A = studios).",
+                },
                 "company_id": {"type": "string"},
             },
         }
@@ -5189,7 +5225,33 @@ class WatchCatalogTool(_WatchToolBase):
             return err
         cid = _company(params)
         wm = self._watch_manager
-        if str(params.get("action") or "summary").lower() == "list":
+        action = str(params.get("action") or "summary").lower()
+        if action == "matrix":
+            uni = _provider_universe(params)
+            if params.get("providers_from") and uni is None:
+                return ToolResult(
+                    success=False, error=f"could not read a studio list from {params['providers_from']}",
+                )
+            cat = await wm.catalog_summary(cid, uni)
+            matrix = cat.get("matrix")
+            if not matrix:
+                return ToolResult(success=True, data={"providers": [], "brands": [], "note": "no providers on record"})
+            return ToolResult(
+                success=True,
+                data={
+                    "brands": matrix["brands"],
+                    "counts": matrix["counts"],
+                    "brands_only_on_client_list": matrix["brands_only_on_client_list"],
+                    "brands_only_in_register": matrix["brands_only_in_register"],
+                    "providers": [
+                        {"provider": r["name"], "on_client_list": r["on_client_list"],
+                         "brands": [b for b, c in r["brands"].items() if c["carried"]],
+                         "games": {b: c["games"] for b, c in r["brands"].items() if c["games"]}}
+                        for r in matrix["providers"]
+                    ],
+                },
+            )
+        if action == "list":
             subject_id = None
             if params.get("subject"):
                 subj = await wm.get_subject_by_name(str(params["subject"]), cid)

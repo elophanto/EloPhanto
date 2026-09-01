@@ -743,3 +743,161 @@ class TestDeckAndWorkbook:
         assert {"Providers", "Coin packages", "Promotions", "Games"} <= set(wb.sheetnames)
         assert wb["Coin packages"]["B4"].value == 29.99
         assert wb["Promotions"]["G4"].value == "/shots/p.jpg"   # Image column, after Benefit/How/Frequency/Terms
+
+
+class TestGamePortfolio:
+    """The client's own sheet: one row per studio, one column per brand.
+    Their column A is the studio list; brands and reviews print the same
+    studio five ways, so the matrix collapses spellings and keeps their
+    order — and shows what is on their list that nothing has shown yet."""
+
+    def test_spellings_collapse_to_one_studio(self) -> None:
+        from core.watch_catalog import canonical_provider as c
+
+        assert c("BGaming") == c("B Gaming") == c("BGAMING") == "bgaming"
+        assert c("Relax Gaming") == c("Relax gaming") == c("Relax")
+        assert c("2 By 2 Gaming") == c("2By2 Gaming") == c("2×2 Gaming")
+        assert c("4TP (is this 4 the player?)") == c("4ThePlayer")
+        assert c("Gamzik") == c("Gamzix") and c("BTG") == c("Big Time Gaming")
+        assert c("Ela Games") == c("ElaGames") == c("Ela")
+        assert c("Peter & Sons") == c("Peter and Sons") == c("Peter&Sons")
+        assert c("VGW") == c("Virtual Gaming Worlds")
+        assert c("Hacksaw Gaming") != c("Hacksaw RGS")           # the client lists both
+        assert c("Gaming Corps") == "gamingcorps"                 # not a suffix when it leads
+        assert c("Toucan Games") != c("Toucan Royale")
+
+    def test_brand_labels_match_across_sheets(self) -> None:
+        from core.watch_catalog import brand_key as k
+
+        assert k("LuckyLand Casino") == k("LuckyLand Slots")
+        assert k("High5 Casino") == k("High 5 Casino")
+        assert k("Wow Vegas") == k("WOW Vegas")
+        assert k("Pulsz") != k("Pulsz Bingo")
+
+    def test_reads_the_clients_sheet(self, tmp_path) -> None:
+        from core.watch_catalog import read_provider_universe
+
+        p = tmp_path / "portfolio.csv"
+        p.write_text(
+            "﻿;;;\nGame Provider ;Pulsz ;Chumba Casino ;Spinfinite \n155;;;\n3 Oaks ;;;\n"
+            "4TP (is this 4 the player?);;;\n;;;\nB Gaming ;;;\n",
+            encoding="utf-8",
+        )
+        uni = read_provider_universe(p)
+        assert uni["providers"] == ["3 Oaks", "4TP (is this 4 the player?)", "B Gaming"]
+        assert uni["brands"] == ["Pulsz", "Chumba Casino", "Spinfinite"]
+
+    def _items(self):
+        return [
+            {"brand": "Pulsz", "kind": "provider", "name": "BGaming", "detail": "", "source_type": "site"},
+            {"brand": "Pulsz", "kind": "provider", "name": "B Gaming", "detail": "", "source_type": "third_party"},
+            {"brand": "Chumba Casino", "kind": "provider", "name": "BGAMING", "detail": "", "source_type": "third_party"},
+            {"brand": "Chumba Casino", "kind": "provider", "name": "Golden Rock Studios", "detail": "", "source_type": "site"},
+            {"brand": "Pulsz", "kind": "game", "name": "Aztec Magic", "detail": "BGaming", "source_type": "site"},
+            {"brand": "Pulsz", "kind": "game", "name": "Elvis Frog", "detail": "B Gaming", "source_type": "site"},
+            {"brand": "Pulsz", "kind": "game", "name": "Slot X", "detail": "Jackpot Slots", "source_type": "site"},
+        ]
+
+    def test_matrix_follows_the_clients_list_and_marks_the_rest(self) -> None:
+        from core.watch_catalog import provider_matrix
+
+        brands = [{"name": "Chumba Casino", "is_self": False}, {"name": "Pulsz", "is_self": True}]
+        m = provider_matrix(self._items(), brands, universe=["3 Oaks", "B Gaming"],
+                            universe_brands=["Pulsz", "Chumba Casino", "Spinfinite"])
+        names = [r["name"] for r in m["providers"]]
+        assert names == ["3 Oaks", "BGaming", "Golden Rock Studios"]   # their order, then ours
+        oaks, bg, gr = m["providers"]
+        assert oaks["on_client_list"] and not oaks["observed"] and oaks["brand_count"] == 0
+        assert bg["brands"]["Pulsz"] == {"carried": True, "source": "site", "games": 2}   # site beats review; spellings merge
+        assert bg["brands"]["Chumba Casino"]["carried"] and bg["brands"]["Chumba Casino"]["source"] == "third_party"
+        assert not gr["on_client_list"] and gr["brand_count"] == 1
+        assert m["counts"] == {"observed": 2, "on_client_list": 2, "both": 1, "list_only": 1, "observed_only": 1}
+        assert m["brands_only_on_client_list"] == ["Spinfinite"]
+        assert m["brands_only_in_register"] == []
+        assert "Jackpot Slots" not in names                                # a category is not a studio
+
+    def test_without_a_list_the_matrix_is_what_was_observed(self) -> None:
+        from core.watch_catalog import provider_matrix
+
+        brands = [{"name": "Chumba Casino", "is_self": False}, {"name": "Pulsz", "is_self": True}]
+        m = provider_matrix(self._items(), brands)
+        assert [r["name"] for r in m["providers"]] == ["BGaming", "Golden Rock Studios"]   # most carried first
+        assert all(r["on_client_list"] for r in m["providers"])                            # nothing to mark
+        assert m["brands"] == ["Chumba Casino", "Pulsz"]
+
+    def test_summary_carries_the_matrix(self) -> None:
+        from core.watch_catalog import summarize_catalog
+
+        class Row:
+            def __init__(self, brand, kind, name, detail=""):
+                self.subject_id, self.kind, self.name, self.detail = brand, kind, name, detail
+                self.source_type, self.customer_state, self.observed_at = "site", "logged_out", "2026-09-01"
+                self.price_usd, self.coins_text, self.sort_index, self.meta = None, "", 0, {}
+                self.source_url, self.image_path = "u", ""
+
+        class Subj:
+            def __init__(self, sid, name, is_self=False):
+                self.subject_id, self.name, self.is_self = sid, name, is_self
+
+        cat = summarize_catalog([Row("p", "provider", "NetEnt"), Row("c", "provider", "NetEnt")],
+                                [Subj("c", "Chumba"), Subj("p", "Pulsz", True)],
+                                universe={"providers": ["NetEnt", "Zoot studios"], "brands": ["Pulsz"]})
+        m = cat["matrix"]
+        assert m["brands"] == ["Pulsz", "Chumba"]                      # ours first
+        assert [r["name"] for r in m["providers"]] == ["NetEnt", "Zoot studios"]
+        assert m["brands_only_in_register"] == ["Chumba"]
+        assert summarize_catalog([], [Subj("c", "Chumba")])["matrix"] is None
+
+    def test_workbook_gets_the_portfolio_sheet_first(self, tmp_path) -> None:
+        from openpyxl import load_workbook
+
+        from core.watch_xlsx import render_scorecard_xlsx
+
+        rows = [{**it, "url": "u", "session": "logged_out", "observed_at": "2026-09-01", "sort_index": 0,
+                 "is_self": it["brand"] == "Pulsz"} for it in self._items()]
+        card = {"rows": [], "dimensions": []}
+        path = render_scorecard_xlsx(card, dimensions=[], evidence=[], staleness=[], path=tmp_path / "w.xlsx",
+                                     catalog_rows=rows,
+                                     provider_universe={"providers": ["3 Oaks", "B Gaming"], "brands": ["Pulsz", "Spinfinite"]})
+        wb = load_workbook(path)
+        assert wb.sheetnames.index("Game portfolio") < wb.sheetnames.index("Providers")
+        ws = wb["Game portfolio"]
+        assert [c.value for c in ws[3]] == ["Game provider", "Pulsz", "Chumba Casino", "Brands", "On client list"]
+        assert [c.value for c in ws[4]] == ["3 Oaks", None, None, 0, "yes"]
+        assert [c.value for c in ws[5]] == ["BGaming", "● 2", "●", 2, "yes"]
+        assert [c.value for c in ws[6]] == ["Golden Rock Studios *", None, "●", 1, "no"]
+        assert any("Spinfinite" in str(c.value) for row in ws.iter_rows(min_row=7) for c in row if c.value)
+
+    def test_deck_paginates_every_studio(self, tmp_path) -> None:
+        from pptx import Presentation
+
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        provs = [f"Studio {i:02d}" for i in range(60)]
+        brands = ["Chumba Casino", "Pulsz"]
+        items = [{"brand": b, "kind": "provider", "name": p, "detail": "", "source_type": "site"}
+                 for b in brands for p in provs]
+        from core.watch_catalog import provider_matrix
+        matrix = provider_matrix(items, [{"name": "Pulsz", "is_self": True}, {"name": "Chumba Casino", "is_self": False}])
+        catalog = {"items": 120, "label": "", "totals": {"provider": 120}, "third_party_only": [], "matrix": matrix,
+                   "brands": [{"subject_id": "p", "name": "Pulsz", "is_self": True, "counts": {"provider": 60},
+                               "providers": provs, "packages": [], "promotions": [], "games_sample": [], "sources": {}},
+                              {"subject_id": "c", "name": "Chumba Casino", "is_self": False, "counts": {"provider": 60},
+                               "providers": provs, "packages": [], "promotions": [], "games_sample": [], "sources": {}}]}
+        card = {"rows": [], "dimensions": []}
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, catalog=catalog)
+        prs = Presentation(str(out))
+        pages = [sl for sl in prs.slides
+                 if any(sh.has_text_frame and "Game portfolio" in sh.text_frame.text for sh in sl.shapes)]
+        assert len(pages) == 3                                             # 60 studios, 26 a page
+        titles = [next(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame and "Game portfolio" in sh.text_frame.text)
+                  for sl in pages]
+        assert "(1 of 3)" in titles[0] and "(3 of 3)" in titles[-1]
+        cells = [c.text for sl in pages for sh in sl.shapes if sh.has_table for r in sh.table.rows for c in r.cells]
+        assert "Studio 00" in cells and "Studio 59" in cells
+        hdr = [c.text for c in [sh for sh in pages[0].shapes if sh.has_table][0].table.rows[0].cells]
+        assert hdr[1] == "Pulsz  (us)" and hdr[2] == "Chumba"              # ours first, "Casino" dropped
+        H = prs.slide_height
+        assert all(sh.top + sh.height <= H for sl in pages for sh in sl.shapes if sh.has_table)
