@@ -248,6 +248,10 @@ class WatchCatalogItem:
     geo_state: str = "n/a"
     exit_ip: str = ""
     observed_at: str = ""
+    # Kind-specific structured fields: gold_coins/sweeps_coins for a package,
+    # benefit/how_to_claim/frequency for a promotion, qualification/reward
+    # for a loyalty tier — the columns the client's tables need.
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -270,6 +274,14 @@ class WatchComms:
     hour: int | None = None
     observed_at: str = ""
     created_at: str = ""
+
+
+def _loads_meta(raw: Any) -> dict[str, Any]:
+    try:
+        val = json.loads(raw or "{}")
+    except Exception:
+        return {}
+    return val if isinstance(val, dict) else {}
 
 
 def voice_dedupe_key(quote: str, source_url: str = "") -> str:
@@ -1650,6 +1662,7 @@ class WatchManager:
         geo_state: str = "n/a",
         exit_ip: str = "",
         brand_name: str = "",
+        meta: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """File one inventory item. Returns ``(row, is_new)``: a re-collection
         UPDATES the item (a price ladder changes; a duplicate row would be a
@@ -1673,27 +1686,30 @@ class WatchManager:
             "source_type": source_type,
             "image_path": image_path, "customer_state": customer_state,
             "geo_state": geo_state, "observed_at": now,
+            "meta": dict(meta or {}),
         }
+        meta_json = json.dumps(row["meta"])
         if existing:
             cid_ = existing[0]["catalog_id"]
             await self._db.execute(
                 "UPDATE watch_catalog SET detail = ?, price_usd = ?, coins_text = ?, "
                 "sort_index = ?, source_url = ?, source_type = ?, image_path = ?, "
-                "customer_state = ?, geo_state = ?, exit_ip = ?, observed_at = ? "
-                "WHERE catalog_id = ?",
+                "meta_json = ?, customer_state = ?, geo_state = ?, exit_ip = ?, "
+                "observed_at = ? WHERE catalog_id = ?",
                 (row["detail"], price_usd, row["coins_text"], row["sort_index"], source_url,
-                 source_type, image_path, customer_state, geo_state, exit_ip, now, cid_),
+                 source_type, image_path, meta_json, customer_state, geo_state, exit_ip,
+                 now, cid_),
             )
             return {**row, "catalog_id": cid_}, False
         new_id = _sid("ct")
         await self._db.execute_insert(
             "INSERT INTO watch_catalog (catalog_id, company_id, subject_id, kind, name, "
             "detail, price_usd, coins_text, sort_index, source_url, source_type, image_path, "
-            "customer_state, geo_state, exit_ip, observed_at, dedupe_key, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "meta_json, customer_state, geo_state, exit_ip, observed_at, dedupe_key, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (new_id, company_id, subject_id, kind, row["name"], row["detail"], price_usd,
              row["coins_text"], row["sort_index"], source_url, source_type, image_path,
-             customer_state, geo_state, exit_ip, now, key, now),
+             meta_json, customer_state, geo_state, exit_ip, now, key, now),
         )
         return {**row, "catalog_id": new_id}, True
 
@@ -1736,6 +1752,7 @@ class WatchManager:
             geo_state=_row_get(r, "geo_state", "n/a") or "n/a",
             exit_ip=_row_get(r, "exit_ip", "") or "",
             observed_at=_row_get(r, "observed_at", "") or "",
+            meta=_loads_meta(_row_get(r, "meta_json", "{}")),
         )
 
     async def catalog_summary(self, company_id: str) -> dict[str, Any]:

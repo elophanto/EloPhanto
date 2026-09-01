@@ -418,9 +418,13 @@ def write_comms_sheet(wb: Any, comms_rows: list[dict[str, Any]]) -> None:
 _CATALOG_SHEETS = (
     ("provider", "Providers", ["Brand", "Provider", "Detail", "Source", "Read as", "Observed"]),
     ("coin_package", "Coin packages",
-     ["Brand", "Price USD", "Package", "What it grants", "Notes", "Source", "Read as", "Observed"]),
+     ["Brand", "Price USD", "Gold coins", "Sweeps coins", "As printed", "Notes",
+      "Read from", "Source", "Read as", "Observed"]),
     ("promotion", "Promotions",
-     ["Brand", "Promotion", "Terms", "Image", "Source", "Read as", "Observed"]),
+     ["Brand", "Promotion", "Benefit", "How to claim", "Frequency", "Terms", "Image",
+      "Source", "Read as", "Observed"]),
+    ("loyalty_tier", "Loyalty tiers",
+     ["Brand", "Tier", "Qualification", "Reward", "Source", "Read as", "Observed"]),
     ("game", "Games", ["Brand", "Game", "Category / studio", "Source", "Read as", "Observed"]),
 )
 
@@ -448,17 +452,27 @@ def write_catalog_sheets(wb: Any, catalog_rows: list[dict[str, Any]]) -> None:
             ]
             if kind == "coin_package":
                 ws.append([
-                    r.get("brand", ""), r.get("price_usd", ""), r.get("name", ""),
-                    r.get("coins", ""), r.get("detail", ""), *common_tail,
+                    r.get("brand", ""), r.get("price_usd", ""),
+                    r.get("gold_coins", ""), r.get("sweeps_coins", ""),
+                    r.get("coins", ""), r.get("detail", ""),
+                    "the brand" if r.get("source_type") == "site" else "public review",
+                    *common_tail,
                 ])
             elif kind == "promotion":
                 ws.append([
-                    r.get("brand", ""), r.get("name", ""), r.get("detail", ""),
-                    r.get("image", ""), *common_tail,
+                    r.get("brand", ""), r.get("name", ""),
+                    r.get("benefit", "") or r.get("detail", ""),
+                    r.get("how_to_claim", ""), r.get("frequency", ""),
+                    r.get("detail", ""), r.get("image", ""), *common_tail,
+                ])
+            elif kind == "loyalty_tier":
+                ws.append([
+                    r.get("brand", ""), r.get("name", ""), r.get("qualification", ""),
+                    r.get("reward", "") or r.get("detail", ""), *common_tail,
                 ])
             else:
                 ws.append([
                     r.get("brand", ""), r.get("name", ""), r.get("detail", ""), *common_tail,
                 ])
-        widths = {"A": 22, "B": 34, "C": 42, "D": 40, "E": 30, "F": 46, "G": 14, "H": 12}
+        widths = {"A": 22, "B": 30, "C": 36, "D": 34, "E": 28, "F": 40, "G": 22, "H": 46, "I": 14, "J": 12}
         _autosize(ws, {k: v for k, v in widths.items() if k <= chr(ord("A") + len(hdr) - 1)})

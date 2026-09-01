@@ -28,7 +28,7 @@ player comms ([88](88-WEEKLY-SERVICE.md) §C).
 | column | meaning |
 |---|---|
 | `catalog_id`, `company_id`, `subject_id` | as elsewhere |
-| `kind` | `provider` · `coin_package` · `promotion` · `game` |
+| `kind` | `provider` · `coin_package` · `promotion` · `loyalty_tier` · `game` |
 | `name` | the item as printed ("Pragmatic Play", "$29.99", "Sweet Bonanza") |
 | `detail` | the rest of the line — terms, category, what the package grants |
 | `price_usd` | for `coin_package`, the number; else NULL |
@@ -36,6 +36,7 @@ player comms ([88](88-WEEKLY-SERVICE.md) §C).
 | `sort_index` | position on the page, so a price ladder keeps its order |
 | `source_url`, `image_path`, `observed_at`, `exit_ip`, `customer_state` | provenance |
 | `dedupe_key` | brand + kind + normalised name — re-collection updates, never duplicates |
+| `meta_json` | the kind's structured fields (below) — `gold_coins` / `sweeps_coins`, `benefit` / `how_to_claim` / `frequency`, `qualification` / `reward` |
 
 ## Collection (`core/watch_catalog.py`, `watch_catalog_collect`)
 
@@ -65,6 +66,43 @@ Signed-in collection matters most here: the coin store and the real
 promotions are usually behind a login, so `watch_catalog_collect` takes
 `customer_state` and stamps it, exactly as `watch_analyze` now does
 ([88](88-WEEKLY-SERVICE.md) §F).
+
+## Tables, the client's own layout (2026-09-01)
+
+The client sent two reference pages — a coin-package table with *Gold
+coins* and *Sweeps coins* columns, a promotions table of *Promotion ·
+Benefit · How to claim · Frequency*, and a loyalty-club table of *Tier ·
+Qualification · Reward* — and asked for the same: "easier to read and
+more info". So each row now carries the structured fields of its kind in
+`meta_json`, and the pack renders them as bordered tables, one fact per
+cell:
+
+* **Coin packages** — `parse_coins` reads the two numbers off the grant
+  as printed ("120K Gold Coins + 60 SC FREE" → 120,000 / 60), and wins
+  over the model's numbers when both exist; a grant it cannot read is shown
+  as printed. The 55 of 60 packages already on record were filled from
+  their own `coins_text`, no re-collection.
+* **Promotions** — the model is asked for benefit, claim route and
+  frequency; `parse_frequency` and `parse_claim` (deterministic, first
+  match wins, tested on the register's own lines) fill whatever it leaves
+  blank, and fill the rows collected before the columns existed. A benefit
+  is never legal boilerplate when the title carries the grant ("Get 1.5M CC
+  + 75 FREE SC" → "1,500,000 GC + 75 SC"). Empty stays "–".
+* **Loyalty tiers** — a fifth kind, `loyalty_tier`, with `qualification`
+  and `reward`; collected from the brand's VIP / loyalty page and from the
+  known review of the brand.
+* **Known review pages** — `known_review_urls(brand)` tries the trusted
+  review's predictable URL first (`igamingfuture.com/sweepstakes-casinos/
+  reviews/<slug>/`), before any search; trusted hosts outrank generic
+  review sites, and the research filter refuses only genuinely legal pages
+  so a `/sweepstakes-casinos/…` path is not thrown away as "sweepstakes
+  rules".
+
+Per brand, three pages in the appendix: *Coins / Promotions* (the two
+tables side by side, the overflow counted into the workbook), *Loyalty
+Club* (only when tiers exist), *Providers / Games* (every studio, the
+titles read, "+N more in the workbook" when cut). The workbook's sheets
+carry the same columns, and a *Loyalty tiers* sheet.
 
 ## In the pack
 

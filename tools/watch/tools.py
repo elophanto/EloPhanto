@@ -1471,6 +1471,8 @@ def _regulatory_markdown(cal: dict[str, Any]) -> list[str]:
 
 
 def _catalog_rows_for_export(rows: list[Any], subjects: list[Any]) -> list[dict[str, Any]]:
+    from core.watch_catalog import promo_fields
+
     names = {s.subject_id: s.name for s in subjects}
     return [
         {
@@ -1478,6 +1480,9 @@ def _catalog_rows_for_export(rows: list[Any], subjects: list[Any]) -> list[dict[
             "detail": r.detail, "price_usd": r.price_usd, "coins": r.coins_text,
             "sort_index": r.sort_index, "url": r.source_url, "image": r.image_path,
             "session": r.customer_state, "observed_at": r.observed_at,
+            "source_type": r.source_type, **(r.meta or {}),
+            # the workbook's Benefit / How to claim / Frequency read like the deck's
+            **(promo_fields(r.name, r.detail, r.meta) if r.kind == "promotion" else {}),
         }
         for r in rows
     ]
@@ -4906,8 +4911,8 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 "subject": {"type": "string", "description": "Brand name; omit for all active brands."},
                 "kinds": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["provider", "coin_package", "promotion", "game"]},
-                    "description": "Default: all four.",
+                    "items": {"type": "string", "enum": ["provider", "coin_package", "promotion", "loyalty_tier", "game"]},
+                    "description": "Default: all five.",
                 },
                 "customer_state": {
                     "type": "string",
@@ -4959,6 +4964,7 @@ class WatchCatalogCollectTool(_WatchToolBase):
         from core.watch_catalog import (
             CATALOG_KINDS,
             extract_catalog,
+            known_review_urls,
             rank_catalog_pages,
             rank_research_urls,
             research_page_ok,
@@ -5084,12 +5090,14 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 if found or not research or not search_key:
                     continue
                 brand_host = (subj.url or "").split("//")[-1].split("/")[0].removeprefix("www.")
-                urls: list[str] = []
+                # A review site with a predictable per-brand page comes before
+                # any search: written per brand, so attribution is not in doubt.
+                urls: list[str] = list(known_review_urls(subj.name))
                 for _kind, query in research_queries(subj.name, [kind], year=year):
                     hits = await search_web(query, api_key=str(search_key), max_results=6)
                     urls.extend(rank_research_urls(hits, brand_host=brand_host, limit=2))
                 seen_urls: set[str] = set()
-                for u in urls[:3]:
+                for u in urls[:4]:
                     if u in seen_urls:
                         continue
                     seen_urls.add(u)
@@ -5166,7 +5174,7 @@ class WatchCatalogTool(_WatchToolBase):
             "properties": {
                 "action": {"type": "string", "enum": ["summary", "list"]},
                 "subject": {"type": "string"},
-                "kind": {"type": "string", "enum": ["provider", "coin_package", "promotion", "game"]},
+                "kind": {"type": "string", "enum": ["provider", "coin_package", "promotion", "loyalty_tier", "game"]},
                 "limit": {"type": "integer", "description": "list: default 200."},
                 "company_id": {"type": "string"},
             },

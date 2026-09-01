@@ -518,6 +518,7 @@ _SCHEMA = [
         source_url TEXT NOT NULL DEFAULT '',
         source_type TEXT NOT NULL DEFAULT 'site',
         image_path TEXT NOT NULL DEFAULT '',
+        meta_json TEXT NOT NULL DEFAULT '{}',
         customer_state TEXT NOT NULL DEFAULT 'logged_out',
         geo_state TEXT NOT NULL DEFAULT 'n/a',
         exit_ip TEXT NOT NULL DEFAULT '',
@@ -1293,6 +1294,7 @@ _MIGRATIONS = [
     # passed verification is recorded beside it (see core/watch_observe.py).
     "ALTER TABLE watch_evidence ADD COLUMN exit_ip TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE watch_catalog ADD COLUMN source_type TEXT NOT NULL DEFAULT 'site'",
+    "ALTER TABLE watch_catalog ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'",
     # Gap 5: Provider transparency columns on llm_usage
     "ALTER TABLE llm_usage ADD COLUMN finish_reason TEXT DEFAULT 'unknown'",
     "ALTER TABLE llm_usage ADD COLUMN latency_ms INTEGER DEFAULT 0",

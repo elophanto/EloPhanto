@@ -21,14 +21,21 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-CATALOG_KINDS: tuple[str, ...] = ("provider", "coin_package", "promotion", "game")
+CATALOG_KINDS: tuple[str, ...] = (
+    "provider",
+    "coin_package",
+    "promotion",
+    "loyalty_tier",
+    "game",
+)
 
 # Which page serves which kind. A store page is where the coins are sold;
 # "promotions" is where the offers live; providers and games have their own
 # pages on nearly every one of these sites.
 _PAGE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("coin_package", re.compile(r"store|shop|buy|coins?-?(store|shop|package)|purchase|cashier|wallet", re.I)),
-    ("promotion", re.compile(r"promo|promotion|offer|bonus|deal|reward|vip|loyalty|daily", re.I)),
+    ("loyalty_tier", re.compile(r"loyalty|vip|tiers?|club|status-?levels?|rewards?-?program", re.I)),
+    ("promotion", re.compile(r"promo|promotion|offer|bonus|deal|reward|daily", re.I)),
     ("provider", re.compile(r"provider|studio|partners?|software|suppliers?", re.I)),
     ("game", re.compile(r"game|slot|casino|lobby|table|bingo|jackpot|live", re.I)),
 )
@@ -92,6 +99,59 @@ def parse_price(text: str) -> float | None:
         return None
 
 
+# A magnitude letter only counts when it is not the start of a word —
+# "25 Mystery Coins" is 25, not 25 million.
+_NUM = r"(\d[\d,]*(?:\.\d+)?)\s*([kKmM](?![A-Za-z]))?"
+# "CC" (Crown Coins) and "WC" (WOW Coins) are brands' own abbreviations for
+# their gold coin — as much "gold" as "GC" is.
+_GC_RE = re.compile(
+    _NUM + r"\s*(?:gold coins?|gc\b|cc\b|wc\b|[A-Za-z]+ coins?(?!\s*(?:sc|sweeps)))"
+    r"|(?:gc|cc|wc|gold coins?)\s*[:=]?\s*" + _NUM,
+    re.I,
+)
+_SC_RE = re.compile(
+    _NUM + r"\s*(?:free\s+)?(?:sweeps?\s*coins?|sc\b|sweepstakes coins?)"
+    r"|(?:sc|sweeps?\s*coins?)\s*[:=]?\s*" + _NUM,
+    re.I,
+)
+
+
+def _to_number(num: str, mag: str | None) -> float | None:
+    try:
+        v = float(num.replace(",", ""))
+    except Exception:
+        return None
+    if mag and mag.lower() == "k":
+        v *= 1_000
+    elif mag and mag.lower() == "m":
+        v *= 1_000_000
+    return v
+
+
+def parse_coins(text: str) -> tuple[float | None, float | None]:
+    """Gold coins and sweeps coins out of a grant line, as printed:
+    '800,000 GC 50 SC' → (800000, 50); '120K Gold Coins + 60 SC FREE' →
+    (120000, 60); '1,500,000 Crown Coins, 75 SC' → (1500000, 75). A brand's
+    own name for gold coins ("Crown Coins", "WOW Coins") counts as gold;
+    anything that is not a number stays None — never guessed."""
+    t = text or ""
+    gc = sc = None
+    m = _SC_RE.search(t)
+    if m:
+        num = m.group(1) or m.group(3)
+        mag = m.group(2) or m.group(4)
+        sc = _to_number(num, mag) if num else None
+        t_no_sc = t[: m.start()] + " " + t[m.end() :]
+    else:
+        t_no_sc = t
+    m = _GC_RE.search(t_no_sc)
+    if m:
+        num = m.group(1) or m.group(3)
+        mag = m.group(2) or m.group(4)
+        gc = _to_number(num, mag) if num else None
+    return gc, sc
+
+
 def item_is_on_page(name: str, page_text: str) -> bool:
     """An item counts only if its name is actually printed on the page —
     the list version of excerpt verification."""
@@ -99,6 +159,125 @@ def item_is_on_page(name: str, page_text: str) -> bool:
     if len(n) < 2:
         return False
     return n in " ".join((page_text or "").lower().split())
+
+
+
+def format_coins(gc: float | None, sc: float | None) -> str:
+    """"1,500,000 GC + 75 SC" from the two numbers; '' when neither is known."""
+    def one(v: float) -> str:
+        return f"{int(v):,}" if v == int(v) else f"{v:,.2f}"
+    parts = []
+    if gc is not None:
+        parts.append(f"{one(gc)} GC")
+    if sc is not None:
+        parts.append(f"{one(sc)} SC")
+    return " + ".join(parts)
+
+
+# Frequency and claim route read off a promotion's own words. The model is
+# asked for both; these fill the blanks it leaves and the rows collected
+# before the columns existed. First match wins, so the order is the
+# precedence: a stated cadence beats a trigger, an end date beats a
+# sign-up trigger (a dated welcome offer is a limited-time offer).
+_FREQ_RULES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (label, re.compile(rx, re.I)) for label, rx in (
+        ("Daily", r"\bdaily\b|every\s+24\s*hours|every\s+day\b|each\s+day\b|\bnightly\b|per\s+day\b"),
+        ("Weekly", r"\bweekly\b|every\s+week\b|each\s+week\b|per\s+week\b"
+                   r"|every\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day"),
+        ("Monthly", r"\bmonthly\b|every\s+month\b|each\s+month\b|per\s+month\b"),
+        ("Per referral", r"\brefer(?:ral|-a-friend|\s+a\s+friend)?\b"),
+        ("Limited time", r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}"
+                         r"|\d{1,2}/\d{1,2}/\d{4}|\bexpires?\b|limited[\s-]time|\bseasonal\b"),
+        ("One-time", r"sign[\s-]?up|\bwelcome\b|no[\s-]deposit|first[\s-]purchase"
+                     r"|new\s+(?:users?|players?)\b|\bregister"),
+        ("Ongoing", r"\bongoing\b|\bcontinuous\b"),
+    )
+)
+_NO_CODE = re.compile(
+    r"\b(?:no|not)\s+(?:\w+\s+){0,5}codes?\b"                                     # "no Crown Coins Casino promo code"
+    r"|\b(?:don.?t\s+need|without|doesn.?t\s+require|isn.?t\s+required)\b[^.;]{0,40}\bcodes?\b"
+    r"|\bcodes?\s+(?:is\s+)?not\s+(?:needed|required)\b"                          # "code not required"
+    r"|\bcodes?\s+required\s*:?\s*no\b",                                          # "Promo code required No"
+    re.I,
+)
+# The code itself is case-sensitive: an all-caps token with a digit or at
+# least four letters, so "Promo Code Required" and "code 2026" are not codes.
+_CODE = re.compile(
+    r"(?i:(?:bonus|promo|coupon|referral)\s+code)\s*[:\-]?\s*(?:(?i:use)\s+)?[\'\"“‘]?\s*([A-Z][A-Z0-9]{3,})?"
+)
+_NOT_A_CODE = frozenset({"REQUIRED", "NEEDED", "EARN", "FREE", "BONUS", "ONLY", "HERE", "BELOW", "ABOVE"})
+_CODE_CHECK = "__code__"
+_CLAIM_RULES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (label, re.compile(rx, re.I)) for label, rx in (
+        ("Mail-in request", r"mail[\s-]?in|\bamoe\b|postcard|handwritten|alternative method of entry"),
+        ("Share referral link", r"\brefer(?:ral|-a-friend|\s+a\s+friend)?\b"),
+        ("Follow social channels", r"social\s+media|facebook|instagram|\btwitter\b|\btiktok\b"),
+        (_CODE_CHECK, r"$^"),        # promo codes are read here, after the routes that hand one out
+        ("Opt in", r"\bopt(?:ing|ed)?[\s-]in\b"),
+        ("First purchase", r"first[\s-]purchase|first\s+(?:deposit|buy)\b"),
+        ("Sign up", r"sign[\s-]?up|\bregister|creat(?:e|ing)\s+(?:an?\s+|your\s+)?(?:\w+\s+)?account"
+                    r"|new\s+(?:users?|players?)\b"),
+        ("Log in", r"\blog[\s-]?(?:in|into)\b|\bsign(?:ed)?[\s-]?(?:in|into)\b"),
+        ("Watch inbox", r"\binbox\b|\be-?mails?\b"),
+        ("Play qualifying games", r"tournament|qualifying|\bplay(?:ing)?\b|\bspins?\b|\bwager|\bslots?\b"),
+        ("Purchase", r"(?<!no )purchase|\bbuy\b|\bbundle\b|coin\s+package|\bdiscount"),
+    )
+)
+_BOILERPLATE = re.compile(
+    r"^\s*(?:t&cs?\b|terms\b|18\+|21\+|last verified|upon sign|no purchase necessary|void where|see (?:terms|rules))",
+    re.I,
+)
+
+
+def parse_frequency(name: str, detail: str = "") -> str:
+    """How often the offer recurs, from its own words — '' when it never says."""
+    text = f"{name} {detail}"
+    for label, rx in _FREQ_RULES:
+        if rx.search(text):
+            return label
+    return ""
+
+
+def parse_claim(name: str, detail: str = "") -> str:
+    """The claiming mechanic, from the offer's own words — '' when it never says."""
+    text = f"{name} {detail}"
+    for label, rx in _CLAIM_RULES:
+        if label == _CODE_CHECK:
+            if _NO_CODE.search(text):
+                continue
+            m = _CODE.search(text)
+            if not m:
+                continue
+            code = m.group(1) or ""
+            if code and code not in _NOT_A_CODE and not code.isdigit():
+                return f"Use code {code}"
+            return "Enter promo code"
+        if rx.search(text):
+            if label == "Sign up" and re.search(r"verif", text, re.I):
+                return "Sign up + verify"
+            return label
+    return ""
+
+
+def promo_fields(name: str, detail: str, meta: dict[str, Any] | None) -> dict[str, str]:
+    """Benefit · how to claim · frequency for one promotion row. What the
+    model read wins; the readers above fill what it left blank, so a row
+    collected before these columns existed still fills the table."""
+    meta = meta or {}
+    detail = (detail or "").strip()
+    benefit = (meta.get("benefit") or "").strip()
+    if not benefit:
+        gc, sc = parse_coins(detail)
+        if detail and (gc is not None or sc is not None or not _BOILERPLATE.match(detail)):
+            benefit = detail
+        else:
+            gc, sc = parse_coins(name)      # "Get 1.5M CC + 75 FREE SC" — the grant is in the title
+            benefit = format_coins(gc, sc) or detail
+    return {
+        "benefit": benefit,
+        "how_to_claim": (meta.get("how_to_claim") or "").strip() or parse_claim(name, detail),
+        "frequency": (meta.get("frequency") or "").strip() or parse_frequency(name, detail),
+    }
 
 
 CATALOG_SYSTEM = """You read one page from a sweepstakes / social casino site and list the
@@ -110,9 +289,18 @@ kind meanings and what "name" is:
   the studio name exactly as printed.
 - coin_package: one purchasable package. name = the price as printed
   ("$29.99") or the package label; coins = what it grants, verbatim
-  ("GC 700 + free SC 55"); detail = any extra ("first purchase only").
-- promotion: one offer. name = its title as printed ("150% Extra Coins");
-  detail = the terms and dates as printed.
+  ("GC 700 + free SC 55"); detail = any extra ("first purchase only");
+  gold_coins / sweeps_coins = the two numbers when the page states them.
+- promotion: one offer. name = its title as printed ("Daily Login Bonus");
+  benefit = what the player gets, as printed ("1500GC + 0.2SC, rising to
+  2500GC and 0.25SC after 3 consecutive days"); how_to_claim = the
+  mechanic ("Login daily", "Share a referral link"); frequency = one of
+  daily / weekly / monthly / one-time / continuous / ad hoc when stated;
+  detail = remaining terms and dates.
+- loyalty_tier: one tier of the loyalty / VIP club. name = the tier as
+  printed ("Bronze"); qualification = what earns it, as printed ("500,000
+  GC purchased per month"); reward = what it gives ("25% weekly coin
+  boost"); index = the tier's order, lowest first.
 - game: one game title. name = the title exactly as printed; detail =
   category or studio when the page states it.
 
@@ -131,8 +319,9 @@ RULES
 - If the page holds none of this kind, return an empty list. Padding is a
   failure.
 
-Return STRICT JSON:
-{"items":[{"name":str,"detail":str,"coins":str,"index":int}]}"""
+Return STRICT JSON — omit fields that do not apply to the kind:
+{"items":[{"name":str,"detail":str,"coins":str,"gold_coins":number,"sweeps_coins":number,
+"benefit":str,"how_to_claim":str,"frequency":str,"qualification":str,"reward":str,"index":int}]}"""
 
 
 async def extract_catalog(
@@ -195,6 +384,27 @@ async def extract_catalog(
             continue
         if kind == "coin_package" and coins.strip().lower() == name.strip().lower():
             coins = ""  # "$1.99 grants $1.99" says nothing — leave it blank
+        meta: dict[str, Any] = {}
+        if kind == "coin_package":
+            gc, sc = parse_coins(coins or detail)
+            for key, model_val, parsed in (("gold_coins", it.get("gold_coins"), gc),
+                                            ("sweeps_coins", it.get("sweeps_coins"), sc)):
+                val = parsed if parsed is not None else model_val
+                if isinstance(val, int | float):
+                    meta[key] = float(val)
+        elif kind == "promotion":
+            for key in ("benefit", "how_to_claim", "frequency"):
+                val = " ".join(str(it.get(key) or "").split())
+                if val:
+                    meta[key] = val[:300]
+            for key, val in promo_fields(name, detail, meta).items():
+                if val and not meta.get(key):
+                    meta[key] = val          # read off the row's own words
+        elif kind == "loyalty_tier":
+            for key in ("qualification", "reward"):
+                val = " ".join(str(it.get(key) or "").split())
+                if val:
+                    meta[key] = val[:300]
         out.append(
             {
                 "name": name,
@@ -202,6 +412,7 @@ async def extract_catalog(
                 "coins_text": coins,
                 "sort_index": index,
                 "price_usd": price,
+                "meta": meta,
             }
         )
         if len(out) >= max_items:
@@ -242,8 +453,16 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
                 "sources": sources,
                 "packages": [
                     {"name": r.name, "price_usd": r.price_usd, "coins": r.coins_text,
-                     "detail": r.detail, "url": r.source_url, "source_type": r.source_type}
+                     "detail": r.detail, "url": r.source_url, "source_type": r.source_type,
+                     "gold_coins": (r.meta or {}).get("gold_coins"),
+                     "sweeps_coins": (r.meta or {}).get("sweeps_coins")}
                     for r in ladder
+                ],
+                "tiers": [
+                    {"name": r.name, "qualification": (r.meta or {}).get("qualification", ""),
+                     "reward": (r.meta or {}).get("reward", "") or r.detail, "url": r.source_url}
+                    for r in sorted((x for x in mine if x.kind == "loyalty_tier"),
+                                    key=lambda x: x.sort_index)
                 ],
                 "promotions": [
                     {"name": r.name, "detail": r.detail, "image": r.image_path, "url": r.source_url}
@@ -252,7 +471,8 @@ def summarize_catalog(rows: list[Any], subjects: list[Any]) -> dict[str, Any]:
                 "games_sample": [r.name for r in mine if r.kind == "game"][:12],
                 "games_full": [r.name for r in mine if r.kind == "game"],
                 "promotions_full": [
-                    {"name": r.name, "detail": r.detail, "image": r.image_path, "url": r.source_url}
+                    {"name": r.name, "detail": r.detail, "image": r.image_path, "url": r.source_url,
+                     **promo_fields(r.name, r.detail, r.meta)}
                     for r in mine if r.kind == "promotion"
                 ],
                 "customer_states": sorted({r.customer_state for r in mine}),
@@ -297,6 +517,10 @@ _RESEARCH_QUERIES: dict[str, tuple[str, ...]] = {
         '"{brand}" promotions current offers bonus {year}',
         '"{brand}" promo daily bonus welcome offer {year}',
     ),
+    "loyalty_tier": (
+        '"{brand}" loyalty club tiers VIP levels rewards',
+        '"{brand}" VIP program tiers bronze silver gold platinum',
+    ),
     "game": (
         '"{brand}" game list slots titles available',
         '"{brand}" popular games catalogue',
@@ -310,6 +534,7 @@ _LOW_TRUST = re.compile(r"coupon|promo-?code|deal|bonus-?code|casino-?bonus", re
 # belongs to somebody else (2026-08-27: a "sites-like/luckyland" page gave
 # LuckyLand a provider it does not carry, and a game studio's own services
 # page gave it another).
+_LEGAL_ONLY = re.compile(r"privacy|terms|tos\b|cookie|responsible|/rules|faq|/help|/support", re.I)
 _COMPARISON = re.compile(
     r"sites?-like|alternatives?|similar-?(to|sites)|vs-|versus|competitors?|"
     r"best-\d|top-\d|-vs-",
@@ -341,6 +566,26 @@ def research_page_ok(url: str, text: str, brand: str, aliases: list[str] | None 
     return mentions >= 3
 
 
+# Review sites whose per-brand page is at a predictable address, and whose
+# pages are written per brand (so attribution is not in doubt). Endorsed by
+# the operator 2026-09-01: igamingfuture. Tried before any search.
+KNOWN_REVIEW_URLS: tuple[str, ...] = (
+    "https://igamingfuture.com/sweepstakes-casinos/reviews/{slug}/",
+)
+_TRUSTED_HOSTS = re.compile(r"igamingfuture\.com", re.I)
+
+
+def brand_slug(brand: str) -> str:
+    """'Crown Coins Casino' → 'crown-coins' — the way review sites name them."""
+    bare = re.sub(r"\b(casino|slots|social)\b", "", brand, flags=re.I)
+    return re.sub(r"[^a-z0-9]+", "-", bare.lower()).strip("-")
+
+
+def known_review_urls(brand: str) -> list[str]:
+    slug = brand_slug(brand)
+    return [t.format(slug=slug) for t in KNOWN_REVIEW_URLS if slug]
+
+
 def research_queries(brand: str, kinds: list[str], *, year: int) -> list[tuple[str, str]]:
     """(kind, query) pairs for the public web, in build order."""
     out: list[tuple[str, str]] = []
@@ -365,9 +610,14 @@ def rank_research_urls(
         score = 0.0
         if brand_host and brand_host in url:
             score += 3
+        if _TRUSTED_HOSTS.search(url):
+            score += 2
         if _LOW_TRUST.search(url):
             score -= 2
-        if _NEVER.search(url):
+        # Only genuinely legal pages are refused here; review sites file
+        # brands under paths like /sweepstakes-casinos/reviews/…, and the
+        # brand-page filter's "sweepstake" word would throw those away.
+        if _LEGAL_ONLY.search(url):
             continue
         scored.append((score, url))
     scored.sort(key=lambda t: -t[0])

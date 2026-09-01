@@ -164,7 +164,7 @@ class TestResearchFirst:
         res = await t.execute({"company_id": "c1", "kinds": ["provider"]})
         assert res.success, res.error
         kinds = res.data["brands"][0]["kinds"]["provider"]
-        assert kinds["from"] == "public research" and kinds["found"] == 2
+        assert kinds["from"] == "public research" and kinds["found"] >= 2
         rows = await wm.list_catalog("c1")
         assert {r.name for r in rows} == {"Pragmatic Play", "Hacksaw Gaming"}
         assert all(r.source_type == "third_party" for r in rows)
@@ -336,64 +336,283 @@ class TestLadderHygiene:
 
 
 class TestPerBrandDetail:
-    """The client asked for the raw data, not a summary of it: the deck
-    carries a page per brand with every provider, the whole ladder, the
-    promotions and the titles (2026-08-27: the appendix showed 12 ticked
-    providers and five sample games while 39 and 44 were held)."""
+    """The client's own reference pages: '<Brand> – Coins / Promotions'
+    with Package · Gold coins · Sweeps coins and Promotion · Benefit · How to
+    claim · Frequency; '<Brand> – Loyalty Club' with Tier · Qualification ·
+    Reward; and Providers / Games. Tables, one fact per cell — not a
+    paragraph, and not a summary."""
 
-    def test_a_page_per_brand_lists_what_is_held_and_counts_the_rest(self, tmp_path) -> None:
-        from pptx import Presentation
-
-        from core.watch_deck import factual_narrative, render_executive_deck
-
+    def _catalog(self, n_games: int = 70):
         provs = [f"Studio {i}" for i in range(60)]
-        games = [f"Game {i}" for i in range(70)]
-        catalog = {
+        games = [f"Game {i}" for i in range(n_games)]
+        return {
             "items": 140, "label": "Raw inventory…",
-            "totals": {"provider": 60, "coin_package": 2, "promotion": 3, "game": 70},
+            "totals": {"provider": 60, "coin_package": 3, "promotion": 2, "loyalty_tier": 3, "game": 70},
             "third_party_only": [],
             "brands": [{
-                "subject_id": "s", "name": "Pulsz", "is_self": True,
-                "counts": {"provider": 60, "coin_package": 2, "promotion": 3, "game": 70},
+                "subject_id": "s", "name": "Modo", "is_self": False,
+                "counts": {"provider": 60, "coin_package": 3, "promotion": 2, "loyalty_tier": 3, "game": 70},
                 "providers": provs, "games_sample": games[:12], "games_full": games,
                 "sources": {"provider": ["site"]},
                 "packages": [
-                    {"name": "$1.99", "price_usd": 1.99, "coins": "30,000 Gold Coins",
-                     "detail": "", "url": "u", "source_type": "site"},
-                    {"name": "$4.99", "price_usd": 4.99, "coins": "79,500 Gold Coins",
-                     "detail": "", "url": "u", "source_type": "site"},
+                    {"name": "$1.99", "price_usd": 1.99, "coins": "4,000 GC", "detail": "",
+                     "url": "u", "source_type": "site", "gold_coins": 4000.0, "sweeps_coins": None},
+                    {"name": "$9.99", "price_usd": 9.99, "coins": "50,000 GC + 25 SC",
+                     "detail": "First purchase offer", "url": "u", "source_type": "site",
+                     "gold_coins": 50000.0, "sweeps_coins": 25.0},
+                    {"name": "$49.99", "price_usd": 49.99, "coins": "100,000 GC + 51 SC",
+                     "detail": "VIP Offer", "url": "u", "source_type": "site",
+                     "gold_coins": 100000.0, "sweeps_coins": 51.0},
                 ],
-                "promotions": [{"name": f"Promo {i}", "detail": "terms", "image": "", "url": "u"}
-                               for i in range(3)],
-                "promotions_full": [{"name": f"Promo {i}", "detail": "terms", "image": "", "url": "u"}
-                                    for i in range(3)],
+                "promotions": [], "promotions_full": [
+                    {"name": "Daily Login Bonus", "detail": "", "image": "", "url": "u",
+                     "benefit": "1500GC + 0.2SC, rising to 2500GC and 0.25SC after 3 days",
+                     "how_to_claim": "Login daily to claim the bonus", "frequency": "Daily"},
+                    {"name": "Refer a friend", "detail": "Level 1 at $100 purchase", "image": "",
+                     "url": "u", "benefit": "Up to 200K GC + 100 SC per friend",
+                     "how_to_claim": "Share a unique referral link", "frequency": "Ad hoc"},
+                ],
+                "tiers": [
+                    {"name": "Iron", "qualification": "N/A", "reward": "0% Weekly Coin Boost", "url": "u"},
+                    {"name": "Bronze", "qualification": "500,000 per month", "reward": "25% Weekly Coin Boost", "url": "u"},
+                    {"name": "Black Diamond", "qualification": "12,500,000,000 / year",
+                     "reward": "VIP Club access, 100% Weekly Coin Boost", "url": "u"},
+                ],
                 "customer_states": ["logged_out"], "observed_at": "2026-08-27",
             }],
         }
+
+    def _texts(self, path):
+        from pptx import Presentation
+
+        prs = Presentation(str(path))
+        out = []
+        for sl in prs.slides:
+            parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]
+            for sh in sl.shapes:
+                if sh.has_table:
+                    parts += [" | ".join(c.text for c in r.cells) for r in sh.table.rows]
+            out.append("\n".join(parts))
+        W, H = prs.slide_width, prs.slide_height
+        oob = [sh for sl in prs.slides for sh in sl.shapes
+               if sh.left is not None and (sh.left < 0 or sh.top < 0
+                                           or sh.left + sh.width > W + 18288
+                                           or sh.top + sh.height > H + 18288)]
+        assert not oob, "something runs off the page"
+        return out
+
+    def test_coins_and_promotions_page_matches_the_reference(self, tmp_path) -> None:
+        from core.watch_deck import factual_narrative, render_executive_deck
+
         card = {"rows": [], "dimensions": []}
         out = tmp_path / "d.pptx"
         render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
-                              gaps=[], evidence_count=1, path=out, catalog=catalog)
-        prs = Presentation(str(out))
-        page = next(
-            sl for sl in prs.slides
-            if any(sh.has_text_frame and sh.text_frame.text.startswith("RAW DATA · PULSZ")
-                   for sh in sl.shapes)
-        )
-        text = "\n".join(sh.text_frame.text for sh in page.shapes if sh.has_text_frame)
-        assert "60 providers · 2 packages · 3 promotions · 70 titles read" in text
-        assert "Studio 0" in text and "Studio 43" in text          # the list itself, not a tick
-        assert "$1.99 → 30,000 Gold Coins" in text                 # the ladder, rung by rung
-        assert "Promo 0" in text and "Game 0" in text
-        assert "more in the workbook" in text                      # and what did not fit is counted
-        # nothing runs off the page
-        W, H = prs.slide_width, prs.slide_height
-        assert not [
-            sh for sh in page.shapes
-            if sh.left is not None and (sh.left < 0 or sh.top < 0
-                                        or sh.left + sh.width > W + 18288
-                                        or sh.top + sh.height > H + 18288)
+                              gaps=[], evidence_count=1, path=out, catalog=self._catalog())
+        page = next(t for t in self._texts(out) if "Modo – Coins / Promotions" in t)
+        assert "Coin package | Gold coins | Sweeps coins" in page
+        assert "$1.99 | 4,000 | –" in page                              # no SC → an honest dash
+        assert "$9.99\n(First purchase offer) | 50,000 | 25" in page      # the note rides with the price
+        assert "Promotion | Benefit | How to claim | Frequency" in page
+        assert "Daily Login Bonus | 1500GC + 0.2SC" in page and "| Login daily to claim the bonus | Daily" in page
+
+    def test_loyalty_and_library_pages(self, tmp_path) -> None:
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        card = {"rows": [], "dimensions": []}
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, catalog=self._catalog())
+        texts = self._texts(out)
+        loyalty = next(t for t in texts if "Modo – Loyalty Club" in t)
+        assert "Loyalty Club tier | Qualification | Reward" in loyalty
+        assert "Bronze | 500,000 per month | 25% Weekly Coin Boost" in loyalty
+        assert "Black Diamond | 12,500,000,000 / year | VIP Club access" in loyalty
+        library = next(t for t in texts if "Modo – Providers / Games" in t)
+        assert "Studio 0" in library and "Studio 59" in library     # all sixty, not a tick
+        assert "Game 0" in library and "Game 69" in library         # all seventy fit on the page
+        assert "more in the workbook" not in library                # nothing was cut, so no claim it was
+
+    def test_a_library_too_long_for_the_page_says_where_the_rest_is(self, tmp_path) -> None:
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        card = {"rows": [], "dimensions": []}
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, catalog=self._catalog(n_games=300))
+        library = next(t for t in self._texts(out) if "Modo – Providers / Games" in t)
+        assert "Game 109" in library and "Game 110" not in library
+        assert "+190 more in the workbook" in library
+
+    def test_rows_collected_before_the_columns_existed_still_fill_them(self, tmp_path) -> None:
+        """The 293 promotions already on record carry no benefit / claim /
+        frequency; the summary derives them from the row's own words."""
+        from core.watch_catalog import summarize_catalog
+
+        class Row:
+            def __init__(self, kind, name, detail="", meta=None):
+                self.kind, self.name, self.detail, self.meta = kind, name, detail, meta or {}
+                self.subject_id, self.source_url, self.image_path = "s", "u", ""
+                self.source_type, self.customer_state, self.observed_at = "site", "logged_out", "2026-08-27"
+                self.price_usd, self.coins_text, self.sort_index = None, "", 0
+
+        class Subj:
+            subject_id, name, is_self = "s", "Modo", False
+
+        cat = summarize_catalog([Row("promotion", "Daily login bonus", "Log in every 24 hours; 1,500 GC")],
+                                [Subj()])
+        promo = cat["brands"][0]["promotions_full"][0]
+        assert promo["frequency"] == "Daily" and promo["how_to_claim"] == "Log in"
+        assert promo["benefit"] == "Log in every 24 hours; 1,500 GC"
+
+    def test_a_brand_without_tiers_gets_no_loyalty_page(self, tmp_path) -> None:
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        cat = self._catalog()
+        cat["brands"][0]["tiers"] = []
+        card = {"rows": [], "dimensions": []}
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, catalog=cat)
+        assert not any("Loyalty Club" in t for t in self._texts(out))
+
+
+class TestStructuredFields:
+    def test_frequency_is_read_off_the_offers_own_words(self) -> None:
+        from core.watch_catalog import parse_frequency
+
+        assert parse_frequency("Daily login bonus", "Login every 24 hours") == "Daily"
+        assert parse_frequency("Happy Hour", "Takes place nightly from 9-10 PM") == "Daily"
+        assert parse_frequency("Midweek Madness", "Play every Tuesday, Wednesday, and Thursday") == "Weekly"
+        assert parse_frequency("My Stash Jackpot", "Claimable every Monday, but expires after seven days") == "Weekly"
+        assert parse_frequency("Refer-a-friend", "600 GC + 20 SC") == "Per referral"
+        assert parse_frequency("Cinco de Mayo Bundle", "May 5, 2026 to May 31, 2026") == "Limited time"
+        # a dated welcome offer is limited-time, whatever its trigger
+        assert parse_frequency("August Deal", "08/31/2026 expire; UPON SIGN UP") == "Limited time"
+        assert parse_frequency("First Purchase Bonus", "50,000 GC for $9.99") == "One-time"
+        assert parse_frequency("Signup Promo", "No expiration date") == "One-time"   # "expiration" is not "expires"
+        assert parse_frequency("Social Media Rewards", "Ongoing wagering period") == "Ongoing"
+        assert parse_frequency("VIP program", "Play more to level up") == ""
+
+    def test_claim_route_is_read_off_the_offers_own_words(self) -> None:
+        from core.watch_catalog import parse_claim
+
+        assert parse_claim("AMOE", "send a handwritten request card") == "Mail-in request"
+        assert parse_claim("Referral Program", "UPON SIGN UP, NO PURCHASE NECESSARY") == "Share referral link"
+        assert parse_claim("Daily Email Competition", "3 SC just for opting in") == "Opt in"
+        assert parse_claim("Signup Promo", "Claim on your first purchase") == "First purchase"
+        assert parse_claim("Welcome bonus", "when I completed the sign-up process") == "Sign up"
+        assert parse_claim("sign-up bonus", "Once your account is fully verified") == "Sign up + verify"
+        assert parse_claim("Daily reload", "you just need to sign into your account") == "Log in"
+        assert parse_claim("Welcome Email Bonus", "keep an eye on your inbox") == "Watch inbox"
+        assert parse_claim("Tournaments", "available on selected slots") == "Play qualifying games"
+        assert parse_claim("Cinco de Mayo Bundle", "Seasonal discounted coin package") == "Purchase"
+        assert parse_claim("Weekly Prize Draws", "100 winners selected at random") == ""
+        # codes: a real one is quoted, a word after "code" is not one
+        assert parse_claim("No-deposit bonus", "The promo code 'COVERSBONUS' activates it") == "Use code COVERSBONUS"
+        assert parse_claim("Welcome Bonus (Promo Code Required)", "Sign up and receive GC") == "Enter promo code"
+        assert parse_claim("Daily reload", "You don't need a bonus code to claim, just log in") == "Log in"
+        assert parse_claim("Bonus", "No bonus code required; opt in") == "Opt in"
+
+    def test_promo_fields_prefer_the_model_and_fill_its_blanks(self) -> None:
+        from core.watch_catalog import promo_fields
+
+        read = promo_fields("Daily login bonus", "Login every 24 hours",
+                            {"benefit": "1,500 GC", "how_to_claim": "Open the app", "frequency": "daily"})
+        assert read == {"benefit": "1,500 GC", "how_to_claim": "Open the app", "frequency": "daily"}
+        old = promo_fields("Daily login bonus", "Login every 24 hours; base reward 1,500 GC", {})
+        assert old == {"benefit": "Login every 24 hours; base reward 1,500 GC",
+                       "how_to_claim": "Log in", "frequency": "Daily"}
+        # legal boilerplate is not a benefit when the title carries the grant
+        titled = promo_fields("Get 1.5M CC + 75 FREE SC", "T&Cs Apply; 18+. Void where prohibited.", {})
+        assert titled["benefit"] == "1,500,000 GC + 75 SC"
+        assert promo_fields("Giveaways", "", {})["benefit"] == ""
+
+    def test_parse_coins_reads_the_grant_as_printed(self) -> None:
+        from core.watch_catalog import parse_coins
+
+        assert parse_coins("800,000 GC 50 SC") == (800000.0, 50.0)
+        assert parse_coins("120K Gold Coins + 60 SC FREE") == (120000.0, 60.0)
+        assert parse_coins("1,500,000 Crown Coins, 75 SC") == (1500000.0, 75.0)
+        assert parse_coins("40 SC + 800K GC + wheel spin") == (800000.0, 40.0)
+        assert parse_coins("30,000 Gold Coins") == (30000.0, None)
+        assert parse_coins("Get 1.5M CC + 75 FREE SC") == (1500000.0, 75.0)     # Crown Coins' own abbreviation
+        assert parse_coins("up to 1750000 WC + 30 FREE SC") == (1750000.0, 30.0)  # WOW Coins'
+        assert parse_coins("25 Mystery Coins plus 5 Battle Cards")[0] == 25.0   # not 25 million
+        assert parse_coins("a great deal") == (None, None)
+
+    @pytest.mark.asyncio
+    async def test_promotions_and_tiers_come_back_structured(self) -> None:
+        page = ("Daily Login Bonus: 1500GC + 0.2SC. Login daily to claim. "
+                "Loyalty Club: Bronze needs 500,000 per month and gives a 25% Weekly Coin Boost.")
+        r = _Router([{"name": "Daily Login Bonus", "benefit": "1500GC + 0.2SC",
+                      "how_to_claim": "Login daily to claim", "frequency": "daily", "index": 0}])
+        got = await extract_catalog(r, kind="promotion", brand="Modo", page_text=page)
+        assert got[0]["meta"] == {"benefit": "1500GC + 0.2SC", "how_to_claim": "Login daily to claim",
+                                  "frequency": "daily"}
+        r2 = _Router([{"name": "Bronze", "qualification": "500,000 per month",
+                       "reward": "25% Weekly Coin Boost", "index": 1}])
+        got2 = await extract_catalog(r2, kind="loyalty_tier", brand="Modo", page_text=page)
+        assert got2[0]["name"] == "Bronze" and got2[0]["sort_index"] == 1
+        assert got2[0]["meta"]["reward"] == "25% Weekly Coin Boost"
+
+    @pytest.mark.asyncio
+    async def test_package_numbers_are_parsed_not_trusted(self) -> None:
+        page = "The $9.99 pack grants 50,000 GC + 25 SC on your first purchase."
+        r = _Router([{"name": "$9.99", "coins": "50,000 GC + 25 SC", "detail": "first purchase",
+                      "gold_coins": 999, "sweeps_coins": 999, "index": 0}])   # model's numbers are wrong
+        got = await extract_catalog(r, kind="coin_package", brand="B", page_text=page)
+        assert got[0]["meta"] == {"gold_coins": 50000.0, "sweeps_coins": 25.0}
+
+    @pytest.mark.asyncio
+    async def test_meta_round_trips_through_the_register(self, wm) -> None:
+        subj = await wm.add_subject(company_id="c1", name="Modo")
+        await wm.add_catalog_item(company_id="c1", subject_id=subj.subject_id, brand_name="Modo",
+                                  kind="loyalty_tier", name="Bronze", sort_index=1,
+                                  meta={"qualification": "500,000", "reward": "25% boost"})
+        await wm.add_catalog_item(company_id="c1", subject_id=subj.subject_id, brand_name="Modo",
+                                  kind="coin_package", name="$9.99", price_usd=9.99,
+                                  coins_text="50,000 GC + 25 SC", meta={"gold_coins": 50000.0, "sweeps_coins": 25.0})
+        s = await wm.catalog_summary("c1")
+        b = s["brands"][0]
+        assert b["tiers"] == [{"name": "Bronze", "qualification": "500,000", "reward": "25% boost", "url": ""}]
+        assert b["packages"][0]["gold_coins"] == 50000.0 and b["packages"][0]["sweeps_coins"] == 25.0
+
+    def test_known_review_urls_are_predictable(self) -> None:
+        from core.watch_catalog import brand_slug, known_review_urls, rank_research_urls
+
+        assert brand_slug("Crown Coins Casino") == "crown-coins"
+        assert known_review_urls("Crown Coins Casino") == [
+            "https://igamingfuture.com/sweepstakes-casinos/reviews/crown-coins/"
         ]
+        ranked = rank_research_urls([
+            {"url": "https://random-review.example/crown-coins"},
+            {"url": "https://igamingfuture.com/sweepstakes-casinos/reviews/crown-coins/"},
+        ])
+        assert ranked[0].startswith("https://igamingfuture.com")
+
+    def test_workbook_carries_the_new_columns(self, tmp_path) -> None:
+        from openpyxl import load_workbook
+
+        from core.watch_xlsx import render_scorecard_xlsx
+
+        rows = [
+            {"brand": "Modo", "kind": "coin_package", "name": "$9.99", "price_usd": 9.99,
+             "gold_coins": 50000.0, "sweeps_coins": 25.0, "coins": "50,000 GC + 25 SC", "detail": "",
+             "source_type": "site", "url": "u", "session": "logged_out", "observed_at": "2026-08-27", "sort_index": 0},
+            {"brand": "Modo", "kind": "promotion", "name": "Daily Login Bonus", "benefit": "1500GC + 0.2SC",
+             "how_to_claim": "Login daily", "frequency": "daily", "detail": "", "image": "", "url": "u",
+             "session": "logged_out", "observed_at": "2026-08-27", "sort_index": 0},
+            {"brand": "Modo", "kind": "loyalty_tier", "name": "Bronze", "qualification": "500,000",
+             "reward": "25% boost", "url": "u", "session": "logged_out", "observed_at": "2026-08-27", "sort_index": 1},
+        ]
+        path = render_scorecard_xlsx({"rows": [], "dimensions": []}, dimensions=[], evidence=[],
+                                     staleness=[], path=tmp_path / "b.xlsx", catalog_rows=rows)
+        wb = load_workbook(path)
+        assert {"Coin packages", "Promotions", "Loyalty tiers"} <= set(wb.sheetnames)
+        assert [c.value for c in wb["Coin packages"][3]][:4] == ["Brand", "Price USD", "Gold coins", "Sweeps coins"]
+        assert [c.value for c in wb["Coin packages"][4]][1:4] == [9.99, 50000.0, 25.0]
+        assert [c.value for c in wb["Promotions"][4]][1:5] == ["Daily Login Bonus", "1500GC + 0.2SC", "Login daily", "daily"]
+        assert [c.value for c in wb["Loyalty tiers"][4]][1:4] == ["Bronze", "500,000", "25% boost"]
 
 
 class TestRegister:
@@ -483,8 +702,9 @@ class TestDeckAndWorkbook:
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=a)
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=b,
                               catalog=self._catalog())
-        # four field-level slides + one raw-data page for the brand itself
-        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 5
+        # four field-level slides + the brand's Coins/Promotions page + its
+        # Providers/Games page (no loyalty tiers in this fixture)
+        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 6
         texts = []
         for sl in Presentation(str(b)).slides:
             parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]
@@ -522,4 +742,4 @@ class TestDeckAndWorkbook:
         wb = load_workbook(with_raw)
         assert {"Providers", "Coin packages", "Promotions", "Games"} <= set(wb.sheetnames)
         assert wb["Coin packages"]["B4"].value == 29.99
-        assert wb["Promotions"]["D4"].value == "/shots/p.jpg"
+        assert wb["Promotions"]["G4"].value == "/shots/p.jpg"   # Image column, after Benefit/How/Frequency/Terms

@@ -2359,67 +2359,155 @@ def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page:
     _footer(s, deck_title, page)
 
 
-def _slide_brand_raw(prs: Any, brand: dict[str, Any], page: int, deck_title: str) -> None:
-    """One brand, everything held on it — the client asked for the raw
-    data, not a summary of it: every provider, the whole ladder, the
-    promotions and the titles, with anything that will not fit named as a
-    count so the reader knows the workbook has the rest."""
+def _table(
+    slide: Any, x: float, y: float, widths: list[float], header: list[str],
+    rows: list[list[str]], *, size: float = 8, highlight_first_col: bool = False,
+    max_h: float = 4.6,
+) -> float:
+    """A plain, readable table in the deck's style. Returns the y below it.
+    The client's reference pages are exactly this: bordered cells, one
+    fact per cell, nothing decorative."""
+    from pptx.util import Inches, Pt
+
+    if not rows:
+        return y
+    row_h = 0.34 if size >= 9 else 0.3
+    h = min(row_h * (len(rows) + 1), max_h)
+    shape = slide.shapes.add_table(len(rows) + 1, len(header), Inches(x), Inches(y),
+                                   Inches(sum(widths)), Inches(h))
+    tbl = shape.table
+    for ci, w in enumerate(widths):
+        tbl.columns[ci].width = Inches(w)
+
+    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False) -> None:
+        cell = tbl.cell(r, c)
+        cell.text = text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _rgb(bg)
+        cell.margin_left = cell.margin_right = Inches(0.05)
+        cell.margin_top = cell.margin_bottom = Inches(0.02)
+        for p_ in cell.text_frame.paragraphs:
+            for run in p_.runs:
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.color.rgb = _rgb(fg)
+
+    for ci, htxt in enumerate(header):
+        cw(0, ci, htxt, bg=_INK, fg=_WHITE, bold=True)
+    for ri, row in enumerate(rows, start=1):
+        bg = _CARD if ri % 2 else _WHITE
+        for ci, txt in enumerate(row):
+            cw(ri, ci, txt, bg=bg, bold=(highlight_first_col and ci == 0))
+    return y + h + 0.15
+
+
+def _fmt_coins(v: Any) -> str:
+    if v is None:
+        return "–"
+    try:
+        f = float(v)
+    except Exception:
+        return str(v)
+    return f"{int(f):,}" if f == int(f) else f"{f:,.2f}"
+
+
+def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_title: str) -> None:
+    """'<Brand> – Coins / Promotions': the ladder as Package · Gold coins ·
+    Sweeps coins on the left, promotions as Promotion · Benefit · How to
+    claim · Frequency on the right — the client's own reference layout."""
     s = _blank(prs)
     c = brand["counts"]
     top = _header(
-        s,
-        f"Raw data · {brand['name']}{'  (us)' if brand.get('is_self') else ''}",
-        f"{c.get('provider', 0)} providers · {c.get('coin_package', 0)} packages · "
-        f"{c.get('promotion', 0)} promotions · {c.get('game', 0)} titles read",
+        s, "Raw data",
+        f"{brand['name']}{'  (us)' if brand.get('is_self') else ''} – Coins / Promotions",
+    )
+    pkgs = brand.get("packages") or []
+    pkg_rows = []
+    for pkg in pkgs[:12]:
+        price = f"${pkg['price_usd']:.2f}" if pkg.get("price_usd") is not None else str(pkg["name"])
+        note = (pkg.get("detail") or "").strip()
+        label = price + (f"\n({_clean(note, 26)})" if note and len(note) <= 40 else "")
+        gc, sc = pkg.get("gold_coins"), pkg.get("sweeps_coins")
+        if gc is None and sc is None and pkg.get("coins"):
+            gc_txt, sc_txt = _clean(pkg["coins"], 30), "–"   # unparsed grant, shown as printed
+        else:
+            gc_txt, sc_txt = _fmt_coins(gc), _fmt_coins(sc)
+        pkg_rows.append([label, gc_txt, sc_txt])
+    if pkg_rows:
+        _table(s, 0.7, top, [1.45, 1.25, 1.0], ["Coin package", "Gold coins", "Sweeps coins"],
+               pkg_rows, size=8, highlight_first_col=True)
+    else:
+        _text(s, 0.7, top, 3.7, 0.5, "No coin packages on record.", size=9, color=_MUTED)
+
+    promos = brand.get("promotions_full") or brand.get("promotions") or []
+    promo_rows = []
+    for p_ in promos[:9]:
+        benefit = p_.get("benefit") or p_.get("detail") or ""
+        promo_rows.append([
+            _clean(p_["name"], 48),      # the cell wraps; a title cut mid-word reads worse than two lines
+            _clean(benefit, 95) or "–",
+            _clean(p_.get("how_to_claim") or "", 60) or "–",
+            _clean(p_.get("frequency") or "", 16) or "–",
+        ])
+    if promo_rows:
+        _table(s, 4.7, top, [1.7, 3.5, 1.9, 0.85],
+               ["Promotion", "Benefit", "How to claim", "Frequency"], promo_rows, size=7.5)
+    else:
+        _text(s, 4.7, top, 7.9, 0.5, "No promotions on record.", size=9, color=_MUTED)
+    extra = max(0, len(pkgs) - 12) + max(0, len(promos) - 9)
+    _text(
+        s, 0.7, 6.72, 11.9, 0.28,
+        f"{c.get('coin_package', 0)} packages and {c.get('promotion', 0)} promotions on record"
+        + (f"; {extra} more in the workbook" if extra else "")
+        + f". As printed; read {', '.join(brand.get('customer_states') or ['logged_out'])}, "
+        f"latest {brand.get('observed_at', '')}.",
+        size=7.5, italic=True, color=_MUTED,
+    )
+    _footer(s, deck_title, page)
+
+
+def _slide_brand_loyalty(prs: Any, brand: dict[str, Any], page: int, deck_title: str) -> None:
+    """'<Brand> – Loyalty Club': Tier · Qualification · Reward."""
+    s = _blank(prs)
+    tiers = brand.get("tiers") or []
+    top = _header(
+        s, "Raw data",
+        f"{brand['name']}{'  (us)' if brand.get('is_self') else ''} – Loyalty Club",
+    )
+    rows = [[_clean(t["name"], 22), _clean(t.get("qualification") or "–", 60),
+             _clean(t.get("reward") or "–", 90)] for t in tiers[:12]]
+    _table(s, 0.7, top, [2.2, 4.2, 5.5], ["Loyalty Club tier", "Qualification", "Reward"],
+           rows, size=8.5, highlight_first_col=True, max_h=5.0)
+    _text(s, 0.7, 6.72, 11.9, 0.28,
+          f"{len(tiers)} tiers as printed; latest {brand.get('observed_at', '')}.",
+          size=7.5, italic=True, color=_MUTED)
+    _footer(s, deck_title, page)
+
+
+def _slide_brand_library(prs: Any, brand: dict[str, Any], page: int, deck_title: str) -> None:
+    """'<Brand> – Providers / Games': every studio carried and the titles read."""
+    s = _blank(prs)
+    c = brand["counts"]
+    top = _header(
+        s, "Raw data",
+        f"{brand['name']}{'  (us)' if brand.get('is_self') else ''} – Providers / Games",
     )
 
     def more(items: list[Any], shown: int) -> str:
         extra = len(items) - shown
         return f"  (+{extra} more in the workbook)" if extra > 0 else ""
 
-    # Providers and the ladder share the first band.
     provs = [str(p_) for p_ in brand.get("providers") or []]
-    _eyebrow(s, "Game providers carried", y=top, x=0.7, color=_PEER)
-    _text(s, 0.7, top + 0.26, 5.6, 1.5,
-          (", ".join(provs[:44]) + more(provs, 44)) if provs else "—",
-          size=7.5, color=_BODY, line=1.15)
-
-    pkgs = brand.get("packages") or []
-    pkg_lines = []
-    for pkg in pkgs[:10]:
-        price = f"${pkg['price_usd']:.2f}" if pkg.get("price_usd") is not None else str(pkg["name"])
-        grant = pkg.get("coins") or pkg.get("detail") or ""
-        pkg_lines.append(f"{price} → {_clean(grant, 52)}" if grant else price)
-    if more(pkgs, 10):
-        pkg_lines.append(more(pkgs, 10).strip())
-    _eyebrow(s, "Coin packages", y=top, x=6.6, color=_PEER)
-    _bullets(s, 6.6, top + 0.26, 6.0, 1.5, pkg_lines or ["—"], size=8, color=_BODY,
-             gap_pt=2, cap=90, accent_bullet=False, max_items=11)
-
-    promos = brand.get("promotions_full") or brand.get("promotions") or []
-    plines = [
-        _clean(p_["name"], 44) + (f" — {_clean(p_.get('detail') or '', 78)}" if p_.get("detail") else "")
-        for p_ in promos[:8]
-    ]
-    if more(promos, 8):
-        plines.append(more(promos, 8).strip())
-    _eyebrow(s, "Promotions running", y=top + 1.95, x=0.7, color=_PEER)
-    _bullets(s, 0.7, top + 2.2, 11.9, 1.9, plines or ["—"], size=8, color=_BODY,
-             gap_pt=2, cap=130, accent_bullet=True, max_items=9)
-
+    _eyebrow(s, f"Game providers carried · {c.get('provider', 0)}", y=top, x=0.7, color=_PEER)
+    _text(s, 0.7, top + 0.26, 11.9, 1.9,
+          (", ".join(provs[:60]) + more(provs, 60)) if provs else "—", size=8, color=_BODY, line=1.15)
     games = [str(g) for g in brand.get("games_full") or brand.get("games_sample") or []]
-    _eyebrow(s, "Games read", y=top + 4.2, x=0.7, color=_PEER)
-    _text(s, 0.7, top + 4.46, 11.9, 1.05,
-          (", ".join(games[:55]) + more(games, 55)) if games else "—",
-          size=7, color=_BODY, line=1.12)
-
-    _text(
-        s, 0.7, 6.72, 11.9, 0.28,
-        f"Everything held on {brand['name']}, as printed; read "
-        f"{', '.join(brand.get('customer_states') or ['logged_out'])}, latest "
-        f"{brand.get('observed_at', '')}. The source of every item is in the workbook.",
-        size=7.5, italic=True, color=_MUTED,
-    )
+    _eyebrow(s, f"Games read · {c.get('game', 0)}", y=top + 2.35, x=0.7, color=_PEER)
+    _text(s, 0.7, top + 2.61, 11.9, 2.4,
+          (", ".join(games[:110]) + more(games, 110)) if games else "—", size=7.5, color=_BODY, line=1.12)
+    _text(s, 0.7, 6.72, 11.9, 0.28,
+          "As printed on the brand's pages and public reviews; the source of every item is in the workbook.",
+          size=7.5, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
 
 
@@ -3534,12 +3622,19 @@ def render_executive_deck(
         if catalog["totals"].get("game"):
             _slide_games(prs, catalog, page, deck_title)
             page += 1
-        # …then the detail itself, one page per brand.
+        # …then the detail itself, per brand, in the client's own layout:
+        # Coins / Promotions, Loyalty Club (when tiers are held), Providers / Games.
         for brand_row in catalog.get("brands", [])[:16]:
-            if not any(brand_row["counts"].values()):
-                continue
-            _slide_brand_raw(prs, brand_row, page, deck_title)
-            page += 1
+            cnt = brand_row["counts"]
+            if cnt.get("coin_package") or cnt.get("promotion"):
+                _slide_brand_coins_promos(prs, brand_row, page, deck_title)
+                page += 1
+            if brand_row.get("tiers"):
+                _slide_brand_loyalty(prs, brand_row, page, deck_title)
+                page += 1
+            if cnt.get("provider") or cnt.get("game"):
+                _slide_brand_library(prs, brand_row, page, deck_title)
+                page += 1
 
     _slide_method(prs, card, diff, page, deck_title)
     page += 1
