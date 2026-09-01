@@ -27,11 +27,19 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # What a logged-in session shows, and what a logged-out one still shows.
-LOGGED_IN_WORDS = (
-    "log out", "logout", "sign out", "my account", "account settings",
-    "gold coins balance", "sweeps coins", "cashier", "redeem", "buy coins",
-    "wallet", "vip level", "claim daily", "daily bonus claim", "my profile",
+# Only an account control proves a session: a logged-out homepage sells
+# "sweeps coins", "redeem" and "buy coins" to everyone (LuckyLand,
+# 2026-09-01: judged "already logged in" on those words while its header
+# read Sign Up / Login). The weak words help only when nothing says
+# logged-out.
+LOGGED_IN_STRONG = (
+    "log out", "logout", "sign out", "my account", "account settings", "my profile",
 )
+LOGGED_IN_WEAK = (
+    "gold coins balance", "sweeps coins", "cashier", "redeem", "buy coins",
+    "wallet", "vip level", "claim daily", "daily bonus claim",
+)
+LOGGED_IN_WORDS = LOGGED_IN_STRONG + LOGGED_IN_WEAK
 LOGGED_OUT_WORDS = (
     "log in", "login", "sign in", "create account", "register", "join now",
 )
@@ -435,13 +443,17 @@ async def session_state(bm: Any) -> tuple[str, list[str], list[str]]:
         text = _result_text(await bm.call_tool("browser_extract", {})).lower()
     except Exception:
         text = ""
-    hits_in = sorted({w for w in LOGGED_IN_WORDS if w in text})
+    strong = sorted({w for w in LOGGED_IN_STRONG if w in text})
+    weak = sorted({w for w in LOGGED_IN_WEAK if w in text})
+    hits_in = strong + weak
     hits_out = sorted({w for w in LOGGED_OUT_WORDS if w in text})
-    if hits_in and len(hits_out) <= len(hits_in):
+    if strong and len(hits_out) <= len(hits_in):
         return "logged_in", hits_in[:4], hits_out[:3]
-    if hits_in:
+    if strong:
         return "unclear", hits_in[:4], hits_out[:3]
-    return "logged_out", hits_in, hits_out[:3]
+    if weak and not hits_out:
+        return "unclear", hits_in[:4], hits_out[:3]     # coins talk, no controls either way
+    return "logged_out", hits_in[:4], hits_out[:3]
 
 
 async def wait_out_challenge(bm: Any, seconds: int) -> str:

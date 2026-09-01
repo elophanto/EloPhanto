@@ -4673,6 +4673,22 @@ class WatchRegulatoryTool(_WatchToolBase):
 # ── Logged-in observation (docs/88): the agent signs in itself ─────────
 
 
+def _merge_login_results(results_file: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Write ``rows`` into the results file, replacing that brand's previous
+    entry and keeping every other brand's — so a per-brand call does not
+    erase the history the cooldown reads."""
+    existing: list[dict[str, Any]] = []
+    try:
+        loaded = json.loads(results_file.read_text(encoding="utf-8"))
+        existing = [r for r in loaded if isinstance(r, dict)] if isinstance(loaded, list) else []
+    except Exception:
+        existing = []
+    fresh = {str(r.get("brand") or ""): r for r in rows if not r.get("from_cache")}
+    merged = [r for r in existing if str(r.get("brand") or "") not in fresh] + list(fresh.values())
+    results_file.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    return merged
+
+
 def _vault_creds_for(vault: Any, url: str) -> tuple[str, dict[str, Any] | None]:
     """The stored credentials for a brand's site, resolved the way
     vault_lookup resolves them (exact key, else a domain match)."""
@@ -4867,9 +4883,11 @@ class WatchLoginTool(_WatchToolBase):
             )
             res["domain"] = domain
             rows.append(res)
-            try:  # keep the cache current as we go
+            try:  # keep the cache current as we go — merged, never overwritten:
+                # the agent signs in one brand per call, and the 12h cooldown
+                # only holds if the previous call's verdicts survive this one.
                 shots.mkdir(parents=True, exist_ok=True)
-                results_file.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+                _merge_login_results(results_file, rows)
             except Exception:
                 pass
         if not rows:
@@ -4960,6 +4978,13 @@ class WatchCatalogCollectTool(_WatchToolBase):
                         "published). Default true — it is free and needs no session."
                     ),
                 },
+                "min_items": {
+                    "type": "integer",
+                    "description": "A kind counts as answered once it has this many items (default 1: "
+                                   "only an empty kind goes to research and then to sign-in). Use e.g. 10 "
+                                   "for provider,game so a brand whose public pages show three teaser "
+                                   "titles still gets its lobby read.",
+                },
                 "sign_in_if_missing": {
                     "type": "boolean",
                     "description": (
@@ -5040,6 +5065,7 @@ class WatchCatalogCollectTool(_WatchToolBase):
 
         research = bool(params.get("research", True))
         sign_in_if_missing = bool(params.get("sign_in_if_missing", False))
+        min_items = max(1, int(params.get("min_items") or 1))
         search_key = self._vault.get("search_sh_api_key") if self._vault is not None else None
         shots_root = Path(str(getattr(self._config, "workspace", "") or ".")) / "catalog-shots"
         report: list[dict[str, Any]] = []
@@ -5108,7 +5134,7 @@ class WatchCatalogCollectTool(_WatchToolBase):
                         new += 1 if is_new else 0
                 per["kinds"][kind] = {
                     "found": found, "new": new, "pages": len(by_kind.get(kind, [])),
-                    "from": "brand site" if found else "",
+                    "from": "brand site" if found else "", "new_site": new,
                 }
                 if kind == "promotion" and shot:
                     per["kinds"][kind]["image"] = shot
@@ -5116,8 +5142,12 @@ class WatchCatalogCollectTool(_WatchToolBase):
 
                 # Public research: whatever the brand's own pages did not
                 # answer is usually published elsewhere, and reading it costs
-                # no session and no metered exit.
-                if found or not research or not search_key:
+                # no session and no metered exit. "Did not answer" is fewer
+                # than min_items — three teaser titles are not a lobby.
+                site_found = found
+                if found >= min_items or not research or not search_key:
+                    if sign_in_if_missing and found < min_items:
+                        per["kinds"][kind]["needs_sign_in"] = True
                     continue
                 brand_host = (subj.url or "").split("//")[-1].split("/")[0].removeprefix("www.")
                 # A review site with a predictable per-brand page comes before
@@ -5149,12 +5179,13 @@ class WatchCatalogCollectTool(_WatchToolBase):
                         kind, items, subj=subj, url=u,
                         source_type="third_party", shot="", session=customer_state,
                     )
-                if found:
-                    per["kinds"][kind].update(
-                        {"found": found, "new": new, "from": "public research"}
-                    )
-                    total_new += new
-                elif sign_in_if_missing:
+                if found > site_found:
+                    per["kinds"][kind].update({
+                        "found": found, "new": new,
+                        "from": "brand site + public research" if site_found else "public research",
+                    })
+                    total_new += new - per["kinds"][kind].get("new_site", 0)
+                if sign_in_if_missing and found < min_items:
                     # Only now is a session worth its cost.
                     per["kinds"][kind]["needs_sign_in"] = True
             report.append(per)

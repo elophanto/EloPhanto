@@ -171,6 +171,57 @@ class TestResearchFirst:
         assert all(r.geo_state == "n/a" for r in rows)  # no geo claim, no proxy
 
     @pytest.mark.asyncio
+    async def test_a_few_teaser_titles_are_not_a_lobby_when_min_items_says_so(
+        self, wm, monkeypatch
+    ) -> None:
+        """High 5 / Pulsz Bingo, 2026-09-01: three titles on the public page
+        counted as 'answered', so the lobby was never read. min_items sets
+        what counts as answered; below it research runs and, if still
+        short, the kind is marked for sign-in."""
+        import core.watch_observe as wo
+        from tools.watch import tools as T
+
+        await wm.add_subject(company_id="c1", name="High 5", url="https://www.high5casino.com")
+        searched: list[str] = []
+
+        async def teaser(start_url, **kw):
+            return [{"url": "https://www.high5casino.com/games", "title": "Games",
+                     "text": "Play Green Machine, Golden Knight and Shake the Sky.", "error": None,
+                     "method": "http"}]
+
+        async def fake_search(query, *, api_key, **kw):
+            searched.append(query)
+            return [{"url": "https://review.example/high-5", "title": "review", "snippet": ""}]
+
+        async def fake_fetch(url, **kw):
+            return ("High 5 Casino games: Green Machine, Golden Knight, Shake the Sky, Jaguar Wild.",
+                    None, "http")
+
+        monkeypatch.setattr(wo, "collect_pages", teaser)
+        monkeypatch.setattr(wo, "search_web", fake_search)
+        monkeypatch.setattr(wo, "fetch_page_best_effort", fake_fetch)
+        t = T.WatchCatalogCollectTool()
+        t._watch_manager, t._config, t._browser_manager = wm, None, None
+        t._vault = {"search_sh_api_key": "sk-test"}
+        t._router = _Router([{"name": "Green Machine", "detail": "", "index": 0},
+                             {"name": "Golden Knight", "detail": "", "index": 1},
+                             {"name": "Shake the Sky", "detail": "", "index": 2}])
+
+        res = await t.execute({"company_id": "c1", "kinds": ["game"], "sign_in_if_missing": True})
+        k = res.data["brands"][0]["kinds"]["game"]
+        assert k["found"] == 3 and k["from"] == "brand site" and not k.get("needs_sign_in")
+        assert searched == []                                   # three items answered the default
+
+        res = await t.execute({"company_id": "c1", "kinds": ["game"], "sign_in_if_missing": True,
+                               "min_items": 10})
+        k = res.data["brands"][0]["kinds"]["game"]
+        assert searched                                          # below the bar: research ran
+        assert k["from"] == "brand site + public research" and 3 < k["found"] < 10   # site + each research page
+        assert k["needs_sign_in"] is True                        # still short: the lobby is next
+        assert res.data["needs_sign_in"] == ["High 5:game"]
+        assert len(await wm.list_catalog("c1")) == 3             # the same titles twice is one row each
+
+    @pytest.mark.asyncio
     async def test_nothing_public_marks_the_kind_for_sign_in_only_when_asked(
         self, wm, monkeypatch
     ) -> None:

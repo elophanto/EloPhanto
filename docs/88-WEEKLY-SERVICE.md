@@ -166,7 +166,15 @@ credentials the vault holds keyed by domain (`vault_lookup <domain>`):
    account and a failed anti-bot score all read alike, so a human judges),
    `challenge`, `no_form`, `unreachable`.
 
-**Never twice in a row.** Every attempt is stamped and stored; a brand
+A page is **logged in only on an account control** — "log out", "my
+account", "my profile". "Sweeps coins", "redeem" and "buy coins" are sold
+to everyone (LuckyLand's logged-out homepage was once judged "already
+logged in" on those words while its header read Sign Up / Login); they
+make a verdict *unclear* at most, and never outweigh a Login button.
+
+**Never twice in a row.** Every attempt is stamped and stored — merged into
+`workspace/login-checks/results.json`, so a call for one brand keeps every
+other brand's verdict (the agent signs in one brand per call); a brand
 checked within `retry_after_hours` (default 12) is reported from that
 result instead of being signed into again. Repeated failures are how
 accounts lock — the cooldown is a safety rail, not an optimisation.

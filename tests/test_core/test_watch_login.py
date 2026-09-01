@@ -101,6 +101,39 @@ class TestSessionVerdict:
         state2, _, hits_out = await session_state(b2)
         assert state2 == "logged_out" and hits_out
 
+    @pytest.mark.asyncio
+    async def test_coins_talk_on_a_logged_out_homepage_is_not_a_session(self) -> None:
+        """LuckyLand, 2026-09-01: 'redeem', 'sweeps coins', 'buy coins' are
+        sold to everyone; with Sign Up / Login in the header the page is
+        logged out, whatever it says about coins."""
+        home = {"text": "LuckyLand Slots is closing · Play LuckyLand Casino · redeem sweeps coins · "
+                        "buy coins · Sign up · Login", "password": False, "clickable": ["Login"]}
+        b = _Browser(pages={"https://b.example/": home}, start="https://b.example/")
+        state, hits_in, hits_out = await session_state(b)
+        assert state == "logged_out" and "login" in hits_out and "redeem" in hits_in
+
+        coins_only = {"text": "Buy coins · redeem · sweeps coins", "password": False, "clickable": []}
+        b2 = _Browser(pages={"https://b.example/": coins_only}, start="https://b.example/")
+        assert (await session_state(b2))[0] == "unclear"        # no control either way: say so
+
+    def test_login_results_merge_across_calls(self, tmp_path) -> None:
+        """The agent signs in one brand per call; the cooldown reads the file,
+        so a call must not erase the previous brand's verdict."""
+        import json
+
+        from tools.watch.tools import _merge_login_results
+
+        f = tmp_path / "results.json"
+        _merge_login_results(f, [{"brand": "Card Crush", "verdict": "logged_out", "checked_at": "t1"}])
+        _merge_login_results(f, [{"brand": "LuckyLand Slots", "verdict": "rejected", "checked_at": "t2"},
+                                 {"brand": "Card Crush", "verdict": "logged_out", "from_cache": True}])
+        rows = json.loads(f.read_text())
+        assert {r["brand"] for r in rows} == {"Card Crush", "LuckyLand Slots"}
+        assert not any(r.get("from_cache") for r in rows)      # cache echoes are not history
+        _merge_login_results(f, [{"brand": "Card Crush", "verdict": "logged_in", "checked_at": "t3"}])
+        rows = json.loads(f.read_text())
+        assert len(rows) == 2 and next(r for r in rows if r["brand"] == "Card Crush")["verdict"] == "logged_in"
+
 
 class TestFormDiscovery:
     """A person clicks the login control; they do not guess URLs."""

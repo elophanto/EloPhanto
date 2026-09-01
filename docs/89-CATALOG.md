@@ -49,6 +49,12 @@ read, and only for the kinds still empty (`sign_in_if_missing`, reported as
 `needs_sign_in`). A session costs proxy traffic and login attempts; those
 are spent on what nothing public answers.
 
+"Nothing public answers" is `found < min_items` (default 1). Three teaser
+titles on a homepage are not a lobby: `min_items=10` on `provider,game`
+sends a brand with a thin public catalogue to research and then, still
+short, to `needs_sign_in` — that is how the first full run (2026-09-01)
+left High 5 at 3 games and Pulsz Bingo at 3: they counted as answered.
+
 Reads default to **direct, no proxy**: a provider list or a game title
 carries no geo claim, so the state-pinned exit is not spent on it. Pass
 `geo_state` only when the state actually matters (a store's prices).
