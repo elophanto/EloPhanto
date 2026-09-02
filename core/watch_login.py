@@ -263,12 +263,65 @@ async def _email_first_step(bm: Any, username: str) -> str:
     return f"e-mail step via '{pressed}'" if await _wait_for_form(bm, 8) else ""
 
 
+# The visible login control, the way a person finds it: text on screen
+# that says Log In / Sign In, in the header first. Only elements that are
+# actually on screen count — a hidden template's "Log In" is what the
+# text matcher hit on Spinfinite (2026-09-02) while the real button sat
+# top right; and no URL is ever guessed: the browser drives the site.
+_VISIBLE_LOGIN_JS = (
+    "(() => {"
+    "const rx = %s;"
+    "const out = [];"
+    "const vw = window.innerWidth, vh = window.innerHeight;"
+    "for (const el of document.querySelectorAll('a,button,[role=button],input[type=submit],span,div,li')) {"
+    "  const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim();"
+    "  if (!t || t.length > 40 || !rx.test(t)) continue;"
+    "  if (el.children.length > 3) continue;"
+    "  if (el.offsetParent === null && el.tagName !== 'BODY') continue;"
+    "  const r = el.getBoundingClientRect();"
+    "  if (r.width < 8 || r.height < 8 || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;"
+    "  const st = getComputedStyle(el);"
+    "  if (st.visibility === 'hidden' || st.display === 'none' || parseFloat(st.opacity || '1') < 0.05) continue;"
+    "  out.push({text: t, x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height});"
+    "}"
+    "out.sort((a, b) => (a.y - b.y) || (b.x - a.x));"
+    "return JSON.stringify(out.slice(0, 6));})()"
+)
+_LOGIN_WORDS = "/^(log ?in|sign ?in|log ?in now|sign ?in now)$/i"
+_SWITCH_WORDS = "/(already (got|have) an account|existing (player|member|account)|have an account\\??\\s*(log|sign) ?in)/i"
+
+
+async def visible_controls(bm: Any, words_regex: str) -> list[dict[str, Any]]:
+    raw = await _eval(bm, _VISIBLE_LOGIN_JS % words_regex, max_length=4000)
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else (raw or [])
+    except Exception:
+        return []
+    return [it for it in items if isinstance(it, dict) and it.get("text")]
+
+
+async def click_visible(bm: Any, words_regex: str, *, skip: int = 0) -> str:
+    """Click the visible control whose text matches, by its on-screen
+    coordinates — a real click on the real button. Returns the text
+    clicked, "" when nothing visible matches."""
+    cands = await visible_controls(bm, words_regex)
+    if len(cands) <= skip:
+        return ""
+    c = cands[skip]
+    try:
+        await bm.call_tool("browser_click_at", {"x": round(float(c["x"])), "y": round(float(c["y"]))})
+    except Exception:
+        return ""
+    return str(c["text"])
+
+
 async def open_login_form(bm: Any, url: str, username: str = "") -> str:
     """Get a visible password field on screen, the way a person does it:
-    click the login control, and when that opens a SIGN-UP panel — as
-    several of these brands do — click the "already have an account"
-    switch inside it. Only if clicking gets nowhere is ``/login`` tried,
-    once, as a fallback. Returns a short note."""
+    click the login control that is ON SCREEN; when that opens a SIGN-UP
+    panel — as several of these brands do — click its "already have an
+    account" switch; complete an e-mail-first step when there is one.
+    Never a guessed address: the browser drives the site, and when no
+    visible control leads to a form, that is the answer. Returns a note."""
     from core.watch_observe import dismiss_consent
 
     if await has_password_field(bm):
@@ -277,44 +330,42 @@ async def open_login_form(bm: Any, url: str, username: str = "") -> str:
     # Clear the consent overlay FIRST: while it is up the login control is
     # not reachable and the click lands on the banner (High 5, 2026-08-26).
     await dismiss_consent(bm)
-    for label in LOGIN_ENTRY:
-        matched = await _click_text(bm, label)
-        if matched and label.lower() in matched.lower():
-            notes.append(f"clicked '{matched.strip()[:18]}'")
+    for attempt in range(2):                      # the header button, then the hero's
+        clicked = await click_visible(bm, _LOGIN_WORDS, skip=attempt)
+        if not clicked and attempt == 0:
+            # Nothing the DOM query can see (a shadow root): the bridge's
+            # own matcher pierces those — still a click, never a URL.
+            for label in LOGIN_ENTRY:
+                matched = await _click_text(bm, label)
+                if matched and label.lower() in matched.lower():
+                    clicked = matched.strip()
+                    break
+        if not clicked:
             break
-    if await _wait_for_form(bm, 12):
-        return "; ".join(notes) or "form on the page"
-    await dismiss_consent(bm)
-    step = await _email_first_step(bm, username)
-    if step:
-        notes.append(step)
-        return "; ".join(notes)
-
-    # A sign-up panel: the real login hides behind its switch link.
-    for label in SWITCH_TO_LOGIN:
-        matched = await _click_text(bm, label, exact=False)
-        if not matched or label.split()[0] not in matched.lower():
-            continue
-        notes.append(f"switched via '{matched.strip()[:22]}'")
-        if await _wait_for_form(bm, 10):
+        notes.append(f"clicked '{clicked[:18]}'")
+        if await _wait_for_form(bm, 12):
             return "; ".join(notes)
+        await dismiss_consent(bm)
         step = await _email_first_step(bm, username)
         if step:
             notes.append(step)
             return "; ".join(notes)
-        break
-
-    # Still nothing on screen — ask for the login page itself, once.
-    await bm.call_tool("browser_navigate", {"url": url.rstrip("/") + "/login"})
-    await bm.call_tool("browser_wait", {"ms": 2500})
-    await dismiss_consent(bm)
-    if await _wait_for_form(bm, 8):
-        notes.append("fell back to /login")
-        return "; ".join(notes)
-    step = await _email_first_step(bm, username)
-    if step:
-        notes.append("fell back to /login; " + step)
-        return "; ".join(notes)
+        # A sign-up panel: the real login hides behind its switch link.
+        switched = await click_visible(bm, _SWITCH_WORDS)
+        if not switched:
+            for label in SWITCH_TO_LOGIN:
+                matched = await _click_text(bm, label, exact=False)
+                if matched and label.split()[0] in matched.lower():
+                    switched = matched.strip()
+                    break
+        if switched:
+            notes.append(f"switched via '{switched[:22]}'")
+            if await _wait_for_form(bm, 10):
+                return "; ".join(notes)
+            step = await _email_first_step(bm, username)
+            if step:
+                notes.append(step)
+                return "; ".join(notes)
     return "; ".join(notes + ["no form found"]) if notes else "no form found"
 
 

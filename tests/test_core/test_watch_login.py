@@ -53,6 +53,10 @@ class _Browser:
             return {"success": True}
         if name == "browser_click_at":
             self.clicks.append((params["x"], params["y"]))
+            for i, label in enumerate(self.page.get("clickable", [])):
+                if abs(params["x"] - (1000 + i * 50)) <= 20 and abs(params["y"] - 20) <= 10:
+                    self.url = self.page.get("click_to", {}).get(label, self.url)
+                    return {"success": True}
             self.widget = {**self.widget, "token": True, "challenge": False}
             return {"success": True}
         if name == "browser_click_text":
@@ -65,6 +69,14 @@ class _Browser:
             expr = params["expression"]
             if "location.href" in expr:
                 return {"success": True, "resultJson": json.dumps(self.url)}
+            if "const rx = /" in expr:      # visible controls whose text matches the regex
+                import re as _re
+                m = _re.search(r"const rx = /(.*?)/([a-z]*);", expr)
+                rx = _re.compile(m.group(1).replace("\\\\", "\\"), _re.I if "i" in m.group(2) else 0)
+                found = [{"text": label, "x": 1000 + i * 50, "y": 20, "w": 40, "h": 20}
+                         for i, label in enumerate(self.page.get("clickable", []))
+                         if rx.search(label) and not self.page.get("hidden_controls")]
+                return {"success": True, "resultJson": json.dumps(json.dumps(found))}
             if "document.body" in expr and "innerText" in expr:
                 # the whole visible page: header/sidebar/modal ("body") around the <main> text
                 return {"success": True, "resultJson": json.dumps(self.page.get("body", self.page.get("text", "")))}
@@ -172,16 +184,19 @@ class TestFormDiscovery:
         assert b.url == "https://b.example/login"
 
     @pytest.mark.asyncio
-    async def test_login_url_is_the_last_resort_not_the_first(self) -> None:
+    async def test_no_visible_control_means_no_form_and_no_address_is_guessed(self) -> None:
+        """The /login fallback is gone (2026-09-02, Spinfinite: it 404'd
+        while the real Login button sat top right). When nothing on screen
+        leads to a form, the honest answer is no_form — never a URL."""
         home = {"text": "Play now", "password": False, "clickable": []}
         b = _Browser(
             pages={"https://b.example": home, "https://b.example/login": FORM},
             start="https://b.example",
         )
         note = await open_login_form(b, "https://b.example")
-        assert "fell back to /login" in note
-        navs = [c[1]["url"] for c in b.calls if c[0] == "browser_navigate"]
-        assert navs == ["https://b.example/login"]  # exactly one, and only after clicking failed
+        assert note == "no form found"
+        assert not any(n == "browser_navigate" for n, _ in b.calls)
+        assert b.url == "https://b.example"
 
     @pytest.mark.asyncio
     async def test_a_missing_label_does_not_kill_the_flow(self) -> None:
@@ -498,3 +513,42 @@ class TestTheWholePageIsJudged:
         b = _Browser(pages={"https://b.example/": {"text": "Log in or create account", "body": "ok"}},
                      start="https://b.example/")
         assert await page_text(b) == "Log in or create account"                      # too short a body → extract
+
+
+class TestTheBrowserDrivesTheLogin:
+    """Spinfinite, 2026-09-02: the text matcher hit a hidden "Log In", and
+    the script then navigated to a guessed /login — a 404 — while the
+    real Login button sat top right. The browser drives the site: it
+    clicks what is on screen, and it never invents an address."""
+
+    @pytest.mark.asyncio
+    async def test_the_visible_login_button_is_clicked_and_no_url_is_guessed(self) -> None:
+        from core.watch_login import open_login_form
+
+        home = {"text": "Join Now Login New Games Every Week", "password": False,
+                "clickable": ["Join Now", "Login"], "click_to": {"Login": "https://b.example/#modal"}}
+        modal = {"text": "Email Password Login", "password": True, "clickable": ["Login"]}
+        b = _Browser(pages={"https://b.example/": home, "https://b.example/#modal": modal}, start="https://b.example/")
+        note = await open_login_form(b, "https://b.example/", "u@example.com")
+        assert note.startswith("clicked 'Login'"), note
+        assert b.clicks == [(1050, 20)]                                  # the on-screen button, by coordinates
+        assert not any(n == "browser_navigate" for n, _ in b.calls)    # never a guessed address
+
+    @pytest.mark.asyncio
+    async def test_nothing_visible_means_no_form_not_a_guessed_url(self) -> None:
+        from core.watch_login import open_login_form
+
+        home = {"text": "Welcome", "password": False, "clickable": []}
+        b = _Browser(pages={"https://b.example/": home}, start="https://b.example/")
+        note = await open_login_form(b, "https://b.example/", "u@example.com")
+        assert note == "no form found"
+        assert not any(n == "browser_navigate" for n, _ in b.calls)
+        assert "/login" not in " ".join(str(p) for _, p in b.calls)
+
+    def test_no_guessed_login_url_anywhere_in_the_flow(self) -> None:
+        import inspect
+
+        import core.watch_login as wl
+
+        src = inspect.getsource(wl)
+        assert '+ "/login"' not in src and "/signin" not in src and "/sign-in" not in src

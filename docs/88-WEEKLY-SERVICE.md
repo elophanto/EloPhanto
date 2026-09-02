@@ -149,9 +149,13 @@ credentials the vault holds keyed by domain (`vault_lookup <domain>`):
 
 1. clear the consent overlay **first** — while it is up the login control
    is not reachable and the click lands on the banner;
-2. click the visible login control, the way a person does — no URL
-   guessing — and when that opens a SIGN-UP panel, click its "already have
-   an account" switch; `/login` is a last resort, not the first move;
+2. click the login control that is ON SCREEN, by its coordinates, the
+   way a person does — the header button first, then the hero's; a hidden
+   template's "Log In" does not count (Spinfinite, 2026-09-02) — and when
+   that opens a SIGN-UP panel, click its "already have an account" switch.
+   **Never a guessed address**: no `/login`, no `/signin`; when no visible
+   control leads to a form, `no_form` is the honest answer and a human or
+   the model looks at the page;
 3. give the form up to 12s to arrive: a login click often *navigates*;
 4. complete an e-mail-first step when the password screen comes second;
 5. type the credentials, click a checkbox anti-bot widget if one appears
