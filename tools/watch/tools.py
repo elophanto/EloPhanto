@@ -1496,7 +1496,7 @@ def _catalog_rows_for_export(rows: list[Any], subjects: list[Any]) -> list[dict[
     ]
 
 
-def _provider_universe(params: dict[str, Any]) -> dict[str, Any] | None:
+def _provider_universe(params: dict[str, Any], config: Any = None) -> dict[str, Any] | None:
     """The client's own studio list (``providers_from``: their game-portfolio
     sheet as CSV), when given and readable — else None and the matrix
     follows what was observed."""
@@ -1506,10 +1506,25 @@ def _provider_universe(params: dict[str, Any]) -> dict[str, Any] | None:
     from core.watch_catalog import read_provider_universe
 
     try:
-        uni = read_provider_universe(path)
+        uni = read_provider_universe(_resolve_input(path, config))
     except Exception:
         return None
     return uni if uni.get("providers") else None
+
+
+def _resolve_input(path: str, config: Any = None) -> Path:
+    """A file the operator names: as given, else under <workspace>/watch,
+    the workspace, or the working directory — so a bare filename finds the
+    client's sheet without a search of the home directory (2026-09-02: the
+    agent spent five minutes listing ~ recursively for game_portfolio.csv)."""
+    p = Path(path).expanduser()
+    if p.is_absolute() or p.exists():
+        return p
+    root = Path(str(getattr(config, "workspace", "") or "workspace")).expanduser()
+    for cand in (root / "watch" / p, root / p, Path.cwd() / p):
+        if cand.exists():
+            return cand
+    return p
 
 
 async def _catalog_for_pack(wm: Any, cid: str, params: dict[str, Any]) -> dict[str, Any] | None:
@@ -1518,7 +1533,7 @@ async def _catalog_for_pack(wm: Any, cid: str, params: dict[str, Any]) -> dict[s
     if str(params.get("voice") or "auto").lower() == "false":
         return None
     try:
-        cat = await wm.catalog_summary(cid, _provider_universe(params))
+        cat = await wm.catalog_summary(cid, _provider_universe(params, getattr(wm, '_config', None)))
     except Exception:
         return None
     return cat if cat.get("items") else None

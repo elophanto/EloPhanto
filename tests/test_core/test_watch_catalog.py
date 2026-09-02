@@ -8,6 +8,7 @@ the page, stamped with the session it was read in, never scored.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -918,6 +919,20 @@ class TestGamePortfolio:
         assert [c.value for c in ws[5]] == ["BGaming", "● 2", "●", 2, "yes"]
         assert [c.value for c in ws[6]] == ["Golden Rock Studios *", None, "●", 1, "no"]
         assert any("Spinfinite" in str(c.value) for row in ws.iter_rows(min_row=7) for c in row if c.value)
+
+    def test_a_bare_filename_resolves_inside_the_workspace(self, tmp_path, monkeypatch) -> None:
+        from tools.watch.tools import _resolve_input
+
+        class Cfg:
+            workspace = str(tmp_path / "ws")
+
+        (tmp_path / "ws" / "watch").mkdir(parents=True)
+        (tmp_path / "ws" / "watch" / "game_portfolio.csv").write_text("Game Provider;Pulsz\n3 Oaks;\n")
+        assert _resolve_input("game_portfolio.csv", Cfg()) == tmp_path / "ws" / "watch" / "game_portfolio.csv"
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "other.csv").write_text("Game Provider;Pulsz\nBGaming;\n")
+        assert _resolve_input("other.csv", Cfg()) == tmp_path / "other.csv"          # the working directory last
+        assert _resolve_input("/abs/none.csv", Cfg()) == Path("/abs/none.csv")       # absolute paths pass through
 
     def test_every_pack_tool_offers_the_clients_sheet(self) -> None:
         from tools.watch import tools as T
