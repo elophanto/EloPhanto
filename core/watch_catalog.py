@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -276,6 +277,21 @@ async def agent_reads_lobby(
         })
     logger.info("watch_catalog: agent read %d page(s): %s", len(out),
                 ", ".join(f"{p['title']} ({p['chars']} chars)" for p in out))
+    # Keep what was read: an extraction that finds nothing is only
+    # explainable with the page in hand (Pulsz store, 2026-09-02: 150,000
+    # characters captured, no packages found — iframe? modal? the text says).
+    try:
+        root = Path(str(getattr(getattr(agent, "_config", None), "workspace", "") or "workspace")) / "watch" / "captures"
+        root.mkdir(parents=True, exist_ok=True)
+        slug = re.sub(r"[^a-z0-9]+", "-", start_url.split("//")[-1].split("/")[0].lower()).strip("-")
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
+        for i, p_ in enumerate(out, start=1):
+            label = re.sub(r"[^a-z0-9]+", "-", p_["title"].lower()).strip("-")
+            (root / f"{slug}-{stamp}-{i}-{label}.txt").write_text(
+                f"{p_['url']}\n{p_['title']}\n\n{p_['text']}", encoding="utf-8"
+            )
+    except Exception as e:
+        logger.debug("watch_catalog: could not keep captures: %s", e)
     return out
 
 
