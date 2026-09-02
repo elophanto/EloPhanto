@@ -43,6 +43,7 @@ class _WatchToolBase(BaseTool):
 
     def __init__(self) -> None:
         self._watch_manager: Any = None
+        self._config: Any = None  # the agent's config: workspace root, proxy pool
 
     @property
     def group(self) -> str:
