@@ -84,7 +84,11 @@ def _clean(text: Any, cap: int = 300) -> str:
     s = _HEX_RE.sub("", s)
     s = _BOOKKEEPING_RE.sub("", s)
     s = re.sub(r"\s+", " ", s).strip(" -–,;")
-    return s[:cap]
+    if len(s) <= cap:
+        return s
+    # Cut at a word, and say so: a cell reading "Bonus buy events wi" is a
+    # typo to the reader, "Bonus buy events…" is a cut (2026-09-02).
+    return _trim_words(s, max(1, cap - 1)) + "…"
 
 
 def _trim_words(text: str, cap: int) -> str:
@@ -2569,9 +2573,13 @@ def _table(
             cw(ri, ci, txt, bg=bg, bold=(highlight_first_col and ci == 0))
         url = (links[ri - 1] if links and ri - 1 < len(links) else "") or ""
         if url.startswith("http"):
-            # "add a link" (client, 2026-08-31): the name opens the page it was read from
+            # "add a link" (client, 2026-08-31): the name opens the page it was read from —
+            # styled as the deck's own text, not a web-blue underline
             try:
-                tbl.cell(ri, 0).text_frame.paragraphs[0].runs[0].hyperlink.address = url
+                run = tbl.cell(ri, 0).text_frame.paragraphs[0].runs[0]
+                run.hyperlink.address = url
+                run.font.underline = False
+                run.font.color.rgb = _rgb(_INK)
             except Exception:
                 pass
     return y + h + 0.15
