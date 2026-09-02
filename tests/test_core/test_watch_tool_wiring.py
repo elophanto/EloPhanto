@@ -69,3 +69,34 @@ def test_every_tool_that_declares_a_vault_is_in_the_vault_injection_list() -> No
     wired = set(re.findall(r'"(watch_[a-z_]+)"', source))
     needs = {t.name for t in create_watch_tools() if hasattr(t, "_vault")}
     assert needs <= wired, f"declare a vault but never receive one: {sorted(needs - wired)}"
+
+
+class TestOutputsLandInTheWorkspace:
+    """Operator's rule (2026-09-02): every file a watch tool writes lands
+    under config.yaml's agent.workspace — never ~/Desktop."""
+
+    def test_default_output_is_under_the_workspace(self, tmp_path) -> None:
+        from tools.watch.tools import _workspace_out
+
+        class Cfg:
+            workspace = str(tmp_path / "ws")
+
+        out = _workspace_out(Cfg(), "competitor-deck.pptx")
+        assert out == tmp_path / "ws" / "watch" / "competitor-deck.pptx"
+        assert out.parent.is_dir()                                   # created, ready to write
+        assert _workspace_out(Cfg()) == tmp_path / "ws" / "watch"
+        assert str(_workspace_out(None, "x.xlsx")).startswith("workspace/")   # no config: still not the home dir
+
+    def test_no_watch_tool_advertises_the_desktop(self) -> None:
+        import json
+
+        from tools.watch import tools as T
+
+        for name in dir(T):
+            cls = getattr(T, name)
+            if isinstance(cls, type) and name.startswith("Watch") and name.endswith("Tool"):
+                try:
+                    schema = json.dumps(cls().input_schema)
+                except Exception:
+                    continue
+                assert "Desktop" not in schema, name

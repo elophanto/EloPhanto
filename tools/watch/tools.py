@@ -649,7 +649,7 @@ class WatchScorecardTool(_WatchToolBase):
                 },
                 "path": {
                     "type": "string",
-                    "description": "Output file for format='xlsx'.",
+                    "description": "Output file for format='xlsx'. Default <workspace>/watch/competitor-scorecard.xlsx",
                 },
                 "title": {"type": "string", "description": "Workbook title."},
                 "company_id": {"type": "string"},
@@ -672,9 +672,9 @@ class WatchScorecardTool(_WatchToolBase):
             return ToolResult(success=True, data=card)
 
         if fmt == "xlsx":
-            path = str(params.get("path") or "").strip()
-            if not path:
-                return ToolResult(success=False, error="path is required for format='xlsx'")
+            path = str(params.get("path") or "").strip() or str(
+                _workspace_out(getattr(self, "_config", None), "competitor-scorecard.xlsx")
+            )
             try:
                 from core.watch_xlsx import render_scorecard_xlsx
             except ImportError as e:  # openpyxl missing
@@ -2131,7 +2131,7 @@ class WatchExecutiveDeckTool(_WatchToolBase):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Where to write the .pptx. Default ~/Desktop/competitor-deck.pptx",
+                    "description": "Where to write the .pptx. Default <workspace>/watch/competitor-deck.pptx",
                 },
                 "snapshot_id": {
                     "type": "string",
@@ -2206,7 +2206,10 @@ class WatchExecutiveDeckTool(_WatchToolBase):
         wm = self._watch_manager
         from pathlib import Path
 
-        path = Path(str(params.get("path") or "~/Desktop/competitor-deck.pptx")).expanduser()
+        path = (
+            Path(str(params["path"])).expanduser() if params.get("path")
+            else _workspace_out(self._config, "competitor-deck.pptx")
+        )
         if path.suffix.lower() != ".pptx":
             path = path.with_suffix(".pptx")
 
@@ -2664,7 +2667,7 @@ class WatchAnalyzeTool(_WatchToolBase):
                 },
                 "out_dir": {
                     "type": "string",
-                    "description": "Where to save the workbook, report and deck. Default ~/Desktop.",
+                    "description": "Where to save the workbook, report and deck. Default <workspace>/watch.",
                 },
                 "geo_state": {
                     "type": "string",
@@ -3193,7 +3196,10 @@ class WatchAnalyzeTool(_WatchToolBase):
         if params.get("save", True):
             from pathlib import Path
 
-            out_dir = Path(str(params.get("out_dir") or "~/Desktop")).expanduser()
+            out_dir = (
+                Path(str(params["out_dir"])).expanduser() if params.get("out_dir")
+                else _workspace_out(self._config)
+            )
             out_dir.mkdir(parents=True, exist_ok=True)
             slug = "".join(ch if ch.isalnum() else "-" for ch in subj.name.lower()).strip("-")
             try:
@@ -4676,6 +4682,18 @@ class WatchRegulatoryTool(_WatchToolBase):
 
 
 # ── Logged-in observation (docs/88): the agent signs in itself ─────────
+
+
+def _workspace_out(config: Any, *parts: str) -> Path:
+    """Where a watch tool writes by default: under the approved workspace
+    from config.yaml (``agent.workspace``), never the home directory —
+    the operator's rule (2026-09-02). Creates the directory."""
+    root = Path(str(getattr(config, "workspace", "") or "workspace")).expanduser()
+    out = root / "watch"
+    for part in parts[:-1]:
+        out = out / part
+    out.mkdir(parents=True, exist_ok=True)
+    return out / parts[-1] if parts else out
 
 
 def _merge_login_results(results_file: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
