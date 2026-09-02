@@ -2335,8 +2335,6 @@ def _slide_trends(
 
     s = _blank(prs)
     pts = trends.get("points") or []
-    title = (narrative.get("titles") or {}).get("trends") or f"Scores over {len(pts)} collection runs"
-    top = _header(s, "Trends", title, (narrative.get("commentary") or {}).get("trends", ""))
     rows = card.get("rows", [])
     us = [r["name"] for r in rows if r.get("is_self")]
     ranked = sorted(
@@ -2355,6 +2353,8 @@ def _slide_trends(
     # Runs where none of the plotted brands were scored are empty columns:
     # drop them (the 2026-07-25 run scored other brands only).
     pts = [pt for pt in pts if any(pt.get("scores", {}).get(n) is not None for n in shown)] or pts
+    title = (narrative.get("titles") or {}).get("trends") or f"Scores over {len(pts)} collection runs"
+    top = _header(s, "Trends", title, (narrative.get("commentary") or {}).get("trends", ""))
     cd = CategoryChartData()
     cd.categories = [pt["taken_at"] for pt in pts]
     for name in shown:
