@@ -323,7 +323,7 @@ def _judgement_note(slide: Any, source: str, *, dark: bool = False) -> None:
     )
     # On the footer line, centred between the deck title and the page
     # number — the footnote band above is the slides' own.
-    _text(slide, 3.6, 7.08, 6.6, 0.3, msg, size=7.5, color="6B7280" if dark else _MUTED, align="center")
+    _text(slide, 4.4, 7.08, 6.9, 0.3, msg, size=7.5, color="6B7280" if dark else _MUTED, align="center")
 
 
 def _notes(slide: Any, text: str) -> None:
@@ -2743,7 +2743,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
         col_w = (11.9 - prov_w - 0.45) / max(1, len(brands))
         shape = s.shapes.add_table(
             len(chunk) + 1, 2 + len(brands), Inches(0.7), Inches(top), Inches(11.9),
-            Inches(0.17 * (len(chunk) + 1)),
+            Inches(0.16 * (len(chunk) + 1)),
         )
         tbl = shape.table
         tbl.columns[0].width = Inches(prov_w)
@@ -2751,7 +2751,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
             tbl.columns[1 + ci].width = Inches(col_w)
         tbl.columns[1 + len(brands)].width = Inches(0.45)
         for r_ in tbl.rows:
-            r_.height = Inches(0.17)
+            r_.height = Inches(0.16)   # 27 rows end at 6.32in, clear of the footnote at 6.6
 
         def cw(r: int, col: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False,
                size: float = 6.5, center: bool = False, tbl: Any = tbl) -> None:
