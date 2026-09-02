@@ -34,6 +34,11 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
 
+# A whole tag that carries a label: replaced by the label, since the tag
+# itself is about to be stripped anyway.
+_LABEL_ATTR_RE = re.compile(r"<[^>]*?\s(?:alt|aria-label|title)\s*=\s*[\"']([^\"']{2,120})[\"'][^>]*>", re.I)
+
+
 def html_to_text(raw: str) -> str:
     """Strip HTML to readable text.
 
@@ -46,6 +51,10 @@ def html_to_text(raw: str) -> str:
     if not raw:
         return ""
     txt = _SCRIPT_STYLE_RE.sub(" ", raw)
+    # A lobby of image tiles carries its game names in alt / aria-label /
+    # title, not in text nodes (Crown Coins, 2026-09-02: 3,500 characters of
+    # lobby, no titles). Keep those labels as text before the tags go.
+    txt = _LABEL_ATTR_RE.sub(lambda m: f" {m.group(1)} ", txt)
     txt = _TAG_RE.sub(" ", txt)
     txt = _html.unescape(txt)
     return _WS_RE.sub(" ", txt).strip()

@@ -258,7 +258,13 @@ async def agent_reads_lobby(
     out: list[dict[str, Any]] = []
     for i, page in enumerate(rec.pages):
         label = labels[i] if i < len(labels) else ""
-        kind = _LOBBY_KINDS.get(label, "") or catalog_page_kind(str(page["url"] or ""), "")
+        # A single-page app keeps one URL for the lobby, the store and the
+        # providers list (Crown Coins, 2026-09-02: eight captures, all
+        # "casino" → game, nothing found). Without the agent's label the URL
+        # names nothing; leave the kind open so every kind is tried.
+        kind = _LOBBY_KINDS.get(label, "") or (
+            catalog_page_kind(str(page["url"] or ""), "") if _url_is_specific(str(page["url"] or ""), start_url) else ""
+        )
         title = _LOBBY_TITLES.get(label) or next(
             (t for lab, t in _LOBBY_TITLES.items() if _LOBBY_KINDS.get(lab) == kind), "Other page"
         )
@@ -271,6 +277,14 @@ async def agent_reads_lobby(
     logger.info("watch_catalog: agent read %d page(s): %s", len(out),
                 ", ".join(f"{p['title']} ({p['chars']} chars)" for p in out))
     return out
+
+
+def _url_is_specific(url: str, start_url: str) -> bool:
+    """A URL that says more than the site's front page: a path segment
+    beyond the root, not a hash or a query on the same page."""
+    base = start_url.rstrip("/").split("#")[0].split("?")[0]
+    path = url.split("#")[0].split("?")[0].rstrip("/")
+    return bool(path) and path != base and path.startswith(base) and len(path) > len(base) + 1
 
 
 _LABEL_WORDS = {

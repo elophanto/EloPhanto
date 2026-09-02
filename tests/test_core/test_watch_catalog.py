@@ -1219,3 +1219,22 @@ class TestExtractionReadsWhereTheKindIs:
             await bm.call_tool("browser_get_html", {"maxLength": 500})
         assert len(rec.pages) == 1 and "Money Train 2" in rec.pages[0]["text"]
         assert bm.calls.count("browser_wait") == 1                 # waited once, then the page was there
+
+
+    def test_a_single_page_app_capture_without_a_label_is_tried_for_every_kind(self) -> None:
+        from core.watch_catalog import _url_is_specific
+
+        assert not _url_is_specific("https://www.crowncoinscasino.com/", "https://www.crowncoinscasino.com")
+        assert not _url_is_specific("https://www.crowncoinscasino.com/#store", "https://www.crowncoinscasino.com")
+        assert _url_is_specific("https://www.pulsz.com/providers", "https://www.pulsz.com")
+        assert _url_is_specific("https://www.pulsz.com/home", "https://www.pulsz.com/")
+
+
+    def test_image_tiles_keep_their_names(self) -> None:
+        from core.watch_observe import html_to_text
+
+        html = ('<div class="tile"><img src="a.png" alt="Money Train 2"></div>'
+                '<a href="#" aria-label="Scarab Surge" title="Play Scarab Surge"><img src="b.png"></a>'
+                '<script>var x = "Not A Game";</script>')
+        text = html_to_text(html)
+        assert "Money Train 2" in text and "Scarab Surge" in text and "Not A Game" not in text

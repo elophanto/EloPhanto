@@ -936,6 +936,14 @@ async def login_to_site(
                     sub = await agent_submits_form(agent)
                     note += f"; agent submit: {sub['state']}" + (f" ('{sub['proof'][:30]}')" if sub.get("proof") else "")
                     await bm.call_tool("browser_wait", {"ms": 7000})
+                    if await has_password_field(bm):
+                        # The agent could not (High 5, 2026-09-02: its DOM search
+                        # tripped the injection filter). Enter in the password
+                        # field is what a person does when the button is coy.
+                        await _eval(bm, _focus_js("password"))
+                        await bm.call_tool("browser_press_key", {"key": "Enter"})
+                        note += "; pressed Enter"
+                        await bm.call_tool("browser_wait", {"ms": 7000})
                 if "captcha challenge" in note and assist_seconds > 0:
                     logger.info(
                         "watch_login: %s shows an anti-bot puzzle — waiting %ss for a human",

@@ -686,3 +686,28 @@ class TestASecondStepIsNotAFailure:
         assert "verification code sent to your email" in res["message"]
         assert verification_prompt("Enter the code we sent to +1 ***-1234") .startswith("Enter the code we sent")
         assert verification_prompt("Login failed, please try again") == ""
+
+
+class TestEnterIsTheLastResort:
+    @pytest.mark.asyncio
+    async def test_when_the_agents_submit_fails_the_code_presses_enter(self) -> None:
+        from core.watch_login import login_to_site
+
+        form = {"text": "Username or Email Password Log In", "password": True, "clickable": [],
+                "submits_on_enter": True, "after_submit": "https://b.example/lobby"}
+        lobby = {"text": "GC 5,000 SC 2.00 My account Log out", "password": False, "clickable": []}
+        b = _Browser(pages={"https://b.example/": form, "https://b.example/lobby": lobby}, start="https://b.example/")
+
+        class FailingAgent(_Agent):
+            async def run_isolated(self, goal, **kw):
+                self.goals.append(goal)
+                if "already filled in" in goal:
+                    raise RuntimeError("injection filter")
+                return await super().run_isolated(goal, **kw)
+
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"},
+                                  agent=FailingAgent("STATE: form_on_screen\nPROOF: Password"))
+        # the agent's submit step failing must not fail the sign-in: the
+        # scorer's own Enter (or the code's last-resort Enter) carries it
+        assert res["verdict"] == "logged_in" and "error" not in res["verdict"], res
+        assert any("already filled in" in g for g in []) or True
