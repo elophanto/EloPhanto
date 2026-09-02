@@ -772,6 +772,58 @@ def _slide_title(
     _text(s, 0.7, 6.75, 5.0, 0.3, month, size=10, color=_MUTED)
 
 
+def _slide_reading_guide(
+    prs: Any,
+    card: dict[str, Any],
+    evidence_count: int,
+    page: int,
+    deck_title: str,
+    *,
+    voice: dict[str, Any] | None = None,
+    catalog: dict[str, Any] | None = None,
+    trends: dict[str, Any] | None = None,
+) -> None:
+    """Slide 2: what a first-time reader must know before the numbers —
+    where the facts come from, what a score is, what † means, what a run
+    is, that 'what players say' is opinion, and where the raw data lives.
+    Written after a client read the 2026-08-30 pack cold and asked what
+    'pairs', 'cycles' and 'read from: review site' meant."""
+    s = _blank(prs)
+    top = _header(s, "How to read this deck", "Six things to know before the numbers")
+    rows = card.get("rows", [])
+    dims = card.get("dimensions", [])
+    generated = str(card.get("generated_at") or "")[:10]
+    items = [
+        f"Where the facts come from – the agent read each of the {len(rows)} brands' public pages"
+        + (f" (latest {generated})" if generated else "")
+        + f"; {evidence_count:,} facts, each quoted from a page and linked to it in the workbook.",
+        f"Scores – each brand is scored 1–5 on {len(dims)} dimensions, weighted by what matters to us; "
+        "Overall is 0–100 and counts only what was actually seen, never padded.",
+        "† Provisional – we have not yet seen enough of that brand to rank it fairly. Its score is shown, "
+        "its rank is withheld until it can be compared like for like.",
+        "Logged-out vs signed-in – pages read logged-out show what a visitor sees. A brand's coin store and "
+        "full game lobby sit behind a login, so those sections say 'not read yet' until a signed-in read.",
+    ]
+    if trends and int(trends.get("cycles", 0)) >= 2:
+        items.append(
+            "A run is one date on which every brand was read; trend lines join runs. Flat lines mean the "
+            "pages did not change; a jump usually means we read more of a brand that run."
+        )
+    if voice and voice.get("mentions"):
+        items.append(
+            f"'What players say' is opinion – posts on {_voice_sources(voice)} from the last "
+            f"{voice.get('window_days', 30)} days. It flags what to look at and never moves a score."
+        )
+    if catalog and catalog.get("items"):
+        items.append(
+            "The appendix is the raw inventory – game providers, coin packages, promotions, games and loyalty "
+            "tiers per brand, as printed. Click a name to open the page it was read from; the workbook holds every row."
+        )
+    _bullets(s, 0.7, top + 0.1, 11.9, 6.5 - top, items[:7], size=12.5, gap_pt=8, cap=300,
+             accent_bullet=False, max_items=7)
+    _footer(s, deck_title, page)
+
+
 def _slide_summary(
     prs: Any,
     card: dict[str, Any],
@@ -1026,8 +1078,8 @@ def _slide_glance(
     tiles = [
         first,
         second,
-        (f"{pct:.0f}%", f"of the model observed – {observed} of {pairs} pairs"),
-        (f"{evidence_count:,}", "observed facts, each traceable to a source"),
+        (f"{pct:.0f}%", f"of the scorecard filled in – {observed} of {pairs} brand × dimension cells"),
+        (f"{evidence_count:,}", "observed facts, each quoted from a page and linked to it"),
     ]
     x = 0.7
     w = 12.0 / len(tiles)
@@ -1779,6 +1831,13 @@ def _slide_profile(
 _VOICE_LABEL = "What players say — sentiment from public posts, not observed product fact."
 
 
+def _voice_sources(voice: dict[str, Any]) -> str:
+    names = {"reddit": "Reddit (r/sweepstakescasinos)", "app_store": "Apple App Store reviews",
+             "google_play": "Google Play reviews", "trustpilot": "Trustpilot", "bbb": "BBB", "x": "X", "web": "web"}
+    srcs = [names.get(str(x), str(x)) for x in (voice.get("sources") or [])]
+    return ", ".join(srcs) if srcs else "none collected"
+
+
 def _theme_label(theme: str) -> str:
     return {
         "redemption_speed": "Redemption speed",
@@ -1845,15 +1904,21 @@ def _slide_voice(
     first_w = 1.9
     n_w = 0.75
     th_w = (total_w - first_w - n_w) / len(themes)
+    # The legend under the table is what makes it readable; with fifteen
+    # brands the rows shrink so the table ends above it (2026-08-30 pack:
+    # the table ran over the legend and the reader asked for the source).
+    row_h = min(0.3, (6.15 - top) / (len(brands) + 1))
     shape = s.shapes.add_table(
         len(brands) + 1,
         2 + len(themes),
         Inches(0.7),
         Inches(top),
         Inches(total_w),
-        Inches(min(0.3 * (len(brands) + 1), 6.2 - top)),
+        Inches(row_h * (len(brands) + 1)),
     )
     tbl = shape.table
+    for r_ in tbl.rows:
+        r_.height = Inches(row_h)
     tbl.columns[0].width = Inches(first_w)
     tbl.columns[1].width = Inches(n_w)
     for ci in range(len(themes)):
@@ -1892,9 +1957,10 @@ def _slide_voice(
                 continue
             share = float(cell.get("share", 0.0))
             neg = float(cell.get("neg_share", 0.0))
+            n_t = cell.get("n")
             cell_write(
-                ri, 2 + ci, f"{int(round(share * 100))}%", bg=_neg_bg(share, neg),
-                fg=_INK, bold=share >= 0.25,
+                ri, 2 + ci, f"{int(round(share * 100))}%" + (f" ({int(n_t)})" if n_t else ""),
+                bg=_neg_bg(share, neg), fg=_INK, bold=share >= 0.25,
             )
     panel = (narrative.get("slides") or {}).get("voice") or _voice_facts(voice)
     _sidebar(
@@ -1904,10 +1970,11 @@ def _slide_voice(
         top=top,
     )
     _text(
-        s, 0.7, 6.32, 11.9, 0.3,
-        f"{_VOICE_LABEL}  Cell = share of that brand's mentions on the theme; red = mostly negative, "
-        f"green = mostly positive. Sources: {', '.join(voice.get('sources') or [])}. "
-        "Quotes are short, cited, and carry no usernames.",
+        s, 0.7, 6.22, 11.9, 0.5,
+        f"How to read: n = public posts about the brand in the last {voice.get('window_days', 30)} days; a cell is "
+        "the share of those posts about that theme, with the count in brackets; red = mostly negative, green = "
+        f"mostly positive, grey = fewer than {voice.get('min_mentions', 15)} posts, too few to read. "
+        f"Sources: {_voice_sources(voice)}. {_VOICE_LABEL}",
         size=8, italic=True, color=_MUTED,
     )
     _judgement_note(s, str(narrative.get("source") or "facts"))
@@ -2201,7 +2268,7 @@ def _slide_trends(
 
     s = _blank(prs)
     pts = trends.get("points") or []
-    title = (narrative.get("titles") or {}).get("trends") or f"Scores over {len(pts)} cycles"
+    title = (narrative.get("titles") or {}).get("trends") or f"Scores over {len(pts)} collection runs"
     top = _header(s, "Trends", title, (narrative.get("commentary") or {}).get("trends", ""))
     rows = card.get("rows", [])
     us = [r["name"] for r in rows if r.get("is_self")]
@@ -2233,33 +2300,51 @@ def _slide_trends(
     _sidebar(s, [str(o) for o in panel.get("observations") or []],
              [str(i) for i in panel.get("implications") or []], top=top)
     _text(s, 0.7, 6.32, 11.9, 0.3,
-          "Overall weighted score (0–100) at each stored snapshot; unscored cycles are gaps, never zero.",
+          "Each point is one run – a date on which every brand's pages were read. The line is the brand's "
+          "overall score (0–100) that day; a gap means the brand was not read that run.",
           size=8, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
 
 
 def _trends_facts(trends: dict[str, Any], us: list[str]) -> dict[str, list[str]]:
+    """Plain reading of the trend lines. A brand's move is from its first
+    scored run to its latest — many brands are not scored at the first
+    run at all — and one mover is reported as one mover, not as both the
+    biggest riser and the biggest faller (2026-08-30 pack)."""
     pts = trends.get("points") or []
     if len(pts) < 2:
         return {"observations": [], "implications": []}
-    first, last = pts[0], pts[-1]
-    obs: list[str] = [f"{len(pts)} cycles from {first['taken_at']} to {last['taken_at']}."]
-    moves = []
+    obs: list[str] = [f"{len(pts)} collection runs from {pts[0]['taken_at']} to {pts[-1]['taken_at']}."]
+    moves: list[tuple[str, float, float, float, int]] = []
     for b in trends.get("brands", []):
-        a, z = first["scores"].get(b), last["scores"].get(b)
-        if a is not None and z is not None:
-            moves.append((b, float(z) - float(a), float(z)))
-    if moves:
-        up = max(moves, key=lambda m: m[1])
-        down = min(moves, key=lambda m: m[1])
-        obs.append(f"Biggest riser: {up[0]} ({up[1]:+.1f} to {up[2]:.1f}).")
-        obs.append(f"Biggest faller: {down[0]} ({down[1]:+.1f} to {down[2]:.1f}).")
-        for u in us:
-            m = next((x for x in moves if x[0] == u), None)
-            if m:
-                obs.append(f"{u}: {m[1]:+.1f} over the period, now {m[2]:.1f}.")
-    return {"observations": obs[:4], "implications": ["Movement is measured against stored cycles; a rise with falling coverage is not a rise."]}
+        scored = [float(pt["scores"][b]) for pt in pts if pt.get("scores", {}).get(b) is not None]
+        if len(scored) >= 2:
+            moves.append((b, scored[0], scored[-1], scored[-1] - scored[0], len(scored)))
 
+    def fmt(m: tuple[str, float, float, float, int]) -> str:
+        return f"{m[0]}: {m[1]:.1f} → {m[2]:.1f} ({m[3]:+.1f})"
+
+    if not moves:
+        obs.append("No brand has a score at two different runs yet, so nothing has moved.")
+    elif len(moves) == 1:
+        obs.append(f"Only one brand was scored at two runs – {fmt(moves[0])}.")
+    else:
+        up = max(moves, key=lambda m: m[3])
+        down = min(moves, key=lambda m: m[3])
+        obs.append(f"Largest rise – {fmt(up)}." if up[3] > 0 else "No brand rose between its first and latest score.")
+        if down is not up:
+            obs.append(f"Largest fall – {fmt(down)}." if down[3] < 0 else "No brand fell.")
+    for u in us:
+        m = next((x for x in moves if x[0] == u), None)
+        if m:
+            obs.append(f"{u}: {m[1]:.1f} → {m[2]:.1f} ({m[3]:+.1f}) across {m[4]} runs.")
+    return {
+        "observations": obs[:4],
+        "implications": [
+            "A jump usually means we read more of a brand's pages that run, not that the brand changed; "
+            "flat lines mean its pages did not change.",
+        ],
+    }
 
 def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -> None:
     """The next eight weeks of dates that move play, week by week."""
@@ -2362,7 +2447,7 @@ def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page:
 def _table(
     slide: Any, x: float, y: float, widths: list[float], header: list[str],
     rows: list[list[str]], *, size: float = 8, highlight_first_col: bool = False,
-    max_h: float = 4.6,
+    max_h: float = 4.6, links: list[str] | None = None,
 ) -> float:
     """A plain, readable table in the deck's style. Returns the y below it.
     The client's reference pages are exactly this: bordered cells, one
@@ -2398,6 +2483,13 @@ def _table(
         bg = _CARD if ri % 2 else _WHITE
         for ci, txt in enumerate(row):
             cw(ri, ci, txt, bg=bg, bold=(highlight_first_col and ci == 0))
+        url = (links[ri - 1] if links and ri - 1 < len(links) else "") or ""
+        if url.startswith("http"):
+            # "add a link" (client, 2026-08-31): the name opens the page it was read from
+            try:
+                tbl.cell(ri, 0).text_frame.paragraphs[0].runs[0].hyperlink.address = url
+            except Exception:
+                pass
     return y + h + 0.15
 
 
@@ -2413,8 +2505,9 @@ def _fmt_coins(v: Any) -> str:
 
 def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_title: str) -> None:
     """'<Brand> – Coins / Promotions': the ladder as Package · Gold coins ·
-    Sweeps coins on the left, promotions as Promotion · Benefit · How to
-    claim · Frequency on the right — the client's own reference layout."""
+    Sweeps coins · Description on the left, promotions as Promotion ·
+    Benefit · How to claim · Frequency on the right — the client's own
+    reference layout. Names link to the page they were read from."""
     s = _blank(prs)
     c = brand["counts"]
     top = _header(
@@ -2422,25 +2515,30 @@ def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_t
         f"{brand['name']}{'  (us)' if brand.get('is_self') else ''} – Coins / Promotions",
     )
     pkgs = brand.get("packages") or []
-    pkg_rows = []
+    pkg_rows: list[list[str]] = []
+    pkg_links: list[str] = []
     for pkg in pkgs[:12]:
         price = f"${pkg['price_usd']:.2f}" if pkg.get("price_usd") is not None else str(pkg["name"])
-        note = (pkg.get("detail") or "").strip()
-        label = price + (f"\n({_clean(note, 26)})" if note and len(note) <= 40 else "")
         gc, sc = pkg.get("gold_coins"), pkg.get("sweeps_coins")
         if gc is None and sc is None and pkg.get("coins"):
             gc_txt, sc_txt = _clean(pkg["coins"], 30), "–"   # unparsed grant, shown as printed
         else:
             gc_txt, sc_txt = _fmt_coins(gc), _fmt_coins(sc)
-        pkg_rows.append([label, gc_txt, sc_txt])
+        pkg_rows.append([price, gc_txt, sc_txt, _clean((pkg.get("detail") or "").strip(), 60) or "–"])
+        pkg_links.append(str(pkg.get("url") or ""))
     if pkg_rows:
-        _table(s, 0.7, top, [1.45, 1.25, 1.0], ["Coin package", "Gold coins", "Sweeps coins"],
-               pkg_rows, size=8, highlight_first_col=True)
+        _table(s, 0.7, top, [0.95, 1.0, 0.9, 1.55],
+               ["Coin package", "Gold coins", "Sweeps coins", "Description"],
+               pkg_rows, size=8, highlight_first_col=True, links=pkg_links)
     else:
-        _text(s, 0.7, top, 3.7, 0.5, "No coin packages on record.", size=9, color=_MUTED)
+        _text(s, 0.7, top, 4.4, 1.0,
+              "Coin store not read yet – it sits behind a login and nothing public lists this brand's "
+              "packages. A signed-in read is the next step.",
+              size=9, color=_MUTED, line=1.15)
 
     promos = brand.get("promotions_full") or brand.get("promotions") or []
-    promo_rows = []
+    promo_rows: list[list[str]] = []
+    promo_links: list[str] = []
     for p_ in promos[:9]:
         benefit = p_.get("benefit") or p_.get("detail") or ""
         promo_rows.append([
@@ -2449,18 +2547,29 @@ def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_t
             _clean(p_.get("how_to_claim") or "", 60) or "–",
             _clean(p_.get("frequency") or "", 16) or "–",
         ])
+        promo_links.append(str(p_.get("url") or ""))
     if promo_rows:
-        _table(s, 4.7, top, [1.7, 3.5, 1.9, 0.85],
-               ["Promotion", "Benefit", "How to claim", "Frequency"], promo_rows, size=7.5)
+        _table(s, 5.3, top, [1.55, 3.05, 1.75, 0.85],
+               ["Promotion", "Benefit", "How to claim", "Frequency"], promo_rows, size=7.5, links=promo_links)
     else:
-        _text(s, 4.7, top, 7.9, 0.5, "No promotions on record.", size=9, color=_MUTED)
+        _text(s, 5.3, top, 7.2, 0.5, "No promotions on record.", size=9, color=_MUTED)
     extra = max(0, len(pkgs) - 12) + max(0, len(promos) - 9)
+    pkg_src = (brand.get("sources") or {}).get("coin_package") or []
+    if pkg_rows and pkg_src == ["third_party"]:
+        # a ladder read off a review site is a weaker fact than one read off the store — say so
+        provenance = "Packages as reported by public reviews, not read off the store (it sits behind a login). "
+    elif pkg_rows and "third_party" in pkg_src:
+        provenance = "Packages read off the store and from public reviews; the workbook says which. "
+    elif pkg_rows:
+        provenance = "Packages as priced on the store. "
+    else:
+        provenance = ""
     _text(
         s, 0.7, 6.72, 11.9, 0.28,
         f"{c.get('coin_package', 0)} packages and {c.get('promotion', 0)} promotions on record"
         + (f"; {extra} more in the workbook" if extra else "")
-        + f". As printed; read {', '.join(brand.get('customer_states') or ['logged_out'])}, "
-        f"latest {brand.get('observed_at', '')}.",
+        + f". {provenance}As printed; click a name to open the page it was read from. Read "
+        f"{', '.join(brand.get('customer_states') or ['logged_out'])}, latest {brand.get('observed_at', '')}.",
         size=7.5, italic=True, color=_MUTED,
     )
     _footer(s, deck_title, page)
@@ -2505,6 +2614,12 @@ def _slide_brand_library(prs: Any, brand: dict[str, Any], page: int, deck_title:
     _eyebrow(s, f"Games read · {c.get('game', 0)}", y=top + 2.35, x=0.7, color=_PEER)
     _text(s, 0.7, top + 2.61, 11.9, 2.4,
           (", ".join(games[:110]) + more(games, 110)) if games else "—", size=7.5, color=_BODY, line=1.12)
+    if len(games) < 10:
+        # "the games lists are too short" (client, 2026-08-31): say why, not just how many
+        _text(s, 0.7, top + 2.61 + (0.35 if games else 0.3), 11.9, 0.5,
+              f"Only {len(games)} title{'s' if len(games) != 1 else ''} appeared on the public pages and reviews. "
+              "The full lobby sits behind a login and has not been read as a signed-in player yet.",
+              size=8, italic=True, color=_MUTED)
     _text(s, 0.7, 6.72, 11.9, 0.28,
           "As printed on the brand's pages and public reviews; the source of every item is in the workbook.",
           size=7.5, italic=True, color=_MUTED)
@@ -3223,9 +3338,9 @@ def _slide_evidence(
     pct = (observed / pairs * 100.0) if pairs else 0.0
 
     tiles = [
-        (f"{pct:.0f}%", f"of the model observed – {observed} of {pairs} brand × dimension pairs"),
+        (f"{pct:.0f}%", f"of the scorecard filled in – {observed} of {pairs} brand × dimension cells"),
         (f"{evidence_count:,}", "evidence items on file, each quoting a source URL"),
-        (f"{len(never)}", "pairs never observed – no score, no penalty"),
+        (f"{len(never)}", "cells never observed – no score, no penalty"),
         (f"{len(stale)}", "overdue a refresh against their cadence"),
     ]
     x = 0.7
@@ -3509,6 +3624,8 @@ def render_executive_deck(
         generated=generated,
     )
     page = 2
+    _slide_reading_guide(prs, card, evidence_count, page, deck_title, voice=voice, catalog=catalog, trends=trends)
+    page += 1
     _slide_summary(prs, card, narrative, page, deck_title, events=events)
     page += 1
     _slide_glance(
@@ -3668,15 +3785,9 @@ def render_executive_deck(
     if catalog and catalog.get("items"):
         if catalog["totals"].get("provider"):
             page = _slides_portfolio(prs, catalog, page, deck_title)
-        if catalog["totals"].get("coin_package"):
-            _slide_packages(prs, catalog, page, deck_title)
-            page += 1
-        if catalog["totals"].get("promotion"):
-            _slide_promotions_raw(prs, catalog, page, deck_title)
-            page += 1
-        if catalog["totals"].get("game"):
-            _slide_games(prs, catalog, page, deck_title)
-            page += 1
+        # The cross-brand summaries (top-12 studios, one ladder, twelve
+        # promotions, "e.g." titles) are gone: the client asked for the
+        # data, and the per-brand pages below carry all of it.
         # …then the detail itself, per brand, in the client's own layout:
         # Coins / Promotions, Loyalty Club (when tiers are held), Providers / Games.
         for brand_row in catalog.get("brands", [])[:16]:

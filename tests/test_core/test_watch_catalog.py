@@ -322,9 +322,10 @@ class TestProvenanceIsVisible:
                 if sh.has_table:
                     parts += [c.text for r in sh.table.rows for c in r.cells]
             texts.append("\n".join(parts))
-        slide = next(t for t in texts if "Coin packages" in t)
-        assert "review site" in slide and "the brand" in slide
-        assert "reported, not observed" in slide  # the caveat is on the page, not implied
+        slide = next(t for t in texts if "Pulsz (us) – Coins / Promotions" in t)
+        # the caveat is on the brand's own page, not implied
+        assert "Packages as reported by public reviews, not read off the store" in slide
+        assert "$1.99" in slide and "$4.99" in slide
 
 
 class TestLadderHygiene:
@@ -349,7 +350,7 @@ class TestLadderHygiene:
         got = await extract_catalog(r, kind="coin_package", brand="B", page_text=page)
         assert got[0]["coins_text"] == "" and got[0]["price_usd"] == 1.99
 
-    def test_the_slide_shows_the_detail_instead_and_names_the_source(self, tmp_path) -> None:
+    def test_the_brand_page_shows_the_detail_as_the_description(self, tmp_path) -> None:
         from pptx import Presentation
 
         from core.watch_deck import factual_narrative, render_executive_deck
@@ -379,12 +380,12 @@ class TestLadderHygiene:
                 if sh.has_table:
                     parts += [c.text for r in sh.table.rows for c in r.cells]
             texts.append("\n".join(parts))
-        pkg = next(t for t in texts if "Coin packages" in t)
-        assert "as reported by public sources" in pkg      # not "as priced on each store"
-        assert "Its coin split is not published" in pkg    # detail stands in for the grant
+        pkg = next(t for t in texts if "Crown – Coins / Promotions" in t)
+        assert "Its coin split is not published" in pkg    # the detail is the Description column
         assert "$1.99\n$1.99" not in pkg                   # never the price twice
-        promo = next(t for t in texts if "promotions on record" in t)
-        assert "40 promotions on record" in promo          # the total, not just what fits
+        assert "2 promotions on record" in pkg             # the brand's total, not just what fits
+        # the cross-brand ladder and the twelve-promotion list are gone: the per-brand pages carry the data
+        assert not any("as reported by public sources" in t or "promotions on record – " in t for t in texts)
 
 
 class TestPerBrandDetail:
@@ -461,9 +462,9 @@ class TestPerBrandDetail:
         render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
                               gaps=[], evidence_count=1, path=out, catalog=self._catalog())
         page = next(t for t in self._texts(out) if "Modo – Coins / Promotions" in t)
-        assert "Coin package | Gold coins | Sweeps coins" in page
-        assert "$1.99 | 4,000 | –" in page                              # no SC → an honest dash
-        assert "$9.99\n(First purchase offer) | 50,000 | 25" in page      # the note rides with the price
+        assert "Coin package | Gold coins | Sweeps coins | Description" in page
+        assert "$1.99 | 4,000 | – | –" in page                          # no SC, no note → honest dashes
+        assert "$9.99 | 50,000 | 25 | First purchase offer" in page      # the note is the Description
         assert "Promotion | Benefit | How to claim | Frequency" in page
         assert "Daily Login Bonus | 1500GC + 0.2SC" in page and "| Login daily to claim the bonus | Daily" in page
 
@@ -754,9 +755,10 @@ class TestDeckAndWorkbook:
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=a)
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=b,
                               catalog=self._catalog())
-        # four field-level slides + the brand's Coins/Promotions page + its
-        # Providers/Games page (no loyalty tiers in this fixture)
-        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 6
+        # the Game portfolio page + the brand's Coins/Promotions page + its
+        # Providers/Games page (no loyalty tiers in this fixture); the
+        # cross-brand summaries are gone
+        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 3
         texts = []
         for sl in Presentation(str(b)).slides:
             parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]

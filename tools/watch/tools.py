@@ -993,7 +993,19 @@ Rules:
   manifests, ledgers, registers, corpora, checkpoints, run IDs, snapshots or
   tool names. The room hears about the MARKET, not about the machinery.
 - Punctuation: en dashes (–), never em dashes (—).
-- No filler, no preamble, no restating the method."""
+- No filler, no preamble, no restating the method.
+- Plain English for someone seeing this deck for the first time. No coined
+  phrases or industry shorthand ("game-format merchandising", "value
+  proposition", "acquisition opening", "battlegrounds"); say the concrete
+  thing ("groups its games by mechanic, e.g. Hold & Win"). One idea per
+  sentence. A reader must not need to ask what a sentence means.
+- Players' themes: every sentence cites the share and n ("fairness in 25% of
+  74 posts"). A brand STANDS OUT on a theme only when its vs_field_pts is
+  10 or more, or its negative share is 20+ points above the field's;
+  otherwise say it is in line with the field, with the numbers, and never
+  recommend action on it. Never "draws more negativity than several rivals".
+- Deep-dive implications are things WE could do or watch, said plainly;
+  never an abstraction about merchandising or positioning."""
 
 
 def _collect_exhibits(
@@ -1220,6 +1232,21 @@ async def _narrate_for_deck(
                         "top_praise": b.get("top_praise"),
                         "flags": b.get("flags"),
                         "quotes": [q.get("quote") for q in (b.get("quotes") or [])[:2]],
+                        # each theme against the field, so "X stands out" is checkable
+                        "themes": {
+                            t: {
+                                "share": v.get("share"), "neg_share": v.get("neg_share"), "n": v.get("n"),
+                                "vs_field_pts": int(round(
+                                    (float(v.get("share") or 0.0)
+                                     - float(((voice.get("field_themes") or {}).get(t) or {}).get("share") or 0.0))
+                                    * 100
+                                )),
+                            }
+                            for t, v in sorted(
+                                (b.get("themes") or {}).items(),
+                                key=lambda kv: -float(kv[1].get("share") or 0.0),
+                            )[:6]
+                        },
                     }
                     for b in voice.get("brands", [])
                 ],

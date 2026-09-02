@@ -148,17 +148,52 @@ record), High 5 (7), Card Crush (8), Pulsz Bingo (10): their lobbies are
 behind a login, which is what `watch_catalog_collect kinds=provider,game
 sign_in_if_missing=true` is for.
 
+## Read cold (2026-09-02)
+
+A client read the 2026-08-30 pack for the first time and left comments:
+"what do we mean by pairs?", "what is this, I don't get the context?"
+(trends), "what is the source here?" (players), "why can't we find the
+coin packages?", "the games lists are too short", "reformat the raw data
+and add a link", "no description of package?", "what is game-format
+merchandising?", "are we saying Pulsz has fairness issues more than the
+others?". The answers are now in the deck itself:
+
+* **Slide 2, "How to read this deck"** — where the facts come from, what
+  a score is, what † means, that a store and lobby sit behind a login,
+  what a run is, that "what players say" is opinion, where the raw data
+  lives. Nothing else in the deck assumes the vocabulary.
+* **No "pairs", no "cycles"** — brand × dimension *cells*, collection
+  *runs*. The trends panel reads a brand's move from its first scored run,
+  reports one mover as one mover (the old panel named the same brand
+  biggest riser and biggest faller, with the delta printed as if it were
+  a score), and says what a flat line and a jump mean.
+* **Players' table** — a "how to read" line with the sources named, each
+  cell carries its count, and with fifteen brands the rows shrink so the
+  table ends above the legend instead of covering it. The narrator now
+  gets each brand's theme share *against the field* (`vs_field_pts`) and
+  may say a brand stands out only at +10 points or more; otherwise "in
+  line with the field", with the numbers, and no recommendation.
+* **Raw data** — coin packages gain a *Description* column; every name in
+  the per-brand tables links to the page it was read from; an empty store
+  says "not read yet – behind a login", a short game list says how many
+  titles the public pages showed and that the lobby needs a signed-in
+  read. The three cross-brand summaries (top-12 studios, one ladder,
+  twelve promotions, "e.g." titles) are gone — the per-brand pages carry
+  the data.
+* **Narrator** — plain English for a first-time reader, no coined phrases
+  ("game-format merchandising"), one idea per sentence, every player claim
+  with share and n; deep-dive implications are things we could do.
+
 ## In the pack
 
 Appendix, after the method slide, only when rows exist:
 
 * **Game portfolio** — Provider × Brand, every studio, paginated (above).
-* **Coin packages** — the price ladder per brand, cheapest to dearest,
-  with what each grants; ours highlighted.
-* **Promotions** — the table (name, terms, dates) plus the captured
-  images, two to a slide.
-* **Games** — count per brand and the newest/most-featured titles; the
-  full list belongs in the workbook, not on a slide.
+* **Per brand** — *Coins / Promotions* (Package · Gold coins · Sweeps coins
+  · Description; Promotion · Benefit · How to claim · Frequency), *Loyalty
+  Club* when tiers exist, *Providers / Games* (every studio, the titles
+  read). Names link to their source page; the captured promotion images
+  follow as exhibits.
 
 The workbook gains one sheet per kind — raw data, one row per item, with
 its URL and date. That is the deliverable the client actually asked for;

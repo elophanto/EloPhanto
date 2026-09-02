@@ -364,8 +364,8 @@ class TestEvidenceSlide:
         await _market(wm)
         _res, slides = await _deck(wm, tmp_path)
         ev = _slide(slides, "How much of this is measured")
-        # 5 brands × 5 dims = 25 pairs; scored: us 5 + r1 5 + r2 5 + thin 1 = 16.
-        assert "16 of 25 brand × dimension pairs" in ev["text"]
+        # 5 brands × 5 dims = 25 cells; scored: us 5 + r1 5 + r2 5 + thin 1 = 16.
+        assert "16 of 25 brand × dimension cells" in ev["text"]
         assert "64%" in ev["text"]
         assert "Gaps are absences of evidence, not weaknesses" in ev["text"]
 
@@ -380,7 +380,7 @@ class TestDeckShape:
         await _market(wm)
         res, _ = await _deck(wm, tmp_path, router=_DeckRouter())
         prs = Presentation(res.data["path"])
-        assert len(prs.slides) == 16
+        assert len(prs.slides) == 17          # + the reader's guide (slide 2)
         W, H = prs.slide_width, prs.slide_height
         for sl in prs.slides:
             for sh in sl.shapes:
@@ -408,9 +408,9 @@ class TestDeckShape:
         titles = [s["text"] for s in slides if "Implications and recommendations" in s["text"]]
         assert len(titles) == 3  # 12 items, 5 per slide
         assert "(1/3)" in titles[0] and "(3/3)" in titles[2]
-        # 12 core + dimension-leaders + 2 extra judgement pages, no profiles
-        # (this router returns no profile section).
-        assert len(Presentation(res.data["path"]).slides) == 16
+        # reader's guide + 12 core + dimension-leaders + 2 extra judgement
+        # pages, no profiles (this router returns no profile section).
+        assert len(Presentation(res.data["path"]).slides) == 17
 
     @pytest.mark.asyncio
     async def test_extension_is_forced_to_pptx(self, wm, tmp_path) -> None:
@@ -814,6 +814,6 @@ def test_glance_slide_shows_the_highest_score_when_ranks_are_withheld(tmp_path) 
     render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
                           gaps=[], evidence_count=10, path=out)
     prs = Presentation(str(out))
-    glance = "\n".join(sh.text_frame.text for sh in prs.slides[2].shapes if sh.has_text_frame)
+    glance = "\n".join(sh.text_frame.text for sh in prs.slides[3].shapes if sh.has_text_frame)   # after the guide
     assert "70.4" in glance and "Crown – highest score, ranks withheld" in glance
     assert "2 / 2" in glance and "0 / 2" not in glance and "no brand ranked yet" not in glance
