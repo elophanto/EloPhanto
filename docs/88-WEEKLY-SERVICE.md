@@ -158,7 +158,7 @@ the script it falls back to when no agent is wired in):
    is not reachable and the click lands on the banner;
 2. click the login control that is ON SCREEN, by its coordinates, the
    way a person does — the header button first, then the hero's; a hidden
-   template's "Log In" does not count (Spinfinite, 2026-09-02) — and when
+   template's "Log In" does not count (Brand F, 2026-09-02) — and when
    that opens a SIGN-UP panel, click its "already have an account" switch.
    **Never a guessed address**: no `/login`, no `/signin`; when no visible
    control leads to a form, `no_form` is the honest answer and a human or
@@ -176,7 +176,7 @@ the script it falls back to when no agent is wired in):
    `rejected` (with the site's own message — a stale password, a locked
    account and a failed anti-bot score all read alike, so a human judges),
    `verification_required` (the credentials were accepted and the site
-   wants a code it e-mailed or texted — WOW Vegas on a new browser; a step
+   wants a code it e-mailed or texted — Brand I on a new browser; a step
    for whoever holds that inbox, or the agent's inbox tools when the
    account mail is the agent's), `challenge`, `no_form`, `unreachable`.
 
@@ -186,8 +186,8 @@ code before the number, an offer reads "5,000 GC") with no Log In button
 on the page. The judgement waits for the app to render (a spinner reads
 as logged out), and "no password field" is re-judged: on a live lobby the
 click lands on nothing, and that is `already_logged_in`, not `no_form`
-(Pulsz, Hello Millions, 2026-09-02). "Sweeps coins", "redeem" and "buy coins" are sold
-to everyone (LuckyLand's logged-out homepage was once judged "already
+(Brand A, Brand D, 2026-09-02). "Sweeps coins", "redeem" and "buy coins" are sold
+to everyone (Brand H's logged-out homepage was once judged "already
 logged in" on those words while its header read Sign Up / Login); they
 make a verdict *unclear* at most, and never outweigh a Login button.
 

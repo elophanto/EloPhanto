@@ -216,8 +216,8 @@ class TestLoyaltyPagesOnlyWithSubstance:
                     "packages": [], "promotions": [], "games_sample": [], "sources": {}, "tiers": tiers,
                     "customer_states": ["logged_out"], "observed_at": "2026-09-02"}
         catalog = {"items": 10, "label": "", "totals": {"provider": 2, "loyalty_tier": 9}, "third_party_only": [],
-                   "brands": [brand("Spinfinite", [{"name": f"Tier {i}", "qualification": "", "reward": "", "url": "u"} for i in range(7)]),
-                              brand("Pulsz", [{"name": "Bronze", "qualification": "0–499 VIP points", "reward": "400,000 GC on $9.99", "url": "u"},
+                   "brands": [brand("Brand F", [{"name": f"Tier {i}", "qualification": "", "reward": "", "url": "u"} for i in range(7)]),
+                              brand("Brand A", [{"name": "Bronze", "qualification": "0–499 VIP points", "reward": "400,000 GC on $9.99", "url": "u"},
                                               {"name": "Ghost", "qualification": "", "reward": "", "url": "u"}])]}
         card = {"rows": [], "dimensions": []}
         out = tmp_path / "d.pptx"
@@ -231,7 +231,7 @@ class TestLoyaltyPagesOnlyWithSubstance:
                 if sh.has_table:
                     parts += [" | ".join(c.text for c in r.cells) for r in sh.table.rows]
             texts.append("\n".join(parts))
-        assert not any("Spinfinite – Loyalty Club" in t for t in texts)          # names only: no page
-        page = next(t for t in texts if "Pulsz – Loyalty Club" in t)
+        assert not any("Brand F – Loyalty Club" in t for t in texts)          # names only: no page
+        page = next(t for t in texts if "Brand A – Loyalty Club" in t)
         assert "Bronze | 0–499 VIP points | 400,000 GC on $9.99" in page
         assert "Ghost" not in page                                                # an empty row is dropped

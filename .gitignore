@@ -151,3 +151,7 @@ AGENT_PROTOCOL.md
 /_private/
 
 /elophanto_nodejs/workspace-legacy-2026-05/
+
+# client data — never committed
+game_portfolio.csv
+workspace/watch/

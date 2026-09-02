@@ -2,7 +2,7 @@
 """Live check of the agent-driven sign-in and signed-in read, outside the
 chat — the same Agent, the same tools, the same vault (docs/90).
 
-    ELOPHANTO_VAULT_PASSWORD=… python3 scripts/watch_live_check.py --brand "Spin Blitz" [--brand …] [--read]
+    ELOPHANTO_VAULT_PASSWORD=… python3 scripts/watch_live_check.py --brand "Brand E" [--brand …] [--read]
 
 Runs ``watch_login`` for each brand (the agent gets the form on screen,
 the code types the credentials, the model judges with proof) and, with

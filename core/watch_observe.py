@@ -52,7 +52,7 @@ def html_to_text(raw: str) -> str:
         return ""
     txt = _SCRIPT_STYLE_RE.sub(" ", raw)
     # A lobby of image tiles carries its game names in alt / aria-label /
-    # title, not in text nodes (Crown Coins, 2026-09-02: 3,500 characters of
+    # title, not in text nodes (Brand C, 2026-09-02: 3,500 characters of
     # lobby, no titles). Keep those labels as text before the tags go.
     txt = _LABEL_ATTR_RE.sub(lambda m: f" {m.group(1)} ", txt)
     txt = _TAG_RE.sub(" ", txt)
@@ -349,7 +349,7 @@ Hard rules:
   dimension, else the marketing one) with the date in value_text — even if
   it fits no sub-criterion. A shutdown notice is the most material fact a
   page can carry; a register that misses it because it "fits no dimension"
-  has failed (LuckyLand, 2026-08-16: "closing September 14, 2026" was on
+  has failed (Brand H, 2026-08-16: "closing September 14, 2026" was on
   the homepage and the register recorded nothing).
 
 Return STRICT JSON: {"claims":[{"dimension":str,"subcriterion":str,"claim":str,\
@@ -557,7 +557,7 @@ def rank_exhibit_pages(
 # The browser-automation playbook's own recipe for consent banners, verbatim:
 # browser_click_text("Accept All") / ("Accept"), then fall back to
 # browser_get_elements to find the consent button. Two rounds, because some
-# storefronts stack a bar and a modal (LuckyLand). Best-effort throughout —
+# storefronts stack a bar and a modal (Brand H). Best-effort throughout —
 # a banner that will not close is still a capturable page.
 _CONSENT_LABELS = ("Accept All", "Accept all cookies", "Allow all", "I Accept", "Accept", "I agree", "Got it")
 _CONSENT_WORDS = ("accept", "agree", "allow all", "got it", "consent")
@@ -565,7 +565,7 @@ _CONSENT_WORDS = ("accept", "agree", "allow all", "got it", "consent")
 
 def _consent_click_landed(res: Any, wanted: str) -> bool:
     """``browser_click_text`` reports success even when it fell through to an
-    unrelated element (High 5, 2026-08-16: asked for "Accept All", clicked
+    unrelated element (Brand G, 2026-08-16: asked for "Accept All", clicked
     "Home", success=true). Trust ``matchedText``, not the flag."""
     data = res if isinstance(res, dict) else {}
     if not data.get("success") and isinstance(data.get("result"), dict):
@@ -628,9 +628,9 @@ async def dismiss_consent(
                     clicked += 1
                     break
         if not hit:
-            # Consent overlays often render a beat after load (Pulsz Bingo,
+            # Consent overlays often render a beat after load (Brand B,
             # 2026-08-16: nothing to click at t=0, modal on screen by the
-            # capture; High 5 the same day needed longer still). A miss
+            # capture; Brand G the same day needed longer still). A miss
             # earns a few more looks with growing waits — not a retry loop.
             if clicked or not settles:
                 break
@@ -670,7 +670,7 @@ async def capture_page_screenshot(
         from pathlib import Path as _Path
 
         # One retry after a settle: heavy storefronts stall Playwright's
-        # screenshot on "waiting for fonts to load" (High 5, 2026-08-16:
+        # screenshot on "waiting for fonts to load" (Brand G, 2026-08-16:
         # 30s timeout on the only exhibit page, and the brand went into
         # the deck with a stale capture). A second shot a moment later
         # usually lands; a second failure is a gap, logged, not an error.
@@ -682,7 +682,7 @@ async def capture_page_screenshot(
                 except Exception:
                     pass
                 # The stall was 30s of page time — a consent bar that slid in
-                # meanwhile would be in the retry shot (High 5, 2026-08-16).
+                # meanwhile would be in the retry shot (Brand G, 2026-08-16).
                 await dismiss_consent(browser_manager, settle_ms=(500,))
             payload = await browser_manager.call_tool("browser_capture", {"path": out_path})
             data = payload if isinstance(payload, dict) else {}
@@ -697,7 +697,7 @@ async def capture_page_screenshot(
                 last_err = str(data.get("error") or text)[:200]
             if ok and _Path(out_path).exists():
                 # Self-check: a consent bar that slid in AFTER the dismissal
-                # and BEFORE the shot is in the picture (High 5, 2026-08-16,
+                # and BEFORE the shot is in the picture (Brand G, 2026-08-16,
                 # three runs — its bar appears only once the slow page has
                 # fully loaded). One more quick look now; if that click
                 # lands, the picture was dirty: shoot again.

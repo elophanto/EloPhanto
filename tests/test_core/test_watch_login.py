@@ -118,10 +118,10 @@ class TestSessionVerdict:
 
     @pytest.mark.asyncio
     async def test_coins_talk_on_a_logged_out_homepage_is_not_a_session(self) -> None:
-        """LuckyLand, 2026-09-01: 'redeem', 'sweeps coins', 'buy coins' are
+        """Brand H, 2026-09-01: 'redeem', 'sweeps coins', 'buy coins' are
         sold to everyone; with Sign Up / Login in the header the page is
         logged out, whatever it says about coins."""
-        home = {"text": "LuckyLand Slots is closing · Play LuckyLand Casino · redeem sweeps coins · "
+        home = {"text": "Brand H is closing · Play Brand H · redeem sweeps coins · "
                         "buy coins · Sign up · Login", "password": False, "clickable": ["Login"]}
         b = _Browser(pages={"https://b.example/": home}, start="https://b.example/")
         state, hits_in, hits_out = await session_state(b)
@@ -139,15 +139,15 @@ class TestSessionVerdict:
         from tools.watch.tools import _merge_login_results
 
         f = tmp_path / "results.json"
-        _merge_login_results(f, [{"brand": "Card Crush", "verdict": "logged_out", "checked_at": "t1"}])
-        _merge_login_results(f, [{"brand": "LuckyLand Slots", "verdict": "rejected", "checked_at": "t2"},
-                                 {"brand": "Card Crush", "verdict": "logged_out", "from_cache": True}])
+        _merge_login_results(f, [{"brand": "Brand O", "verdict": "logged_out", "checked_at": "t1"}])
+        _merge_login_results(f, [{"brand": "Brand H", "verdict": "rejected", "checked_at": "t2"},
+                                 {"brand": "Brand O", "verdict": "logged_out", "from_cache": True}])
         rows = json.loads(f.read_text())
-        assert {r["brand"] for r in rows} == {"Card Crush", "LuckyLand Slots"}
+        assert {r["brand"] for r in rows} == {"Brand O", "Brand H"}
         assert not any(r.get("from_cache") for r in rows)      # cache echoes are not history
-        _merge_login_results(f, [{"brand": "Card Crush", "verdict": "logged_in", "checked_at": "t3"}])
+        _merge_login_results(f, [{"brand": "Brand O", "verdict": "logged_in", "checked_at": "t3"}])
         rows = json.loads(f.read_text())
-        assert len(rows) == 2 and next(r for r in rows if r["brand"] == "Card Crush")["verdict"] == "logged_in"
+        assert len(rows) == 2 and next(r for r in rows if r["brand"] == "Brand O")["verdict"] == "logged_in"
 
 
 class TestFormDiscovery:
@@ -167,7 +167,7 @@ class TestFormDiscovery:
 
     @pytest.mark.asyncio
     async def test_a_signup_panel_is_switched_to_login(self) -> None:
-        """Pulsz: the header 'Log In' opens the SIGN-UP panel; the real form
+        """Brand A: the header 'Log In' opens the SIGN-UP panel; the real form
         is behind 'Already got an account? Log in >'."""
         home = {"text": "Play now", "password": False, "clickable": ["Log In"],
                 "click_to": {"Log In": "https://b.example/register"}}
@@ -185,7 +185,7 @@ class TestFormDiscovery:
 
     @pytest.mark.asyncio
     async def test_no_visible_control_means_no_form_and_no_address_is_guessed(self) -> None:
-        """The /login fallback is gone (2026-09-02, Spinfinite: it 404'd
+        """The /login fallback is gone (2026-09-02, Brand F: it 404'd
         while the real Login button sat top right). When nothing on screen
         leads to a form, the honest answer is no_form — never a URL."""
         home = {"text": "Play now", "password": False, "clickable": []}
@@ -200,7 +200,7 @@ class TestFormDiscovery:
 
     @pytest.mark.asyncio
     async def test_a_missing_label_does_not_kill_the_flow(self) -> None:
-        """browser_click_text raises on a miss (Chumba, 2026-08-26)."""
+        """browser_click_text raises on a miss (Brand J, 2026-08-26)."""
         b = _Browser(
             pages={"https://b.example": {"text": "welcome", "password": False, "clickable": []}},
             start="https://b.example",
@@ -245,7 +245,7 @@ class TestSubmitIsFormScoped:
     @pytest.mark.asyncio
     async def test_the_header_login_link_is_not_the_submit_button(self) -> None:
         """Clicking visible text "Log In" hits the header link and abandons
-        the filled form (Card Crush, Hello Millions, 2026-08-26)."""
+        the filled form (Brand O, Brand D, 2026-08-26)."""
         from core.watch_login import submit_login_form
 
         page = {"text": "login", "password": True,
@@ -268,7 +268,7 @@ class TestSubmitIsFormScoped:
 class TestRejection:
     @pytest.mark.asyncio
     async def test_the_sites_own_rejection_is_reported_verbatim(self) -> None:
-        """Chumba, 2026-08-26: filled, submitted, and answered 'Login failed,
+        """Brand J, 2026-08-26: filled, submitted, and answered 'Login failed,
         please try again' — an automation report of 'logged_out' would have
         sent someone hunting a bug that was not there."""
         rejected = {"text": "Welcome Back! Login failed, please try again or contact support.",
@@ -291,7 +291,7 @@ class TestRejection:
 
 
 class TestExitSwitching:
-    """These accounts are geo-bound (Chumba runs GeoComply): a login from
+    """These accounts are geo-bound (Brand J runs GeoComply): a login from
     the wrong state can be refused with the right password. The exit is
     proven before any sign-in, never assumed."""
 
@@ -398,8 +398,8 @@ class TestLoginToSite:
 
 
 class TestLiveSessionIsRecognised:
-    """Pulsz and Hello Millions, 2026-09-02: both lobbies were live sessions
-    (balances, Pulsz Points, a Logout button behind a Terms modal) and the
+    """Brand A and Brand D, 2026-09-02: both lobbies were live sessions
+    (balances, Brand A Points, a Logout button behind a Terms modal) and the
     check said "no form found" — it judged a spinner, then a click that
     landed on nothing."""
 
@@ -420,7 +420,7 @@ class TestLiveSessionIsRecognised:
     async def test_no_form_on_a_live_lobby_is_already_logged_in(self) -> None:
         from core.watch_login import login_to_site
 
-        lobby = {"text": "GC 5,000 SC 2.00 Pulsz Points Customer ID ujdbjz LOGOUT I AGREE Terms of Use update",
+        lobby = {"text": "GC 5,000 SC 2.00 Brand A Points Customer ID ujdbjz LOGOUT I AGREE Terms of Use update",
                  "password": False, "clickable": ["I AGREE"]}
         b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
         res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"})
@@ -451,10 +451,10 @@ class TestTheAgentJudgesThePage:
     async def test_a_verdict_needs_printed_proof(self) -> None:
         from core.watch_login import judge_session
 
-        page = "Pulsz Points: 0 Status: Hero Next: Star Customer ID: ujdbjz Search games"
+        page = "Brand A Points: 0 Status: Hero Next: Star Customer ID: ujdbjz Search games"
         assert await judge_session(_Judge("logged_in", "Customer ID: ujdbjz"), page) == ("logged_in", "Customer ID: ujdbjz")
         assert await judge_session(_Judge("logged_in", "Log out"), page) == ("unclear", "")     # not on the page
-        assert await judge_session(_Judge("nonsense", "Pulsz Points"), page) == ("unclear", "")
+        assert await judge_session(_Judge("nonsense", "Brand A Points"), page) == ("unclear", "")
         assert await judge_session(None, page) == ("unclear", "")
 
         class Broken:
@@ -467,7 +467,7 @@ class TestTheAgentJudgesThePage:
     async def test_a_lobby_with_no_keyword_signal_is_a_session_when_the_model_proves_it(self) -> None:
         from core.watch_login import login_to_site
 
-        lobby = {"text": "Pulsz Points: 0 Status: Hero Next: Star Customer ID: ujdbjz Search games Slots Providers",
+        lobby = {"text": "Brand A Points: 0 Status: Hero Next: Star Customer ID: ujdbjz Search games Slots Providers",
                  "password": False, "clickable": ["Providers"]}
         b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
         judge = _Judge("logged_in", "Customer ID: ujdbjz")
@@ -484,7 +484,7 @@ class TestTheAgentJudgesThePage:
 
 
 class TestTheWholePageIsJudged:
-    """browser_extract returns the <main> element only. Pulsz's main is the
+    """browser_extract returns the <main> element only. Brand A's main is the
     offer banners and the grid; the balance, the points, the customer id
     and the Logout control are in the header, the sidebar and a modal —
     and a live session was judged logged out twice on the <main> slice
@@ -495,12 +495,12 @@ class TestTheWholePageIsJudged:
         from core.watch_login import login_to_site, page_text
 
         main = "It's always free to play our SWEEPSTAKES COINS GAMES WELCOME OFFER 100,000 GOLD COINS BUY NOW $4.99 New Games"
-        whole = ("Search games GET COINS GC 5,000 SC 2.00 Gold Coins Sweepstakes Coins REDEEM Pulsz Points: 0 "
-                 "Status: Hero Home Slots Providers Customer ID: ujdbjz Pulsz Terms of Use update LOGOUT I AGREE " + main)
+        whole = ("Search games GET COINS GC 5,000 SC 2.00 Gold Coins Sweepstakes Coins REDEEM Brand A Points: 0 "
+                 "Status: Hero Home Slots Providers Customer ID: ujdbjz Brand A Terms of Use update LOGOUT I AGREE " + main)
         lobby = {"text": main, "body": whole, "password": False, "clickable": ["I AGREE", "Providers"]}
         b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
         assert (await page_text(b)).startswith("Search games GET COINS")            # not the <main> slice
-        res = await login_to_site(b, {"brand": "Pulsz", "url": "https://b.example/", "username": "u", "password": "p"})
+        res = await login_to_site(b, {"brand": "Brand A", "url": "https://b.example/", "username": "u", "password": "p"})
         assert res["verdict"] == "already_logged_in", res
         assert "logout" in res["note"] or "coin balance shown" in res["note"]
         assert res["page_excerpt"].startswith("Search games GET COINS")             # what it was read from
@@ -516,7 +516,7 @@ class TestTheWholePageIsJudged:
 
 
 class TestTheBrowserDrivesTheLogin:
-    """Spinfinite, 2026-09-02: the text matcher hit a hidden "Log In", and
+    """Brand F, 2026-09-02: the text matcher hit a hidden "Log In", and
     the script then navigated to a guessed /login — a 404 — while the
     real Login button sat top right. The browser drives the site: it
     clicks what is on screen, and it never invents an address."""
@@ -614,7 +614,7 @@ class TestTheAgentDrivesTheLogin:
     async def test_the_agent_reporting_a_session_is_checked_with_proof(self) -> None:
         from core.watch_login import login_to_site
 
-        lobby = {"text": "Search games Get Coins Redeem Pulsz Points: 0 Customer ID: ujdbjz", "password": False,
+        lobby = {"text": "Search games Get Coins Redeem Brand A Points: 0 Customer ID: ujdbjz", "password": False,
                  "clickable": ["Get Coins"]}
         b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
         agent = _Agent("STATE: already_signed_in\nPROOF: Customer ID: ujdbjz")
@@ -668,7 +668,7 @@ class TestNestedScopesShareTheBrowser:
 class TestASecondStepIsNotAFailure:
     @pytest.mark.asyncio
     async def test_a_code_sent_to_the_email_is_verification_required(self) -> None:
-        """WOW Vegas, 2026-09-02: credentials accepted, then "We've detected a
+        """Brand I, 2026-09-02: credentials accepted, then "We've detected a
         login from a new device or browser. Please enter the verification
         code sent to your email" — reported as logged_out. It is a step
         for whoever holds the inbox, and the verdict must say so."""

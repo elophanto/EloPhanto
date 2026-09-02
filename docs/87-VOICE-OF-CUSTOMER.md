@@ -60,7 +60,7 @@ New table `watch_voice` (in `core/database.py` beside the watch tables):
 
 Snapshots (`watch_snapshots.payload_json`) gain `voice: {subject: {theme:
 {n, neg_share, avg_rating}}, window_days, mentions}` so the diff can say
-*"redemption complaints at Crown Coins 12 → 27 mentions, neg share up 18
+*"redemption complaints at Brand C 12 → 27 mentions, neg share up 18
 points"* next cycle. `diff_scorecards` is not touched; a sibling
 `diff_voice(prev, curr)` returns theme deltas.
 

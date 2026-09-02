@@ -85,7 +85,7 @@ class WatchSubjectTool(_WatchToolBase):
                 "name": {"type": "string", "description": "Brand name."},
                 "group_name": {
                     "type": "string",
-                    "description": "Parent group / operator (e.g. 'VGW', 'B2S').",
+                    "description": "Parent group / operator (e.g. 'VGW', 'Group 2').",
                 },
                 "url": {"type": "string", "description": "Brand homepage URL."},
                 "product_offering": {"type": "string"},
@@ -968,7 +968,7 @@ Return STRICT JSON:
   commentary.changes, and in exec.actions where a decision follows (a rival
   closing means its players are up for grabs on a date). Never bury one.
 - titles: an ACTION TITLE per slide – a sentence someone could disagree with
-  ("High 5 leads a thin field"), never a label ("Standings overview").
+  ("Brand G leads a thin field"), never a label ("Standings overview").
   At most 10 words each.
 - commentary: one line per slide (max 22 words) telling the room what to take
   from that slide. "glance" covers the headline-numbers slide; "dimensions"

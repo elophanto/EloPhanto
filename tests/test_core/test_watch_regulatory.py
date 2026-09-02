@@ -45,28 +45,28 @@ class _Router:
 
 class TestExtraction:
     def test_queries_and_names(self) -> None:
-        qs = regulatory_queries(["FL", "New York"], ["Crown Coins"], year=2026)
+        qs = regulatory_queries(["FL", "New York"], ["Brand C"], year=2026)
         assert any("Florida sweepstakes casino bill 2026" in q for q in qs)
-        assert any('"Crown Coins" lawsuit' in q for q in qs)
+        assert any('"Brand C" lawsuit' in q for q in qs)
         assert state_name("ny") == "New York" and state_name("Texas") == "Texas"
 
     @pytest.mark.asyncio
     async def test_items_need_a_verbatim_excerpt_valid_kind_and_jurisdiction(self) -> None:
         page = ("Governor Hochul signed S5935 on July 21, 2026, banning dual-currency sweepstakes casinos; "
                 "the law takes effect on September 19, 2026. Separately, the Michigan Gaming Control Board "
-                "issued cease-and-desist letters to nine operators including Crown Coins Casino.")
+                "issued cease-and-desist letters to nine operators including Brand C.")
         r = _Router([
             {"kind": "effective_date", "jurisdiction": "NY", "title": "S5935 sweepstakes ban takes effect", "status": "signed",
              "event_date": "2026-09-19", "subjects": [], "excerpt": "the law takes effect on September 19, 2026"},
             {"kind": "enforcement", "jurisdiction": "Michigan", "title": "MGCB C&D to nine operators", "status": "issued",
-             "event_date": "", "subjects": ["Crown Coins Casino", "Nope"], "excerpt": "issued cease-and-desist letters to nine operators"},
+             "event_date": "", "subjects": ["Brand C", "Nope"], "excerpt": "issued cease-and-desist letters to nine operators"},
             {"kind": "rumor", "jurisdiction": "NY", "title": "x", "excerpt": "the law takes effect on September 19, 2026"},
             {"kind": "bill", "jurisdiction": "Mars", "title": "x", "excerpt": "the law takes effect on September 19, 2026"},
             {"kind": "bill", "jurisdiction": "CA", "title": "AB 831", "event_date": "soon", "excerpt": "AB 831 sailed through committee"},
         ])
-        items = await extract_regulatory(r, page_text=page, brands=["Crown Coins Casino"], states=["NY", "MI"])
+        items = await extract_regulatory(r, page_text=page, brands=["Brand C"], states=["NY", "MI"])
         assert [(i["kind"], i["jurisdiction"]) for i in items] == [("effective_date", "NY"), ("enforcement", "MI")]
-        assert items[1]["subjects"] == ["Crown Coins Casino"]  # unknown brand dropped
+        assert items[1]["subjects"] == ["Brand C"]  # unknown brand dropped
         assert dedupe_key("ny", "bill", "S5935 ban", "2026-09-19") == dedupe_key("NY", "bill", "s5935 ban!", "2026-09-19")
 
     def test_calendar_reading(self) -> None:
@@ -74,12 +74,12 @@ class TestExtraction:
             {"jurisdiction": "NY", "kind": "effective_date", "title": "ban effective", "event_date": _d(30), "observed_at": _d(-1)},
             {"jurisdiction": "CA", "kind": "bill", "title": "AB 831 hearing", "event_date": _d(200), "observed_at": _d(-1)},
             {"jurisdiction": "MI", "kind": "enforcement", "title": "C&D", "event_date": "", "observed_at": _d(-2)},
-            {"jurisdiction": "MI", "kind": "operator_response", "title": "Chumba exits Michigan", "event_date": _d(-10), "observed_at": _d(-5)},
+            {"jurisdiction": "MI", "kind": "operator_response", "title": "Brand J exits Michigan", "event_date": _d(-10), "observed_at": _d(-5)},
         ]
         cal = regulatory_calendar(items, horizon_days=90)
         assert [i["jurisdiction"] for i in cal["ahead"]] == ["NY"]
         assert [i["title"] for i in cal["recent_actions"]] == ["C&D"]
-        assert cal["operator_responses"][0]["title"] == "Chumba exits Michigan"
+        assert cal["operator_responses"][0]["title"] == "Brand J exits Michigan"
         assert cal["by_jurisdiction"]["MI"] == 2 and cal["total"] == 4
 
 
@@ -99,7 +99,7 @@ class TestManagerAndPack:
         with pytest.raises(ValueError):
             await wm.add_regulatory(company_id="c1", jurisdiction="NY", kind="gossip", title="x")
         await wm.add_regulatory(company_id="c1", jurisdiction="MI", kind="enforcement", title="MGCB C&D to nine operators",
-                                subjects=["Crown Coins Casino"], source_url="https://mgcb")
+                                subjects=["Brand C"], source_url="https://mgcb")
         cal = await wm.regulatory_calendar("c1")
         assert cal["total"] == 2 and cal["ahead"][0]["jurisdiction"] == "NY" and cal["recent_actions"][0]["jurisdiction"] == "MI"
         rt = WatchRegulatoryTool()
@@ -129,7 +129,7 @@ class TestManagerAndPack:
         import core.watch_observe as O
         from tools.watch import tools as T
 
-        await wm.add_subject(company_id="c1", name="Crown Coins Casino")
+        await wm.add_subject(company_id="c1", name="Brand C")
 
         async def fake_search(q, *, api_key, max_results=8, timeout=30.0):
             return [{"title": "NY signs ban", "url": "https://news.example/ny", "snippet": ""},

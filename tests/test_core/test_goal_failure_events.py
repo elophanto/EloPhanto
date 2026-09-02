@@ -234,7 +234,7 @@ class TestPreemptionIsAYieldNotAResult:
             calls["n"] += 1
             cb = getattr(mock_agent._executor, "_on_tool_executed", None)
             if callable(cb):
-                cb("watch_analyze", {"subject": "Pulsz"}, None)
+                cb("watch_analyze", {"subject": "Brand A"}, None)
             if calls["n"] == 1:
                 # First slot request yields to a higher-priority task —
                 # with a partial-but-real tool trail, like the live run.

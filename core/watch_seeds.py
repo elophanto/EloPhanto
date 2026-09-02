@@ -5,8 +5,8 @@ refresh cadences and alternative-view weightings — plus the brands to track.
 The ``watch_*`` tools are market-agnostic; a pack is what makes them useful on
 day one for a specific engagement.
 
-``social_casino_t1`` encodes the Yellow Social Interactive scope of work:
-Pulsz / Pulsz Bingo against 12 T1 sweepstakes-casino competitors across 12
+``social_casino_t1`` encodes the the client scope of work:
+Brand A / Brand B against 12 T1 sweepstakes-casino competitors across 12
 weighted dimensions.
 
 Cadences follow the SOW's refresh rule — promotional and marketing activity
@@ -15,7 +15,7 @@ weekly, operational dimensions monthly, financial and state-policy quarterly.
 The two alternative views re-weight the SAME scores:
   * ``customer_proposition`` — games, promotions, loyalty, packages, RTP, payments
   * ``transition_priority``  — KYC, payments, loyalty capability, state variation,
-    portfolio tooling (what YSI must actually build during the platform move)
+    portfolio tooling (what the client must actually build during the platform move)
 Each view's weights sum to 100 independently so the two rankings stay comparable.
 """
 
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-# ── Yellow Social Interactive — T1 social casino ────────────────────────
+# ── the client — T1 social casino ────────────────────────
 
 _SOW_DIMENSIONS: list[dict[str, Any]] = [
     {
@@ -193,55 +193,55 @@ _SOW_DIMENSIONS: list[dict[str, Any]] = [
 
 _SOW_SUBJECTS: list[dict[str, Any]] = [
     {
-        "name": "Pulsz",
-        "group_name": "YSI (in-house)",
-        "url": "https://www.pulsz.com",
+        "name": "Brand A",
+        "group_name": "the client (in-house)",
+        "url": "https://www.brand-a.example",
         "is_self": True,
     },
     {
-        "name": "Pulsz Bingo",
-        "group_name": "YSI (in-house)",
-        "url": "https://www.pulszbingo.com",
+        "name": "Brand B",
+        "group_name": "the client (in-house)",
+        "url": "https://www.brand-b.example",
         "is_self": True,
     },
     {
-        "name": "Chumba Casino",
+        "name": "Brand J",
         "group_name": "VGW",
-        "url": "https://www.chumbacasino.com",
+        "url": "https://www.brand-j.example",
     },
     {
-        "name": "LuckyLand Slots",
+        "name": "Brand H",
         "group_name": "VGW",
-        "url": "https://www.luckylandslots.com",
+        "url": "https://www.brand-h.example",
     },
     {
-        "name": "Crown Coins Casino",
-        "group_name": "Crown Coins",
-        "url": "https://www.crowncoinscasino.com",
+        "name": "Brand C",
+        "group_name": "Brand C",
+        "url": "https://www.brand-c.example",
     },
-    {"name": "Modo Casino", "group_name": "Modo", "url": "https://www.modo.us"},
-    {"name": "WOW Vegas", "group_name": "WOW Vegas", "url": "https://www.wowvegas.com"},
-    {"name": "Card Crush", "group_name": "B2S", "url": "https://www.cardcrush.com"},
-    {"name": "McLuck", "group_name": "B2S", "url": "https://www.mcluck.com"},
-    {"name": "Spin Blitz", "group_name": "B2S", "url": "https://www.spinblitz.com"},
+    {"name": "Brand L", "group_name": "Brand L", "url": "https://www.brand-l.example"},
+    {"name": "Brand I", "group_name": "Brand I", "url": "https://www.brand-i.example"},
+    {"name": "Brand O", "group_name": "Group 2", "url": "https://www.brand-o.example"},
+    {"name": "Brand K", "group_name": "Group 2", "url": "https://www.brand-k.example"},
+    {"name": "Brand E", "group_name": "Group 2", "url": "https://www.brand-e.example"},
     {
-        "name": "Hello Millions",
-        "group_name": "B2S",
-        "url": "https://www.hellomillions.com",
+        "name": "Brand D",
+        "group_name": "Group 2",
+        "url": "https://www.brand-d.example",
     },
-    {"name": "Jackpota", "group_name": "B2S", "url": "https://www.jackpota.com"},
-    {"name": "Spree", "group_name": "B2S", "url": "https://www.spree.com"},
+    {"name": "Brand M", "group_name": "Group 2", "url": "https://www.brand-m.example"},
+    {"name": "Brand N", "group_name": "Group 2", "url": "https://www.brand-n.example"},
     {
-        "name": "High 5 Casino",
-        "group_name": "High 5",
-        "url": "https://www.high5casino.com",
+        "name": "Brand G",
+        "group_name": "Brand G",
+        "url": "https://www.brand-g.example",
     },
 ]
 
 SEED_PACKS: dict[str, dict[str, Any]] = {
     "social_casino_t1": {
         "description": (
-            "Yellow Social Interactive SOW — Pulsz + Pulsz Bingo vs 12 T1 "
+            "the client SOW — Brand A + Brand B vs 12 T1 "
             "sweepstakes-casino competitors across 12 weighted dimensions."
         ),
         "dimensions": _SOW_DIMENSIONS,

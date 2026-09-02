@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # What a logged-in session shows, and what a logged-out one still shows.
 # Only an account control proves a session: a logged-out homepage sells
-# "sweeps coins", "redeem" and "buy coins" to everyone (LuckyLand,
+# "sweeps coins", "redeem" and "buy coins" to everyone (Brand H,
 # 2026-09-01: judged "already logged in" on those words while its header
 # read Sign Up / Login). The weak words help only when nothing says
 # logged-out.
@@ -47,10 +47,10 @@ LOGGED_OUT_WORDS = (
 )
 # What a rejected login says. Telling "the credentials are wrong" apart
 # from "the automation missed the button" is the whole point of a login
-# check (Chumba, 2026-08-26: "Login failed, please try again" — the form
+# check (Brand J, 2026-08-26: "Login failed, please try again" — the form
 # was filled and submitted correctly, the account simply did not open).
 # A second step after the password: the site accepted the credentials and
-# now wants a code it sent somewhere (WOW Vegas, 2026-09-02: "We've
+# now wants a code it sent somewhere (Brand I, 2026-09-02: "We've
 # detected a login from a new device or browser. Please enter the
 # verification code sent to your email").
 VERIFICATION_PHRASES = (
@@ -126,7 +126,7 @@ def _focus_js(which: str) -> str:
 async def _click_text(bm: Any, text: str, *, exact: bool = True) -> str:
     """Click by visible text, returning what was actually matched ("" for
     nothing). The bridge RAISES when no element matches, and a login flow
-    that tries six labels must not die on the first miss (Chumba,
+    that tries six labels must not die on the first miss (Brand J,
     2026-08-26: BridgeError: No element matching text "Log In")."""
     try:
         res = await bm.call_tool("browser_click_text", {"text": text, "exact": exact})
@@ -246,7 +246,7 @@ _NEXT_JS = (
 
 
 async def _wait_for_form(bm: Any, seconds: float = 12.0) -> bool:
-    """Panels animate, and a login click often NAVIGATES — WOW Vegas takes
+    """Panels animate, and a login click often NAVIGATES — Brand I takes
     the browser to /login, which needs more than a couple of seconds
     (2026-08-26: reported 'no form' while the form was on its way)."""
     for _ in range(max(1, int(seconds / 1.2))):
@@ -258,7 +258,7 @@ async def _wait_for_form(bm: Any, seconds: float = 12.0) -> bool:
 
 async def _email_first_step(bm: Any, username: str) -> str:
     """Some brands ask for the e-mail, then the password on the next screen
-    (McLuck). Complete the first step so the password field can appear."""
+    (Brand K). Complete the first step so the password field can appear."""
     if not username:
         return ""
     if str(await _eval(bm, _EMAIL_ONLY_JS) or "") != "email-only":
@@ -275,7 +275,7 @@ async def _email_first_step(bm: Any, username: str) -> str:
 # The visible login control, the way a person finds it: text on screen
 # that says Log In / Sign In, in the header first. Only elements that are
 # actually on screen count — a hidden template's "Log In" is what the
-# text matcher hit on Spinfinite (2026-09-02) while the real button sat
+# text matcher hit on Brand F (2026-09-02) while the real button sat
 # top right; and no URL is ever guessed: the browser drives the site.
 _VISIBLE_LOGIN_JS = (
     "(() => {"
@@ -462,7 +462,7 @@ async def open_login_form(bm: Any, url: str, username: str = "") -> str:
         return "form already open"
     notes: list[str] = []
     # Clear the consent overlay FIRST: while it is up the login control is
-    # not reachable and the click lands on the banner (High 5, 2026-08-26).
+    # not reachable and the click lands on the banner (Brand G, 2026-08-26).
     await dismiss_consent(bm)
     for attempt in range(2):                      # the header button, then the hero's
         clicked = await click_visible(bm, _LOGIN_WORDS, skip=attempt)
@@ -554,7 +554,7 @@ async def submit_login_form(bm: Any) -> str:
     Clicking by visible text is wrong here: nearly every one of these
     sites also has a "Log In" link in the header, and matching that
     navigates away from the half-filled form — which then reads as a
-    failed login (Card Crush, Hello Millions, 2026-08-26). Scope the
+    failed login (Brand O, Brand D, 2026-08-26). Scope the
     search to the element holding the password field.
     """
     got = str(await _eval(bm, _SUBMIT_JS) or "")
@@ -563,7 +563,7 @@ async def submit_login_form(bm: Any) -> str:
     if got == "disabled":
         return "submit disabled (anti-bot or validation)"
     # The JS cannot see into a shadow root, and these apps put the button
-    # there (Chumba, 2026-08-26: the visible "LOG IN" exists in no light-DOM
+    # there (Brand J, 2026-08-26: the visible "LOG IN" exists in no light-DOM
     # query). The bridge's own matcher pierces shadow DOM — use it, then
     # confirm by the form going away rather than by the click's own word.
     for label in ("LOG IN", "Log In", "Login", "LOGIN", "Sign In", "Sign in"):
@@ -625,7 +625,7 @@ def login_error(text: str) -> str:
 
 async def page_text(bm: Any) -> str:
     """What a person sees: the whole visible page. ``browser_extract``
-    returns only the page's <main> element — on Pulsz that is the offer
+    returns only the page's <main> element — on Brand A that is the offer
     banners and the grid, while the balance, the points, the customer id
     and the Logout control sit in the header, the sidebar and a modal
     (2026-09-02: a live session judged logged out twice on that slice)."""
@@ -657,7 +657,7 @@ async def session_state(bm: Any) -> tuple[str, list[str], list[str]]:
     weak = sorted({w for w in LOGGED_IN_WEAK if w in text})
     hits_out = sorted({w for w in LOGGED_OUT_WORDS if w in text})
     # A wallet balance reads "GC 5,000 · SC 2.00" — the code BEFORE the
-    # number; an offer reads "5,000 GC" (Pulsz and Hello Millions,
+    # number; an offer reads "5,000 GC" (Brand A and Brand D,
     # 2026-09-02: both lobbies were live sessions judged "no form").
     balance = bool(_BALANCE_RE.search(text)) and not hits_out
     if balance:
@@ -765,7 +765,7 @@ async def wait_out_challenge(bm: Any, seconds: int) -> str:
 async def switch_browser_exit(bm: Any, proxy_cfg: Any, state: str) -> tuple[bool, dict[str, Any]]:
     """Point the browser at the exit serving ``state``, and PROVE it.
 
-    These accounts are geo-bound — Chumba runs GeoComply — so a session
+    These accounts are geo-bound — Brand J runs GeoComply — so a session
     opened from the wrong state can be refused with the right password,
     and a session opened from an unverified exit cannot honestly be
     called a session in that state. Returns ``(ok, detail)``; the browser
@@ -937,7 +937,7 @@ async def login_to_site(
                     note += f"; agent submit: {sub['state']}" + (f" ('{sub['proof'][:30]}')" if sub.get("proof") else "")
                     await bm.call_tool("browser_wait", {"ms": 7000})
                     if await has_password_field(bm):
-                        # The agent could not (High 5, 2026-09-02: its DOM search
+                        # The agent could not (Brand G, 2026-09-02: its DOM search
                         # tripped the injection filter). Enter in the password
                         # field is what a person does when the button is coy.
                         await _eval(bm, _focus_js("password"))

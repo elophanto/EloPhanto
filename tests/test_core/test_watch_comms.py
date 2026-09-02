@@ -44,8 +44,8 @@ class _Router:
 
 class TestReading:
     def test_inbox_names_do_not_advertise_and_excerpts_must_be_verbatim(self) -> None:
-        name = inbox_username("Crown Coins Casino")
-        assert name.startswith("crown-coins-casino-") and len(name.split("-")[-1]) == 4
+        name = inbox_username("Brand C")
+        assert name.startswith("brand-c-") and len(name.split("-")[-1]) == 4
         assert excerpt_is_verbatim("200% extra Gold Coins", "Get 200% EXTRA gold coins today!")
         assert not excerpt_is_verbatim("double coins", "Get 200% extra gold coins today!")
         assert "promo_offer" in COMMS_CATEGORIES
@@ -60,7 +60,7 @@ class TestReading:
             {"id": "m1", "category": "promo_offer", "offer": "200% extra GC on first purchase", "excerpt": "200% extra Gold Coins on your first purchase"},
             {"id": "m2", "category": "reactivation", "offer": "5,000 free coins", "excerpt": "we want you back"},  # paraphrase
         ])
-        items, dropped = await read_comms(r, brand="Crown", messages=msgs)
+        items, dropped = await read_comms(r, brand="Brand C", messages=msgs)
         assert [i["category"] for i in items] == ["promo_offer", "reactivation"]
         assert items[0]["excerpt"] and items[1]["excerpt"] == ""  # kept, quote dropped
         assert dropped["unverified_excerpt"] == 1
@@ -69,12 +69,12 @@ class TestReading:
 class TestManagerAndSummary:
     @pytest.mark.asyncio
     async def test_add_dedupes_by_message_id_and_summary_reads_cadence(self, wm) -> None:
-        cc = await wm.add_subject(company_id="c1", name="Crown")
+        cc = await wm.add_subject(company_id="c1", name="Brand C")
         await wm.tag_subject(cc.subject_id, "inbox:crown-ab12@agentmail.to")
         for i in range(6):
             r = await wm.add_comms(company_id="c1", subject_id=cc.subject_id, message_id=f"<m{i}@x>",
                                    received_at=_iso(i * 2 + 0.5), category="promo_offer" if i % 2 else "daily_bonus",
-                                   inbox="crown-ab12@agentmail.to", sender="Crown <no-reply@crown>",
+                                   inbox="crown-ab12@agentmail.to", sender="Brand C <no-reply@crown>",
                                    subject_line=f"Offer {i}", offer_text=f"{100 + i}% extra" if i % 2 else "", excerpt="x")
             assert r is not None and r.weekday is not None
         assert await wm.add_comms(company_id="c1", subject_id=cc.subject_id, message_id="<m0@x>",
@@ -98,9 +98,9 @@ class _FakeAgentMail:
         self.created = []
         self.mail = {
             "crown-ab12@agentmail.to": [
-                SimpleNamespace(message_id="<a@crown>", subject="200% welcome boost", from_="Crown <hi@crown>",
+                SimpleNamespace(message_id="<a@crown>", subject="200% welcome boost", from_="Brand C <hi@crown>",
                                 timestamp=_iso(1), preview="Get 200% extra Gold Coins", extracted_text="Get 200% extra Gold Coins on your first purchase."),
-                SimpleNamespace(message_id="<b@crown>", subject="Daily wheel is live", from_="Crown <hi@crown>",
+                SimpleNamespace(message_id="<b@crown>", subject="Daily wheel is live", from_="Brand C <hi@crown>",
                                 timestamp=_iso(0.5), preview="Spin the daily wheel", extracted_text="Spin the daily wheel for free coins every day."),
             ]
         }
@@ -148,15 +148,15 @@ class TestTools:
         vault = _V(vault)
         cfg = SimpleNamespace(email=SimpleNamespace(api_key_ref="agentmail_api_key"))
         await wm.add_subject(company_id="c1", name="Us", is_self=True)
-        cc = await wm.add_subject(company_id="c1", name="Crown", url="https://crown.example")
+        cc = await wm.add_subject(company_id="c1", name="Brand C", url="https://crown.example")
         # register is canon
         setup = T.WatchCommsSetupTool()
         setup._watch_manager, setup._vault, setup._config = wm, vault, cfg
         bad = await setup.execute({"subject": "Fortune Coins", "company_id": "c1"})
         assert not bad.success
-        # pre-link Crown to the fake inbox that has mail (setup is idempotent on a linked inbox)
+        # pre-link Brand C to the fake inbox that has mail (setup is idempotent on a linked inbox)
         await wm.tag_subject(cc.subject_id, "inbox:crown-ab12@agentmail.to")
-        ok = await setup.execute({"subject": "Crown", "company_id": "c1"})
+        ok = await setup.execute({"subject": "Brand C", "company_id": "c1"})
         assert ok.success and ok.data["inbox"] == "crown-ab12@agentmail.to" and "sign up" in ok.data["next"]
         assert vault[f"watch_comms:{cc.subject_id}"]["email"] == "crown-ab12@agentmail.to"
         # a fresh brand gets a created inbox
@@ -174,7 +174,7 @@ class TestTools:
         ])
         r = await col.execute({"company_id": "c1"})
         assert r.success and r.data["kept_total"] == 2
-        crown = next(b for b in r.data["brands"] if b["subject"] == "Crown")
+        crown = next(b for b in r.data["brands"] if b["subject"] == "Brand C")
         assert crown["fetched"] == 2 and crown["kept"] == 2
         r2 = await col.execute({"company_id": "c1"})
         assert r2.data["kept_total"] == 0  # message ids dedupe
@@ -187,7 +187,7 @@ class TestTools:
         rep._watch_manager, rep._router, rep._config = wm, None, None
         await wm.upsert_dimension(name="Promo", company_id="c1", weight_pct=100, subcriteria=[{"name": "w", "weight_pct": 100}])
         out = await rep.execute({"company_id": "c1", "baseline": True, "take_snapshot": False, "deck": False})
-        assert "## What they send players" in out.data["markdown"] and "| Crown | 2 |" in out.data["markdown"]
+        assert "## What they send players" in out.data["markdown"] and "| Brand C | 2 |" in out.data["markdown"]
         off = await rep.execute({"company_id": "c1", "baseline": True, "take_snapshot": False, "deck": False, "voice": "false"})
         assert "## What they send players" not in off.data["markdown"]
 

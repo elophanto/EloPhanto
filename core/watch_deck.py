@@ -14,7 +14,7 @@ Design doctrine (adapted from decks that ship to steering committees):
   photographed exhibits, and the moves this period. Evidence coverage and
   method exist — in the appendix, where an analyst looks for them.
 * **One idea per slide, action titles.** Every heading is a sentence someone
-  could disagree with ("High 5 leads a thin field"), never a label. The
+  could disagree with ("Brand G leads a thin field"), never a label. The
   model writes titles and commentary from the factual record; the numbers
   themselves are computed, never generated.
 * **Exhibits are captures, not mockups.** A storefront screenshot on a slide
@@ -626,7 +626,7 @@ def market_events(
     """Corporate / market events on record — closures, exits, acquisitions,
     rebrands, launches, regulatory notices — read straight from the claims.
     A baseline pack has no diff to surface them through, and a competitor
-    closing (LuckyLand, 2026-08-16: "closing September 14, 2026" on the
+    closing (Brand H, 2026-08-16: "closing September 14, 2026" on the
     homepage) is the most material fact in the room; it must not sit in an
     appendix row while the market-moves slide says "no material change".
     Newest first, one per brand × claim."""
@@ -640,14 +640,17 @@ def market_events(
         # strong verbs (closing, shutting down, ceasing, exiting, acquired,
         # cease-and-desist, banned) count there. Launches, rebrands and
         # 'now available in' count only when the brand's own page says so
-        # (2026-08-18: a High 5 news mention of another operator's launch
-        # was read as a High 5 market event).
+        # (2026-08-18: a Brand G news mention of another operator's launch
+        # was read as a Brand G market event).
         if str(e.get("source_type") or "") == "third_party" and not _STRONG_EVENT_RE.search(claim):
             continue
         brand = str(e.get("subject") or "").strip()
         # Two phrasings of one event ("…is closing on September 14, 2026" and
-        # the same with a trailing clause) are one event: key on the opening.
-        key = (brand, re.sub(r"[^a-z0-9]+", " ", claim.lower()).strip()[:44])
+        # the same with a trailing clause) are one event: key on the opening
+        # clause — up to the first comma / "with" / "and" — not on a fixed
+        # character count, which depended on the brand name's length.
+        opening = re.split(r",|;| with | and | — | – ", claim, maxsplit=1)[0]
+        key = (brand, re.sub(r"[^a-z0-9]+", " ", opening.lower()).strip()[:80])
         if key in seen:
             continue
         seen.add(key)
@@ -3902,7 +3905,7 @@ def render_executive_deck(
                 page += 1
             # A loyalty page only when the tiers say something: names alone
             # (no qualification, no reward) make a page of dashes, and the
-            # names are in the workbook anyway (2026-09-02: Spinfinite).
+            # names are in the workbook anyway (2026-09-02: Brand F).
             if any((t.get("qualification") or t.get("reward")) for t in brand_row.get("tiers") or []):
                 _slide_brand_loyalty(prs, brand_row, page, deck_title)
                 page += 1

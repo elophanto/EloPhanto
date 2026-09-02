@@ -313,7 +313,7 @@ class TestSeedPack:
 
     def test_our_own_brands_are_flagged(self) -> None:
         subs = get_pack("social_casino_t1")["subjects"]
-        assert {s["name"] for s in subs if s.get("is_self")} == {"Pulsz", "Pulsz Bingo"}
+        assert {s["name"] for s in subs if s.get("is_self")} == {"Brand A", "Brand B"}
 
 
 # ── Integrity rules against a real DB ───────────────────────────────────

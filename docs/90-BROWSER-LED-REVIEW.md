@@ -1,7 +1,7 @@
 # 90 — Review: the browser must lead, the code must only keep the rules
 
 *Status: review 2026-09-02, requested by Petr after the login script
-navigated to a guessed `/login` (a 404) on Spinfinite while the real Login
+navigated to a guessed `/login` (a 404) on Brand F while the real Login
 button was on screen: "it's a general purpose agent so it shouldn't be
 hardcoded." Go-ahead given the same day ("ensure it's the best possible
 outcome, this is enterprise now"); steps 1–2 of the build order below are
@@ -37,13 +37,13 @@ That is why it worked across brands: nothing in it knew the word "Login".
 
 | constant | what it hardcodes | what it cost |
 |---|---|---|
-| `LOGIN_ENTRY` | the six spellings of "Log In" | matched a hidden template's "Log In" on Spinfinite; the visible button was "Login" top right |
+| `LOGIN_ENTRY` | the six spellings of "Log In" | matched a hidden template's "Log In" on Brand F; the visible button was "Login" top right |
 | `SWITCH_TO_LOGIN` | "already got an account" wording | clicked switches on pages that had no sign-up panel |
 | `/login` fallback (removed today) | an invented address | a 404, filed as the evidence screenshot |
-| `SUBMIT_LABELS`, `_SUBMIT_JS` | how a submit button is worded and placed | Chumba/Jackpota/McLuck/Spree "submitted" and stayed logged out — we do not know what the click hit |
+| `SUBMIT_LABELS`, `_SUBMIT_JS` | how a submit button is worded and placed | Brand J/Brand M/Brand K/Brand N "submitted" and stayed logged out — we do not know what the click hit |
 | `LOGGED_IN_STRONG/WEAK`, `LOGGED_OUT_WORDS`, `_BALANCE_RE` | what a session looks like in words | "sweeps coins" made a logged-out page a session; then a live session was "no form" because the text came from `<main>` only |
 | `LOGIN_ERROR_PHRASES` | how a rejection is worded | any other wording is "logged_out", indistinguishable from a missed click |
-| `_CONSENT_LABELS` | how a cookie banner is worded | High 5's "I Accept" sat in front of the Log In button all day |
+| `_CONSENT_LABELS` | how a cookie banner is worded | Brand G's "I Accept" sat in front of the Log In button all day |
 | `_SIGNED_IN_NAV` | that the store is behind "Get Coins", the studios behind "Providers" | untested on any site yet; the same class of guess |
 | `_PAGE_PATTERNS`, `_INTERESTING` | which URLs hold which catalog | a `/sweepstakes-casinos/reviews/` page was refused as "sweepstakes rules" |
 | `KNOWN_REVIEW_URLS`, `_TRUSTED_HOSTS` | one review site's URL scheme | a source the client named — belongs in config, not code |
@@ -53,8 +53,8 @@ Every one of today's fixes (wait for the app to render, count a balance,
 re-check after "no form", read the whole page, click visible controls, add
 "I Accept") patched one hardcoded assumption with another. The script is
 now better at the six sites it has seen and no better at the seventh. The
-August sweep that produced the three live sessions (Pulsz, Hello Millions,
-Crown Coins) was this same script; it went 3 for 15.
+August sweep that produced the three live sessions (Brand A, Brand D,
+Brand C) was this same script; it went 3 for 15.
 
 ## What must stay in code
 
@@ -144,7 +144,7 @@ and `_verify_browser_task`.
    (the agent clears banners itself; the deterministic dismissal stays as
    the cheap first try for screenshot capture only).
 4. Docs 88 §F and 89 rewritten to match; a live run on the four brands
-   the script failed today (Spin Blitz, Spinfinite, WOW Vegas, High 5).
+   the script failed today (Brand E, Brand F, Brand I, Brand G).
 
 Cost: one subagent run per brand per sign-in (a handful of model calls
 with screenshots), which is what the June agent spent anyway.
@@ -188,12 +188,12 @@ different cut of the policy/perception line.
 
 ## Live results (2026-09-02, `scripts/watch_live_check.py`, chat closed)
 
-Sign-ins, agent-driven: **Spin Blitz, Spinfinite and High 5 signed in** by
+Sign-ins, agent-driven: **Brand E, Brand F and Brand G signed in** by
 the agent finding the form (4, 4 and 11 actions) and the code typing the
-credentials — the three brands the script never managed. Pulsz, Hello
-Millions and Crown Coins recognised as live sessions with proof quoted
-from the page. **WOW Vegas**: credentials accepted, the site e-mailed a
-verification code (new browser) — `verification_required`. **High 5**
+credentials — the three brands the script never managed. Brand A, Hello
+Millions and Brand C recognised as live sessions with proof quoted
+from the page. **Brand I**: credentials accepted, the site e-mailed a
+verification code (new browser) — `verification_required`. **Brand G**
 later `rejected` ("Error. Please try another email/username or
 password") after three sign-ins in one morning: the cooldown is not to
 be overridden for it again.
@@ -202,10 +202,10 @@ Signed-in reads (rows stamped `registered`, verified against the page):
 
 | brand | games | coin packages | providers | promotions | loyalty tiers |
 |---|---|---|---|---|---|
-| Pulsz | 63 | 0 | 25 | 11 | 2 |
-| Spin Blitz | 56 | 8 | 53 | 7 | 0 |
-| Hello Millions | 59 | 9 | 32 | 6 | 1 |
-| Spinfinite | 60 | 7 | 34 | 11 | 0 |
+| Brand A | 63 | 0 | 25 | 11 | 2 |
+| Brand E | 56 | 8 | 53 | 7 | 0 |
+| Brand D | 59 | 9 | 32 | 6 | 1 |
+| Brand F | 60 | 7 | 34 | 11 | 0 |
 
 The register went from 1,658 to 2,002 rows. Each pass found a defect the
 previous one hid, all fixed the same day: the recorder kept the agent's
@@ -221,8 +221,8 @@ actions were not enough for five pages (now sixty, with a report-by note).
 
 Known gaps, by evidence on disk (`workspace/watch/captures/`): **Crown
 Coins**' lobby has no game titles in its DOM at all (every tile's alt is
-"provider logo"), so its public-research data stands; **Pulsz**' store at
+"provider logo"), so its public-research data stands; **Brand A**' store at
 /store renders as a near-empty shell within the capture window. Card
-Crush, Jackpota, McLuck and Spree still need their passwords checked by
-hand; Chumba is rejected from the Texas exit; Modo was unreachable twice;
-Pulsz Bingo shows a captcha.
+Crush, Brand M, Brand K and Brand N still need their passwords checked by
+hand; Brand J is rejected from the Texas exit; Brand L was unreachable twice;
+Brand B shows a captcha.

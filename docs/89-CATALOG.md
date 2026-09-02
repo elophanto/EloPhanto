@@ -5,7 +5,7 @@ providers, coin packages, promotions and game list, just need the raw data
 and maybe some images for the promotions."*
 
 The organ scores twelve dimensions from claims ([81](81-COMPETITIVE-INTEL.md)),
-and a claim is a sentence — "Crown Coins offers over 1,000 games". What a
+and a claim is a sentence — "Brand C offers over 1,000 games". What a
 buyer also wants is the **inventory**: which providers, which price points,
 which promotions, which games. That is not a judgement and must not be
 scored; it is a list, dated and sourced. So it lives beside the evidence
@@ -53,12 +53,12 @@ are spent on what nothing public answers.
 titles on a homepage are not a lobby: `min_items=10` on `provider,game`
 sends a brand with a thin public catalogue to research and then, still
 short, to `needs_sign_in` — that is how the first full run (2026-09-01)
-left High 5 at 3 games and Pulsz Bingo at 3: they counted as answered.
+left Brand G at 3 games and Brand B at 3: they counted as answered.
 
 **A signed-in read goes through the browser, never HTTP.** A session lives
 in the Chrome profile; an HTTP client has no cookies, so a "registered"
 read over HTTP sees the logged-out site — which is why the first two
-registered re-reads (2026-09-01/02) wrote nothing while Pulsz's and Hello
+registered re-reads (2026-09-01/02) wrote nothing while Brand A's and Hello
 Millions' lobbies were live sessions. `read_signed_in_pages` opens the
 lobby as the player the browser already is, scrolls so the lazy-loaded
 grid is in the DOM, then clicks through to Providers, Get Coins /
@@ -133,8 +133,8 @@ row their brand columns, every cell empty for us to fill. So:
   "2 By 2", "4TP" / "4ThePlayer", "Gamzik" / "Gamzix" — while the rows in
   the register stay as printed. 136 printed forms collapse to 127 studios.
 * `read_provider_universe(path)` reads their sheet; `brand_key` matches
-  their brand labels to the register's ("LuckyLand Casino" = "LuckyLand
-  Slots", "High5 Casino" = "High 5 Casino").
+  their brand labels to the register's ("Brand H" = "Brand H
+  Slots", "Brand G" = "Brand G").
 * `provider_matrix(items, brands, universe, universe_brands)` builds the
   matrix. With their list, rows follow it first — including studios on the
   list that nothing has shown yet (empty row, grey on the slide), so the
@@ -143,7 +143,7 @@ row their brand columns, every cell empty for us to fill. So:
   beats a review read), with the number of that studio's titles read when
   any; a game's `detail` counts as its studio only when it names a known
   studio, so "Jackpot Slots" never becomes a provider. Brands only on
-  their sheet (Spinfinite) and only in the register are reported, never
+  their sheet (Brand F) and only in the register are reported, never
   reconciled — the register is canon.
 * Deck: *Game portfolio – N studios × M brands (i of k)*, 26 rows a page,
   every studio; replaces the twelve-most-common slide. Workbook: a *Game
@@ -155,8 +155,8 @@ row their brand columns, every cell empty for us to fill. So:
 
 Against their list on 2026-09-01: 51 of 59 seen, 8 not yet (Ajoy, Deck of
 Dice, G Games, GameArt, Hacksaw RGS, LivePlay, Toucan Games, Zoot), 76
-observed that they do not list. The thin brands are LuckyLand (0 studios on
-record), High 5 (7), Card Crush (8), Pulsz Bingo (10): their lobbies are
+observed that they do not list. The thin brands are Brand H (0 studios on
+record), Brand G (7), Brand O (8), Brand B (10): their lobbies are
 behind a login, which is what `watch_catalog_collect kinds=provider,game
 sign_in_if_missing=true` is for.
 
@@ -167,7 +167,7 @@ A client read the 2026-08-30 pack for the first time and left comments:
 (trends), "what is the source here?" (players), "why can't we find the
 coin packages?", "the games lists are too short", "reformat the raw data
 and add a link", "no description of package?", "what is game-format
-merchandising?", "are we saying Pulsz has fairness issues more than the
+merchandising?", "are we saying Brand A has fairness issues more than the
 others?". The answers are now in the deck itself:
 
 * **Slide 2, "How to read this deck"** — where the facts come from, what

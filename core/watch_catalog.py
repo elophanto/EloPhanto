@@ -90,8 +90,8 @@ def rank_catalog_pages(
 # ── Signed-in reads ───────────────────────────────────────────────────
 # A session lives in the browser profile, not in an HTTP client: a
 # "registered" read that fetches over plain HTTP sees the logged-out site
-# (2026-09-01/02: two registered re-reads wrote nothing while Pulsz's and
-# Hello Millions' lobbies were live sessions in Chrome). So a signed-in
+# (2026-09-01/02: two registered re-reads wrote nothing while Brand A's and
+# Brand D' lobbies were live sessions in Chrome). So a signed-in
 # read goes through the browser only — the lobby first, then the pages a
 # player reaches by clicking: Providers, Get Coins, Promotions, VIP.
 _SIGNED_IN_NAV: tuple[tuple[str, str, tuple[str, ...]], ...] = (
@@ -189,7 +189,7 @@ class _PageRecorder:
             # nothing extracted). Capture it ourselves, return the agent its own.
             full = res
             for attempt in range(3):
-                # A JS lobby asked for too early is a shell (High 5,
+                # A JS lobby asked for too early is a shell (Brand G,
                 # 2026-09-02: 63 characters). Give it a moment and ask again.
                 try:
                     full = await self._orig("browser_get_html", {"maxLength": 400000})
@@ -260,7 +260,7 @@ async def agent_reads_lobby(
     for i, page in enumerate(rec.pages):
         label = labels[i] if i < len(labels) else ""
         # A single-page app keeps one URL for the lobby, the store and the
-        # providers list (Crown Coins, 2026-09-02: eight captures, all
+        # providers list (Brand C, 2026-09-02: eight captures, all
         # "casino" → game, nothing found). Without the agent's label the URL
         # names nothing; leave the kind open so every kind is tried.
         kind = _LOBBY_KINDS.get(label, "") or (
@@ -278,7 +278,7 @@ async def agent_reads_lobby(
     logger.info("watch_catalog: agent read %d page(s): %s", len(out),
                 ", ".join(f"{p['title']} ({p['chars']} chars)" for p in out))
     # Keep what was read: an extraction that finds nothing is only
-    # explainable with the page in hand (Pulsz store, 2026-09-02: 150,000
+    # explainable with the page in hand (Brand A store, 2026-09-02: 150,000
     # characters captured, no packages found — iframe? modal? the text says).
     try:
         root = Path(str(getattr(getattr(agent, "_config", None), "workspace", "") or "workspace")) / "watch" / "captures"
@@ -429,7 +429,7 @@ def parse_price(text: str) -> float | None:
 # A magnitude letter only counts when it is not the start of a word —
 # "25 Mystery Coins" is 25, not 25 million.
 _NUM = r"(\d[\d,]*(?:\.\d+)?)\s*([kKmM](?![A-Za-z]))?"
-# "CC" (Crown Coins) and "WC" (WOW Coins) are brands' own abbreviations for
+# "CC" (Brand C) and "WC" (Vegas Coins) are brands' own abbreviations for
 # their gold coin — as much "gold" as "GC" is.
 _GC_RE = re.compile(
     _NUM + r"\s*(?:gold coins?|gc\b|cc\b|wc\b|[A-Za-z]+ coins?(?!\s*(?:sc|sweeps)))"
@@ -458,8 +458,8 @@ def _to_number(num: str, mag: str | None) -> float | None:
 def parse_coins(text: str) -> tuple[float | None, float | None]:
     """Gold coins and sweeps coins out of a grant line, as printed:
     '800,000 GC 50 SC' → (800000, 50); '120K Gold Coins + 60 SC FREE' →
-    (120000, 60); '1,500,000 Crown Coins, 75 SC' → (1500000, 75). A brand's
-    own name for gold coins ("Crown Coins", "WOW Coins") counts as gold;
+    (120000, 60); '1,500,000 Royal Coins, 75 SC' → (1500000, 75). A brand's
+    own name for gold coins ("Brand C", "Vegas Coins") counts as gold;
     anything that is not a number stays None — never guessed."""
     t = text or ""
     gc = sc = None
@@ -521,7 +521,7 @@ _FREQ_RULES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     )
 )
 _NO_CODE = re.compile(
-    r"\b(?:no|not)\s+(?:\w+\s+){0,5}codes?\b"                                     # "no Crown Coins Casino promo code"
+    r"\b(?:no|not)\s+(?:\w+\s+){0,5}codes?\b"                                     # "no Brand C promo code"
     r"|\b(?:don.?t\s+need|without|doesn.?t\s+require|isn.?t\s+required)\b[^.;]{0,40}\bcodes?\b"
     r"|\bcodes?\s+(?:is\s+)?not\s+(?:needed|required)\b"                          # "code not required"
     r"|\bcodes?\s+required\s*:?\s*no\b",                                          # "Promo code required No"
@@ -653,7 +653,7 @@ Return STRICT JSON — omit fields that do not apply to the kind:
 
 # What a kind looks like on a page, for choosing the window the model
 # reads when the page is longer than the window. A store opened as a
-# modal sits at the END of the DOM, behind the whole lobby (Pulsz,
+# modal sits at the END of the DOM, behind the whole lobby (Brand A,
 # 2026-09-02: 60,000 characters captured, the first 22,000 read, no
 # packages found).
 _FOCUS_MARKS: dict[str, re.Pattern[str]] = {
@@ -819,7 +819,7 @@ def canonical_provider(name: str) -> str:
 
 
 def brand_key(name: str) -> str:
-    """'LuckyLand Casino', 'LuckyLand Slots' and 'High5 Casino' vs 'High 5
+    """'Brand H', 'Brand H' and 'Brand G' vs 'Brand G
     Casino' are the same brands under different labels."""
     n = re.sub(r"\b(?:casino|slots|social|sweepstakes)\b", "", name or "", flags=re.I)
     return re.sub(r"[^a-z0-9]", "", n.lower())
@@ -1076,8 +1076,8 @@ _RESEARCH_QUERIES: dict[str, tuple[str, ...]] = {
 # own domain and known trackers come first.
 _LOW_TRUST = re.compile(r"coupon|promo-?code|deal|bonus-?code|casino-?bonus", re.I)
 # Pages that exist to list OTHER operators: whatever they enumerate mostly
-# belongs to somebody else (2026-08-27: a "sites-like/luckyland" page gave
-# LuckyLand a provider it does not carry, and a game studio's own services
+# belongs to somebody else (2026-08-27: a "sites-like/brand-h" page gave
+# Brand H a provider it does not carry, and a game studio's own services
 # page gave it another).
 _LEGAL_ONLY = re.compile(r"privacy|terms|tos\b|cookie|responsible|/rules|faq|/help|/support", re.I)
 _COMPARISON = re.compile(
@@ -1101,7 +1101,7 @@ def research_page_ok(url: str, text: str, brand: str, aliases: list[str] | None 
     names = [brand, *(aliases or [])]
     url_slug = re.sub(r"[^a-z0-9]+", "", hay_url)
     # The brand in the address, under any of the names players use —
-    # "time2play.com/casinos/reviews/modo/" is about Modo Casino.
+    # "time2play.com/casinos/reviews/brand-l/" is about Brand L.
     for candidate in names:
         slug = re.sub(r"[^a-z0-9]+", "", (candidate or "").lower())
         if len(slug) >= 4 and slug in url_slug:
@@ -1121,7 +1121,7 @@ _TRUSTED_HOSTS = re.compile(r"igamingfuture\.com", re.I)
 
 
 def brand_slug(brand: str) -> str:
-    """'Crown Coins Casino' → 'crown-coins' — the way review sites name them."""
+    """'Brand C' → 'brand-c' — the way review sites name them."""
     bare = re.sub(r"\b(casino|slots|social)\b", "", brand, flags=re.I)
     return re.sub(r"[^a-z0-9]+", "-", bare.lower()).strip("-")
 

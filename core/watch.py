@@ -195,7 +195,7 @@ _RANK_THRESHOLD_PCT = 50.0
 # not. Judged on COVERAGE (how much of each scored dimension's sub-criteria
 # the evidence actually covers) — not on the share of model weight that has
 # a score. Those differ: a brand can hold a score on 70% of the model while
-# its evidence covers 27% of what those dimensions ask (LuckyLand, 2026-08-16,
+# its evidence covers 27% of what those dimensions ask (Brand H, 2026-08-16,
 # ranked #14 in a pack whose own receipt called the ranking non-comparable).
 # If coverage across would-be ranked brands spreads wider than this, ranking
 # is withheld for the whole field and every row is provisional with the
@@ -375,7 +375,7 @@ def summarize_voice(
         )
         # The praise theme is a DIFFERENT theme when one exists — 'fairness
         # both top complaint and top praise' told a reader nothing
-        # (2026-08-20 pack, Jackpota/McLuck).
+        # (2026-08-20 pack, Brand M/Brand K).
         praise_pool = [t for t in themes if t != "other" and t != complaint] or [
             t for t in themes if t != "other"
         ]

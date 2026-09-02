@@ -107,10 +107,10 @@ class TestResearchFirst:
     def test_queries_name_the_brand_and_the_kind(self) -> None:
         from core.watch_catalog import research_queries
 
-        qs = dict(research_queries("McLuck", ["provider", "coin_package"], year=2026))
-        assert any("providers" in q for k, q in research_queries("McLuck", ["provider"], year=2026))
+        qs = dict(research_queries("Brand K", ["provider", "coin_package"], year=2026))
+        assert any("providers" in q for k, q in research_queries("Brand K", ["provider"], year=2026))
         assert "coin packages" in " ".join(
-            q for k, q in research_queries("McLuck", ["coin_package"], year=2026)
+            q for k, q in research_queries("Brand K", ["coin_package"], year=2026)
         )
         assert qs  # both kinds produced queries
 
@@ -119,16 +119,16 @@ class TestResearchFirst:
 
         got = rank_research_urls(
             [
-                {"url": "https://promo-codes.example/mcluck-bonus"},
-                {"url": "https://www.mcluck.com/providers"},
-                {"url": "https://casinoreview.example/mcluck"},
-                {"url": "https://www.mcluck.com/terms"},   # legal pages never
+                {"url": "https://promo-codes.example/brand-k-bonus"},
+                {"url": "https://www.brand-k.example/providers"},
+                {"url": "https://casinoreview.example/brand-k"},
+                {"url": "https://www.brand-k.example/terms"},   # legal pages never
                 {"url": "not-a-url"},
             ],
-            brand_host="mcluck.com",
+            brand_host="brand-k.example",
         )
-        assert got[0] == "https://www.mcluck.com/providers"
-        assert got[-1] == "https://promo-codes.example/mcluck-bonus"
+        assert got[0] == "https://www.brand-k.example/providers"
+        assert got[-1] == "https://promo-codes.example/brand-k-bonus"
         assert all("terms" not in u for u in got)
 
     @pytest.mark.asyncio
@@ -138,20 +138,20 @@ class TestResearchFirst:
         import core.watch_observe as wo
         from tools.watch import tools as T
 
-        await wm.add_subject(company_id="c1", name="McLuck", url="https://www.mcluck.com")
+        await wm.add_subject(company_id="c1", name="Brand K", url="https://www.brand-k.example")
 
         async def fake_collect(start_url, **kw):
             # the brand's own pages say nothing about providers
-            return [{"url": "https://www.mcluck.com/providers", "title": "Providers",
+            return [{"url": "https://www.brand-k.example/providers", "title": "Providers",
                      "text": "Our lobby is powered by great games.", "error": None, "method": "http"}]
 
         async def fake_search(query, *, api_key, **kw):
             assert api_key == "sk-test"
-            return [{"url": "https://review.example/mcluck", "title": "review", "snippet": ""}]
+            return [{"url": "https://review.example/brand-k", "title": "review", "snippet": ""}]
 
         async def fake_fetch(url, **kw):
             assert kw.get("proxy_url") is None, "research must not spend the metered exit"
-            return ("McLuck carries Pragmatic Play and Hacksaw Gaming titles.", None, "http")
+            return ("Brand K carries Pragmatic Play and Hacksaw Gaming titles.", None, "http")
 
         monkeypatch.setattr(wo, "collect_pages", fake_collect)
         monkeypatch.setattr(wo, "search_web", fake_search)
@@ -175,27 +175,27 @@ class TestResearchFirst:
     async def test_a_few_teaser_titles_are_not_a_lobby_when_min_items_says_so(
         self, wm, monkeypatch
     ) -> None:
-        """High 5 / Pulsz Bingo, 2026-09-01: three titles on the public page
+        """Brand G / Brand B, 2026-09-01: three titles on the public page
         counted as 'answered', so the lobby was never read. min_items sets
         what counts as answered; below it research runs and, if still
         short, the kind is marked for sign-in."""
         import core.watch_observe as wo
         from tools.watch import tools as T
 
-        await wm.add_subject(company_id="c1", name="High 5", url="https://www.high5casino.com")
+        await wm.add_subject(company_id="c1", name="Brand G", url="https://www.brand-g.example")
         searched: list[str] = []
 
         async def teaser(start_url, **kw):
-            return [{"url": "https://www.high5casino.com/games", "title": "Games",
+            return [{"url": "https://www.brand-g.example/games", "title": "Games",
                      "text": "Play Green Machine, Golden Knight and Shake the Sky.", "error": None,
                      "method": "http"}]
 
         async def fake_search(query, *, api_key, **kw):
             searched.append(query)
-            return [{"url": "https://review.example/high-5", "title": "review", "snippet": ""}]
+            return [{"url": "https://review.example/brand-g", "title": "review", "snippet": ""}]
 
         async def fake_fetch(url, **kw):
-            return ("High 5 Casino games: Green Machine, Golden Knight, Shake the Sky, Jaguar Wild.",
+            return ("Brand G games: Green Machine, Golden Knight, Shake the Sky, Jaguar Wild.",
                     None, "http")
 
         monkeypatch.setattr(wo, "collect_pages", teaser)
@@ -219,7 +219,7 @@ class TestResearchFirst:
         assert searched                                          # below the bar: research ran
         assert k["from"] == "brand site + public research" and 3 < k["found"] < 10   # site + each research page
         assert k["needs_sign_in"] is True                        # still short: the lobby is next
-        assert res.data["needs_sign_in"] == ["High 5:game"]
+        assert res.data["needs_sign_in"] == ["Brand G:game"]
         assert len(await wm.list_catalog("c1")) == 3             # the same titles twice is one row each
 
     @pytest.mark.asyncio
@@ -229,10 +229,10 @@ class TestResearchFirst:
         import core.watch_observe as wo
         from tools.watch import tools as T
 
-        await wm.add_subject(company_id="c1", name="McLuck", url="https://www.mcluck.com")
+        await wm.add_subject(company_id="c1", name="Brand K", url="https://www.brand-k.example")
 
         async def empty_pages(start_url, **kw):
-            return [{"url": "https://www.mcluck.com/store", "title": "Store",
+            return [{"url": "https://www.brand-k.example/store", "title": "Store",
                      "text": "Sign in to see your prices.", "error": None, "method": "http"}]
 
         async def no_hits(query, *, api_key, **kw):
@@ -249,43 +249,43 @@ class TestResearchFirst:
         assert quiet.data["needs_sign_in"] == []  # not asked, so not suggested
         loud = await t.execute({"company_id": "c1", "kinds": ["coin_package"],
                                 "sign_in_if_missing": True})
-        assert loud.data["needs_sign_in"] == ["McLuck:coin_package"]
+        assert loud.data["needs_sign_in"] == ["Brand K:coin_package"]
 
 
 class TestAttribution:
     """A page reached by searching a brand may be about ten other brands —
     or about somebody's own business (2026-08-27: a game studio's services
-    page gave LuckyLand a provider it does not carry)."""
+    page gave Brand H a provider it does not carry)."""
 
     def test_comparison_and_unrelated_pages_are_refused(self) -> None:
         from core.watch_catalog import research_page_ok
         from core.watch_voice import brand_aliases
 
-        ll = brand_aliases("LuckyLand Slots", "https://www.luckylandslots.com")
+        ll = brand_aliases("Brand H", "https://www.brand-h.example")
         assert not research_page_ok(
-            "https://www.wagertalk.com/sites-like/luckyland", "LuckyLand " * 9,
-            "LuckyLand Slots", ll,
+            "https://www.wagertalk.com/sites-like/brand-h", "Brand H " * 9,
+            "Brand H", ll,
         )
         assert not research_page_ok(
             "https://www.juegostudio.com/game-development-services",
-            "We build games for clients", "LuckyLand Slots", ll,
+            "We build games for clients", "Brand H", ll,
         )
-        assert not research_page_ok("https://x.example/z", "A page about tractors", "Pulsz", ["Pulsz"])
+        assert not research_page_ok("https://x.example/z", "A page about tractors", "Brand A", ["Brand A"])
 
     def test_brand_pages_and_reviews_are_accepted(self) -> None:
         from core.watch_catalog import research_page_ok
         from core.watch_voice import brand_aliases
 
-        assert research_page_ok("https://www.mcluck.com/providers", "…", "McLuck", ["McLuck"])
-        # the short name in the URL is enough — "…/reviews/modo/"
+        assert research_page_ok("https://www.brand-k.example/providers", "…", "Brand K", ["Brand K"])
+        # the short name in the URL is enough — "…/reviews/brand-l/"
         assert research_page_ok(
-            "https://time2play.com/casinos/reviews/modo/", "Modo review",
-            "Modo Casino", brand_aliases("Modo Casino", "https://www.modo.us"),
+            "https://time2play.com/casinos/reviews/brand-l/", "Brand L review",
+            "Brand L", brand_aliases("Brand L", "https://www.brand-l.example"),
         )
         # or the brand named repeatedly in the text
         assert research_page_ok(
-            "https://x.example/y", "Pulsz is great. Pulsz pays. Pulsz has games.",
-            "Pulsz", ["Pulsz"],
+            "https://x.example/y", "Brand A is great. Brand A pays. Brand A has games.",
+            "Brand A", ["Brand A"],
         )
 
 
@@ -297,9 +297,9 @@ class TestProvenanceIsVisible:
 
         catalog = {
             "items": 2, "label": "Raw inventory…",
-            "totals": {"coin_package": 2}, "third_party_only": ["Pulsz coin_package"],
+            "totals": {"coin_package": 2}, "third_party_only": ["Brand A coin_package"],
             "brands": [{
-                "subject_id": "s", "name": "Pulsz", "is_self": True,
+                "subject_id": "s", "name": "Brand A", "is_self": True,
                 "counts": {"coin_package": 2}, "providers": [], "games_sample": [],
                 "promotions": [], "customer_states": ["logged_out"], "observed_at": "2026-08-27",
                 "sources": {"coin_package": ["third_party"]},
@@ -307,7 +307,7 @@ class TestProvenanceIsVisible:
                     {"name": "$1.99", "price_usd": 1.99, "coins": "30,000 Gold Coins",
                      "detail": "", "url": "https://review.example", "source_type": "third_party"},
                     {"name": "$4.99", "price_usd": 4.99, "coins": "79,500 Gold Coins",
-                     "detail": "", "url": "https://www.pulsz.com/store", "source_type": "site"},
+                     "detail": "", "url": "https://www.brand-a.example/store", "source_type": "site"},
                 ],
             }],
         }
@@ -322,7 +322,7 @@ class TestProvenanceIsVisible:
                 if sh.has_table:
                     parts += [c.text for r in sh.table.rows for c in r.cells]
             texts.append("\n".join(parts))
-        slide = next(t for t in texts if "Pulsz (us) – Coins / Promotions" in t)
+        slide = next(t for t in texts if "Brand A (us) – Coins / Promotions" in t)
         # the caveat is on the brand's own page, not implied
         assert "Packages as reported by public reviews, not read off the store" in slide
         assert "$1.99" in slide and "$4.99" in slide
@@ -330,8 +330,8 @@ class TestProvenanceIsVisible:
 
 class TestLadderHygiene:
     """A price ladder read off review-site prose picks up junk rungs and
-    tautologies (2026-08-27 deck: 'Card Crush 30$ → like 12 coins', and
-    'Crown Coins $1.99 → $1.99')."""
+    tautologies (2026-08-27 deck: 'Brand O 30$ → like 12 coins', and
+    'Brand C $1.99 → $1.99')."""
 
     @pytest.mark.asyncio
     async def test_a_rung_without_a_readable_price_is_dropped(self) -> None:
@@ -357,9 +357,9 @@ class TestLadderHygiene:
 
         catalog = {
             "items": 1, "label": "Raw inventory…", "totals": {"coin_package": 1, "promotion": 40},
-            "third_party_only": ["Crown coin_package"],
+            "third_party_only": ["Brand C coin_package"],
             "brands": [{
-                "subject_id": "s", "name": "Crown", "is_self": False,
+                "subject_id": "s", "name": "Brand C", "is_self": False,
                 "counts": {"coin_package": 1, "promotion": 2}, "providers": [], "games_sample": [],
                 "sources": {"coin_package": ["third_party"]},
                 "promotions": [{"name": "August Deal", "detail": "", "image": "", "url": "u"}],
@@ -380,7 +380,7 @@ class TestLadderHygiene:
                 if sh.has_table:
                     parts += [c.text for r in sh.table.rows for c in r.cells]
             texts.append("\n".join(parts))
-        pkg = next(t for t in texts if "Crown – Coins / Promotions" in t)
+        pkg = next(t for t in texts if "Brand C – Coins / Promotions" in t)
         assert "Its coin split is not published" in pkg    # the detail is the Description column
         assert "$1.99\n$1.99" not in pkg                   # never the price twice
         assert "2 promotions on record" in pkg             # the brand's total, not just what fits
@@ -403,7 +403,7 @@ class TestPerBrandDetail:
             "totals": {"provider": 60, "coin_package": 3, "promotion": 2, "loyalty_tier": 3, "game": 70},
             "third_party_only": [],
             "brands": [{
-                "subject_id": "s", "name": "Modo", "is_self": False,
+                "subject_id": "s", "name": "Brand L", "is_self": False,
                 "counts": {"provider": 60, "coin_package": 3, "promotion": 2, "loyalty_tier": 3, "game": 70},
                 "providers": provs, "games_sample": games[:12], "games_full": games,
                 "sources": {"provider": ["site"]},
@@ -461,7 +461,7 @@ class TestPerBrandDetail:
         out = tmp_path / "d.pptx"
         render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
                               gaps=[], evidence_count=1, path=out, catalog=self._catalog())
-        page = next(t for t in self._texts(out) if "Modo – Coins / Promotions" in t)
+        page = next(t for t in self._texts(out) if "Brand L – Coins / Promotions" in t)
         assert "Coin package | Gold coins | Sweeps coins | Description" in page
         assert "$1.99 | 4,000 | – | –" in page                          # no SC, no note → honest dashes
         assert "$9.99 | 50,000 | 25 | First purchase offer" in page      # the note is the Description
@@ -476,11 +476,11 @@ class TestPerBrandDetail:
         render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
                               gaps=[], evidence_count=1, path=out, catalog=self._catalog())
         texts = self._texts(out)
-        loyalty = next(t for t in texts if "Modo – Loyalty Club" in t)
+        loyalty = next(t for t in texts if "Brand L – Loyalty Club" in t)
         assert "Loyalty Club tier | Qualification | Reward" in loyalty
         assert "Bronze | 500,000 per month | 25% Weekly Coin Boost" in loyalty
         assert "Black Diamond | 12,500,000,000 / year | VIP Club access" in loyalty
-        library = next(t for t in texts if "Modo – Providers / Games" in t)
+        library = next(t for t in texts if "Brand L – Providers / Games" in t)
         assert "Studio 0" in library and "Studio 59" in library     # all sixty, not a tick
         assert "Game 0" in library and "Game 69" in library         # all seventy fit on the page
         assert "more in the workbook" not in library                # nothing was cut, so no claim it was
@@ -492,7 +492,7 @@ class TestPerBrandDetail:
         out = tmp_path / "d.pptx"
         render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
                               gaps=[], evidence_count=1, path=out, catalog=self._catalog(n_games=300))
-        library = next(t for t in self._texts(out) if "Modo – Providers / Games" in t)
+        library = next(t for t in self._texts(out) if "Brand L – Providers / Games" in t)
         assert "Game 109" in library and "Game 110" not in library
         assert "+190 more in the workbook" in library
 
@@ -509,7 +509,7 @@ class TestPerBrandDetail:
                 self.price_usd, self.coins_text, self.sort_index = None, "", 0
 
         class Subj:
-            subject_id, name, is_self = "s", "Modo", False
+            subject_id, name, is_self = "s", "Brand L", False
 
         cat = summarize_catalog([Row("promotion", "Daily login bonus", "Log in every 24 hours; 1,500 GC")],
                                 [Subj()])
@@ -585,11 +585,11 @@ class TestStructuredFields:
 
         assert parse_coins("800,000 GC 50 SC") == (800000.0, 50.0)
         assert parse_coins("120K Gold Coins + 60 SC FREE") == (120000.0, 60.0)
-        assert parse_coins("1,500,000 Crown Coins, 75 SC") == (1500000.0, 75.0)
+        assert parse_coins("1,500,000 Royal Coins, 75 SC") == (1500000.0, 75.0)
         assert parse_coins("40 SC + 800K GC + wheel spin") == (800000.0, 40.0)
         assert parse_coins("30,000 Gold Coins") == (30000.0, None)
-        assert parse_coins("Get 1.5M CC + 75 FREE SC") == (1500000.0, 75.0)     # Crown Coins' own abbreviation
-        assert parse_coins("up to 1750000 WC + 30 FREE SC") == (1750000.0, 30.0)  # WOW Coins'
+        assert parse_coins("Get 1.5M CC + 75 FREE SC") == (1500000.0, 75.0)     # Brand C' own abbreviation
+        assert parse_coins("up to 1750000 WC + 30 FREE SC") == (1750000.0, 30.0)  # Vegas Coins'
         assert parse_coins("25 Mystery Coins plus 5 Battle Cards")[0] == 25.0   # not 25 million
         assert parse_coins("a great deal") == (None, None)
 
@@ -599,12 +599,12 @@ class TestStructuredFields:
                 "Loyalty Club: Bronze needs 500,000 per month and gives a 25% Weekly Coin Boost.")
         r = _Router([{"name": "Daily Login Bonus", "benefit": "1500GC + 0.2SC",
                       "how_to_claim": "Login daily to claim", "frequency": "daily", "index": 0}])
-        got = await extract_catalog(r, kind="promotion", brand="Modo", page_text=page)
+        got = await extract_catalog(r, kind="promotion", brand="Brand L", page_text=page)
         assert got[0]["meta"] == {"benefit": "1500GC + 0.2SC", "how_to_claim": "Login daily to claim",
                                   "frequency": "daily"}
         r2 = _Router([{"name": "Bronze", "qualification": "500,000 per month",
                        "reward": "25% Weekly Coin Boost", "index": 1}])
-        got2 = await extract_catalog(r2, kind="loyalty_tier", brand="Modo", page_text=page)
+        got2 = await extract_catalog(r2, kind="loyalty_tier", brand="Brand L", page_text=page)
         assert got2[0]["name"] == "Bronze" and got2[0]["sort_index"] == 1
         assert got2[0]["meta"]["reward"] == "25% Weekly Coin Boost"
 
@@ -618,11 +618,11 @@ class TestStructuredFields:
 
     @pytest.mark.asyncio
     async def test_meta_round_trips_through_the_register(self, wm) -> None:
-        subj = await wm.add_subject(company_id="c1", name="Modo")
-        await wm.add_catalog_item(company_id="c1", subject_id=subj.subject_id, brand_name="Modo",
+        subj = await wm.add_subject(company_id="c1", name="Brand L")
+        await wm.add_catalog_item(company_id="c1", subject_id=subj.subject_id, brand_name="Brand L",
                                   kind="loyalty_tier", name="Bronze", sort_index=1,
                                   meta={"qualification": "500,000", "reward": "25% boost"})
-        await wm.add_catalog_item(company_id="c1", subject_id=subj.subject_id, brand_name="Modo",
+        await wm.add_catalog_item(company_id="c1", subject_id=subj.subject_id, brand_name="Brand L",
                                   kind="coin_package", name="$9.99", price_usd=9.99,
                                   coins_text="50,000 GC + 25 SC", meta={"gold_coins": 50000.0, "sweeps_coins": 25.0})
         s = await wm.catalog_summary("c1")
@@ -633,13 +633,13 @@ class TestStructuredFields:
     def test_known_review_urls_are_predictable(self) -> None:
         from core.watch_catalog import brand_slug, known_review_urls, rank_research_urls
 
-        assert brand_slug("Crown Coins Casino") == "crown-coins"
-        assert known_review_urls("Crown Coins Casino") == [
-            "https://igamingfuture.com/sweepstakes-casinos/reviews/crown-coins/"
+        assert brand_slug("Brand C") == "brand-c"
+        assert known_review_urls("Brand C") == [
+            "https://igamingfuture.com/sweepstakes-casinos/reviews/brand-c/"
         ]
         ranked = rank_research_urls([
-            {"url": "https://random-review.example/crown-coins"},
-            {"url": "https://igamingfuture.com/sweepstakes-casinos/reviews/crown-coins/"},
+            {"url": "https://random-review.example/brand-c"},
+            {"url": "https://igamingfuture.com/sweepstakes-casinos/reviews/brand-c/"},
         ])
         assert ranked[0].startswith("https://igamingfuture.com")
 
@@ -649,13 +649,13 @@ class TestStructuredFields:
         from core.watch_xlsx import render_scorecard_xlsx
 
         rows = [
-            {"brand": "Modo", "kind": "coin_package", "name": "$9.99", "price_usd": 9.99,
+            {"brand": "Brand L", "kind": "coin_package", "name": "$9.99", "price_usd": 9.99,
              "gold_coins": 50000.0, "sweeps_coins": 25.0, "coins": "50,000 GC + 25 SC", "detail": "",
              "source_type": "site", "url": "u", "session": "logged_out", "observed_at": "2026-08-27", "sort_index": 0},
-            {"brand": "Modo", "kind": "promotion", "name": "Daily Login Bonus", "benefit": "1500GC + 0.2SC",
+            {"brand": "Brand L", "kind": "promotion", "name": "Daily Login Bonus", "benefit": "1500GC + 0.2SC",
              "how_to_claim": "Login daily", "frequency": "daily", "detail": "", "image": "", "url": "u",
              "session": "logged_out", "observed_at": "2026-08-27", "sort_index": 0},
-            {"brand": "Modo", "kind": "loyalty_tier", "name": "Bronze", "qualification": "500,000",
+            {"brand": "Brand L", "kind": "loyalty_tier", "name": "Bronze", "qualification": "500,000",
              "reward": "25% boost", "url": "u", "session": "logged_out", "observed_at": "2026-08-27", "sort_index": 1},
         ]
         path = render_scorecard_xlsx({"rows": [], "dimensions": []}, dimensions=[], evidence=[],
@@ -671,16 +671,16 @@ class TestStructuredFields:
 class TestRegister:
     @pytest.mark.asyncio
     async def test_recollection_updates_rather_than_duplicating(self, wm) -> None:
-        subj = await wm.add_subject(company_id="c1", name="Crown", url="https://c.example")
+        subj = await wm.add_subject(company_id="c1", name="Brand C", url="https://c.example")
         row, is_new = await wm.add_catalog_item(
-            company_id="c1", subject_id=subj.subject_id, brand_name="Crown",
+            company_id="c1", subject_id=subj.subject_id, brand_name="Brand C",
             kind="coin_package", name="$29.99", coins_text="GC 700", price_usd=29.99,
             sort_index=1, source_url="https://c.example/store",
         )
         assert is_new and row["catalog_id"]
         # the ladder changes: same package, new grant — one row, updated
         row2, is_new2 = await wm.add_catalog_item(
-            company_id="c1", subject_id=subj.subject_id, brand_name="Crown",
+            company_id="c1", subject_id=subj.subject_id, brand_name="Brand C",
             kind="coin_package", name="$29.99", coins_text="GC 900 + SC 60", price_usd=29.99,
             sort_index=1, source_url="https://c.example/store", customer_state="registered",
         )
@@ -690,11 +690,11 @@ class TestRegister:
         assert rows[0].customer_state == "registered"
         # never scored, and the evidence register is untouched
         assert await wm.list_evidence("c1") == [] and await wm.list_scores("c1") == []
-        assert dedupe_key("Crown", "coin_package", "$29.99") == dedupe_key("crown", "coin_package", " $29.99 ")
+        assert dedupe_key("Brand C", "coin_package", "$29.99") == dedupe_key("brand c", "coin_package", " $29.99 ")
 
     @pytest.mark.asyncio
     async def test_vocabularies_are_enforced(self, wm) -> None:
-        subj = await wm.add_subject(company_id="c1", name="Crown")
+        subj = await wm.add_subject(company_id="c1", name="Brand C")
         with pytest.raises(ValueError):
             await wm.add_catalog_item(company_id="c1", subject_id=subj.subject_id,
                                       kind="jackpot", name="x")
@@ -705,19 +705,19 @@ class TestRegister:
     @pytest.mark.asyncio
     async def test_summary_reads_ladders_and_counts(self, wm) -> None:
         us = await wm.add_subject(company_id="c1", name="Us", is_self=True)
-        cc = await wm.add_subject(company_id="c1", name="Crown")
+        cc = await wm.add_subject(company_id="c1", name="Brand C")
         for name, price, idx in (("$49.99", 49.99, 2), ("$9.99", 9.99, 0), ("$29.99", 29.99, 1)):
-            await wm.add_catalog_item(company_id="c1", subject_id=cc.subject_id, brand_name="Crown",
+            await wm.add_catalog_item(company_id="c1", subject_id=cc.subject_id, brand_name="Brand C",
                                       kind="coin_package", name=name, price_usd=price, sort_index=idx)
         for prov in ("Pragmatic Play", "NetEnt"):
-            await wm.add_catalog_item(company_id="c1", subject_id=cc.subject_id, brand_name="Crown",
+            await wm.add_catalog_item(company_id="c1", subject_id=cc.subject_id, brand_name="Brand C",
                                       kind="provider", name=prov)
         await wm.add_catalog_item(company_id="c1", subject_id=us.subject_id, brand_name="Us",
                                   kind="game", name="Sweet Bonanza")
         s = await wm.catalog_summary("c1")
         assert s["items"] == 6 and s["totals"]["coin_package"] == 3
         assert s["brands"][0]["name"] == "Us"  # ours first
-        crown = next(b for b in s["brands"] if b["name"] == "Crown")
+        crown = next(b for b in s["brands"] if b["name"] == "Brand C")
         assert [p["price_usd"] for p in crown["packages"]] == [9.99, 29.99, 49.99]  # ladder in order
         assert crown["counts"]["provider"] == 2
         snap = await wm.get_snapshot(await wm.take_snapshot("c1"))
@@ -730,7 +730,7 @@ class TestDeckAndWorkbook:
             "items": 8, "label": "Raw inventory as printed…",
             "totals": {"provider": 2, "coin_package": 2, "promotion": 2, "game": 2},
             "brands": [{
-                "subject_id": "s", "name": "Crown", "is_self": False,
+                "subject_id": "s", "name": "Brand C", "is_self": False,
                 "counts": {"provider": 2, "coin_package": 2, "promotion": 2, "game": 2},
                 "providers": ["Pragmatic Play", "NetEnt"],
                 "packages": [{"name": "$9.99", "price_usd": 9.99, "coins": "GC 100,000 + SC 10",
@@ -747,7 +747,7 @@ class TestDeckAndWorkbook:
     def test_appendix_slides_appear_only_with_rows(self, tmp_path) -> None:
         from core.watch_deck import factual_narrative, render_executive_deck
 
-        card = {"rows": [{"name": "Crown", "is_self": False, "rank": 1, "provisional": False,
+        card = {"rows": [{"name": "Brand C", "is_self": False, "rank": 1, "provisional": False,
                           "overall": {"normalized_pct": 60.0, "coverage_pct": 70.0}, "dimensions": {}}],
                 "dimensions": []}
         a, b = tmp_path / "a.pptx", tmp_path / "b.pptx"
@@ -778,15 +778,15 @@ class TestDeckAndWorkbook:
 
         card = {"rows": [], "dimensions": []}
         rows = [
-            {"brand": "Crown", "kind": "provider", "name": "NetEnt", "detail": "", "url": "u",
+            {"brand": "Brand C", "kind": "provider", "name": "NetEnt", "detail": "", "url": "u",
              "session": "logged_out", "observed_at": "2026-08-27", "sort_index": 0},
-            {"brand": "Crown", "kind": "coin_package", "name": "$29.99", "price_usd": 29.99,
+            {"brand": "Brand C", "kind": "coin_package", "name": "$29.99", "price_usd": 29.99,
              "coins": "GC 700,000", "detail": "", "url": "u", "session": "registered",
              "observed_at": "2026-08-27", "sort_index": 1},
-            {"brand": "Crown", "kind": "promotion", "name": "150% Extra", "detail": "24h",
+            {"brand": "Brand C", "kind": "promotion", "name": "150% Extra", "detail": "24h",
              "image": "/shots/p.jpg", "url": "u", "session": "logged_out",
              "observed_at": "2026-08-27", "sort_index": 0},
-            {"brand": "Crown", "kind": "game", "name": "Sweet Bonanza", "detail": "Pragmatic",
+            {"brand": "Brand C", "kind": "game", "name": "Sweet Bonanza", "detail": "Pragmatic",
              "url": "u", "session": "logged_out", "observed_at": "2026-08-27", "sort_index": 0},
         ]
         plain = render_scorecard_xlsx(card, dimensions=[], evidence=[], staleness=[], path=tmp_path / "a.xlsx")
@@ -823,61 +823,61 @@ class TestGamePortfolio:
     def test_brand_labels_match_across_sheets(self) -> None:
         from core.watch_catalog import brand_key as k
 
-        assert k("LuckyLand Casino") == k("LuckyLand Slots")
-        assert k("High5 Casino") == k("High 5 Casino")
-        assert k("Wow Vegas") == k("WOW Vegas")
-        assert k("Pulsz") != k("Pulsz Bingo")
+        assert k("Brand H") == k("Brand H")
+        assert k("Brand G") == k("Brand G")
+        assert k("Brand I Casino") == k("Brand I")
+        assert k("Brand A") != k("Brand B")
 
     def test_reads_the_clients_sheet(self, tmp_path) -> None:
         from core.watch_catalog import read_provider_universe
 
         p = tmp_path / "portfolio.csv"
         p.write_text(
-            "﻿;;;\nGame Provider ;Pulsz ;Chumba Casino ;Spinfinite \n155;;;\n3 Oaks ;;;\n"
+            "﻿;;;\nGame Provider ;Brand A ;Brand J ;Brand F \n155;;;\n3 Oaks ;;;\n"
             "4TP (is this 4 the player?);;;\n;;;\nB Gaming ;;;\n",
             encoding="utf-8",
         )
         uni = read_provider_universe(p)
         assert uni["providers"] == ["3 Oaks", "4TP (is this 4 the player?)", "B Gaming"]
-        assert uni["brands"] == ["Pulsz", "Chumba Casino", "Spinfinite"]
+        assert uni["brands"] == ["Brand A", "Brand J", "Brand F"]
 
     def _items(self):
         return [
-            {"brand": "Pulsz", "kind": "provider", "name": "BGaming", "detail": "", "source_type": "site"},
-            {"brand": "Pulsz", "kind": "provider", "name": "B Gaming", "detail": "", "source_type": "third_party"},
-            {"brand": "Chumba Casino", "kind": "provider", "name": "BGAMING", "detail": "", "source_type": "third_party"},
-            {"brand": "Chumba Casino", "kind": "provider", "name": "Golden Rock Studios", "detail": "", "source_type": "site"},
-            {"brand": "Pulsz", "kind": "game", "name": "Aztec Magic", "detail": "BGaming", "source_type": "site"},
-            {"brand": "Pulsz", "kind": "game", "name": "Elvis Frog", "detail": "B Gaming", "source_type": "site"},
-            {"brand": "Pulsz", "kind": "game", "name": "Slot X", "detail": "Jackpot Slots", "source_type": "site"},
+            {"brand": "Brand A", "kind": "provider", "name": "BGaming", "detail": "", "source_type": "site"},
+            {"brand": "Brand A", "kind": "provider", "name": "B Gaming", "detail": "", "source_type": "third_party"},
+            {"brand": "Brand J", "kind": "provider", "name": "BGAMING", "detail": "", "source_type": "third_party"},
+            {"brand": "Brand J", "kind": "provider", "name": "Golden Rock Studios", "detail": "", "source_type": "site"},
+            {"brand": "Brand A", "kind": "game", "name": "Aztec Magic", "detail": "BGaming", "source_type": "site"},
+            {"brand": "Brand A", "kind": "game", "name": "Elvis Frog", "detail": "B Gaming", "source_type": "site"},
+            {"brand": "Brand A", "kind": "game", "name": "Slot X", "detail": "Jackpot Slots", "source_type": "site"},
         ]
 
     def test_matrix_follows_the_clients_list_and_marks_the_rest(self) -> None:
         from core.watch_catalog import provider_matrix
 
-        brands = [{"name": "Chumba Casino", "is_self": False}, {"name": "Pulsz", "is_self": True}]
+        brands = [{"name": "Brand J", "is_self": False}, {"name": "Brand A", "is_self": True}]
         m = provider_matrix(self._items(), brands, universe=["3 Oaks", "B Gaming"],
-                            universe_brands=["Pulsz", "Chumba Casino", "Spinfinite"])
+                            universe_brands=["Brand A", "Brand J", "Brand F"])
         names = [r["name"] for r in m["providers"]]
         assert names == ["3 Oaks", "BGaming", "Golden Rock Studios"]   # their order, then ours
         oaks, bg, gr = m["providers"]
         assert oaks["on_client_list"] and not oaks["observed"] and oaks["brand_count"] == 0
-        assert bg["brands"]["Pulsz"] == {"carried": True, "source": "site", "games": 2}   # site beats review; spellings merge
-        assert bg["brands"]["Chumba Casino"]["carried"] and bg["brands"]["Chumba Casino"]["source"] == "third_party"
+        assert bg["brands"]["Brand A"] == {"carried": True, "source": "site", "games": 2}   # site beats review; spellings merge
+        assert bg["brands"]["Brand J"]["carried"] and bg["brands"]["Brand J"]["source"] == "third_party"
         assert not gr["on_client_list"] and gr["brand_count"] == 1
         assert m["counts"] == {"observed": 2, "on_client_list": 2, "both": 1, "list_only": 1, "observed_only": 1}
-        assert m["brands_only_on_client_list"] == ["Spinfinite"]
+        assert m["brands_only_on_client_list"] == ["Brand F"]
         assert m["brands_only_in_register"] == []
         assert "Jackpot Slots" not in names                                # a category is not a studio
 
     def test_without_a_list_the_matrix_is_what_was_observed(self) -> None:
         from core.watch_catalog import provider_matrix
 
-        brands = [{"name": "Chumba Casino", "is_self": False}, {"name": "Pulsz", "is_self": True}]
+        brands = [{"name": "Brand J", "is_self": False}, {"name": "Brand A", "is_self": True}]
         m = provider_matrix(self._items(), brands)
         assert [r["name"] for r in m["providers"]] == ["BGaming", "Golden Rock Studios"]   # most carried first
         assert all(r["on_client_list"] for r in m["providers"])                            # nothing to mark
-        assert m["brands"] == ["Chumba Casino", "Pulsz"]
+        assert m["brands"] == ["Brand J", "Brand A"]
 
     def test_summary_carries_the_matrix(self) -> None:
         from core.watch_catalog import summarize_catalog
@@ -894,13 +894,13 @@ class TestGamePortfolio:
                 self.subject_id, self.name, self.is_self = sid, name, is_self
 
         cat = summarize_catalog([Row("p", "provider", "NetEnt"), Row("c", "provider", "NetEnt")],
-                                [Subj("c", "Chumba"), Subj("p", "Pulsz", True)],
-                                universe={"providers": ["NetEnt", "Zoot studios"], "brands": ["Pulsz"]})
+                                [Subj("c", "Brand J"), Subj("p", "Brand A", True)],
+                                universe={"providers": ["NetEnt", "Zoot studios"], "brands": ["Brand A"]})
         m = cat["matrix"]
-        assert m["brands"] == ["Pulsz", "Chumba"]                      # ours first
+        assert m["brands"] == ["Brand A", "Brand J"]                      # ours first
         assert [r["name"] for r in m["providers"]] == ["NetEnt", "Zoot studios"]
-        assert m["brands_only_in_register"] == ["Chumba"]
-        assert summarize_catalog([], [Subj("c", "Chumba")])["matrix"] is None
+        assert m["brands_only_in_register"] == ["Brand J"]
+        assert summarize_catalog([], [Subj("c", "Brand J")])["matrix"] is None
 
     def test_workbook_gets_the_portfolio_sheet_first(self, tmp_path) -> None:
         from openpyxl import load_workbook
@@ -908,19 +908,19 @@ class TestGamePortfolio:
         from core.watch_xlsx import render_scorecard_xlsx
 
         rows = [{**it, "url": "u", "session": "logged_out", "observed_at": "2026-09-01", "sort_index": 0,
-                 "is_self": it["brand"] == "Pulsz"} for it in self._items()]
+                 "is_self": it["brand"] == "Brand A"} for it in self._items()]
         card = {"rows": [], "dimensions": []}
         path = render_scorecard_xlsx(card, dimensions=[], evidence=[], staleness=[], path=tmp_path / "w.xlsx",
                                      catalog_rows=rows,
-                                     provider_universe={"providers": ["3 Oaks", "B Gaming"], "brands": ["Pulsz", "Spinfinite"]})
+                                     provider_universe={"providers": ["3 Oaks", "B Gaming"], "brands": ["Brand A", "Brand F"]})
         wb = load_workbook(path)
         assert wb.sheetnames.index("Game portfolio") < wb.sheetnames.index("Providers")
         ws = wb["Game portfolio"]
-        assert [c.value for c in ws[3]] == ["Game provider", "Pulsz", "Chumba Casino", "Brands", "On client list"]
+        assert [c.value for c in ws[3]] == ["Game provider", "Brand A", "Brand J", "Brands", "On client list"]
         assert [c.value for c in ws[4]] == ["3 Oaks", None, None, 0, "yes"]
         assert [c.value for c in ws[5]] == ["BGaming", "● 2", "●", 2, "yes"]
         assert [c.value for c in ws[6]] == ["Golden Rock Studios *", None, "●", 1, "no"]
-        assert any("Spinfinite" in str(c.value) for row in ws.iter_rows(min_row=7) for c in row if c.value)
+        assert any("Brand F" in str(c.value) for row in ws.iter_rows(min_row=7) for c in row if c.value)
 
     def test_a_bare_filename_resolves_inside_the_workspace(self, tmp_path, monkeypatch) -> None:
         from tools.watch.tools import _resolve_input
@@ -929,10 +929,10 @@ class TestGamePortfolio:
             workspace = str(tmp_path / "ws")
 
         (tmp_path / "ws" / "watch").mkdir(parents=True)
-        (tmp_path / "ws" / "watch" / "game_portfolio.csv").write_text("Game Provider;Pulsz\n3 Oaks;\n")
+        (tmp_path / "ws" / "watch" / "game_portfolio.csv").write_text("Game Provider;Brand A\n3 Oaks;\n")
         assert _resolve_input("game_portfolio.csv", Cfg()) == tmp_path / "ws" / "watch" / "game_portfolio.csv"
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "other.csv").write_text("Game Provider;Pulsz\nBGaming;\n")
+        (tmp_path / "other.csv").write_text("Game Provider;Brand A\nBGaming;\n")
         assert _resolve_input("other.csv", Cfg()) == tmp_path / "other.csv"          # the working directory last
         assert _resolve_input("/abs/none.csv", Cfg()) == Path("/abs/none.csv")       # absolute paths pass through
 
@@ -948,15 +948,15 @@ class TestGamePortfolio:
         from core.watch_deck import factual_narrative, render_executive_deck
 
         provs = [f"Studio {i:02d}" for i in range(60)]
-        brands = ["Chumba Casino", "Pulsz"]
+        brands = ["Brand J", "Brand A"]
         items = [{"brand": b, "kind": "provider", "name": p, "detail": "", "source_type": "site"}
                  for b in brands for p in provs]
         from core.watch_catalog import provider_matrix
-        matrix = provider_matrix(items, [{"name": "Pulsz", "is_self": True}, {"name": "Chumba Casino", "is_self": False}])
+        matrix = provider_matrix(items, [{"name": "Brand A", "is_self": True}, {"name": "Brand J", "is_self": False}])
         catalog = {"items": 120, "label": "", "totals": {"provider": 120}, "third_party_only": [], "matrix": matrix,
-                   "brands": [{"subject_id": "p", "name": "Pulsz", "is_self": True, "counts": {"provider": 60},
+                   "brands": [{"subject_id": "p", "name": "Brand A", "is_self": True, "counts": {"provider": 60},
                                "providers": provs, "packages": [], "promotions": [], "games_sample": [], "sources": {}},
-                              {"subject_id": "c", "name": "Chumba Casino", "is_self": False, "counts": {"provider": 60},
+                              {"subject_id": "c", "name": "Brand J", "is_self": False, "counts": {"provider": 60},
                                "providers": provs, "packages": [], "promotions": [], "games_sample": [], "sources": {}}]}
         card = {"rows": [], "dimensions": []}
         out = tmp_path / "d.pptx"
@@ -972,7 +972,7 @@ class TestGamePortfolio:
         cells = [c.text for sl in pages for sh in sl.shapes if sh.has_table for r in sh.table.rows for c in r.cells]
         assert "Studio 00" in cells and "Studio 59" in cells
         hdr = [c.text for c in [sh for sh in pages[0].shapes if sh.has_table][0].table.rows[0].cells]
-        assert hdr[1] == "Pulsz  (us)" and hdr[2] == "Chumba"              # ours first, "Casino" dropped
+        assert hdr[1] == "Brand A  (us)" and hdr[2] == "Brand J"              # ours first, "Casino" dropped
         H = prs.slide_height
         assert all(sh.top + sh.height <= H for sl in pages for sh in sl.shapes if sh.has_table)
 
@@ -1046,7 +1046,7 @@ class TestSignedInRead:
 
         monkeypatch.setattr(wo, "dismiss_consent", no_consent)
         bm = self._BM()
-        pages = await read_signed_in_pages(bm, "https://www.pulsz.com/", ["provider", "game", "coin_package"])
+        pages = await read_signed_in_pages(bm, "https://www.brand-a.example/", ["provider", "game", "coin_package"])
         assert [p["title"] for p in pages] == ["Lobby games", "Providers", "Store – Get Coins"]
         assert all(p["method"] == "browser_session" for p in pages)
         assert "Money Train 2" in pages[0]["text"] and "Hacksaw Gaming" in pages[1]["text"]
@@ -1063,7 +1063,7 @@ class TestSignedInRead:
         import core.watch_observe as wo
         from tools.watch import tools as T
 
-        await wm.add_subject(company_id="c1", name="Pulsz", url="https://www.pulsz.com")
+        await wm.add_subject(company_id="c1", name="Brand A", url="https://www.brand-a.example")
         http_calls: list[str] = []
         session_calls: list[str] = []
 
@@ -1087,7 +1087,7 @@ class TestSignedInRead:
         res = await t.execute({"company_id": "c1", "kinds": ["game"], "customer_state": "registered",
                                "research": False})
         assert res.success, res.error
-        assert session_calls == ["https://www.pulsz.com"] and http_calls == []
+        assert session_calls == ["https://www.brand-a.example"] and http_calls == []
         rows = await wm.list_catalog("c1")
         assert {r.name for r in rows} == {"Money Train 2", "Scarab Surge"}
         assert all(r.customer_state == "registered" and r.source_type == "site" for r in rows)
@@ -1106,7 +1106,7 @@ class TestTheAgentReadsTheLobby:
 
         class BM:
             def __init__(self):
-                self.here = "https://www.pulsz.com/"
+                self.here = "https://www.brand-a.example/"
                 self.calls = []
 
             async def call_tool(self, name, params=None):
@@ -1115,8 +1115,8 @@ class TestTheAgentReadsTheLobby:
                     import json as _j
                     return {"success": True, "resultJson": _j.dumps(self.here)}
                 if name == "browser_get_html":
-                    body = {"https://www.pulsz.com/": "<h3>Money Train 2</h3><h3>Scarab Surge</h3>",
-                            "https://www.pulsz.com/store": "<div>$4.99 79,500 GC + 5 SC</div>"}[self.here]
+                    body = {"https://www.brand-a.example/": "<h3>Money Train 2</h3><h3>Scarab Surge</h3>",
+                            "https://www.brand-a.example/store": "<div>$4.99 79,500 GC + 5 SC</div>"}[self.here]
                     if (params or {}).get("maxLength", 50000) < 1000:      # the agent's own short ask
                         return {"success": True, "html": body[:8]}
                     return {"success": True, "html": body}
@@ -1136,13 +1136,13 @@ class TestTheAgentReadsTheLobby:
                 Agent.excluded = set(excluded_tool_names or ())
                 assert "you cannot navigate" in goal and "Do not accept" in goal
                 await bm.call_tool("browser_get_html", {"maxLength": 200})  # the lobby, the agent's short ask
-                bm.here = "https://www.pulsz.com/store"                    # the agent clicked "Get Coins"
+                bm.here = "https://www.brand-a.example/store"                    # the agent clicked "Get Coins"
                 await bm.call_tool("browser_get_html", {"maxLength": 200})  # the store
                 return SimpleNamespace(content="PAGE 1: lobby\nPAGE 2: store", steps_taken=6, tool_calls_made=[])
 
-        pages = await read_signed_in_pages(bm, "https://www.pulsz.com/", ["game", "coin_package"], agent=Agent())
-        assert [(p["title"], p["url"]) for p in pages] == [("Lobby games", "https://www.pulsz.com/"),
-                                                            ("Store – Get Coins", "https://www.pulsz.com/store")]
+        pages = await read_signed_in_pages(bm, "https://www.brand-a.example/", ["game", "coin_package"], agent=Agent())
+        assert [(p["title"], p["url"]) for p in pages] == [("Lobby games", "https://www.brand-a.example/"),
+                                                            ("Store – Get Coins", "https://www.brand-a.example/store")]
         assert "Money Train 2" in pages[0]["text"] and "$4.99" in pages[1]["text"]   # the full DOM, not the stub
         assert all(p["method"] == "browser_session" and p["via"] == "agent" for p in pages)
         assert [p["kind"] for p in pages] == ["game", "coin_package"]                  # filed as the agent labelled
@@ -1155,9 +1155,9 @@ class TestTheAgentReadsTheLobby:
     def test_a_labelled_page_is_filed_by_its_label_even_on_an_unfriendly_url(self) -> None:
         from core.watch_catalog import rank_catalog_pages
 
-        pages = [{"url": "https://www.pulsz.com/sweepstakes-lobby", "title": "Lobby games", "text": "x",
+        pages = [{"url": "https://www.brand-a.example/sweepstakes-lobby", "title": "Lobby games", "text": "x",
                   "kind": "game"},
-                 {"url": "https://www.pulsz.com/help", "title": "Promotions", "text": "y", "kind": "promotion"}]
+                 {"url": "https://www.brand-a.example/help", "title": "Promotions", "text": "y", "kind": "promotion"}]
         by_kind = rank_catalog_pages(pages)
         assert by_kind["game"][0]["title"] == "Lobby games" and by_kind["promotion"][0]["title"] == "Promotions"
 
@@ -1168,16 +1168,16 @@ class TestTheAgentReadsTheLobby:
         assert _page_labels("1. The home lobby grid\n2) Get Coins store modal\n3 - the VIP loyalty page", 3) == \
             ["lobby", "store", "vip"]
         assert _page_labels("I visited the lobby and the store. Done.", 2) == []      # nothing numbered → nothing
-        pages = [{"url": "https://www.pulsz.com/", "title": "Other page", "text": "Money Train 2 $4.99", "via": "agent",
+        pages = [{"url": "https://www.brand-a.example/", "title": "Other page", "text": "Money Train 2 $4.99", "via": "agent",
                   "kind": ""}]
         by_kind = rank_catalog_pages(pages)
         assert set(by_kind) == {"provider", "coin_package", "promotion", "loyalty_tier", "game"}
-        assert all(b[0]["url"] == "https://www.pulsz.com/" for b in by_kind.values())
+        assert all(b[0]["url"] == "https://www.brand-a.example/" for b in by_kind.values())
 
 
 class TestExtractionReadsWhereTheKindIs:
     def test_a_store_modal_at_the_end_of_a_long_page_is_the_window_read(self) -> None:
-        """Pulsz, 2026-09-02: the store opens as a modal at the END of the
+        """Brand A, 2026-09-02: the store opens as a modal at the END of the
         DOM; 60,000 characters captured, the first 22,000 read, no packages."""
         from core.watch_catalog import focus_text
 
@@ -1224,10 +1224,10 @@ class TestExtractionReadsWhereTheKindIs:
     def test_a_single_page_app_capture_without_a_label_is_tried_for_every_kind(self) -> None:
         from core.watch_catalog import _url_is_specific
 
-        assert not _url_is_specific("https://www.crowncoinscasino.com/", "https://www.crowncoinscasino.com")
-        assert not _url_is_specific("https://www.crowncoinscasino.com/#store", "https://www.crowncoinscasino.com")
-        assert _url_is_specific("https://www.pulsz.com/providers", "https://www.pulsz.com")
-        assert _url_is_specific("https://www.pulsz.com/home", "https://www.pulsz.com/")
+        assert not _url_is_specific("https://www.brand-c.example/", "https://www.brand-c.example")
+        assert not _url_is_specific("https://www.brand-c.example/#store", "https://www.brand-c.example")
+        assert _url_is_specific("https://www.brand-a.example/providers", "https://www.brand-a.example")
+        assert _url_is_specific("https://www.brand-a.example/home", "https://www.brand-a.example/")
 
 
     def test_image_tiles_keep_their_names(self) -> None:

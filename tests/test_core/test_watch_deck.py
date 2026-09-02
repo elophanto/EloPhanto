@@ -804,7 +804,7 @@ def test_glance_slide_shows_the_highest_score_when_ranks_are_withheld(tmp_path) 
         "rows": [
             {"name": "Us", "is_self": True, "rank": None, "provisional": False,
              "overall": {"normalized_pct": 60.0, "coverage_pct": 70.0}, "dimensions": {}},
-            {"name": "Crown", "is_self": False, "rank": None, "provisional": False,
+            {"name": "Brand C", "is_self": False, "rank": None, "provisional": False,
              "overall": {"normalized_pct": 70.4, "coverage_pct": 80.0}, "dimensions": {}},
         ],
         "dimensions": [],
@@ -815,5 +815,5 @@ def test_glance_slide_shows_the_highest_score_when_ranks_are_withheld(tmp_path) 
                           gaps=[], evidence_count=10, path=out)
     prs = Presentation(str(out))
     glance = "\n".join(sh.text_frame.text for sh in prs.slides[3].shapes if sh.has_text_frame)   # after the guide
-    assert "70.4" in glance and "Crown – highest score, ranks withheld" in glance
+    assert "70.4" in glance and "Brand C – highest score, ranks withheld" in glance
     assert "2 / 2" in glance and "0 / 2" not in glance and "no brand ranked yet" not in glance

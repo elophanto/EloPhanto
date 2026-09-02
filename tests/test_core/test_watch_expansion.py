@@ -73,30 +73,30 @@ class TestRendererScrubber:
 class TestExpansionPrimitives:
     def test_queries_group_missing_dimensions(self) -> None:
         qs = wo.expansion_queries(
-            "McLuck",
+            "Brand K",
             ["Payment options and limits", "AMOE policy", "Loyalty programme",
              "KYC strategy"],
         )
-        assert qs and all(q.startswith('"McLuck"') for q in qs)
+        assert qs and all(q.startswith('"Brand K"') for q in qs)
         assert len(qs) <= 3
         assert "Payment" in qs[0]
 
     def test_no_missing_dimensions_no_queries(self) -> None:
-        assert wo.expansion_queries("McLuck", []) == []
+        assert wo.expansion_queries("Brand K", []) == []
 
     def test_url_picker_dedupes_hosts_and_skips_already_fetched(self) -> None:
         results = [
-            {"url": "https://reviews.example/mcluck", "title": "", "snippet": ""},
-            {"url": "https://reviews.example/mcluck-2", "title": "", "snippet": ""},
-            {"url": "https://www.mcluck.com/", "title": "", "snippet": ""},
+            {"url": "https://reviews.example/brand-k", "title": "", "snippet": ""},
+            {"url": "https://reviews.example/brand-k-2", "title": "", "snippet": ""},
+            {"url": "https://www.brand-k.example/", "title": "", "snippet": ""},
             {"url": "ftp://bad.example/x", "title": "", "snippet": ""},
             {"url": "https://help.example/article#frag", "title": "", "snippet": ""},
         ]
         picked = wo.pick_expansion_urls(
-            results, already_fetched={"https://www.mcluck.com/"}, limit=4
+            results, already_fetched={"https://www.brand-k.example/"}, limit=4
         )
         assert picked == [
-            "https://reviews.example/mcluck",
+            "https://reviews.example/brand-k",
             "https://help.example/article",
         ]
 
@@ -112,9 +112,9 @@ class _Router:
     async def complete(self, *, messages: list[dict[str, str]], **_kw: Any) -> _Resp:
         return _Resp(
             '{"claims": [{"dimension": "Payments", "subcriterion": "methods", '
-            '"claim": "McLuck supports Visa and ACH withdrawals", '
+            '"claim": "Brand K supports Visa and ACH withdrawals", '
             '"value_text": "Visa, ACH", '
-            '"excerpt": "McLuck supports Visa and ACH withdrawals for players"}]}'
+            '"excerpt": "Brand K supports Visa and ACH withdrawals for players"}]}'
         )
 
 
@@ -147,20 +147,20 @@ async def _analyze(wm, monkeypatch, *, vault_key, search_results, customer_state
         name="Payments", company_id="c1", weight_pct=50,
         subcriteria=[{"name": "methods", "weight_pct": 100}],
     )
-    await wm.add_subject(name="McLuck", company_id="c1", url="https://www.mcluck.com")
+    await wm.add_subject(name="Brand K", company_id="c1", url="https://www.brand-k.example")
 
     # The brand's own site talks about games only — Payments stays silent.
     async def fake_collect(start_url, **kw):
         return [{
             "url": start_url,
-            "text": "Play over 1,000 casino-style games at McLuck today " * 20,
+            "text": "Play over 1,000 casino-style games at Brand K today " * 20,
             "error": None, "method": "http",
         }]
 
     site_claims = (
         '{"claims": [{"dimension": "Game portfolio", "subcriterion": "range", '
-        '"claim": "McLuck offers over 1,000 games", "value_text": "1,000", '
-        '"excerpt": "Play over 1,000 casino-style games at McLuck today"}]}'
+        '"claim": "Brand K offers over 1,000 games", "value_text": "1,000", '
+        '"excerpt": "Play over 1,000 casino-style games at Brand K today"}]}'
     )
 
     class SiteThenExpandRouter:
@@ -179,7 +179,7 @@ async def _analyze(wm, monkeypatch, *, vault_key, search_results, customer_state
         return search_results
 
     async def fake_fetch(url, **kw):
-        return ("McLuck supports Visa and ACH withdrawals for players " * 10,
+        return ("Brand K supports Visa and ACH withdrawals for players " * 10,
                 None, "http")
 
     monkeypatch.setattr(wo, "collect_pages", fake_collect)
@@ -193,7 +193,7 @@ async def _analyze(wm, monkeypatch, *, vault_key, search_results, customer_state
     t._router = SiteThenExpandRouter()
     t._config = None
     t._vault = _Vault(vault_key)
-    params = {"subject": "McLuck", "company_id": "c1", "save": False, "deck": False}
+    params = {"subject": "Brand K", "company_id": "c1", "save": False, "deck": False}
     if customer_state:
         params["customer_state"] = customer_state
     return await t.execute(params)
@@ -206,8 +206,8 @@ class TestExpansionInAnalyze:
     ) -> None:
         res = await _analyze(
             wm, monkeypatch, vault_key="sk-test",
-            search_results=[{"url": "https://reviews.example/mcluck",
-                             "title": "McLuck review", "snippet": ""}],
+            search_results=[{"url": "https://reviews.example/brand-k",
+                             "title": "Brand K review", "snippet": ""}],
         )
         assert res.success, res.error
         exp = res.data["source_expansion"]
@@ -218,7 +218,7 @@ class TestExpansionInAnalyze:
         rows = await wm.list_evidence("c1")
         third_party = [r for r in rows if r.source_type == "third_party"]
         assert len(third_party) == 1
-        assert third_party[0].source_url == "https://reviews.example/mcluck"
+        assert third_party[0].source_url == "https://reviews.example/brand-k"
         assert third_party[0].confidence == "low"
         assert "Visa and ACH" in third_party[0].claim
 
@@ -237,7 +237,7 @@ class TestExpansionInAnalyze:
         """Expansion targets only what the site left silent."""
         res = await _analyze(
             wm, monkeypatch, vault_key="sk-test",
-            search_results=[{"url": "https://reviews.example/mcluck",
+            search_results=[{"url": "https://reviews.example/brand-k",
                              "title": "", "snippet": ""}],
         )
         exp = res.data["source_expansion"]
@@ -245,9 +245,9 @@ class TestExpansionInAnalyze:
 
 
 class TestUnreadableSiteStillGetsResearched:
-    """The exact Chumba failure, 2026-08-15 19:47:
+    """The exact Brand J failure, 2026-08-15 19:47:
 
-        could not read any page for Chumba Casino:
+        could not read any page for Brand J:
           ['browser exit not verified in FL (AL) — page dropped …']
 
     The site was bot-walled, Chrome's exit landed in Alabama, exit
@@ -264,8 +264,8 @@ class TestUnreadableSiteStillGetsResearched:
             name="Payments", company_id="c1", weight_pct=100,
             subcriteria=[{"name": "methods", "weight_pct": 100}],
         )
-        await wm.add_subject(name="Chumba Casino", company_id="c1",
-                             url="https://www.chumbacasino.com")
+        await wm.add_subject(name="Brand J", company_id="c1",
+                             url="https://www.brand-j.example")
 
         async def unreadable(start_url, **kw):
             return [{"url": start_url, "text": "",
@@ -273,10 +273,10 @@ class TestUnreadableSiteStillGetsResearched:
                      "method": "browser"}]
 
         async def fake_search(query, *, api_key, **kw):
-            return [{"url": "https://reviews.example/chumba", "title": "", "snippet": ""}]
+            return [{"url": "https://reviews.example/brand-j", "title": "", "snippet": ""}]
 
         async def fake_fetch(url, **kw):
-            return ("Chumba supports Visa and ACH withdrawals for players " * 10,
+            return ("Brand J supports Visa and ACH withdrawals for players " * 10,
                     None, "http")
 
         monkeypatch.setattr(wo, "collect_pages", unreadable)
@@ -287,9 +287,9 @@ class TestUnreadableSiteStillGetsResearched:
             async def complete(self, **_kw: Any) -> _Resp:
                 return _Resp(
                     '{"claims": [{"dimension": "Payments", "subcriterion": "methods", '
-                    '"claim": "Chumba supports Visa and ACH withdrawals", '
+                    '"claim": "Brand J supports Visa and ACH withdrawals", '
                     '"value_text": "Visa, ACH", '
-                    '"excerpt": "Chumba supports Visa and ACH withdrawals for players"}]}'
+                    '"excerpt": "Brand J supports Visa and ACH withdrawals for players"}]}'
                 )
 
         t = WatchAnalyzeTool()
@@ -297,7 +297,7 @@ class TestUnreadableSiteStillGetsResearched:
         t._router = R()
         t._config = None
         t._vault = _Vault("sk-test")
-        res = await t.execute({"subject": "Chumba Casino", "company_id": "c1",
+        res = await t.execute({"subject": "Brand J", "company_id": "c1",
                                "save": False, "deck": False})
 
         assert res.success, res.error
@@ -479,7 +479,7 @@ class TestCapturePageScreenshot:
 
     @pytest.mark.asyncio
     async def test_a_font_stall_gets_one_more_shot(self, tmp_path) -> None:
-        """High 5, 2026-08-16: page.screenshot timed out 'waiting for fonts
+        """Brand G, 2026-08-16: page.screenshot timed out 'waiting for fonts
         to load' on the only exhibit page. The second shot lands."""
         from core.watch_observe import capture_page_screenshot
 
@@ -511,7 +511,7 @@ class TestCapturePageScreenshot:
 
     @pytest.mark.asyncio
     async def test_a_bar_that_appears_just_before_the_shot_gets_the_page_reshot(self, tmp_path) -> None:
-        """High 5, 2026-08-16 (three runs): the bar slides in only once the
+        """Brand G, 2026-08-16 (three runs): the bar slides in only once the
         slow page has fully loaded — after every pre-shot look. After the
         shot one more look is taken; if that click lands, shoot again."""
         from core.watch_observe import capture_page_screenshot
@@ -546,7 +546,7 @@ class TestCapturePageScreenshot:
         from core.watch_observe import screenshot_filename
 
         name = screenshot_filename(
-            "https://www.mcluck.com/Promotions/Daily-Wheel?x=1", when="20260815"
+            "https://www.brand-k.example/Promotions/Daily-Wheel?x=1", when="20260815"
         )
         assert name == "20260815-promotions-daily-wheel.jpg"
         assert screenshot_filename("https://x.example/", when="20260815") == (
@@ -568,13 +568,13 @@ class TestStorefrontExhibitsInAnalyze:
             subcriteria=[{"name": "range", "weight_pct": 100}],
         )
         await wm.add_subject(
-            name="McLuck", company_id="c1", url="https://www.mcluck.com"
+            name="Brand K", company_id="c1", url="https://www.brand-k.example"
         )
 
         async def fake_collect(start_url, **kw):
             return [{
                 "url": start_url,
-                "text": "Play over 1,000 casino-style games at McLuck today " * 20,
+                "text": "Play over 1,000 casino-style games at Brand K today " * 20,
                 "error": None, "method": "http",
             }]
 
@@ -585,9 +585,9 @@ class TestStorefrontExhibitsInAnalyze:
                 return _Resp(
                     '{"claims": [{"dimension": "Game portfolio", '
                     '"subcriterion": "range", '
-                    '"claim": "McLuck offers over 1,000 games", '
+                    '"claim": "Brand K offers over 1,000 games", '
                     '"value_text": "1,000", '
-                    '"excerpt": "Play over 1,000 casino-style games at McLuck today"}]}'
+                    '"excerpt": "Play over 1,000 casino-style games at Brand K today"}]}'
                 )
 
         t = WatchAnalyzeTool()
@@ -599,7 +599,7 @@ class TestStorefrontExhibitsInAnalyze:
             workspace=str(tmp_path / "ws"), project_root=tmp_path, proxy=None
         )
         return await t.execute({
-            "subject": "McLuck", "company_id": "c1",
+            "subject": "Brand K", "company_id": "c1",
             "save": False, "deck": False, "expand_sources": False,
         })
 
@@ -613,7 +613,7 @@ class TestStorefrontExhibitsInAnalyze:
         shots = res.data["screenshots"]
         assert shots["captured"] == 1
         path = shots["paths"][0]
-        assert "watch-screenshots/mcluck/" in path and path.endswith(".jpg")
+        assert "watch-screenshots/brand-k/" in path and path.endswith(".jpg")
         from pathlib import Path
 
         assert Path(path).exists()
@@ -658,13 +658,13 @@ class TestStorefrontExhibitsInAnalyze:
             subcriteria=[{"name": "range", "weight_pct": 100}],
         )
         await wm.add_subject(
-            name="McLuck", company_id="c1", url="https://www.mcluck.com"
+            name="Brand K", company_id="c1", url="https://www.brand-k.example"
         )
 
         async def fake_collect(start_url, **kw):
             return [{
                 "url": start_url,
-                "text": "Play over 1,000 casino-style games at McLuck today " * 20,
+                "text": "Play over 1,000 casino-style games at Brand K today " * 20,
                 "error": None, "method": "http",
             }]
 
@@ -683,9 +683,9 @@ class TestStorefrontExhibitsInAnalyze:
                 return _Resp(
                     '{"claims": [{"dimension": "Game portfolio", '
                     '"subcriterion": "range", '
-                    '"claim": "McLuck offers over 1,000 games", '
+                    '"claim": "Brand K offers over 1,000 games", '
                     '"value_text": "1,000", '
-                    '"excerpt": "Play over 1,000 casino-style games at McLuck today"}]}'
+                    '"excerpt": "Play over 1,000 casino-style games at Brand K today"}]}'
                 )
 
         bm = _CapturingBrowser()
@@ -701,7 +701,7 @@ class TestStorefrontExhibitsInAnalyze:
             ),
         )
         res = await t.execute({
-            "subject": "McLuck", "company_id": "c1", "geo_state": "FL",
+            "subject": "Brand K", "company_id": "c1", "geo_state": "FL",
             "save": False, "deck": False, "expand_sources": False,
         })
         assert res.success, res.error
@@ -806,13 +806,13 @@ class TestExhibitsAreNotAModelChoice:
             subcriteria=[{"name": "range", "weight_pct": 100}],
         )
         await wm.add_subject(
-            name="McLuck", company_id="c1", url="https://www.mcluck.com"
+            name="Brand K", company_id="c1", url="https://www.brand-k.example"
         )
 
         async def fake_collect(start_url, **kw):
             return [{
                 "url": start_url,
-                "text": "Play over 1,000 casino-style games at McLuck today " * 20,
+                "text": "Play over 1,000 casino-style games at Brand K today " * 20,
                 "error": None, "method": "http",
             }]
 
@@ -823,9 +823,9 @@ class TestExhibitsAreNotAModelChoice:
                 return _Resp(
                     '{"claims": [{"dimension": "Game portfolio", '
                     '"subcriterion": "range", '
-                    '"claim": "McLuck offers over 1,000 games", '
+                    '"claim": "Brand K offers over 1,000 games", '
                     '"value_text": "1,000", '
-                    '"excerpt": "Play over 1,000 casino-style games at McLuck today"}]}'
+                    '"excerpt": "Play over 1,000 casino-style games at Brand K today"}]}'
                 )
 
         bm = _CapturingBrowser()
@@ -838,7 +838,7 @@ class TestExhibitsAreNotAModelChoice:
             workspace=str(tmp_path / "ws"), project_root=tmp_path, proxy=None
         )
         res = await t.execute({
-            "subject": "McLuck", "company_id": "c1", "save": False,
+            "subject": "Brand K", "company_id": "c1", "save": False,
             "deck": False, "expand_sources": False, "screenshots": False,
         })
         assert res.success, res.error
@@ -960,7 +960,7 @@ class TestTheReceiptsFourFindings:
         # Both hold scores on 100% of the model weight — but Deep's evidence
         # covers 90% of what those dimensions ask and Shallow's covers 30%.
         # Being SCORED on a dimension is not being MEASURED to depth on it
-        # (LuckyLand 2026-08-16: scores on 70% of weight, 27% coverage,
+        # (Brand H 2026-08-16: scores on 70% of weight, 27% coverage,
         # ranked #14 in a 'non-comparable' field). Judge on coverage.
         card = build_scorecard(
             [a, b], dims,
@@ -1062,7 +1062,7 @@ class TestExhibitPageRanking:
 class TestConsentDismissal:
     """The browser playbook's own recipe (click_text 'Accept All' / 'Accept'),
     reading the tool's answer properly: browser_click_text reports success
-    even when it fell through to 'Home' (High 5, 2026-08-16)."""
+    even when it fell through to 'Home' (Brand G, 2026-08-16)."""
 
     @pytest.mark.asyncio
     async def test_only_a_click_that_landed_on_the_label_counts(self) -> None:
@@ -1096,7 +1096,7 @@ class TestConsentDismissal:
 
     @pytest.mark.asyncio
     async def test_a_late_modal_gets_one_more_look(self) -> None:
-        """Pulsz Bingo, 2026-08-16: nothing to click at t=0, modal on screen
+        """Brand B, 2026-08-16: nothing to click at t=0, modal on screen
         by the capture. A miss on the first look waits and looks again once."""
         from core.watch_observe import dismiss_consent
 
@@ -1132,24 +1132,24 @@ class TestConsentDismissal:
 
 class TestMarketEvents:
     """A competitor closing must reach the executive summary and the
-    market-moves slide even in a baseline pack (LuckyLand, 2026-08-16)."""
+    market-moves slide even in a baseline pack (Brand H, 2026-08-16)."""
 
     def test_closure_claim_is_an_event_and_ordinary_claims_are_not(self) -> None:
         from core.watch_deck import market_events
 
         ev = [
-            {"subject": "LuckyLand Slots", "claim": "LuckyLand Slots is closing on September 14, 2026.",
+            {"subject": "Brand H", "claim": "Brand H is closing on September 14, 2026.",
              "value_text": "2026-09-14", "observed_at": "2026-08-16T10:04:48+00:00",
-             "source_url": "https://www.luckylandslots.com"},
-            {"subject": "LuckyLand Slots", "claim": "LuckyLand Slots is closing on September 14, 2026, with its games remaining available on LuckyLand Casino.",
+             "source_url": "https://www.brand-h.example"},
+            {"subject": "Brand H", "claim": "Brand H is closing on September 14, 2026, with its games remaining available on Brand H Casino.",
              "observed_at": "2026-08-16T10:03:54+00:00"},
-            {"subject": "Pulsz", "claim": "New players can claim a Welcome Bundle with 200% or more extra Gold Coins."},
-            {"subject": "Modo", "claim": "Modo Casino is now available in Florida after launching in the state.",
+            {"subject": "Brand A", "claim": "New players can claim a Welcome Bundle with 200% or more extra Gold Coins."},
+            {"subject": "Brand L", "claim": "Brand L is now available in Florida after launching in the state.",
              "observed_at": "2026-08-16"},
         ]
         got = market_events(ev)
-        # two phrasings of the LuckyLand closure are ONE event
-        assert [e["brand"] for e in got] == ["LuckyLand Slots", "Modo"]
+        # two phrasings of the Brand H closure are ONE event
+        assert [e["brand"] for e in got] == ["Brand H", "Brand L"]
         assert got[0]["observed_at"] == "2026-08-16" and "closing" in got[0]["claim"]
 
     def test_events_render_on_summary_and_market_moves(self, tmp_path) -> None:
@@ -1161,12 +1161,12 @@ class TestMarketEvents:
             "rows": [
                 {"name": "Us", "is_self": True, "rank": 1,
                  "overall": {"normalized_pct": 60.0, "coverage_pct": 70.0}, "dimensions": {}},
-                {"name": "LuckyLand Slots", "is_self": False, "rank": 2,
+                {"name": "Brand H", "is_self": False, "rank": 2,
                  "overall": {"normalized_pct": 40.0, "coverage_pct": 65.0}, "dimensions": {}},
             ],
             "dimensions": [],
         }
-        events = [{"brand": "LuckyLand Slots", "claim": "LuckyLand Slots is closing on September 14, 2026.",
+        events = [{"brand": "Brand H", "claim": "Brand H is closing on September 14, 2026.",
                    "when": "", "observed_at": "2026-08-16", "url": ""}]
         out = tmp_path / "d.pptx"
         render_executive_deck(
@@ -1177,21 +1177,21 @@ class TestMarketEvents:
         texts = ["\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame) for sl in prs.slides]
         assert "MARKET EVENT" in texts[2] and "closing on September 14, 2026" in texts[2]   # summary follows the guide
         moves = next(t for t in texts if "Market moves" in t or "MARKET MOVES" in t.upper())
-        assert "1 market event on record" in moves and "LuckyLand Slots" in moves
+        assert "1 market event on record" in moves and "Brand H" in moves
 
 
 class TestOfferFacts:
     def test_headline_welcome_is_the_most_specific_claim_not_the_newest(self) -> None:
         from tools.watch.tools import _offer_facts
 
-        card = {"rows": [{"name": "Pulsz Bingo", "is_self": True, "rank": None,
+        card = {"rows": [{"name": "Brand B", "is_self": True, "rank": None,
                           "overall": {"normalized_pct": 60.0}}]}
         ev = [  # newest first — boilerplate is newest
-            {"subject": "Pulsz Bingo", "dimension": "Promotional proposition and generosity",
+            {"subject": "Brand B", "dimension": "Promotional proposition and generosity",
              "claim": "No purchase is necessary to play.", "source_url": "u1", "observed_at": "t1"},
-            {"subject": "Pulsz Bingo", "dimension": "Promotional proposition and generosity",
+            {"subject": "Brand B", "dimension": "Promotional proposition and generosity",
              "claim": "New users can sign up for 5,000 free Gold Coins.", "source_url": "u2", "observed_at": "t2"},
-            {"subject": "Pulsz Bingo", "dimension": "Promotional proposition and generosity",
+            {"subject": "Brand B", "dimension": "Promotional proposition and generosity",
              "claim": "The site offers daily free rewards.", "source_url": "u3", "observed_at": "t3"},
         ]
         row = _offer_facts(card, ev, {})[0]
@@ -1248,8 +1248,8 @@ class TestCustomerStateProvenance:
     ) -> None:
         res = await _analyze(
             wm, monkeypatch, vault_key="sk-test",
-            search_results=[{"url": "https://reviews.example/mcluck",
-                             "title": "McLuck review", "snippet": ""}],
+            search_results=[{"url": "https://reviews.example/brand-k",
+                             "title": "Brand K review", "snippet": ""}],
             customer_state="registered",
         )
         assert res.success, res.error
@@ -1277,7 +1277,7 @@ class TestCustomerStateProvenance:
         t._watch_manager = wm
         t._router = _Router()  # past the "needs a model" guard
         bad = await t.execute({
-            "subject": "McLuck", "company_id": "c1",
+            "subject": "Brand K", "company_id": "c1",
             "dimension": "Game portfolio", "customer_state": "whale",
         })
         assert not bad.success and "invalid customer_state" in bad.error

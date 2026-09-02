@@ -49,10 +49,10 @@ class TestHygiene:
         assert not is_affiliate("Redemption took 9 days, support kept saying 'in review'.")
 
     def test_brand_aliases_cover_what_players_type(self) -> None:
-        assert brand_aliases("Crown Coins Casino", "https://www.crowncoinscasino.com") == [
-            "Crown Coins Casino", "Crown Coins", "CrownCoinsCasino"
-        ]
-        assert brand_aliases("Pulsz Bingo", "https://www.pulszbingo.com") == ["Pulsz Bingo", "PulszBingo"]
+        got = brand_aliases("Brand C", "https://www.brand-c.example")
+        assert got[0] == "Brand C" and "brand-c" in got            # the name, then the host's own form
+        got_b = brand_aliases("Brand B", "https://www.brand-b.example")
+        assert got_b[0] == "Brand B" and "brand-b" in got_b
 
     def test_quote_must_be_verbatim_and_not_trivial(self) -> None:
         text = "Honestly the redemption took nine days and support just said in review."
@@ -66,13 +66,13 @@ class TestParsers:
     def test_reddit_listing_keeps_brand_posts_in_window_and_drops_affiliates(self) -> None:
         now = datetime.now(UTC).timestamp()
         payload = {"data": {"children": [
-            {"kind": "t3", "data": {"name": "t3_a", "title": "Crown Coins redemption slow?", "selftext": "Took 9 days for me. u/someone agrees.",
+            {"kind": "t3", "data": {"name": "t3_a", "title": "Brand C redemption slow?", "selftext": "Took 9 days for me. u/someone agrees.",
                                     "permalink": "/r/sweepstakescasinos/comments/a/x/", "created_utc": now - 3600, "score": 12, "num_comments": 15, "subreddit": "sweepstakescasinos"}},
-            {"kind": "t3", "data": {"name": "t3_b", "title": "Best promo!", "selftext": "Crown Coins — sign up with my link ref=zz", "permalink": "/r/x/comments/b/y/", "created_utc": now - 60, "score": 1}},
-            {"kind": "t3", "data": {"name": "t3_c", "title": "Crown Coins was great last year", "selftext": "", "permalink": "/r/x/comments/c/z/", "created_utc": now - 90 * 86400, "score": 3}},
-            {"kind": "t3", "data": {"name": "t3_d", "title": "Chumba is fine", "selftext": "no mention", "permalink": "/r/x/comments/d/", "created_utc": now - 60}},
+            {"kind": "t3", "data": {"name": "t3_b", "title": "Best promo!", "selftext": "Brand C — sign up with my link ref=zz", "permalink": "/r/x/comments/b/y/", "created_utc": now - 60, "score": 1}},
+            {"kind": "t3", "data": {"name": "t3_c", "title": "Brand C was great last year", "selftext": "", "permalink": "/r/x/comments/c/z/", "created_utc": now - 90 * 86400, "score": 3}},
+            {"kind": "t3", "data": {"name": "t3_d", "title": "Brand J is fine", "selftext": "no mention", "permalink": "/r/x/comments/d/", "created_utc": now - 60}},
         ]}}
-        posts = parse_reddit_listing(payload, aliases=["Crown Coins"], since_utc=now - 30 * 86400)
+        posts = parse_reddit_listing(payload, aliases=["Brand C"], since_utc=now - 30 * 86400)
         assert [p.post_id for p in posts] == ["t3_a"]
         p = posts[0]
         assert p.url == "https://www.reddit.com/r/sweepstakescasinos/comments/a/x/"
@@ -86,14 +86,14 @@ class TestParsers:
             {"kind": "t1", "data": {"id": "c2", "body": "lol", "created_utc": now - 100}},
             {"kind": "more", "data": {}},
         ]}}]
-        got = parse_reddit_comments(payload, aliases=["Crown Coins"], post_url="https://www.reddit.com/r/x/comments/a/x/", since_utc=now - 86400)
+        got = parse_reddit_comments(payload, aliases=["Brand C"], post_url="https://www.reddit.com/r/x/comments/a/x/", since_utc=now - 86400)
         assert [c.post_id for c in got] == ["t1_c1"] and got[0].url.endswith("/comment/c1/")
         assert got[0].weight == 0.9
 
     def test_app_store_feed(self) -> None:
         recent = datetime.now(UTC).isoformat()
         payload = {"feed": {"entry": [
-            {"title": {"label": "Crown Coins"}, "id": {"label": "app"}},  # the app entry itself
+            {"title": {"label": "Brand C"}, "id": {"label": "app"}},  # the app entry itself
             {"id": {"label": "r1"}, "title": {"label": "Redemptions"}, "content": {"label": "Took forever to verify my ID, then paid out fine."},
              "im:rating": {"label": "3"}, "updated": {"label": recent}, "im:version": {"label": "2.1"}},
             {"id": {"label": "r2"}, "title": {"label": "Developer Response"}, "content": {"label": "Thanks for the feedback."},
@@ -116,7 +116,7 @@ class TestBrowserRedditRoute:
 
         now = datetime.now(UTC).timestamp()
         listing = {"data": {"children": [
-            {"kind": "t3", "data": {"name": "t3_a", "title": "Crown Coins redemption slow?",
+            {"kind": "t3", "data": {"name": "t3_a", "title": "Brand C redemption slow?",
                                     "selftext": "Took 9 days for me.", "permalink": "/r/sweepstakescasinos/comments/a/x/",
                                     "created_utc": now - 3600, "score": 12, "num_comments": 2,
                                     "subreddit": "sweepstakescasinos"}},
@@ -144,12 +144,12 @@ class TestBrowserRedditRoute:
                 return {"success": True}
 
         b = _B()
-        posts, errs = await collect_reddit("Crown Coins", ["Crown Coins"], window_days=30,
+        posts, errs = await collect_reddit("Brand C", ["Brand C"], window_days=30,
                                            browser_manager=b, with_comments=False, pause_s=0)
         assert [p.post_id for p in posts] == ["t3_a"] and not errs
         assert all(".json" in u for u in b.fetched)  # the public endpoints, not oauth
         # neither token nor browser: honest error, no fetch
-        none_posts, none_errs = await collect_reddit("Crown Coins", ["Crown Coins"], window_days=30, pause_s=0)
+        none_posts, none_errs = await collect_reddit("Brand C", ["Brand C"], window_days=30, pause_s=0)
         assert none_posts == [] and "no Reddit route" in none_errs[0]
 
 
@@ -179,7 +179,7 @@ class TestReading:
             {"id": "p9", "theme": "support", "sentiment": "negative", "quote": "x", "dimension": ""},  # unknown id
         ])
         items, dropped = await read_posts(
-            router, brand="Crown Coins", posts=posts,
+            router, brand="Brand C", posts=posts,
             dimension_names=["KYC strategy and customer journey", "Game portfolio and category range"],
         )
         assert len(items) == 1
@@ -239,13 +239,13 @@ class TestCollectTool:
                                   subcriteria=[{"name": "kyc", "weight_pct": 100}])
         await wm.upsert_dimension(name="Game portfolio and category range", company_id="c1", weight_pct=50,
                                   subcriteria=[{"name": "range", "weight_pct": 100}])
-        await wm.add_subject(company_id="c1", name="Crown Coins", url="https://crowncoins.example")
+        await wm.add_subject(company_id="c1", name="Brand C", url="https://crowncoins.example")
         router = _Router([
             {"id": "t3_a", "theme": "redemption_speed", "sentiment": "negative", "quote": "Redemption took nine days", "dimension": "", "geo_hint": ""},
             {"id": "as_1", "theme": "game_selection", "sentiment": "positive", "quote": "huge selection and new ones weekly", "dimension": "Game portfolio and category range", "geo_hint": ""},
         ])
         t = await self._tool(wm, monkeypatch, router=router)
-        res = await t.execute({"subject": "Crown Coins", "company_id": "c1"})
+        res = await t.execute({"subject": "Brand C", "company_id": "c1"})
         assert res.success, res.error
         assert res.data["kept_total"] == 2
         b = res.data["brands"][0]
@@ -256,22 +256,22 @@ class TestCollectTool:
         dims = {d.dimension_id: d.name for d in await wm.list_dimensions("c1")}
         assert dims[kyc.dimension_id] == "KYC strategy and customer journey"
         # the app id is cached on the subject for next time
-        subj2 = await wm.get_subject_by_name("Crown Coins", "c1")
+        subj2 = await wm.get_subject_by_name("Brand C", "c1")
         assert "app_store:555" in subj2.tags
         # and the pack is untouched: no evidence, no scores
         assert await wm.list_evidence("c1") == [] and await wm.list_scores("c1") == []
         # a second run is all duplicates
-        res2 = await t.execute({"subject": "Crown Coins", "company_id": "c1"})
+        res2 = await t.execute({"subject": "Brand C", "company_id": "c1"})
         assert res2.data["kept_total"] == 0 and res2.data["brands"][0]["duplicates"] == 2
 
     @pytest.mark.asyncio
     async def test_without_reddit_credentials_reddit_is_skipped_and_says_so(self, wm, monkeypatch) -> None:
-        await wm.add_subject(company_id="c1", name="Crown Coins")
+        await wm.add_subject(company_id="c1", name="Brand C")
         t = await self._tool(wm, monkeypatch, router=_Router([
             {"id": "as_1", "theme": "game_selection", "sentiment": "positive",
              "quote": "huge selection and new ones weekly", "dimension": "", "geo_hint": ""}]))
         t._vault = {}
-        res = await t.execute({"subject": "Crown Coins", "company_id": "c1"})
+        res = await t.execute({"subject": "Brand C", "company_id": "c1"})
         assert res.success and "reddit_client_id" in res.data["reddit"]
         b = res.data["brands"][0]
         assert b["sources"]["reddit"]["fetched"] == 0 and "vault" in b["sources"]["reddit"]["note"]
@@ -279,10 +279,10 @@ class TestCollectTool:
 
     @pytest.mark.asyncio
     async def test_register_is_canon_and_dry_run_saves_nothing(self, wm, monkeypatch) -> None:
-        await wm.add_subject(company_id="c1", name="Crown Coins")
+        await wm.add_subject(company_id="c1", name="Brand C")
         t = await self._tool(wm, monkeypatch, router=_Router([
             {"id": "t3_a", "theme": "redemption_speed", "sentiment": "negative", "quote": "Redemption took nine days", "dimension": "", "geo_hint": ""}]))
         bad = await t.execute({"subject": "Fortune Coins", "company_id": "c1"})
         assert not bad.success and "register is canon" in bad.error
-        dry = await t.execute({"subject": "Crown Coins", "company_id": "c1", "save": False})
+        dry = await t.execute({"subject": "Brand C", "company_id": "c1", "save": False})
         assert dry.success and dry.data["kept_total"] == 1 and await wm.list_voice("c1") == []

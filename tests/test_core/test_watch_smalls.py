@@ -20,13 +20,13 @@ class TestCategoriesAndCalendar:
         assert message_category("Halloween slot race with $10k jackpot drop") == "tournament_race"
         assert message_category("Terms apply") == "other"
         ev = [
-            {"subject": "Crown", "dimension": "Promotional proposition and generosity", "claim": "Welcome bundle 200%", "observed_at": "2026-08-17"},
-            {"subject": "Crown", "dimension": "Promotional proposition and generosity", "claim": "Daily login bonus", "observed_at": "2026-08-17"},
-            {"subject": "Crown", "dimension": "Game portfolio", "claim": "New slots weekly", "observed_at": "2026-08-17"},
-            {"subject": "Spree", "dimension": "Loyalty programme", "claim": "VIP tiers with points", "observed_at": "2026-07-01"},
+            {"subject": "Brand C", "dimension": "Promotional proposition and generosity", "claim": "Welcome bundle 200%", "observed_at": "2026-08-17"},
+            {"subject": "Brand C", "dimension": "Promotional proposition and generosity", "claim": "Daily login bonus", "observed_at": "2026-08-17"},
+            {"subject": "Brand C", "dimension": "Game portfolio", "claim": "New slots weekly", "observed_at": "2026-08-17"},
+            {"subject": "Brand N", "dimension": "Loyalty programme", "claim": "VIP tiers with points", "observed_at": "2026-07-01"},
         ]
         mc = message_categories(ev, since="2026-08-01")
-        assert mc["brands"] == {"Crown": {"welcome_offer": 1, "daily_login": 1}}
+        assert mc["brands"] == {"Brand C": {"welcome_offer": 1, "daily_login": 1}}
         assert message_categories(ev)["field"]["vip_loyalty"] == 1
 
     def test_demand_calendar_is_computed_and_events_are_supplied(self) -> None:
@@ -57,7 +57,7 @@ class TestAppMetaAndTrends:
         from core.watch_brief import brief_facts, build_weekly_brief
 
         await wm.upsert_dimension(name="Promo", company_id="c1", weight_pct=100, subcriteria=[{"name": "w", "weight_pct": 100}])
-        cc = await wm.add_subject(company_id="c1", name="Crown")
+        cc = await wm.add_subject(company_id="c1", name="Brand C")
         await wm.add_app_meta(company_id="c1", subject_id=cc.subject_id, store="app_store", app_id="1", version="3.1", rating=4.5, rating_count=100)
         await wm.add_app_meta(company_id="c1", subject_id=cc.subject_id, store="app_store", app_id="1", version="3.2", rating=4.4,
                               rating_count=120, release_notes="Bug fixes and a new lobby")
@@ -65,7 +65,7 @@ class TestAppMetaAndTrends:
         m = latest[cc.subject_id]
         assert m["version"] == "3.2" and m["previous_version"] == "3.1"
         brief = await build_weekly_brief(wm, "c1")
-        assert brief["releases"] == [{"brand": "Crown", "version": "3.2", "was": "3.1", "notes": "Bug fixes and a new lobby", "rating": 4.4}]
+        assert brief["releases"] == [{"brand": "Brand C", "version": "3.2", "was": "3.1", "notes": "Bug fixes and a new lobby", "rating": 4.4}]
         assert any("shipped app v3.2 (was 3.1)" in c for c in brief_facts(brief)["changed"])
         assert brief["calendar_next"]  # the next two weeks always have paydays / benefit dates
 

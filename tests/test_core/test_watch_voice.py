@@ -45,7 +45,7 @@ def _row(subject, theme, sentiment, quote, *, days_ago=1, weight=1.0, rating=Non
 def _subjects():
     return [
         WatchSubject(subject_id="us", company_id="c1", name="Us", is_self=True),
-        WatchSubject(subject_id="cc", company_id="c1", name="Crown", is_self=False),
+        WatchSubject(subject_id="cc", company_id="c1", name="Brand C", is_self=False),
         WatchSubject(subject_id="sb", company_id="c1", name="Spin", is_self=False),
     ]
 
@@ -53,7 +53,7 @@ def _subjects():
 class TestManager:
     @pytest.mark.asyncio
     async def test_add_list_and_dedupe_never_touch_evidence(self, wm) -> None:
-        subj = await wm.add_subject(company_id="c1", name="Crown", url="https://c.example")
+        subj = await wm.add_subject(company_id="c1", name="Brand C", url="https://c.example")
         r1 = await wm.add_voice(
             company_id="c1", subject_id=subj.subject_id, source="reddit",
             theme="redemption_speed", sentiment="negative",
@@ -77,7 +77,7 @@ class TestManager:
 
     @pytest.mark.asyncio
     async def test_vocabularies_are_enforced(self, wm) -> None:
-        subj = await wm.add_subject(company_id="c1", name="Crown")
+        subj = await wm.add_subject(company_id="c1", name="Brand C")
         with pytest.raises(ValueError):
             await wm.add_voice(company_id="c1", subject_id=subj.subject_id, source="tiktok",
                                theme="support", sentiment="negative", quote="q")
@@ -90,7 +90,7 @@ class TestManager:
 
     @pytest.mark.asyncio
     async def test_snapshot_carries_voice_only_when_present_and_diffs_by_theme(self, wm) -> None:
-        subj = await wm.add_subject(company_id="c1", name="Crown")
+        subj = await wm.add_subject(company_id="c1", name="Brand C")
         # no voice yet: snapshot payload has no 'voice' key — the pack is unchanged
         sid0 = await wm.take_snapshot("c1", label="before")
         assert "voice" not in (await wm.get_snapshot(sid0))
@@ -113,8 +113,8 @@ class TestManager:
         d = await wm.diff_voice_since_snapshot("c1")
         assert d["baseline"] is False and d["against_snapshot"] == sid1
         themes = {(c["brand"], c["theme"]): c for c in d["changed"]}
-        assert themes[("Crown", "redemption_speed")]["direction"] == "falling"
-        assert themes[("Crown", "game_selection")]["direction"] == "rising"
+        assert themes[("Brand C", "redemption_speed")]["direction"] == "falling"
+        assert themes[("Brand C", "game_selection")]["direction"] == "rising"
 
 
 class TestSummary:
@@ -127,7 +127,7 @@ class TestSummary:
         by = {b["name"]: b for b in s["brands"]}
         assert s["mentions"] == 21 and by["Us"]["n"] == 0 and by["Us"]["too_few"]
         assert by["Spin"]["n"] == 1 and by["Spin"]["too_few"]
-        crown = by["Crown"]
+        crown = by["Brand C"]
         assert not crown["too_few"] and crown["n"] == 20
         assert crown["themes"]["redemption_speed"]["share"] == 0.6
         assert crown["themes"]["redemption_speed"]["neg_share"] == 1.0
@@ -140,16 +140,16 @@ class TestSummary:
         rows = [_row("cc", "kyc_friction", "negative", f"kyc hell {i}", weight=0.0, dim="d-kyc") for i in range(5)]
         rows += [_row("cc", "promo_value", "positive", "nice promos", weight=1.0)]
         s = summarize_voice(rows, _subjects(), min_mentions=1)
-        crown = next(b for b in s["brands"] if b["name"] == "Crown")
+        crown = next(b for b in s["brands"] if b["name"] == "Brand C")
         # zero-weight (affiliate) rows are counted in n but carry no share
         assert crown["n"] == 6 and crown["themes"]["kyc_friction"]["share"] == 0.0
         assert crown["themes"]["promo_value"]["share"] == 1.0
         assert crown["flags"] == ["d-kyc"]
 
     def test_diff_needs_min_n_and_reports_direction(self) -> None:
-        old = {"mentions": 10, "brands": [{"name": "Crown", "themes": {
+        old = {"mentions": 10, "brands": [{"name": "Brand C", "themes": {
             "support": {"n": 10, "share": 0.5, "neg_share": 0.5}}}]}
-        new = {"mentions": 20, "brands": [{"name": "Crown", "is_self": False, "themes": {
+        new = {"mentions": 20, "brands": [{"name": "Brand C", "is_self": False, "themes": {
             "support": {"n": 10, "share": 0.5, "neg_share": 0.9},   # neg share up 0.4
             "payments": {"n": 3, "share": 0.4, "neg_share": 1.0},   # too few to report
         }}]}

@@ -25,8 +25,8 @@ CRITERIA = (
 
 def test_count_in_a_tool_output_grounds_the_criteria() -> None:
     trail = [
-        {"tool": "watch_analyze", "status": "ok", "summary": "analyze Chumba",
-         "data": {"subject": "Chumba Casino"}},
+        {"tool": "watch_analyze", "status": "ok", "summary": "analyze Brand J",
+         "data": {"subject": "Brand J"}},
         {"tool": "watch_list", "status": "ok", "summary": "list subjects",
          "data": {}, "output": "{'success': True, 'count': 14, 'subjects': [...]}"},
     ]
@@ -35,8 +35,8 @@ def test_count_in_a_tool_output_grounds_the_criteria() -> None:
 
 def test_the_same_trail_without_outputs_still_fails_closed() -> None:
     trail = [
-        {"tool": "watch_analyze", "status": "ok", "summary": "analyze Chumba",
-         "data": {"subject": "Chumba Casino"}},
+        {"tool": "watch_analyze", "status": "ok", "summary": "analyze Brand J",
+         "data": {"subject": "Brand J"}},
         {"tool": "watch_list", "status": "ok", "summary": "list subjects", "data": {}},
     ]
     v = verify_checkpoint_receipt(CRITERIA, tool_trace=trail)

@@ -6,7 +6,7 @@ same code path the agent runs through ``watch_login``, so what this
 reports is what the agent will do unattended.
 
     python3 scripts/check_site_logins.py                      # every brand
-    python3 scripts/check_site_logins.py --only pulsz.com     # one or more
+    python3 scripts/check_site_logins.py --only brand-a.example     # one or more
     python3 scripts/check_site_logins.py --assist 90          # clear puzzles by hand
     python3 scripts/check_site_logins.py --no-proxy           # direct
 

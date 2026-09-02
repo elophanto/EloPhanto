@@ -115,7 +115,7 @@ disagree.
 
 The whole pipeline behind a single sentence:
 
-> *"Do a full competitor analysis on High 5 Casino and save the results."*
+> *"Do a full competitor analysis on Brand G and save the results."*
 
 `watch_analyze` reads the brand's landing page plus the sub-pages that actually
 carry facts (terms, promotions, payments — discovered from the homepage), files
@@ -241,7 +241,7 @@ and shown as a MARKET EVENT strip under the executive-summary headline and
 on the market-moves slide — in a baseline pack too, which has no diff to
 surface them through. The narrator is told they are the most material
 facts in the room and to reflect them in the headline, recommendation and
-actions (LuckyLand, 2026-08-16: "closing September 14, 2026" became the
+actions (Brand H, 2026-08-16: "closing September 14, 2026" became the
 pack's headline instead of an appendix row). The offers table's headline
 welcome offer is the most *specific* welcome claim on record — quantity and
 sign-up wording win, "no purchase is necessary" boilerplate loses — not the
@@ -482,11 +482,11 @@ The register models both, and always records *who* observed a fact.
 watch_dimension action=seed pack=social_casino_t1   # once, at engagement start
 watch_queue     action=schedule                     # once: weekly/monthly/quarterly jobs
 
-watch_analyze   subject="High 5 Casino"             # the whole pipeline, one call
+watch_analyze   subject="Brand G"             # the whole pipeline, one call
 
 # …or drive the stages by hand:
 watch_queue                                         # what is due now
-watch_observe   subject=McLuck dimension=… geo_state=TX   # agent, public pages
+watch_observe   subject=Brand K dimension=… geo_state=TX   # agent, public pages
 watch_evidence  action=add collector=human …        # operator, logged-in states
 watch_score     subject=… dimension=… score=4       # refused without evidence
 watch_scorecard    format=xlsx path=~/scorecard.xlsx
