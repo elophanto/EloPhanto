@@ -550,7 +550,7 @@ def rank_exhibit_pages(
 # browser_get_elements to find the consent button. Two rounds, because some
 # storefronts stack a bar and a modal (LuckyLand). Best-effort throughout —
 # a banner that will not close is still a capturable page.
-_CONSENT_LABELS = ("Accept All", "Accept all cookies", "Allow all", "Accept", "I agree", "Got it")
+_CONSENT_LABELS = ("Accept All", "Accept all cookies", "Allow all", "I Accept", "Accept", "I agree", "Got it")
 _CONSENT_WORDS = ("accept", "agree", "allow all", "got it", "consent")
 
 
