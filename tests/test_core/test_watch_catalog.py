@@ -1190,3 +1190,32 @@ class TestExtractionReadsWhereTheKindIs:
         assert focus_text("coin_package", store) == store                      # short text is whole
         tiers = "x " * 15000 + "Bronze 0-499 VIP points Silver 500 points Gold 2,000 points Platinum"
         assert "Platinum" in focus_text("loyalty_tier", tiers)
+
+
+    @pytest.mark.asyncio
+    async def test_a_shell_captured_too_early_is_asked_again(self) -> None:
+        from core.watch_catalog import _PageRecorder
+
+        class BM:
+            def __init__(self):
+                self.n = 0
+                self.calls = []
+
+            async def call_tool(self, name, params=None):
+                self.calls.append(name)
+                if name == "browser_get_html":
+                    self.n += 1
+                    if self.n <= 2:                     # the agent's call, then our first full capture: a shell
+                        return {"success": True, "html": "<div id=app></div>"}
+                    return {"success": True, "html": "<h3>" + "Money Train 2 </h3><h3>" * 300 + "</h3>"}
+                if name == "browser_eval":
+                    import json as _j
+                    return {"success": True, "resultJson": _j.dumps("https://b.example/")}
+                return {"success": True}
+
+        bm = BM()
+        rec = _PageRecorder(bm)
+        with rec:
+            await bm.call_tool("browser_get_html", {"maxLength": 500})
+        assert len(rec.pages) == 1 and "Money Train 2" in rec.pages[0]["text"]
+        assert bm.calls.count("browser_wait") == 1                 # waited once, then the page was there

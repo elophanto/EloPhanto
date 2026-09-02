@@ -186,10 +186,20 @@ class _PageRecorder:
             # The agent may ask for a short maxLength to spare its context;
             # the record needs the whole DOM (2026-09-02: four pages captured,
             # nothing extracted). Capture it ourselves, return the agent its own.
-            try:
-                full = await self._orig("browser_get_html", {"maxLength": 400000})
-            except Exception:
-                full = res
+            full = res
+            for attempt in range(3):
+                # A JS lobby asked for too early is a shell (High 5,
+                # 2026-09-02: 63 characters). Give it a moment and ask again.
+                try:
+                    full = await self._orig("browser_get_html", {"maxLength": 400000})
+                except Exception:
+                    break
+                if len(" ".join(html_to_text(_result_text(full)).split())) >= 1500 or attempt == 2:
+                    break
+                try:
+                    await self._orig("browser_wait", {"ms": 3000})
+                except Exception:
+                    break
             try:
                 here = await self._orig("browser_eval", {"expression": "location.href", "maxLength": 2000})
                 url = _result_text(here) if isinstance(here, str) else str(
