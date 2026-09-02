@@ -260,7 +260,9 @@ def _eyebrow(slide: Any, text: str, *, y: float, x: float = 0.7, color: str = _M
     # Width fits the remaining canvas — an eyebrow placed in a right-hand
     # column must not spill past the slide edge — and the text is cut at a
     # word boundary, never mid-word.
-    width = max(1.0, min(5.0, 13.333 - x - 0.73))   # a label, not a banner: it must not span a neighbour's column
+    # A label, not a banner: sized to its own text (letter-spaced small caps
+    # run ~0.115in a character), so it never spans a neighbour's column.
+    width = max(1.2, min(13.333 - x - 0.73, len(text) * 0.115 + 0.5))
     _text(
         slide,
         x,
@@ -2035,7 +2037,7 @@ def _slide_voice(
         top=top,
     )
     _text(
-        s, 0.7, 6.22, 11.9, 0.5,
+        s, 0.7, 6.6, 11.9, 0.44,
         f"How to read: n = public posts about the brand in the last {voice.get('window_days', 30)} days; a cell is "
         "the share of those posts about that theme, with the count in brackets; red = mostly negative, green = "
         f"mostly positive, grey = fewer than {voice.get('min_mentions', 15)} posts, too few to read. "
