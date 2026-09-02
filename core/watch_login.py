@@ -355,8 +355,12 @@ form appears one step at a time (e-mail first), stop as soon as the first field 
 on screen. Wait a few seconds for panels to animate.
 
 Never guess an address: you cannot navigate, and you must not try to reach a URL
-you assume exists. If nothing you can see leads to a form after a genuine try, say
-so.
+you assume exists. If a side menu, drawer or overlay opens and hides the header,
+close it (its X, or Escape) and look again — the sign-in control is usually in the
+header, not in the menu. If nothing you can see leads to a form after a genuine
+try, say so. Budget: you have about {max_steps} actions; report by action
+{report_by} at the latest, whatever the state — a report with no_form beats no
+report.
 
 Stop conditions — finish with EXACTLY these two lines and nothing after them:
 STATE: form_on_screen | already_signed_in | challenge | no_form
@@ -382,8 +386,10 @@ async def agent_opens_form(agent: Any, url: str, *, timeout: float = 240.0, max_
     excluded = {n for n in all_names if n not in AGENT_BROWSER_TOOLS}
     try:
         resp = await asyncio.wait_for(
-            agent.run_isolated(OPEN_FORM_GOAL.format(url=url), excluded_tool_names=excluded,
-                               max_steps_override=max_steps),
+            agent.run_isolated(
+                OPEN_FORM_GOAL.format(url=url, max_steps=max_steps, report_by=max(4, max_steps - 4)),
+                excluded_tool_names=excluded, max_steps_override=max_steps,
+            ),
             timeout=timeout,
         )
     except TimeoutError:
@@ -400,6 +406,10 @@ async def agent_opens_form(agent: Any, url: str, *, timeout: float = 240.0, max_
     out["state"] = (m.group(1).lower() if m else "unclear")
     out["proof"] = " ".join(p.group(1).split())[:200] if p else ""
     out["note"] = " ".join(text.split())[-300:]
+    if not m and out["steps"] >= max_steps:
+        # Ran out of actions without reporting: that is a miss, not a mystery.
+        out["state"] = "no_form"
+        out["note"] = f"used all {max_steps} actions without reaching a form; last words: {out['note'][-160:]}"
     return out
 
 
