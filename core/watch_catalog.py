@@ -194,7 +194,7 @@ class _PageRecorder:
                     json.loads((here or {}).get("resultJson") or '""')) if isinstance(here, dict) else ""
             except Exception:
                 url = ""
-            text = " ".join(html_to_text(_result_text(full)).split())[:60000]
+            text = " ".join(html_to_text(_result_text(full)).split())[:150000]
             self.pages.append({"url": url, "text": text, "chars": len(text)})
         return res
 
@@ -604,6 +604,42 @@ Return STRICT JSON — omit fields that do not apply to the kind:
 "benefit":str,"how_to_claim":str,"frequency":str,"qualification":str,"reward":str,"index":int}]}"""
 
 
+# What a kind looks like on a page, for choosing the window the model
+# reads when the page is longer than the window. A store opened as a
+# modal sits at the END of the DOM, behind the whole lobby (Pulsz,
+# 2026-09-02: 60,000 characters captured, the first 22,000 read, no
+# packages found).
+_FOCUS_MARKS: dict[str, re.Pattern[str]] = {
+    "coin_package": re.compile(r"\$\s?\d[\d,]*(?:\.\d{2})?|\b\d[\d,]{2,}\s*(?:GC|SC|gold coins|sweeps coins)\b", re.I),
+    "loyalty_tier": re.compile(r"\b(?:bronze|silver|gold|platinum|diamond|emerald|ruby|sapphire|elite|royal|"
+                               r"tier|level|status)\b", re.I),
+    "promotion": re.compile(r"\b(?:bonus|offer|promo|promotion|reward|free spins?|daily|weekly)\b", re.I),
+    "provider": re.compile(r"\b(?:provider|studio|gaming|games|play)\b", re.I),
+    "game": re.compile(r"\b(?:slots?|jackpot|hold and win|megaways|bonanza|fortune|gold|wild)\b", re.I),
+}
+
+
+def focus_text(kind: str, text: str, limit: int = 22000, step: int = 2000) -> str:
+    """The ``limit`` characters of ``text`` densest in the marks of ``kind``,
+    so a long capture is read where the kind actually is. Short text is
+    returned whole; a page with no marks reads from the top."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    rx = _FOCUS_MARKS.get(kind)
+    if rx is None:
+        return text[:limit]
+    positions = [m.start() for m in rx.finditer(text)]
+    if not positions:
+        return text[:limit]
+    best_start, best_n = 0, -1
+    for start in range(0, max(1, len(text) - limit + 1), step):
+        n = sum(1 for p in positions if start <= p < start + limit)
+        if n > best_n:
+            best_start, best_n = start, n
+    return text[best_start:best_start + limit]
+
+
 async def extract_catalog(
     router: Any,
     *,
@@ -617,7 +653,7 @@ async def extract_catalog(
     if router is None or kind not in CATALOG_KINDS or not page_text.strip():
         return []
     user = json.dumps(
-        {"brand": brand, "kind": kind, "max_items": max_items, "page_text": page_text[:22000]}
+        {"brand": brand, "kind": kind, "max_items": max_items, "page_text": focus_text(kind, page_text)}
     )
     try:
         resp = await router.complete(

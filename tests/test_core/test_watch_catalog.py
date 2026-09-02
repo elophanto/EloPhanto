@@ -1173,3 +1173,20 @@ class TestTheAgentReadsTheLobby:
         by_kind = rank_catalog_pages(pages)
         assert set(by_kind) == {"provider", "coin_package", "promotion", "loyalty_tier", "game"}
         assert all(b[0]["url"] == "https://www.pulsz.com/" for b in by_kind.values())
+
+
+class TestExtractionReadsWhereTheKindIs:
+    def test_a_store_modal_at_the_end_of_a_long_page_is_the_window_read(self) -> None:
+        """Pulsz, 2026-09-02: the store opens as a modal at the END of the
+        DOM; 60,000 characters captured, the first 22,000 read, no packages."""
+        from core.watch_catalog import focus_text
+
+        lobby = ("Money Train 2 Scarab Surge Gold Nugget Rush " * 900)          # ~40k chars of grid
+        store = "Get Coins $1.99 30,000 GC $4.99 79,500 GC + 5 SC $9.99 173,500 GC + 10 SC"
+        page = lobby + store
+        window = focus_text("coin_package", page)
+        assert len(window) <= 22000 and "$4.99 79,500 GC" in window and window.endswith("10 SC")
+        assert focus_text("game", page).startswith("Money Train 2")            # games: the grid, from the top
+        assert focus_text("coin_package", store) == store                      # short text is whole
+        tiers = "x " * 15000 + "Bronze 0-499 VIP points Silver 500 points Gold 2,000 points Platinum"
+        assert "Platinum" in focus_text("loyalty_tier", tiers)
