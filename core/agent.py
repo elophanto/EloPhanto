@@ -2667,6 +2667,11 @@ class Agent:
             # or blocks plain HTTP — which is most modern consumer sites.
             if hasattr(tool, "_browser_manager"):
                 tool._browser_manager = self._browser_manager
+            # Sign-in and the signed-in read hand the browser work to the
+            # agent itself (run_isolated) — the code only keeps the rules
+            # (docs/90). Without this the tools fall back to the script.
+            if hasattr(tool, "_agent"):
+                tool._agent = self
 
     def _network_scope(self) -> dict[str, Any] | None:
         """What the proxy covers, for <runtime_state>. None when unconfigured."""

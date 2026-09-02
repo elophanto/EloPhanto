@@ -100,3 +100,20 @@ class TestOutputsLandInTheWorkspace:
                 except Exception:
                     continue
                 assert "Desktop" not in schema, name
+
+
+def test_the_agent_hands_itself_to_the_tools_that_delegate_browser_work() -> None:
+    """docs/90: watch_login and the registered read hand the browser work
+    to the agent (run_isolated). Without the injection they silently fall
+    back to the script — so the injection is pinned like the vault's."""
+    import inspect as _inspect
+
+    from core import agent as agent_mod
+
+    source = _inspect.getsource(agent_mod.Agent._inject_company_deps)
+    watch_block = source[source.index('"watch_login"'):]
+    assert 'if hasattr(tool, "_agent"):' in watch_block and "tool._agent = self" in watch_block
+    needs = {t.name for t in create_watch_tools() if hasattr(t, "_agent")}
+    assert {"watch_login", "watch_catalog_collect"} <= needs
+    wired = set(re.findall(r'"(watch_[a-z_]+)"', source))
+    assert needs <= wired, f"declare an agent but never receive one: {sorted(needs - wired)}"
