@@ -552,3 +552,114 @@ class TestTheBrowserDrivesTheLogin:
 
         src = inspect.getsource(wl)
         assert '+ "/login"' not in src and "/signin" not in src and "/sign-in" not in src
+
+
+class _Agent:
+    """A stand-in for Agent.run_isolated: records the goal and the tools it
+    was allowed, then plays the report it was given. It also lets a test
+    drive the fake browser as the subagent would (``on_run``)."""
+
+    def __init__(self, report: str, *, tools: list[str] | None = None, on_run=None) -> None:
+        self.report, self.goals, self.excluded = report, [], []
+        self.on_run = on_run
+        names = tools or ["browser_navigate", "browser_click", "browser_get_elements", "browser_screenshot",
+                          "browser_type_text", "browser_eval", "browser_get_cookies", "vault_lookup",
+                          "file_write", "shell_exec", "browser_wait", "browser_get_html", "browser_scroll"]
+        from types import SimpleNamespace
+        self._registry = SimpleNamespace(all_tools=lambda: [SimpleNamespace(name=n) for n in names])
+
+    async def run_isolated(self, goal, *, excluded_tool_names=None, max_steps_override=None):
+        from types import SimpleNamespace
+
+        self.goals.append(goal)
+        self.excluded.append(set(excluded_tool_names or ()))
+        if self.on_run:
+            await self.on_run()
+        return SimpleNamespace(content=self.report, steps_taken=4, tool_calls_made=["browser_get_elements", "browser_click"])
+
+
+class TestTheAgentDrivesTheLogin:
+    """docs/90: the agent gets the form on screen with browser tools only —
+    no navigation tool, no typing tool, no secrets in its goal — and the
+    code keeps the rules: it types the credentials, it judges with proof."""
+
+    @pytest.mark.asyncio
+    async def test_the_agent_opens_the_form_and_the_code_types_the_secret(self) -> None:
+        from core.watch_login import login_to_site
+
+        home = {"text": "Join Now Login New Games", "password": False, "clickable": ["Login"],
+                "click_to": {"Login": "https://b.example/#form"}}
+        form = {"text": "Email Password Log In", "password": True, "clickable": ["Log In"],
+                "click_to": {"Log In": "https://b.example/lobby"}}
+        lobby = {"text": "GC 5,000 SC 2.00 My account Log out Redeem", "password": False, "clickable": []}
+        b = _Browser(pages={"https://b.example/": home, "https://b.example/#form": form,
+                            "https://b.example/lobby": lobby}, start="https://b.example/")
+
+        async def agent_clicks_login():          # what the subagent does in Chrome
+            await b.call_tool("browser_click_text", {"text": "Login", "exact": True})
+
+        agent = _Agent("I clicked the header button.\nSTATE: form_on_screen\nPROOF: Password", on_run=agent_clicks_login)
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u@x.com",
+                                      "password": "s3cret"}, agent=agent)
+        assert res["verdict"] == "logged_in", res
+        assert res["agent"]["state"] == "form_on_screen" and res["agent"]["proof"] == "Password"
+        # the agent's goal carries no secret and the agent could not navigate, type or read cookies
+        assert "s3cret" not in agent.goals[0] and "u@x.com" not in agent.goals[0]
+        assert {"browser_navigate", "browser_type_text", "browser_eval", "browser_get_cookies",
+                "vault_lookup", "file_write", "shell_exec"} <= agent.excluded[0]
+        assert "browser_click" not in agent.excluded[0] and "browser_get_elements" not in agent.excluded[0]
+        assert b.typed == ["u@x.com", "s3cret"]                       # the code typed, once each
+
+    @pytest.mark.asyncio
+    async def test_the_agent_reporting_a_session_is_checked_with_proof(self) -> None:
+        from core.watch_login import login_to_site
+
+        lobby = {"text": "Search games Get Coins Redeem Pulsz Points: 0 Customer ID: ujdbjz", "password": False,
+                 "clickable": ["Get Coins"]}
+        b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
+        agent = _Agent("STATE: already_signed_in\nPROOF: Customer ID: ujdbjz")
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"},
+                                  agent=agent, router=_Judge("logged_in", "Customer ID: ujdbjz"))
+        assert res["verdict"] == "already_logged_in" and "Customer ID: ujdbjz" in res["note"]
+        assert b.typed == []
+
+        # the agent says signed in, the page does not prove it: the script carries on and finds no form
+        b2 = _Browser(pages={"https://b.example/": {"text": "Welcome", "password": False, "clickable": []}},
+                      start="https://b.example/")
+        res2 = await login_to_site(b2, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"},
+                                   agent=_Agent("STATE: already_signed_in\nPROOF: nothing"),
+                                   router=_Judge("logged_in", "Log out"))
+        assert res2["verdict"] == "no_form"
+
+    @pytest.mark.asyncio
+    async def test_a_refusal_is_read_by_the_model_when_the_phrase_list_misses(self) -> None:
+        from core.watch_login import login_to_site
+
+        form = {"text": "Email Password Log In", "password": True, "clickable": ["Log In"],
+                "click_to": {"Log In": "https://b.example/refused"}}
+        refused = {"text": "We couldn't sign you in with those details. Log In Sign Up", "password": False,
+                   "clickable": ["Log In"]}
+        b = _Browser(pages={"https://b.example/": form, "https://b.example/refused": refused}, start="https://b.example/")
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"},
+                                  agent=_Agent("STATE: form_on_screen\nPROOF: Password"),
+                                  router=_Judge("rejected", "We couldn't sign you in with those details"))
+        assert res["verdict"] == "rejected" and "couldn't sign you in" in res["message"]
+
+
+class TestNestedScopesShareTheBrowser:
+    @pytest.mark.asyncio
+    async def test_a_child_scope_does_not_wait_on_its_parents_hold(self) -> None:
+        """Agent.run_isolated opens a run scope inside the parent's tool
+        call; BROWSER has capacity one. A child must treat the parent's
+        hold as its own or it waits on itself forever."""
+        import asyncio
+
+        from core.task_resources import TaskResource, TaskResourceManager, current_scope, run_scope
+
+        mgr = TaskResourceManager(capacities={TaskResource.BROWSER: 1, TaskResource.DEFAULT: 1})
+        async with run_scope(mgr, priority=1) as parent:
+            await parent.ensure_held(TaskResource.BROWSER)
+            async with run_scope(mgr, priority=1) as child:
+                assert current_scope() is child and child.holds(TaskResource.BROWSER)
+                await asyncio.wait_for(child.ensure_held(TaskResource.BROWSER), timeout=1.0)   # no wait, no deadlock
+            assert parent.holds(TaskResource.BROWSER)                                          # still the parent's

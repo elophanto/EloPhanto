@@ -1,10 +1,12 @@
 # 90 — Review: the browser must lead, the code must only keep the rules
 
-*Status: review, 2026-09-02, requested by Petr after the login script
+*Status: review 2026-09-02, requested by Petr after the login script
 navigated to a guessed `/login` (a 404) on Spinfinite while the real Login
 button was on screen: "it's a general purpose agent so it shouldn't be
-hardcoded. maybe it's fixed but before I do anything let's do the review."
-Nothing in this doc is built yet; it asks for a go-ahead.*
+hardcoded." Go-ahead given the same day ("ensure it's the best possible
+outcome, this is enterprise now"); steps 1–2 of the build order below are
+built and tested, step 3 partly (consent stays a hint), step 4 is the live
+run — see "What shipped" at the end.*
 
 ## What v2026.06.20 did
 
@@ -151,3 +153,35 @@ with screenshots), which is what the June agent spent anyway.
 
 A go-ahead on the design above before any of it is written, or a
 different cut of the policy/perception line.
+
+## What shipped (2026-09-02)
+
+* `core/watch_login.py` — `agent_opens_form(agent, url)`: `Agent.run_isolated`
+  with `AGENT_BROWSER_TOOLS` only (look, click, scroll, wait, read; no
+  `browser_navigate`, no `browser_eval`, no typing, no cookies, nothing
+  outside the browser), a 240 s timeout, the `OPEN_FORM_GOAL` playbook
+  (observe → act → observe; click the visible control; the sign-up panel's
+  switch; never an address) and a two-line report `STATE:` / `PROOF:`.
+  `login_to_site(..., agent=)`: the agent gets the form on screen; the code
+  types the credentials it never showed the agent; the scorer clicks the
+  form's own button and, if the form is still there, `agent_submits_form`
+  asks the agent to click it (no secrets involved); the verdict is the
+  model's `judge_session` with quoted proof — `logged_in` / `rejected`
+  (the site's own words) / `challenge` / `logged_out` — with the keyword
+  check as the fallback, and the excerpt stored. The script
+  (`open_login_form`) survives only as the path when no agent is wired in.
+* `core/watch_catalog.py` — `agent_reads_lobby(agent, bm, url, kinds)`:
+  the agent visits lobby, providers, store, promotions and VIP by clicking
+  what it sees, scrolls each, and calls `browser_get_html` once per page;
+  `_PageRecorder` keeps every capture with its URL; the report's `PAGE n:`
+  lines file each capture by kind. `read_signed_in_pages(agent=)` uses it;
+  the label loop remains the no-agent fallback.
+* `core/task_resources.py` — a run scope opened inside another (a
+  subagent inside a tool call) inherits the parent's session-lazy holds;
+  BROWSER has capacity one, so this is what keeps a delegation from
+  waiting on itself.
+* `tools/watch/tools.py` — every watch tool carries `_agent` (injected by
+  the Agent like `_router`); `watch_login` and the collector pass it.
+* `scripts/watch_live_check.py` — the live run outside the chat: the same
+  Agent, tools and vault; `--brand` repeatable, `--read` for the registered
+  read of every live session.

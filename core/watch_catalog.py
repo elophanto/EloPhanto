@@ -113,8 +113,118 @@ async def _rendered_text(bm: Any, max_chars: int = 60000) -> str:
     return " ".join(html_to_text(raw).split())[:max_chars]
 
 
+LOBBY_GOAL = """You are signed in to {url} in the agent's own Chrome, as a player. Visit, one at a
+time, by clicking what you can see on the page (menus, sidebar, header — look with
+browser_get_elements or browser_screenshot first, act, then look again):
+{wanted}
+For EACH page you reach: scroll to the bottom a few times so lazy-loaded grids are
+complete (browser_scroll), then call browser_get_html ONCE — that call is what puts
+the page on record. Do not accept, agree to, buy or claim anything; if a modal asks
+you to agree to terms, leave it and read the page behind it. Never guess an address:
+you cannot navigate. If a page cannot be found by clicking, skip it.
+
+Finish with EXACTLY one line per browser_get_html call you made, in order, and nothing
+else:
+PAGE 1: lobby|providers|store|promotions|vip|other
+PAGE 2: ...
+"""
+_LOBBY_WANTED = {
+    "game": "- the games lobby: the main grid of games (usually the home page after sign-in)",
+    "provider": "- the page or filter listing the game providers / studios",
+    "coin_package": "- the coin store, where a player buys coin packages (often 'Get Coins' / 'Buy' / 'Store')",
+    "promotion": "- the promotions / offers / rewards page",
+    "loyalty_tier": "- the loyalty / VIP club page with its tiers",
+}
+_LOBBY_TITLES = {
+    "lobby": "Lobby games", "providers": "Providers", "store": "Store – Get Coins",
+    "promotions": "Promotions", "vip": "VIP loyalty club", "other": "Other page",
+}
+_AGENT_LOBBY_TOOLS = frozenset({
+    "browser_click", "browser_click_text", "browser_click_at", "browser_press_key",
+    "browser_select_option", "browser_scroll", "browser_scroll_container", "browser_hover",
+    "browser_hover_element", "browser_go_back", "browser_extract", "browser_read_semantic",
+    "browser_get_elements", "browser_screenshot", "browser_get_html", "browser_get_element_html",
+    "browser_get_element_box", "browser_get_meta", "browser_dom_search", "browser_wait",
+    "browser_wait_for_selector",
+})
+
+
+class _PageRecorder:
+    """Wraps the browser manager for the duration of a delegated read and
+    keeps every ``browser_get_html`` result with the URL it was read at —
+    the agent's tool results do not come back to the caller otherwise."""
+
+    def __init__(self, bm: Any) -> None:
+        self._bm = bm
+        self._orig = bm.call_tool
+        self.pages: list[dict[str, Any]] = []
+
+    async def call_tool(self, name: str, params: dict[str, Any] | None = None) -> Any:
+        res = await self._orig(name, params or {})
+        if name == "browser_get_html":
+            from core.watch_observe import _result_text, html_to_text
+
+            try:
+                here = await self._orig("browser_eval", {"expression": "location.href", "maxLength": 2000})
+                url = _result_text(here) if isinstance(here, str) else str(
+                    json.loads((here or {}).get("resultJson") or '""')) if isinstance(here, dict) else ""
+            except Exception:
+                url = ""
+            self.pages.append({"url": url, "text": " ".join(html_to_text(_result_text(res)).split())[:60000]})
+        return res
+
+    def __enter__(self) -> _PageRecorder:
+        self._bm.call_tool = self.call_tool
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self._bm.call_tool = self._orig
+
+
+async def agent_reads_lobby(agent: Any, bm: Any, start_url: str, kinds: list[str], *, timeout: float = 420.0) -> list[dict[str, Any]]:
+    """The agent visits the lobby, providers, store, promotions and VIP
+    pages by clicking what it sees; every ``browser_get_html`` it makes is
+    recorded here with the URL, and its final report names which page each
+    capture was. Never raises; [] when the agent is missing or fails."""
+    import asyncio
+
+    if agent is None or bm is None:
+        return []
+    wanted = "\n".join(_LOBBY_WANTED[k] for k in ("game", "provider", "coin_package", "promotion", "loyalty_tier") if k in kinds)
+    if not wanted:
+        return []
+    try:
+        all_names = {t.name for t in agent._registry.all_tools()}
+    except Exception:
+        all_names = set()
+    excluded = {n for n in all_names if n not in _AGENT_LOBBY_TOOLS}
+    rec = _PageRecorder(bm)
+    with rec:
+        try:
+            resp = await asyncio.wait_for(
+                agent.run_isolated(LOBBY_GOAL.format(url=start_url, wanted=wanted),
+                                   excluded_tool_names=excluded, max_steps_override=40),
+                timeout=timeout,
+            )
+        except Exception as e:
+            logger.warning("watch_catalog: agent lobby read failed: %s", e)
+            resp = None
+    report = str(getattr(resp, "content", "") or "")
+    labels = [m.group(1).lower() for m in re.finditer(r"PAGE\s*\d+\s*:\s*([a-z]+)", report, re.I)]
+    out: list[dict[str, Any]] = []
+    for i, page in enumerate(rec.pages):
+        label = labels[i] if i < len(labels) else "other"
+        title = _LOBBY_TITLES.get(label, "Other page")
+        out.append({
+            "url": page["url"] or f"{start_url.rstrip('/')}/#{label}", "title": title,
+            "text": page["text"], "error": None if page["text"] else f"{title}: no text",
+            "method": "browser_session", "via": "agent",
+        })
+    return out
+
+
 async def read_signed_in_pages(
-    bm: Any, start_url: str, kinds: list[str], *, scroll_rounds: int = 4,
+    bm: Any, start_url: str, kinds: list[str], *, scroll_rounds: int = 4, agent: Any = None,
 ) -> list[dict[str, Any]]:
     """Read a brand as the signed-in player the browser already is. Returns
     pages shaped like ``collect_pages`` (url, title, text, error, method)
@@ -128,6 +238,15 @@ async def read_signed_in_pages(
     pages: list[dict[str, Any]] = []
     if bm is None or not start_url:
         return pages
+    if agent is not None:
+        # The agent drives (docs/90); the label loop below is the fallback
+        # when no agent is wired in, and its labels are only hints.
+        await bm.call_tool("browser_navigate", {"url": start_url})
+        await bm.call_tool("browser_wait", {"ms": 3500})
+        await dismiss_consent(bm)
+        got = await agent_reads_lobby(agent, bm, start_url, kinds)
+        if got:
+            return got
 
     async def open_home() -> None:
         await bm.call_tool("browser_navigate", {"url": start_url})

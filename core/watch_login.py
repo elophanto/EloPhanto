@@ -315,6 +315,121 @@ async def click_visible(bm: Any, words_regex: str, *, skip: int = 0) -> str:
     return str(c["text"])
 
 
+# ── The agent drives ─────────────────────────────────────────────────
+# The general-purpose agent already knows how to work a site: look, click
+# what is on screen, look again (the browser playbook, evidence gating,
+# stagnation detection). The script above is the fallback when no agent
+# is wired in. With one, the agent gets the form on screen and the code
+# keeps the rules: it never sees a secret, it cannot navigate to an
+# address, it types nothing (docs/90).
+AGENT_BROWSER_TOOLS: frozenset[str] = frozenset({
+    "browser_click", "browser_click_text", "browser_click_at", "browser_press_key",
+    "browser_select_option", "browser_scroll", "browser_scroll_container",
+    "browser_hover", "browser_hover_element", "browser_go_back",
+    "browser_extract", "browser_read_semantic", "browser_get_elements", "browser_screenshot",
+    "browser_get_html", "browser_get_element_html", "browser_get_element_box",
+    "browser_get_meta", "browser_dom_search", "browser_inspect_element",
+    "browser_wait", "browser_wait_for_selector",
+})
+OPEN_FORM_GOAL = """You are already on {url} in the agent's own Chrome. Your job: get the site's
+SIGN-IN form (an e-mail/username field and a password field) on screen, the way a
+person would, and stop. Do not type anything into it — you have no credentials and
+must not invent any.
+
+How to work: look at the page first (browser_get_elements or browser_screenshot),
+then act, then look again before the next action. Clear a cookie banner if one is
+in the way. Find the control a visitor would use to sign in — usually a header
+button reading Log In / Login / Sign In — and click THAT visible element (by index
+from browser_get_elements is safest). If the click opens a SIGN-UP panel, find its
+"already have an account" / "log in" switch inside the panel and click it. If the
+form appears one step at a time (e-mail first), stop as soon as the first field is
+on screen. Wait a few seconds for panels to animate.
+
+Never guess an address: you cannot navigate, and you must not try to reach a URL
+you assume exists. If nothing you can see leads to a form after a genuine try, say
+so.
+
+Stop conditions — finish with EXACTLY these two lines and nothing after them:
+STATE: form_on_screen | already_signed_in | challenge | no_form
+PROOF: <a short phrase copied exactly from the page that shows the state — the
+field label you see, the balance/logout control that proves a signed-in account,
+the captcha wording, or the last thing you clicked>"""
+
+
+async def agent_opens_form(agent: Any, url: str, *, timeout: float = 240.0, max_steps: int = 18) -> dict[str, Any]:
+    """Delegate 'get the sign-in form on screen' to the agent itself, with
+    browser tools only and no navigation tool at all. Returns
+    ``{state, proof, steps, tools, note}``; never raises."""
+    import asyncio
+
+    out: dict[str, Any] = {"state": "error", "proof": "", "steps": 0, "tools": [], "note": ""}
+    if agent is None:
+        out["note"] = "no agent"
+        return out
+    try:
+        all_names = {t.name for t in agent._registry.all_tools()}
+    except Exception:
+        all_names = set()
+    excluded = {n for n in all_names if n not in AGENT_BROWSER_TOOLS}
+    try:
+        resp = await asyncio.wait_for(
+            agent.run_isolated(OPEN_FORM_GOAL.format(url=url), excluded_tool_names=excluded,
+                               max_steps_override=max_steps),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        out["note"] = f"agent timed out after {timeout:.0f}s"
+        return out
+    except Exception as e:
+        out["note"] = f"agent failed: {type(e).__name__}: {e}"
+        return out
+    text = str(getattr(resp, "content", "") or "")
+    out["steps"] = int(getattr(resp, "steps_taken", 0) or 0)
+    out["tools"] = sorted(set(getattr(resp, "tool_calls_made", []) or []))
+    m = re.search(r"STATE:\s*([a-z_]+)", text, re.I)
+    p = re.search(r"PROOF:\s*(.+)", text, re.I)
+    out["state"] = (m.group(1).lower() if m else "unclear")
+    out["proof"] = " ".join(p.group(1).split())[:200] if p else ""
+    out["note"] = " ".join(text.split())[-300:]
+    return out
+
+
+SUBMIT_GOAL = """The sign-in form on screen is already filled in. Click the form's OWN submit
+button — the one inside the form, reading Log In / Sign In / Continue — and
+nothing else: not a header link, not a "Continue with Google/Apple/Facebook"
+button. Look first (browser_get_elements), click it by index, wait three
+seconds, look again. Then finish with EXACTLY:
+STATE: submitted | not_found
+PROOF: <the button text you clicked, copied exactly, or what you saw instead>"""
+
+
+async def agent_submits_form(agent: Any, *, timeout: float = 90.0) -> dict[str, Any]:
+    import asyncio
+
+    out: dict[str, Any] = {"state": "error", "proof": "", "note": ""}
+    if agent is None:
+        return out
+    try:
+        all_names = {t.name for t in agent._registry.all_tools()}
+    except Exception:
+        all_names = set()
+    excluded = {n for n in all_names if n not in AGENT_BROWSER_TOOLS}
+    try:
+        resp = await asyncio.wait_for(
+            agent.run_isolated(SUBMIT_GOAL, excluded_tool_names=excluded, max_steps_override=8),
+            timeout=timeout,
+        )
+    except Exception as e:
+        out["note"] = f"agent failed: {type(e).__name__}: {e}"
+        return out
+    text = str(getattr(resp, "content", "") or "")
+    m = re.search(r"STATE:\s*([a-z_]+)", text, re.I)
+    p = re.search(r"PROOF:\s*(.+)", text, re.I)
+    out["state"] = (m.group(1).lower() if m else "unclear")
+    out["proof"] = " ".join(p.group(1).split())[:200] if p else ""
+    return out
+
+
 async def open_login_form(bm: Any, url: str, username: str = "") -> str:
     """Get a visible password field on screen, the way a person does it:
     click the login control that is ON SCREEN; when that opens a SIGN-UP
@@ -537,7 +652,10 @@ player level or points, a customer/account id, a Logout control, a
 In / Sign Up controls, a welcome offer addressed to new players, a
 login form. A captcha or "verify you are human" is a challenge.
 
-Return STRICT JSON: {"state": "logged_in" | "logged_out" | "challenge" | "unclear",
+A message that the sign-in was refused ("Login failed", "incorrect
+password", "account locked", "try again later") is a rejection.
+
+Return STRICT JSON: {"state": "logged_in" | "logged_out" | "rejected" | "challenge" | "unclear",
  "evidence": "<a short phrase copied EXACTLY from the page that proves it>",
  "why": "<one plain sentence>"}
 The evidence must be verbatim from the page; if nothing on the page
@@ -572,7 +690,7 @@ async def judge_session(router: Any, text: str) -> tuple[str, str]:
     except Exception as e:
         logger.debug("watch_login: session judgement failed: %s", e)
         return "unclear", ""
-    if state not in ("logged_in", "logged_out", "challenge"):
+    if state not in ("logged_in", "logged_out", "rejected", "challenge"):
         return "unclear", ""
     norm = " ".join(text.split()).lower()
     if not evidence or evidence.lower() not in norm:
@@ -690,6 +808,7 @@ async def login_to_site(
     assist_seconds: int = 0,
     exit_state: str = "",
     router: Any = None,
+    agent: Any = None,
 ) -> dict[str, Any]:
     """Log the browser into one brand. Never raises; the verdict is read
     from the page, so a failure cannot be reported as a session.
@@ -730,8 +849,35 @@ async def login_to_site(
         if state == "logged_in":
             out.update(verdict="already_logged_in", note=f"session already active ({proof})")
         else:
-            note = await open_login_form(bm, url, str(creds.get("username") or ""))
-            if not await has_password_field(bm):
+            username = str(creds.get("username") or "")
+            decided = False
+            if agent is not None:
+                # The agent gets the form on screen; the code types nothing yet.
+                rep = await agent_opens_form(agent, url)
+                out["agent"] = {k: rep[k] for k in ("state", "proof", "steps", "tools")}
+                note = f"agent: {rep['state']} ({rep['proof'][:60]})" if rep["proof"] else f"agent: {rep['state']}"
+                if rep["state"] == "already_signed_in":
+                    m_state, evidence = await judge_session(router, await page_text(bm))
+                    if m_state == "logged_in":
+                        out.update(verdict="already_logged_in",
+                                   note=f"session already active (model: {evidence}); {note}")
+                        decided = True
+                elif rep["state"] == "challenge":
+                    w = await _widget(bm)
+                    if w.get("kind") or w.get("challenge"):
+                        out.update(verdict="challenge", note=f"anti-bot puzzle; {note}")
+                        decided = True
+                if not decided and rep["state"] in ("error", "unclear", "no_form") and not await has_password_field(bm):
+                    note = await open_login_form(bm, url, username) + f"; {note}"   # the script, as the fallback
+            else:
+                note = await open_login_form(bm, url, username)
+            if not decided and not await has_password_field(bm):
+                step = await _email_first_step(bm, username)
+                if step:
+                    note += "; " + step
+            if decided:
+                pass
+            elif not await has_password_field(bm):
                 # No password field is what a LIVE session looks like too:
                 # the click landed on nothing and the lobby is behind it.
                 state, hits_in, _ = await settled_session_state(bm, tries=2)
@@ -750,6 +896,12 @@ async def login_to_site(
                     str(creds.get("username") or ""),
                     str(creds.get("password") or ""),
                 )
+                if agent is not None and "captcha challenge" not in note and await has_password_field(bm):
+                    # The scorer's click did not take the form away: let the
+                    # agent click the form's own button (no secrets involved).
+                    sub = await agent_submits_form(agent)
+                    note += f"; agent submit: {sub['state']}" + (f" ('{sub['proof'][:30]}')" if sub.get("proof") else "")
+                    await bm.call_tool("browser_wait", {"ms": 7000})
                 if "captcha challenge" in note and assist_seconds > 0:
                     logger.info(
                         "watch_login: %s shows an anti-bot puzzle — waiting %ss for a human",
@@ -759,7 +911,15 @@ async def login_to_site(
                         note += "; challenge cleared by operator; " + await submit_login_form(bm)
                         await bm.call_tool("browser_wait", {"ms": 7000})
                 state, hits_in, hits_out = await session_state(bm)
-                rejection = login_error(await page_text(bm)) if state != "logged_in" else ""
+                final_text = await page_text(bm)
+                rejection = login_error(final_text) if state != "logged_in" else ""
+                if router is not None and state != "logged_in":
+                    m_state, evidence = await judge_session(router, final_text)
+                    if m_state == "logged_in":
+                        state, hits_in = "logged_in", hits_in + [f"model: {evidence}"]
+                    elif m_state == "rejected" and not rejection:
+                        rejection = evidence
+                out["page_excerpt"] = " ".join(final_text.split())[:240]
                 if state == "logged_in":
                     out.update(verdict="logged_in", note=note)
                 elif rejection:

@@ -1091,3 +1091,59 @@ class TestSignedInRead:
         rows = await wm.list_catalog("c1")
         assert {r.name for r in rows} == {"Money Train 2", "Scarab Surge"}
         assert all(r.customer_state == "registered" and r.source_type == "site" for r in rows)
+
+
+class TestTheAgentReadsTheLobby:
+    """docs/90: the signed-in read is the agent clicking through the lobby,
+    providers, store, promotions and VIP pages; every browser_get_html it
+    makes is recorded with its URL and filed by the kind its report names."""
+
+    @pytest.mark.asyncio
+    async def test_recorded_pages_are_filed_by_the_agents_report(self) -> None:
+        from types import SimpleNamespace
+
+        from core.watch_catalog import rank_catalog_pages, read_signed_in_pages
+
+        class BM:
+            def __init__(self):
+                self.here = "https://www.pulsz.com/"
+                self.calls = []
+
+            async def call_tool(self, name, params=None):
+                self.calls.append(name)
+                if name == "browser_eval":
+                    import json as _j
+                    return {"success": True, "resultJson": _j.dumps(self.here)}
+                if name == "browser_get_html":
+                    body = {"https://www.pulsz.com/": "<h3>Money Train 2</h3><h3>Scarab Surge</h3>",
+                            "https://www.pulsz.com/store": "<div>$4.99 79,500 GC + 5 SC</div>"}[self.here]
+                    return {"success": True, "html": body}
+                if name == "browser_navigate":
+                    self.here = params["url"]
+                return {"success": True}
+
+        bm = BM()
+
+        class Agent:
+            _registry = SimpleNamespace(all_tools=lambda: [SimpleNamespace(name=n) for n in
+                                                          ("browser_navigate", "browser_click", "browser_get_html",
+                                                           "browser_scroll", "browser_eval", "vault_lookup")])
+            excluded = None
+
+            async def run_isolated(self, goal, *, excluded_tool_names=None, max_steps_override=None):
+                Agent.excluded = set(excluded_tool_names or ())
+                assert "you cannot navigate" in goal and "Do not accept" in goal
+                await bm.call_tool("browser_get_html", {})                 # the lobby
+                bm.here = "https://www.pulsz.com/store"                    # the agent clicked "Get Coins"
+                await bm.call_tool("browser_get_html", {})                 # the store
+                return SimpleNamespace(content="PAGE 1: lobby\nPAGE 2: store", steps_taken=6, tool_calls_made=[])
+
+        pages = await read_signed_in_pages(bm, "https://www.pulsz.com/", ["game", "coin_package"], agent=Agent())
+        assert [(p["title"], p["url"]) for p in pages] == [("Lobby games", "https://www.pulsz.com/"),
+                                                            ("Store – Get Coins", "https://www.pulsz.com/store")]
+        assert "Money Train 2" in pages[0]["text"] and "$4.99" in pages[1]["text"]
+        assert all(p["method"] == "browser_session" and p["via"] == "agent" for p in pages)
+        by_kind = rank_catalog_pages(pages)
+        assert by_kind["game"][0]["title"] == "Lobby games" and by_kind["coin_package"][0]["title"] == "Store – Get Coins"
+        assert {"browser_navigate", "browser_eval", "vault_lookup"} <= Agent.excluded
+        assert bm.call_tool is not None and not hasattr(bm.call_tool, "pages")   # the recorder is unwrapped after

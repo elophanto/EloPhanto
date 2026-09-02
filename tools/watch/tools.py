@@ -44,6 +44,7 @@ class _WatchToolBase(BaseTool):
     def __init__(self) -> None:
         self._watch_manager: Any = None
         self._config: Any = None  # the agent's config: workspace root, proxy pool
+        self._agent: Any = None   # the agent itself, for browser work it does better than a script (docs/90)
 
     @property
     def group(self) -> str:
@@ -4948,6 +4949,7 @@ class WatchLoginTool(_WatchToolBase):
                 assist_seconds=int(params.get("assist_seconds") or 0),
                 exit_state=want_state,
                 router=self._router,
+                agent=getattr(self, "_agent", None),
             )
             res["domain"] = domain
             rows.append(res)
@@ -5163,7 +5165,9 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 # A session lives in the browser, not in an HTTP client:
                 # read the lobby, store, promotions and VIP pages as the
                 # player the browser already is (docs/89).
-                pages = await read_signed_in_pages(self._browser_manager, subj.url, list(kinds))
+                pages = await read_signed_in_pages(
+                    self._browser_manager, subj.url, list(kinds), agent=getattr(self, "_agent", None),
+                )
             else:
                 pages = await collect_pages(
                     subj.url,

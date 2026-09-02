@@ -145,7 +145,14 @@ and stamp `customer_state`; a third-party page is never stamped logged-in,
 because it looks the same to everyone.
 
 `watch_login` signs the agent's own Chrome in, per brand, with the
-credentials the vault holds keyed by domain (`vault_lookup <domain>`):
+credentials the vault holds keyed by domain (`vault_lookup <domain>`).
+Since 2026-09-02 (docs/90) **the agent itself drives the browser** to get
+the sign-in form on screen — browser tools only, no navigation, no typing,
+no secrets in its goal — and the code keeps the rules: it types the
+credentials, never twice in a row, never past a puzzle, and the verdict
+is the model's reading of the page with proof quoted from it. The
+numbered flow below is what the code guarantees around the agent (and
+the script it falls back to when no agent is wired in):
 
 1. clear the consent overlay **first** — while it is up the login control
    is not reachable and the click lands on the banner;

@@ -575,14 +575,25 @@ class ResourceLeaseScope:
     callback; subsequent calls within the same run are no-ops.
     """
 
-    __slots__ = ("_manager", "_priority", "_holds", "_log")
+    __slots__ = ("_manager", "_priority", "_holds", "_log", "_parent")
 
-    def __init__(self, manager: TaskResourceManager, priority: int) -> None:
+    def __init__(
+        self, manager: TaskResourceManager, priority: int, parent: ResourceLeaseScope | None = None,
+    ) -> None:
         self._manager = manager
         self._priority = priority
         # resource -> async release callable
         self._holds: dict[TaskResource, Any] = {}
         self._log = logger
+        # A subagent (Agent.run_isolated → run) opens its own scope INSIDE
+        # the parent's tool call. BROWSER has capacity one and is held per
+        # run, so a child acquiring what its parent holds would wait on
+        # itself forever. A child treats the parent's holds as its own and
+        # never releases them — they are the parent's to release.
+        self._parent = parent
+
+    def holds(self, resource: TaskResource) -> bool:
+        return resource in self._holds or (self._parent is not None and self._parent.holds(resource))
 
     async def ensure_held(self, resource: TaskResource) -> None:
         """Acquire ``resource`` for this run if not already held.
@@ -591,7 +602,7 @@ class ResourceLeaseScope:
         this scope are no-ops because the lock is still held from
         the first call.
         """
-        if resource in self._holds:
+        if self.holds(resource):
             return
         cm = self._manager.acquire([resource], priority=self._priority)
         await cm.__aenter__()  # type: ignore[attr-defined]
@@ -664,7 +675,7 @@ async def run_scope(
     contextvar, yields it for tool calls to use via ``current_scope()``,
     and ensures ``close()`` runs on exit.
     """
-    scope = ResourceLeaseScope(manager, priority)
+    scope = ResourceLeaseScope(manager, priority, parent=_current_scope.get())
     token = _current_scope.set(scope)
     try:
         yield scope
