@@ -919,6 +919,12 @@ class TestGamePortfolio:
         assert [c.value for c in ws[6]] == ["Golden Rock Studios *", None, "●", 1, "no"]
         assert any("Spinfinite" in str(c.value) for row in ws.iter_rows(min_row=7) for c in row if c.value)
 
+    def test_every_pack_tool_offers_the_clients_sheet(self) -> None:
+        from tools.watch import tools as T
+
+        for cls in (T.WatchExecutiveDeckTool, T.WatchBoardReportTool, T.WatchScorecardTool, T.WatchCatalogTool):
+            assert "providers_from" in cls().input_schema["properties"], cls.__name__
+
     def test_deck_paginates_every_studio(self, tmp_path) -> None:
         from pptx import Presentation
 

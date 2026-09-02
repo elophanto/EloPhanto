@@ -637,6 +637,11 @@ class WatchScorecardTool(_WatchToolBase):
         return {
             "type": "object",
             "properties": {
+                "providers_from": {
+                    "type": "string",
+                    "description": "xlsx: path to the client's game-portfolio sheet (CSV; column A = "
+                                   "studios). The Game portfolio sheet then follows their list.",
+                },
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "json", "xlsx"],
