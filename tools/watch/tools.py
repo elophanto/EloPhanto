@@ -5198,6 +5198,14 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 "saved": save,
                 "new_items": total_new,
                 "brands": report,
+                "saved_to": (
+                    "the register (table watch_catalog in the agent database) — not a file. "
+                    "To see it: watch_catalog action=summary|list|matrix; to deliver it: "
+                    "watch_executive_deck (Game portfolio, Coins / Promotions and Providers / "
+                    "Games pages per brand) and watch_board_report format=xlsx (one sheet per "
+                    "kind plus the Game portfolio matrix), both with providers_from=<client "
+                    "sheet> to follow the client's studio list. Tell the operator this."
+                ),
                 "note": (
                     "raw inventory in watch_catalog — appendix slides and one workbook "
                     "sheet per kind; never scored. Public pages and open-web research "
