@@ -110,6 +110,39 @@ def _rgb(hexstr: str) -> Any:
     return RGBColor.from_string(hexstr)
 
 
+def _chars_per_line(width_in: float, size_pt: float) -> int:
+    """How many characters a line of ``size_pt`` text holds in a box
+    ``width_in`` wide (Calibri-ish, 0.52em average glyph), never below 6."""
+    return max(6, int(max(0.3, width_in - 0.2) * 72 / (size_pt * 0.52)))
+
+
+def _lines_needed(text: str, width_in: float, size_pt: float) -> int:
+    import math
+
+    cpl = _chars_per_line(width_in, size_pt)
+    return sum(max(1, math.ceil(len(par) / cpl)) for par in (text or "").split("\n"))
+
+
+def _block_height(text: str, width_in: float, size_pt: float, line: float = 1.2) -> float:
+    """Inches a block of text needs, with the frame's own margins."""
+    return _lines_needed(text, width_in, size_pt) * size_pt * line / 72 + 0.1
+
+
+def _fit_text(text: str, width_in: float, height_in: float, size_pt: float, *, min_size: float, line: float = 1.2) -> tuple[str, float]:
+    """The largest size down to ``min_size`` at which ``text`` fits the box;
+    when even ``min_size`` does not fit, the text is cut to what does, with
+    an ellipsis. A box never overflows its neighbours (2026-09-02: a deck
+    of fifteen brands put panels on headings and footnotes on the footer)."""
+    size = size_pt
+    while size > min_size and _block_height(text, width_in, size, line) > height_in + 0.02:
+        size = round(size - 0.5, 1)
+    if _block_height(text, width_in, size, line) <= height_in + 0.02:
+        return text, size
+    lines_fit = max(1, int((height_in - 0.1) / (size * line / 72)))
+    keep = _chars_per_line(width_in, size) * lines_fit - 2
+    return _clean(text, max(12, keep)), size
+
+
 def _text(
     slide: Any,
     left: float,
@@ -126,10 +159,13 @@ def _text(
     spacing: float | None = None,
     line: float | None = None,
     wrap: bool = True,
+    fit: bool = True,
 ) -> Any:
     from pptx.enum.text import PP_ALIGN
     from pptx.util import Inches, Pt
 
+    if fit and wrap and text and "\n" not in text and len(text) > 8:
+        text, size = _fit_text(text, width, height, size, min_size=max(6.5, size * 0.6), line=line or 1.2)
     box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = box.text_frame
     tf.word_wrap = wrap
@@ -170,11 +206,29 @@ def _bullets(
 ) -> Any:
     from pptx.util import Inches, Pt
 
+    items = [str(i) for i in items[:max_items] if str(i).strip()]
+    # Fit the block to its box: smaller type first, shorter items next,
+    # fewer items last — never text over whatever sits below.
+    def need(sz: float, cp: int, its: list[str]) -> float:
+        return sum(_block_height(("•  " if accent_bullet else "") + _clean(i, cp), width, sz) - 0.1 + gap_pt / 72
+                   for i in its) + 0.1
+
+    size_eff, cap_eff = float(size), int(cap)
+    while items and need(size_eff, cap_eff, items) > height + 0.02:
+        if size_eff > max(7.0, size * 0.7):
+            size_eff = round(size_eff - 0.5, 1)
+        elif cap_eff > 60:
+            cap_eff = int(cap_eff * 0.8)
+        elif len(items) > 2:
+            items = items[:-1]
+        else:
+            break
+    size, cap = size_eff, cap_eff
     box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = box.text_frame
     tf.word_wrap = True
     first = True
-    for item in items[:max_items]:
+    for item in items:
         p = tf.paragraphs[0] if first else tf.add_paragraph()
         first = False
         if accent_bullet:
@@ -267,7 +321,9 @@ def _judgement_note(slide: Any, source: str, *, dark: bool = False) -> None:
         if source == "model"
         else "Facts only – no model was available, so no narrative judgement has been applied."
     )
-    _text(slide, 0.7, 6.72, 11.9, 0.3, msg, size=9, color="6B7280" if dark else _MUTED)
+    # On the footer line, centred between the deck title and the page
+    # number — the footnote band above is the slides' own.
+    _text(slide, 3.6, 7.08, 6.6, 0.3, msg, size=7.5, color="6B7280" if dark else _MUTED, align="center")
 
 
 def _notes(slide: Any, text: str) -> None:
@@ -349,8 +405,20 @@ def _sidebar(
     if obs:
         _text(slide, x, y, w, 0.3, "Key observations", size=11, bold=True, color=_INK)
         y += 0.36
-        n_lines = sum(1 + len(o) // 48 for o in obs)
-        block_h = min(0.24 * n_lines + 0.12 * len(obs), bottom - y - (1.6 if imp else 0.2))
+        # Reserve the implications' room first; the observations get the
+        # rest and shrink into it (2026-09-02: they used to keep flowing
+        # under the "Key implications" heading).
+        imp_need = (0.36 + sum(_block_height("•  " + _clean(i, 120), w, 9.0) for i in imp) + 0.1) if imp else 0.2
+        avail = bottom - y - imp_need
+        obs_size, obs_cap = 9.5, 150
+        obs_need = sum(_block_height(_clean(o, obs_cap), w, obs_size) - 0.04 for o in obs) + 0.1
+        while obs_need > avail and (obs_size > 8.0 or obs_cap > 90):
+            if obs_size > 8.0:
+                obs_size -= 0.5
+            else:
+                obs_cap -= 20
+            obs_need = sum(_block_height(_clean(o, obs_cap), w, obs_size) - 0.04 for o in obs) + 0.1
+        block_h = max(0.4, min(obs_need, avail))
         _bullets(
             slide,
             x,
@@ -358,10 +426,10 @@ def _sidebar(
             w,
             block_h,
             obs,
-            size=9.5,
+            size=obs_size,
             color=_BODY,
             gap_pt=5,
-            cap=150,
+            cap=obs_cap,
             accent_bullet=False,
             max_items=4,
         )
@@ -1472,7 +1540,7 @@ def _slide_versus(
             + ". "
             + note
         )
-    _text(s, 0.7, 6.62, 11.9, 0.45, _clean(note, 220), size=8.5, color=_MUTED)
+    _text(s, 0.7, 6.58, 11.9, 0.46, _clean(note, 220), size=8.5, color=_MUTED)
     _footer(s, deck_title, page)
 
 
@@ -1807,7 +1875,7 @@ def _slide_profile(
     )
     if has_voice:
         _voice_strip(s, voice_brand, x=x, y=top + 2.4, w=6.4)
-    imp_y = top + 3.3
+    imp_y = top + (3.7 if has_voice else 3.3)   # the quote strip is ~1.2in; it used to sit on the heading
     _eyebrow(s, "Implications for us", y=imp_y, x=x, color=_ACCENT)
     _bullets(
         s,
@@ -2569,8 +2637,7 @@ def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_t
         provenance = "Packages as priced on the store. "
     else:
         provenance = ""
-    _text(
-        s, 0.7, 6.72, 11.9, 0.28,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
         f"{c.get('coin_package', 0)} packages and {c.get('promotion', 0)} promotions on record"
         + (f"; {extra} more in the workbook" if extra else "")
         + f". {provenance}As printed; click a name to open the page it was read from. Read "
@@ -2592,7 +2659,7 @@ def _slide_brand_loyalty(prs: Any, brand: dict[str, Any], page: int, deck_title:
              _clean(t.get("reward") or "–", 90)] for t in tiers[:12]]
     _table(s, 0.7, top, [2.2, 4.2, 5.5], ["Loyalty Club tier", "Qualification", "Reward"],
            rows, size=8.5, highlight_first_col=True, max_h=5.0)
-    _text(s, 0.7, 6.72, 11.9, 0.28,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
           f"{len(tiers)} tiers as printed; latest {brand.get('observed_at', '')}.",
           size=7.5, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
@@ -2617,15 +2684,18 @@ def _slide_brand_library(prs: Any, brand: dict[str, Any], page: int, deck_title:
           (", ".join(provs[:60]) + more(provs, 60)) if provs else "—", size=8, color=_BODY, line=1.15)
     games = [str(g) for g in brand.get("games_full") or brand.get("games_sample") or []]
     _eyebrow(s, f"Games read · {c.get('game', 0)}", y=top + 2.35, x=0.7, color=_PEER)
-    _text(s, 0.7, top + 2.61, 11.9, 2.4,
-          (", ".join(games[:110]) + more(games, 110)) if games else "—", size=7.5, color=_BODY, line=1.12)
+    games_h = 6.5 - (top + 2.61) - (0.45 if len(games) < 10 else 0.05)
+    if games:
+        _text(s, 0.7, top + 2.61, 11.9, games_h,
+              ", ".join(games[:110]) + more(games, 110), size=7.5, color=_BODY, line=1.12)
     if len(games) < 10:
         # "the games lists are too short" (client, 2026-08-31): say why, not just how many
-        _text(s, 0.7, top + 2.61 + (0.35 if games else 0.3), 11.9, 0.5,
-              f"Only {len(games)} title{'s' if len(games) != 1 else ''} appeared on the public pages and reviews. "
+        _text(s, 0.7, top + 2.61 + (games_h if games else 0.0), 11.9, 0.42,
+              (f"Only {len(games)} title{'s' if len(games) != 1 else ''} appeared" if games
+               else "No titles appeared") + " on the public pages and reviews. "
               "The full lobby sits behind a login and has not been read as a signed-in player yet.",
               size=8, italic=True, color=_MUTED)
-    _text(s, 0.7, 6.72, 11.9, 0.28,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
           "As printed on the brand's pages and public reviews; the source of every item is in the workbook.",
           size=7.5, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
@@ -2716,8 +2786,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
                 cw(ri, 1 + ci, mark, bg=(_SELF_ROW if (b in self_names and cell.get("carried")) else bg),
                    size=6.5, center=True)
             cw(ri, 1 + len(brands), str(row.get("brand_count", 0)), bg=bg, size=6.5, center=True)
-        _text(
-            s, 0.7, 6.72, 11.9, 0.28,
+        _text(s, 0.7, 6.6, 11.9, 0.44,
             "● carried, as printed on the brand's pages or public reviews (the workbook says which); "
             "a number is that studio's titles read; n = brands carrying it."
             + (f" Rows follow the client's list of {listed}; * = observed, not on their list; "
@@ -2948,12 +3017,7 @@ def _slide_offers_page(
     _sidebar(
         s, panel.get("observations") or [], panel.get("implications") or [], top=top, x=9.1, w=3.5
     )
-    _text(
-        s,
-        0.7,
-        6.72,
-        11.9,
-        0.3,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
         "Offer text as published on each brand's own pages at capture; amounts and "
         'conditions verified against the page excerpt. "Not stated" means the pages '
         "read carried no welcome offer, not that none exists.",
@@ -3009,12 +3073,7 @@ def _slide_exhibits(
             _text(s, x, line_y, w, 0.3, " · ".join(detail), size=8.5, color=_MUTED)
         if pic is None:
             _text(s, x, top + 1.5, w, 0.5, "exhibit unavailable", size=10, color=_MUTED)
-    _text(
-        s,
-        0.7,
-        6.72,
-        11.9,
-        0.3,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
         "Captured by the browser through a state-verified network exit, cookie "
         "consent dismissed; each capture is filed in the evidence register beside its claims.",
         size=9,
