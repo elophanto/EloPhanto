@@ -69,6 +69,15 @@ def rank_catalog_pages(
         kind = str(page.get("kind") or "") or catalog_page_kind(
             str(page.get("url") or ""), str(page.get("title") or "")
         )
+        if not kind and page.get("via") == "agent" and page.get("text"):
+            # A page the agent read as a player, that nothing could name:
+            # try it for every kind — the item-on-page check keeps the
+            # wrong ones out, and a lobby lost to a bare "/" URL is worse.
+            for k in CATALOG_KINDS:
+                bucket = out.setdefault(k, [])
+                if len(bucket) < max(per_kind, 6):
+                    bucket.append(page)
+            continue
         if not kind or kind not in CATALOG_KINDS:
             continue
         bucket = out.setdefault(kind, [])
@@ -227,20 +236,50 @@ async def agent_reads_lobby(agent: Any, bm: Any, start_url: str, kinds: list[str
                            f"{type(e).__name__}: {e}".strip(": "), len(rec.pages))
             resp = None
     report = str(getattr(resp, "content", "") or "")
-    labels = [m.group(1).lower() for m in re.finditer(r"PAGE\s*\d+\s*:\s*([a-z]+)", report, re.I)]
+    logger.info("watch_catalog: agent lobby report: %s", " ".join(report.split())[:400])
+    labels = _page_labels(report, len(rec.pages))
     out: list[dict[str, Any]] = []
     for i, page in enumerate(rec.pages):
-        label = labels[i] if i < len(labels) else "other"
-        title = _LOBBY_TITLES.get(label, "Other page")
+        label = labels[i] if i < len(labels) else ""
+        kind = _LOBBY_KINDS.get(label, "") or catalog_page_kind(str(page["url"] or ""), "")
+        title = _LOBBY_TITLES.get(label) or next(
+            (t for lab, t in _LOBBY_TITLES.items() if _LOBBY_KINDS.get(lab) == kind), "Other page"
+        )
         out.append({
-            "url": page["url"] or f"{start_url.rstrip('/')}/#{label}", "title": title,
+            "url": page["url"] or f"{start_url.rstrip('/')}/#{label or i}", "title": title,
             "text": page["text"], "error": None if page["text"] else f"{title}: no text",
-            "method": "browser_session", "via": "agent", "kind": _LOBBY_KINDS.get(label, ""),
+            "method": "browser_session", "via": "agent", "kind": kind,
             "chars": page.get("chars", len(page["text"])),
         })
     logger.info("watch_catalog: agent read %d page(s): %s", len(out),
                 ", ".join(f"{p['title']} ({p['chars']} chars)" for p in out))
     return out
+
+
+_LABEL_WORDS = {
+    "lobby": ("lobby", "home", "games grid", "game grid", "main grid"),
+    "providers": ("provider", "studio"),
+    "store": ("store", "get coins", "buy coins", "coin package", "shop", "purchase"),
+    "promotions": ("promotion", "promo", "offer", "reward"),
+    "vip": ("vip", "loyalty"),
+}
+
+
+def _page_labels(report: str, n_pages: int) -> list[str]:
+    """The agent's report, read loosely: 'PAGE 1: lobby' is the asked-for
+    form, but 'Page 1 – the store (Get Coins)' and a plain numbered list
+    happen too (2026-09-02: three pages, all 'other'). One label per
+    numbered line, in order; '' where nothing recognisable is said."""
+    labels: list[str] = []
+    for m in re.finditer(r"(?im)^\W*(?:page\s*)?(\d+)\s*[:.)\-–]\s*(.+)$", report):
+        line = m.group(2).lower()
+        found = ""
+        for label, words in _LABEL_WORDS.items():
+            if any(w in line for w in words):
+                found = label
+                break
+        labels.append(found)
+    return labels[:n_pages]
 
 
 async def read_signed_in_pages(

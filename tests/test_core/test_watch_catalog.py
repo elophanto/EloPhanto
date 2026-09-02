@@ -1160,3 +1160,16 @@ class TestTheAgentReadsTheLobby:
                  {"url": "https://www.pulsz.com/help", "title": "Promotions", "text": "y", "kind": "promotion"}]
         by_kind = rank_catalog_pages(pages)
         assert by_kind["game"][0]["title"] == "Lobby games" and by_kind["promotion"][0]["title"] == "Promotions"
+
+    def test_the_report_is_read_loosely_and_unlabelled_pages_are_tried_for_every_kind(self) -> None:
+        from core.watch_catalog import _page_labels, rank_catalog_pages
+
+        assert _page_labels("PAGE 1: lobby\nPAGE 2: store", 2) == ["lobby", "store"]
+        assert _page_labels("1. The home lobby grid\n2) Get Coins store modal\n3 - the VIP loyalty page", 3) == \
+            ["lobby", "store", "vip"]
+        assert _page_labels("I visited the lobby and the store. Done.", 2) == []      # nothing numbered → nothing
+        pages = [{"url": "https://www.pulsz.com/", "title": "Other page", "text": "Money Train 2 $4.99", "via": "agent",
+                  "kind": ""}]
+        by_kind = rank_catalog_pages(pages)
+        assert set(by_kind) == {"provider", "coin_package", "promotion", "loyalty_tier", "game"}
+        assert all(b[0]["url"] == "https://www.pulsz.com/" for b in by_kind.values())
