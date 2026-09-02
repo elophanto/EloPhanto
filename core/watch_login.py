@@ -49,6 +49,15 @@ LOGGED_OUT_WORDS = (
 # from "the automation missed the button" is the whole point of a login
 # check (Chumba, 2026-08-26: "Login failed, please try again" — the form
 # was filled and submitted correctly, the account simply did not open).
+# A second step after the password: the site accepted the credentials and
+# now wants a code it sent somewhere (WOW Vegas, 2026-09-02: "We've
+# detected a login from a new device or browser. Please enter the
+# verification code sent to your email").
+VERIFICATION_PHRASES = (
+    "verification code", "enter the code", "code sent to", "code we sent", "one-time code",
+    "one time code", "two-factor", "2-step", "two step verification", "authenticator app",
+    "new device or browser",
+)
 LOGIN_ERROR_PHRASES = (
     "login failed", "incorrect password", "invalid password", "wrong password",
     "incorrect email", "invalid email", "credentials", "do not match",
@@ -579,6 +588,17 @@ async def fill_and_submit(bm: Any, username: str, password: str) -> str:
     return note
 
 
+def verification_prompt(text: str) -> str:
+    """The site's own words when it asks for a second step, else ''."""
+    low = (text or "").lower()
+    for phrase in VERIFICATION_PHRASES:
+        i = low.find(phrase)
+        if i >= 0:
+            start = max(0, i - 80)
+            return " ".join(text[start : i + 100].split())[:180]
+    return ""
+
+
 def login_error(text: str) -> str:
     """The site's own rejection message, if it is showing one. This says
     the attempt was REFUSED, not why: "Login failed, please try again"
@@ -653,9 +673,13 @@ In / Sign Up controls, a welcome offer addressed to new players, a
 login form. A captcha or "verify you are human" is a challenge.
 
 A message that the sign-in was refused ("Login failed", "incorrect
-password", "account locked", "try again later") is a rejection.
+password", "account locked", "try again later") is a rejection. A page
+asking for a verification code, a one-time code sent by e-mail or SMS,
+or an authenticator ("new device", "enter the code we sent") is
+verification_required — the credentials were accepted and a second
+step is pending.
 
-Return STRICT JSON: {"state": "logged_in" | "logged_out" | "rejected" | "challenge" | "unclear",
+Return STRICT JSON: {"state": "logged_in" | "logged_out" | "rejected" | "verification_required" | "challenge" | "unclear",
  "evidence": "<a short phrase copied EXACTLY from the page that proves it>",
  "why": "<one plain sentence>"}
 The evidence must be verbatim from the page; if nothing on the page
@@ -690,7 +714,7 @@ async def judge_session(router: Any, text: str) -> tuple[str, str]:
     except Exception as e:
         logger.debug("watch_login: session judgement failed: %s", e)
         return "unclear", ""
-    if state not in ("logged_in", "logged_out", "rejected", "challenge"):
+    if state not in ("logged_in", "logged_out", "rejected", "verification_required", "challenge"):
         return "unclear", ""
     norm = " ".join(text.split()).lower()
     if not evidence or evidence.lower() not in norm:
@@ -913,15 +937,24 @@ async def login_to_site(
                 state, hits_in, hits_out = await session_state(bm)
                 final_text = await page_text(bm)
                 rejection = login_error(final_text) if state != "logged_in" else ""
+                second_step = verification_prompt(final_text) if state != "logged_in" else ""
                 if router is not None and state != "logged_in":
                     m_state, evidence = await judge_session(router, final_text)
                     if m_state == "logged_in":
                         state, hits_in = "logged_in", hits_in + [f"model: {evidence}"]
                     elif m_state == "rejected" and not rejection:
                         rejection = evidence
+                    elif m_state == "verification_required" and not second_step:
+                        second_step = evidence
                 out["page_excerpt"] = " ".join(final_text.split())[:240]
                 if state == "logged_in":
                     out.update(verdict="logged_in", note=note)
+                elif second_step:
+                    # The credentials were ACCEPTED; the site wants a code it
+                    # sent to the account's e-mail or phone. Not a failure —
+                    # a step for whoever holds that inbox (or the agent's own
+                    # inbox tools, when the account mail is the agent's).
+                    out.update(verdict="verification_required", note=note, message=second_step)
                 elif rejection:
                     # The site ANSWERED — the form went through and was
                     # refused. Why is not knowable from here: a wrong

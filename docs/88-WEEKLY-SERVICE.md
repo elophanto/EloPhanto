@@ -175,7 +175,10 @@ the script it falls back to when no agent is wired in):
 7. read the verdict from the page: `logged_in`, `already_logged_in`,
    `rejected` (with the site's own message — a stale password, a locked
    account and a failed anti-bot score all read alike, so a human judges),
-   `challenge`, `no_form`, `unreachable`.
+   `verification_required` (the credentials were accepted and the site
+   wants a code it e-mailed or texted — WOW Vegas on a new browser; a step
+   for whoever holds that inbox, or the agent's inbox tools when the
+   account mail is the agent's), `challenge`, `no_form`, `unreachable`.
 
 A page is **logged in only on an account control** — "log out", "my
 account", "my profile" — or a wallet balance ("GC 5,000 · SC 2.00", the

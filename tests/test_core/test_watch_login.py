@@ -663,3 +663,26 @@ class TestNestedScopesShareTheBrowser:
                 assert current_scope() is child and child.holds(TaskResource.BROWSER)
                 await asyncio.wait_for(child.ensure_held(TaskResource.BROWSER), timeout=1.0)   # no wait, no deadlock
             assert parent.holds(TaskResource.BROWSER)                                          # still the parent's
+
+
+class TestASecondStepIsNotAFailure:
+    @pytest.mark.asyncio
+    async def test_a_code_sent_to_the_email_is_verification_required(self) -> None:
+        """WOW Vegas, 2026-09-02: credentials accepted, then "We've detected a
+        login from a new device or browser. Please enter the verification
+        code sent to your email" — reported as logged_out. It is a step
+        for whoever holds the inbox, and the verdict must say so."""
+        from core.watch_login import login_to_site, verification_prompt
+
+        form = {"text": "Username or Email Address Password Log in", "password": True, "clickable": ["Log in"],
+                "click_to": {"Log in": "https://b.example/verify"}}
+        verify = {"text": "Welcome Back! Please log in to continue We've detected a login from a new device or "
+                          "browser. Please enter the verification code sent to your email to continue. "
+                          "Verification Code Log in", "password": False, "clickable": ["Log in"]}
+        b = _Browser(pages={"https://b.example/": form, "https://b.example/verify": verify}, start="https://b.example/")
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"},
+                                  agent=_Agent("STATE: form_on_screen\nPROOF: Password"))
+        assert res["verdict"] == "verification_required", res
+        assert "verification code sent to your email" in res["message"]
+        assert verification_prompt("Enter the code we sent to +1 ***-1234") .startswith("Enter the code we sent")
+        assert verification_prompt("Login failed, please try again") == ""
