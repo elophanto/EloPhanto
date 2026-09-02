@@ -260,7 +260,7 @@ def _eyebrow(slide: Any, text: str, *, y: float, x: float = 0.7, color: str = _M
     # Width fits the remaining canvas — an eyebrow placed in a right-hand
     # column must not spill past the slide edge — and the text is cut at a
     # word boundary, never mid-word.
-    width = max(1.0, 13.333 - x - 0.73)
+    width = max(1.0, min(5.0, 13.333 - x - 0.73))   # a label, not a banner: it must not span a neighbour's column
     _text(
         slide,
         x,
@@ -379,7 +379,7 @@ def _sidebar(
     top: float,
     x: float = 9.1,
     w: float = 3.55,
-    bottom: float = 6.55,
+    bottom: float = 6.45,
 ) -> float:
     """The right-hand reading panel every analytical slide carries: *Key
     observations* (what the chart shows) and *Key implications* (what it
@@ -1540,7 +1540,7 @@ def _slide_versus(
             + ". "
             + note
         )
-    _text(s, 0.7, 6.58, 11.9, 0.46, _clean(note, 220), size=8.5, color=_MUTED)
+    _text(s, 0.7, 6.58, 11.9, 0.46, _clean(note, 190), size=8.5, color=_MUTED)
     _footer(s, deck_title, page)
 
 
@@ -1695,25 +1695,17 @@ def _slide_dimension_leaders(
         x=9.1,
         w=3.5,
     )
-    if len(card.get("dimensions", [])) > len(dims):
-        _text(
-            s,
-            0.7,
-            6.6,
-            8.2,
-            0.3,
-            f"First {len(dims)} of {len(card.get('dimensions', []))} dimensions "
-            "shown — the rest are in the workbook.",
-            size=9,
-            color=_MUTED,
-        )
+    lead = (
+        f"First {len(dims)} of {len(card.get('dimensions', []))} dimensions shown — the rest are in the workbook. "
+        if len(card.get("dimensions", [])) > len(dims) else ""
+    )
     _text(
         s,
         0.7,
-        6.85,
+        6.6,
         11.9,
-        0.25,
-        "Top observed score per dimension. † overall standing provisional. "
+        0.44,
+        lead + "Top observed score per dimension. † overall standing provisional. "
         "A blank cell is unmeasured – never counted as a loss.",
         size=9,
         color=_MUTED,
@@ -1979,7 +1971,7 @@ def _slide_voice(
     # The legend under the table is what makes it readable; with fifteen
     # brands the rows shrink so the table ends above it (2026-08-30 pack:
     # the table ran over the legend and the reader asked for the source).
-    row_h = min(0.3, (6.15 - top) / (len(brands) + 1))
+    row_h = min(0.3, (6.05 - top) / (len(brands) + 1))
     shape = s.shapes.add_table(
         len(brands) + 1,
         2 + len(themes),
@@ -2090,7 +2082,7 @@ def _slide_voice_changes(
         )
     _bullets(s, 0.7, top, 11.9, 6.2 - top, lines or ["Nothing moved past the reporting threshold."],
              size=11.5, color=_INK, gap_pt=7, cap=200, accent_bullet=True, max_items=8)
-    _text(s, 0.7, 6.32, 11.9, 0.3, _VOICE_LABEL, size=8, italic=True, color=_MUTED)
+    _text(s, 0.7, 6.6, 11.9, 0.44, _VOICE_LABEL, size=8, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
 
 
@@ -2201,7 +2193,7 @@ def _slide_comms(
     panel = (narrative.get("slides") or {}).get("comms") or _comms_facts(comms)
     _sidebar(s, [str(o) for o in panel.get("observations") or []],
              [str(i) for i in panel.get("implications") or []], top=top)
-    _text(s, 0.7, 6.32, 11.9, 0.3,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
           f"{_COMMS_LABEL} Counts are e-mails received in the window; /week is the cadence. "
           "Brands without a linked inbox are not shown.", size=8, italic=True, color=_MUTED)
     _judgement_note(s, str(narrative.get("source") or "facts"))
@@ -2297,7 +2289,7 @@ def _slide_regulatory(
     panel = (narrative.get("slides") or {}).get("regulatory") or _regulatory_facts(cal)
     _sidebar(s, [str(o) for o in panel.get("observations") or []],
              [str(i) for i in panel.get("implications") or []], top=top)
-    _text(s, 0.7, 6.32, 11.9, 0.3,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
           f"{cal.get('label', '')} Every item carries a source URL and a verified excerpt.",
           size=8, italic=True, color=_MUTED)
     _judgement_note(s, str(narrative.get("source") or "facts"))
@@ -2372,7 +2364,7 @@ def _slide_trends(
     panel = (narrative.get("slides") or {}).get("trends") or _trends_facts(trends, us)
     _sidebar(s, [str(o) for o in panel.get("observations") or []],
              [str(i) for i in panel.get("implications") or []], top=top)
-    _text(s, 0.7, 6.32, 11.9, 0.3,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
           "Each point is one run – a date on which every brand's pages were read. The line is the brand's "
           "overall score (0–100) that day; a gap means the brand was not read that run.",
           size=8, italic=True, color=_MUTED)
@@ -2453,7 +2445,7 @@ def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -
         bg = _CARD if ri % 2 else _WHITE
         cw(ri, 0, w["week_of"], bg=bg, bold=True)
         cw(ri, 1, " · ".join(f"{i['date'][5:]} {i['label']}" for i in w["items"]) or "—", bg=bg)
-    _text(s, 0.7, 6.32, 11.9, 0.3, _clean(cal.get("note", ""), 200), size=8, italic=True, color=_MUTED)
+    _text(s, 0.7, 6.6, 11.9, 0.44, _clean(cal.get("note", ""), 200), size=8, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
 
 
@@ -2895,7 +2887,7 @@ def _slide_promotions_raw(prs: Any, catalog: dict[str, Any], page: int, deck_tit
          for brand, p in rows[:12]],
         size=10.5, color=_INK, gap_pt=6, cap=200, accent_bullet=True, max_items=12,
     )
-    _text(s, 0.7, 6.32, 11.9, 0.3,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
           "Promotion titles and terms as printed; the pages themselves follow as exhibits.",
           size=8, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
@@ -2916,7 +2908,7 @@ def _slide_games(prs: Any, catalog: dict[str, Any], page: int, deck_title: str) 
          for b in brands[:12]],
         size=10.5, color=_INK, gap_pt=6, cap=220, accent_bullet=False, max_items=12,
     )
-    _text(s, 0.7, 6.32, 11.9, 0.3,
+    _text(s, 0.7, 6.6, 11.9, 0.44,
           "Counts are titles READ from the pages collected, not the operator's claimed "
           "catalogue size — the full list is in the workbook.",
           size=8, italic=True, color=_MUTED)
@@ -3968,7 +3960,7 @@ def render_voice_deck(
             _eyebrow(s, "Players flag", y=top + 3.45, x=x, color=_ACCENT)
             _bullets(s, x, top + 3.8, 5.7, min(0.8, 6.25 - (top + 3.8)), [str(f) for f in b["flags"][:2]],
                      size=10.5, color=_BODY, gap_pt=4, cap=100, accent_bullet=True, max_items=2)
-        _text(s, 0.7, 6.32, 11.9, 0.3, _VOICE_LABEL, size=8, italic=True, color=_MUTED)
+        _text(s, 0.7, 6.6, 11.9, 0.44, _VOICE_LABEL, size=8, italic=True, color=_MUTED)
         _footer(s, deck_title, page)
         page += 1
     # method
