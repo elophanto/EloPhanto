@@ -1534,6 +1534,10 @@ def _slide_dimension_leaders(
     tbl = shape.table
     for ci, w in enumerate(widths):
         tbl.columns[ci].width = Inches(w)
+    # Twelve dimensions and a wide field wrap the leaders cell; the rows
+    # fit under the footnote and the long cells are cut to two lines.
+    for r_ in tbl.rows:
+        r_.height = Inches(min(0.34, (6.2 - top) / (len(dims) + 1)))
 
     def cell_write(
         r: int,
@@ -1570,7 +1574,7 @@ def _slide_dimension_leaders(
         cell_write(
             ri,
             0,
-            f"{dname}  ·  {d.get('weight_pct', 0):g}%",
+            f"{_clean(dname, 40)}  ·  {d.get('weight_pct', 0):g}%",
             bg=bg,
             bold=True,
             size=9,
@@ -1590,7 +1594,7 @@ def _slide_dimension_leaders(
         cell_write(
             ri,
             1,
-            names,
+            _clean(names, 42),
             bg=bg,
             fg=_ACCENT if we_lead else _INK,
             bold=we_lead,
@@ -1946,7 +1950,8 @@ def _slide_voice(
         cell_write(ri, 0, f"{b['name']}{'  (us)' if b.get('is_self') else ''}", bg=bg, bold=bool(b.get("is_self")))
         cell_write(ri, 1, str(b.get("n", 0)), bg=bg)
         if b.get("too_few"):
-            cell_write(ri, 2, "too few mentions to read", bg=_GAP_BG, fg=_MUTED, size=7)
+            # short, so a 0.7in column keeps the row to one line (15 brands, 2026-09-02)
+            cell_write(ri, 2, f"too few (n<{voice.get('min_mentions', 15)})", bg=_GAP_BG, fg=_MUTED, size=7)
             for ci in range(1, len(themes)):
                 cell_write(ri, 2 + ci, "", bg=_GAP_BG)
             continue
@@ -1960,7 +1965,7 @@ def _slide_voice(
             n_t = cell.get("n")
             cell_write(
                 ri, 2 + ci, f"{int(round(share * 100))}%" + (f" ({int(n_t)})" if n_t else ""),
-                bg=_neg_bg(share, neg), fg=_INK, bold=share >= 0.25,
+                bg=_neg_bg(share, neg), fg=_INK, bold=share >= 0.25, size=7 if len(brands) > 10 else 8,
             )
     panel = (narrative.get("slides") or {}).get("voice") or _voice_facts(voice)
     _sidebar(
@@ -2517,14 +2522,14 @@ def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_t
     pkgs = brand.get("packages") or []
     pkg_rows: list[list[str]] = []
     pkg_links: list[str] = []
-    for pkg in pkgs[:12]:
+    for pkg in pkgs[:10]:
         price = f"${pkg['price_usd']:.2f}" if pkg.get("price_usd") is not None else str(pkg["name"])
         gc, sc = pkg.get("gold_coins"), pkg.get("sweeps_coins")
         if gc is None and sc is None and pkg.get("coins"):
             gc_txt, sc_txt = _clean(pkg["coins"], 30), "–"   # unparsed grant, shown as printed
         else:
             gc_txt, sc_txt = _fmt_coins(gc), _fmt_coins(sc)
-        pkg_rows.append([price, gc_txt, sc_txt, _clean((pkg.get("detail") or "").strip(), 60) or "–"])
+        pkg_rows.append([price, gc_txt, sc_txt, _clean((pkg.get("detail") or "").strip(), 44) or "–"])
         pkg_links.append(str(pkg.get("url") or ""))
     if pkg_rows:
         _table(s, 0.7, top, [0.95, 1.0, 0.9, 1.55],
@@ -2553,7 +2558,7 @@ def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_t
                ["Promotion", "Benefit", "How to claim", "Frequency"], promo_rows, size=7.5, links=promo_links)
     else:
         _text(s, 5.3, top, 7.2, 0.5, "No promotions on record.", size=9, color=_MUTED)
-    extra = max(0, len(pkgs) - 12) + max(0, len(promos) - 9)
+    extra = max(0, len(pkgs) - 10) + max(0, len(promos) - 9)
     pkg_src = (brand.get("sources") or {}).get("coin_package") or []
     if pkg_rows and pkg_src == ["third_party"]:
         # a ladder read off a review site is a weaker fact than one read off the store — say so
@@ -3424,6 +3429,12 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
         Inches(min(0.32 * (len(rows) + 1), 6.6 - top)),
     )
     tbl = shape.table
+    # Fifteen brands and a header of long dimension names ran past the
+    # footnote (2026-09-02): rows shrink to fit under it, the header is
+    # short, the body a touch smaller when the field is wide.
+    row_h = min(0.32, (5.95 - top) / (len(rows) + 1))
+    for r_ in tbl.rows:
+        r_.height = Inches(row_h)
     tbl.columns[0].width = Inches(first_w)
     tbl.columns[1].width = Inches(0.9)
     for ci in range(len(dims)):
@@ -3447,7 +3458,7 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
     cell_write(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
     cell_write(0, 1, "Overall", bg=_INK, fg=_WHITE, bold=True)
     for ci, d in enumerate(dims):
-        cell_write(0, 2 + ci, d, bg=_INK, fg=_WHITE, bold=True, size=7)
+        cell_write(0, 2 + ci, _clean(d, 26), bg=_INK, fg=_WHITE, bold=True, size=6.5)
     for ri, r in enumerate(rows, start=1):
         bg = _SELF_ROW if r.get("is_self") else _WHITE
         mark = "†" if r.get("provisional") and r["overall"]["normalized_pct"] is not None else ""

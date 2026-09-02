@@ -90,7 +90,7 @@ class TestVoiceOnTop:
                               path=out, voice=voice, voice_diff={"baseline": True, "changed": [], "material_count": 0})
         texts = _texts(out)
         heat = next(t for t in texts if "What players say about the field" in t)
-        assert "Crown" in heat and "too few mentions to read" in heat
+        assert "Crown" in heat and "too few (n<" in heat          # short, so the row stays one line
         assert "not observed product fact" in heat
         assert any("Sentiment baseline set" in t for t in texts)
         profile = next(t for t in texts if "COMPETITOR DEEP DIVE" in t.upper() and "\nCrown\n" in t)
