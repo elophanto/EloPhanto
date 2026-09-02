@@ -185,3 +185,44 @@ different cut of the policy/perception line.
 * `scripts/watch_live_check.py` — the live run outside the chat: the same
   Agent, tools and vault; `--brand` repeatable, `--read` for the registered
   read of every live session.
+
+## Live results (2026-09-02, `scripts/watch_live_check.py`, chat closed)
+
+Sign-ins, agent-driven: **Spin Blitz, Spinfinite and High 5 signed in** by
+the agent finding the form (4, 4 and 11 actions) and the code typing the
+credentials — the three brands the script never managed. Pulsz, Hello
+Millions and Crown Coins recognised as live sessions with proof quoted
+from the page. **WOW Vegas**: credentials accepted, the site e-mailed a
+verification code (new browser) — `verification_required`. **High 5**
+later `rejected` ("Error. Please try another email/username or
+password") after three sign-ins in one morning: the cooldown is not to
+be overridden for it again.
+
+Signed-in reads (rows stamped `registered`, verified against the page):
+
+| brand | games | coin packages | providers | promotions | loyalty tiers |
+|---|---|---|---|---|---|
+| Pulsz | 63 | 0 | 25 | 11 | 2 |
+| Spin Blitz | 56 | 8 | 53 | 7 | 0 |
+| Hello Millions | 59 | 9 | 32 | 6 | 1 |
+| Spinfinite | 60 | 7 | 34 | 11 | 0 |
+
+The register went from 1,658 to 2,002 rows. Each pass found a defect the
+previous one hid, all fixed the same day: the recorder kept the agent's
+short HTML ask (now captures the full DOM itself); the agent's report was
+read only in one format (now loosely, and an unnamed capture is tried for
+every kind); the extractor read the first 22,000 characters of a page
+whose store modal sat at the end (now the window densest in the kind's
+marks); a lobby asked for before it rendered was a shell (now recaptured);
+image tiles carried their names in `alt` (now kept); a single-page app's
+one URL named everything "game" (now left open); the agent's submit step
+was cut off by the injection filter (now Enter is the last resort); forty
+actions were not enough for five pages (now sixty, with a report-by note).
+
+Known gaps, by evidence on disk (`workspace/watch/captures/`): **Crown
+Coins**' lobby has no game titles in its DOM at all (every tile's alt is
+"provider logo"), so its public-research data stands; **Pulsz**' store at
+/store renders as a near-empty shell within the capture window. Card
+Crush, Jackpota, McLuck and Spree still need their passwords checked by
+hand; Chumba is rejected from the Texas exit; Modo was unreachable twice;
+Pulsz Bingo shows a captcha.
