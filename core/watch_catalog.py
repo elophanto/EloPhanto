@@ -130,11 +130,13 @@ LOBBY_GOAL = """You are signed in to {url} in the agent's own Chrome, as a playe
 time, by clicking what you can see on the page (menus, sidebar, header — look with
 browser_get_elements or browser_screenshot first, act, then look again):
 {wanted}
-For EACH page you reach: scroll to the bottom a few times so lazy-loaded grids are
+For EACH page you reach: scroll to the bottom twice so lazy-loaded grids are
 complete (browser_scroll), then call browser_get_html ONCE — that call is what puts
 the page on record (ask for a small maxLength if you like; the record is taken in
 full regardless). Prefer browser_get_elements over screenshots: it is faster and
-enough to find the next control. Do not accept, agree to, buy or claim anything; if a modal asks
+enough to find the next control. Budget: about {max_steps} actions in all; write
+the report by action {report_by} whatever you have reached — a report listing
+three pages beats none. Do not accept, agree to, buy or claim anything; if a modal asks
 you to agree to terms, leave it and read the page behind it. Never guess an address:
 you cannot navigate. If a page cannot be found by clicking, skip it.
 
@@ -206,7 +208,9 @@ class _PageRecorder:
         self._bm.call_tool = self._orig
 
 
-async def agent_reads_lobby(agent: Any, bm: Any, start_url: str, kinds: list[str], *, timeout: float = 900.0) -> list[dict[str, Any]]:
+async def agent_reads_lobby(
+    agent: Any, bm: Any, start_url: str, kinds: list[str], *, timeout: float = 900.0, max_steps: int = 60,
+) -> list[dict[str, Any]]:
     """The agent visits the lobby, providers, store, promotions and VIP
     pages by clicking what it sees; every ``browser_get_html`` it makes is
     recorded here with the URL, and its final report names which page each
@@ -227,8 +231,11 @@ async def agent_reads_lobby(agent: Any, bm: Any, start_url: str, kinds: list[str
     with rec:
         try:
             resp = await asyncio.wait_for(
-                agent.run_isolated(LOBBY_GOAL.format(url=start_url, wanted=wanted),
-                                   excluded_tool_names=excluded, max_steps_override=40),
+                agent.run_isolated(
+                    LOBBY_GOAL.format(url=start_url, wanted=wanted, max_steps=max_steps,
+                                      report_by=max(10, max_steps - 6)),
+                    excluded_tool_names=excluded, max_steps_override=max_steps,
+                ),
                 timeout=timeout,
             )
         except Exception as e:
