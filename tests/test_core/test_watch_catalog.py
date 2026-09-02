@@ -973,3 +973,33 @@ class TestGamePortfolio:
         assert hdr[1] == "Pulsz  (us)" and hdr[2] == "Chumba"              # ours first, "Casino" dropped
         H = prs.slide_height
         assert all(sh.top + sh.height <= H for sl in pages for sh in sl.shapes if sh.has_table)
+
+
+class TestOffersPaginate:
+    def test_fifteen_brands_of_offers_take_two_pages(self, tmp_path) -> None:
+        """2026-09-02: the register reached 15 brands and the offers table ran
+        past the slide. Nine a page, titled (i of k), nothing below the footnote."""
+        from pptx import Presentation
+
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        card = {"rows": [], "dimensions": []}
+        offers = [{"brand": f"Brand {i:02d}", "is_self": i == 0,
+                   "welcome": "New players can sign up for a welcome bundle of 200% extra coins plus free SC " * 1,
+                   "ongoing": "Daily login bonus, weekly tournaments and social giveaways every single day"}
+                  for i in range(15)]
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, offers=offers)
+        prs = Presentation(str(out))
+        pages = [sl for sl in prs.slides
+                 if any(sh.has_text_frame and "The offers on the table" in sh.text_frame.text for sh in sl.shapes)]
+        assert len(pages) == 2
+        titles = [next(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame and "offers on the table" in sh.text_frame.text)
+                  for sl in pages]
+        assert "(1 of 2)" in titles[0] and "(2 of 2)" in titles[1]
+        tables = [sh for sl in pages for sh in sl.shapes if sh.has_table]
+        assert [len(t.table.rows) for t in tables] == [10, 7]                # 9 + 6 brands, plus headers
+        assert all(t.top + t.height <= 6.72 * 914400 for t in tables)        # above the footnote line
+        cells = [c.text for t in tables for r in t.table.rows for c in r.cells]
+        assert "Brand 00  (us)" in cells and "Brand 14" in cells

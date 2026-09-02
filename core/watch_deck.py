@@ -2740,22 +2740,43 @@ def _slide_offers(
     narrative: dict[str, Any],
     page: int,
     deck_title: str,
-) -> None:
+) -> int:
     """The offers on the table: per brand, the headline welcome offer and
     the ongoing promotion, verbatim from the evidence register — what the
     market is actually selling to a new visitor this cycle. Executives ask
     for this first; it is the most comparable fact in the whole pack."""
+
+    # Nine brands a page: two wrapped lines a row at 8.5pt is ~0.32in, and
+    # fifteen rows ran past the slide (2026-09-02, the register at 15 brands).
+    per_page = 9
+    pages = [offers[i:i + per_page] for i in range(0, len(offers), per_page)] or [[]]
+    for pi, shown in enumerate(pages, start=1):
+        _slide_offers_page(prs, shown, narrative, page, deck_title, pi, len(pages))
+        page += 1
+    return page
+
+
+def _slide_offers_page(
+    prs: Any,
+    shown: list[dict[str, Any]],
+    narrative: dict[str, Any],
+    page: int,
+    deck_title: str,
+    pi: int,
+    n_pages: int,
+) -> None:
     from pptx.util import Inches, Pt
 
     s = _blank(prs)
     title = (narrative.get("titles") or {}).get("offers") or "The offers on the table"
+    if n_pages > 1:
+        title = f"{title}  ({pi} of {n_pages})"
     top = _header(
         s,
         "Offers and promotions",
         title,
-        (narrative.get("commentary") or {}).get("offers", ""),
+        (narrative.get("commentary") or {}).get("offers", "") if pi == 1 else "",
     )
-    shown = offers[:14]
     cols = ["Brand", "Headline welcome offer", "Ongoing / daily proposition"]
     widths = [1.9, 3.35, 2.95]
     tbl_h = min(0.36 * (len(shown) + 1), 6.5 - top)
@@ -3511,8 +3532,7 @@ def render_executive_deck(
     # photographed, captioned with the offer they show.
     offer_rows = [o for o in (offers or []) if o.get("welcome") or o.get("ongoing")]
     if offer_rows:
-        _slide_offers(prs, offer_rows, narrative, page, deck_title)
-        page += 1
+        page = _slide_offers(prs, offer_rows, narrative, page, deck_title)
         promo_items: list[tuple[str, dict[str, str], bool]] = []
         captions: dict[str, str] = {}
         for o in offer_rows:
