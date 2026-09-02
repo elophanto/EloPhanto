@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ LOGGED_IN_WEAK = (
     "wallet", "vip level", "claim daily", "daily bonus claim",
 )
 LOGGED_IN_WORDS = LOGGED_IN_STRONG + LOGGED_IN_WEAK
+_BALANCE_RE = re.compile(r"\b(?:gc|sc)\s?[\d,]{1,12}(?:\.\d{1,2})?\b", re.I)   # the page text is lower-cased
 LOGGED_OUT_WORDS = (
     "log in", "login", "sign in", "create account", "register", "join now",
 )
@@ -445,8 +447,14 @@ async def session_state(bm: Any) -> tuple[str, list[str], list[str]]:
         text = ""
     strong = sorted({w for w in LOGGED_IN_STRONG if w in text})
     weak = sorted({w for w in LOGGED_IN_WEAK if w in text})
-    hits_in = strong + weak
     hits_out = sorted({w for w in LOGGED_OUT_WORDS if w in text})
+    # A wallet balance reads "GC 5,000 · SC 2.00" — the code BEFORE the
+    # number; an offer reads "5,000 GC" (Pulsz and Hello Millions,
+    # 2026-09-02: both lobbies were live sessions judged "no form").
+    balance = bool(_BALANCE_RE.search(text)) and not hits_out
+    if balance:
+        strong = strong + ["coin balance shown"]
+    hits_in = strong + weak
     if strong and len(hits_out) <= len(hits_in):
         return "logged_in", hits_in[:4], hits_out[:3]
     if strong:
@@ -454,6 +462,26 @@ async def session_state(bm: Any) -> tuple[str, list[str], list[str]]:
     if weak and not hits_out:
         return "unclear", hits_in[:4], hits_out[:3]     # coins talk, no controls either way
     return "logged_out", hits_in[:4], hits_out[:3]
+
+
+async def settled_session_state(bm: Any, *, tries: int = 3, wait_ms: int = 3000) -> tuple[str, list[str], list[str]]:
+    """These lobbies are JS apps: three seconds after navigation the page
+    can still be a spinner, and an empty page reads as logged out. Wait
+    until the page has words, then judge."""
+    from core.watch_observe import _result_text
+
+    state, hits_in, hits_out = "logged_out", [], []
+    for i in range(max(1, tries)):
+        try:
+            text = _result_text(await bm.call_tool("browser_extract", {}))
+        except Exception:
+            text = ""
+        state, hits_in, hits_out = await session_state(bm)
+        if state == "logged_in" or len(text.split()) >= 40:
+            break
+        if i + 1 < tries:
+            await bm.call_tool("browser_wait", {"ms": wait_ms})
+    return state, hits_in, hits_out
 
 
 async def wait_out_challenge(bm: Any, seconds: int) -> str:
@@ -575,13 +603,20 @@ async def login_to_site(
             if attempt:
                 out.update(verdict="unreachable", note="navigation failed twice")
                 return out
-        state, _, _ = await session_state(bm)
+        state, _, _ = await settled_session_state(bm)
         if state == "logged_in":
             out.update(verdict="already_logged_in", note="session already active")
         else:
             note = await open_login_form(bm, url, str(creds.get("username") or ""))
             if not await has_password_field(bm):
-                out.update(verdict="no_form", note=note)
+                # No password field is what a LIVE session looks like too:
+                # the click landed on nothing and the lobby is behind it.
+                state, hits_in, _ = await settled_session_state(bm, tries=2)
+                if state == "logged_in":
+                    out.update(verdict="already_logged_in",
+                               note=f"session already active ({', '.join(hits_in[:3])}); {note}")
+                else:
+                    out.update(verdict="no_form", note=note)
             else:
                 note += "; " + await fill_and_submit(
                     bm,

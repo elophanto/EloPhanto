@@ -1005,3 +1005,89 @@ class TestOffersPaginate:
         assert all(t.top + t.height <= 6.72 * 914400 for t in tables)        # above the footnote line
         cells = [c.text for t in tables for r in t.table.rows for c in r.cells]
         assert "Brand 00  (us)" in cells and "Brand 14" in cells
+
+
+class TestSignedInRead:
+    """A 'registered' read must go through the browser, where the session
+    lives — an HTTP fetch sees the logged-out site (2026-09-01/02: two
+    registered re-reads wrote nothing while the lobbies were live)."""
+
+    class _BM:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+            self.here = ""
+
+        async def call_tool(self, name, params):
+            self.calls.append((name, params))
+            if name == "browser_navigate":
+                self.here = params["url"]
+                return {"success": True}
+            if name == "browser_click_text":
+                if params["text"] in ("Providers", "Get Coins"):
+                    self.here = f"clicked:{params['text']}"
+                    return {"success": True, "matchedText": params["text"]}
+                raise RuntimeError("no such text")
+            if name == "browser_get_html":
+                body = {"clicked:Providers": "<ul><li>Pragmatic Play</li><li>Hacksaw Gaming</li></ul>",
+                        "clicked:Get Coins": "<div>$4.99 79,500 GC + 5 SC</div>"}.get(
+                    self.here, "<div class='grid'><h3>Money Train 2</h3><h3>Scarab Surge</h3></div>")
+                return {"success": True, "html": body}
+            if name == "browser_extract":
+                return {"success": True, "text": ""}
+            return {"success": True}
+
+    @pytest.mark.asyncio
+    async def test_reads_lobby_then_clicks_through_and_names_the_kinds(self, monkeypatch) -> None:
+        import core.watch_observe as wo
+        from core.watch_catalog import rank_catalog_pages, read_signed_in_pages
+
+        async def no_consent(bm, **kw):
+            return 0
+
+        monkeypatch.setattr(wo, "dismiss_consent", no_consent)
+        bm = self._BM()
+        pages = await read_signed_in_pages(bm, "https://www.pulsz.com/", ["provider", "game", "coin_package"])
+        assert [p["title"] for p in pages] == ["Lobby games", "Providers", "Store – Get Coins"]
+        assert all(p["method"] == "browser_session" for p in pages)
+        assert "Money Train 2" in pages[0]["text"] and "Hacksaw Gaming" in pages[1]["text"]
+        assert "$4.99" in pages[2]["text"]
+        by_kind = rank_catalog_pages(pages)
+        assert [p["title"] for p in by_kind["game"]] == ["Lobby games"]
+        assert [p["title"] for p in by_kind["provider"]] == ["Providers"]
+        assert [p["title"] for p in by_kind["coin_package"]] == ["Store – Get Coins"]
+        assert any(n == "browser_eval" and "scrollTo" in p["code"] for n, p in bm.calls)   # the grid lazy-loads
+        assert not any(n == "browser_click_text" and p["text"] == "I AGREE" for n, p in bm.calls)  # nothing accepted
+
+    @pytest.mark.asyncio
+    async def test_a_registered_read_never_uses_http(self, wm, monkeypatch) -> None:
+        import core.watch_observe as wo
+        from tools.watch import tools as T
+
+        await wm.add_subject(company_id="c1", name="Pulsz", url="https://www.pulsz.com")
+        http_calls: list[str] = []
+        session_calls: list[str] = []
+
+        async def http_pages(start_url, **kw):
+            http_calls.append(start_url)
+            return []
+
+        async def session_pages(bm, start_url, kinds, **kw):
+            session_calls.append(start_url)
+            return [{"url": start_url, "title": "Lobby games", "text": "Money Train 2 and Scarab Surge",
+                     "error": None, "method": "browser_session"}]
+
+        monkeypatch.setattr(wo, "collect_pages", http_pages)
+        import core.watch_catalog as wc
+        monkeypatch.setattr(wc, "read_signed_in_pages", session_pages)
+        t = T.WatchCatalogCollectTool()
+        t._watch_manager, t._config, t._browser_manager = wm, None, object()
+        t._vault = {}
+        t._router = _Router([{"name": "Money Train 2", "detail": "", "index": 0},
+                             {"name": "Scarab Surge", "detail": "", "index": 1}])
+        res = await t.execute({"company_id": "c1", "kinds": ["game"], "customer_state": "registered",
+                               "research": False})
+        assert res.success, res.error
+        assert session_calls == ["https://www.pulsz.com"] and http_calls == []
+        rows = await wm.list_catalog("c1")
+        assert {r.name for r in rows} == {"Money Train 2", "Scarab Surge"}
+        assert all(r.customer_state == "registered" and r.source_type == "site" for r in rows)

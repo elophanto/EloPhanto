@@ -377,3 +377,33 @@ class TestLoginToSite:
         res = await login_to_site(b, {"brand": "B", "url": "https://b.example",
                                       "username": "u", "password": "pw"})
         assert res["verdict"] == "already_logged_in" and b.typed == []
+
+
+class TestLiveSessionIsRecognised:
+    """Pulsz and Hello Millions, 2026-09-02: both lobbies were live sessions
+    (balances, Pulsz Points, a Logout button behind a Terms modal) and the
+    check said "no form found" — it judged a spinner, then a click that
+    landed on nothing."""
+
+    @pytest.mark.asyncio
+    async def test_a_wallet_balance_without_a_login_button_is_a_session(self) -> None:
+        lobby = {"text": "GC 15,000 SC 2.50 Get Coins Redeem Loyalty Lounge Recommended Games",
+                 "password": False, "clickable": ["Get Coins"]}
+        b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
+        state, hits_in, _ = await session_state(b)
+        assert state == "logged_in" and "coin balance shown" in hits_in
+
+        offer = {"text": "Get 15,000 GC + 2.5 SC free on sign up · Log In · Sign Up", "password": False,
+                 "clickable": ["Log In"]}
+        b2 = _Browser(pages={"https://b.example/": offer}, start="https://b.example/")
+        assert (await session_state(b2))[0] == "logged_out"          # an offer, and a Login button
+
+    @pytest.mark.asyncio
+    async def test_no_form_on_a_live_lobby_is_already_logged_in(self) -> None:
+        from core.watch_login import login_to_site
+
+        lobby = {"text": "GC 5,000 SC 2.00 Pulsz Points Customer ID ujdbjz LOGOUT I AGREE Terms of Use update",
+                 "password": False, "clickable": ["I AGREE"]}
+        b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"})
+        assert res["verdict"] == "already_logged_in", res

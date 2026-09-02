@@ -5088,6 +5088,7 @@ class WatchCatalogCollectTool(_WatchToolBase):
             known_review_urls,
             rank_catalog_pages,
             rank_research_urls,
+            read_signed_in_pages,
             research_page_ok,
             research_queries,
         )
@@ -5156,12 +5157,18 @@ class WatchCatalogCollectTool(_WatchToolBase):
         for subj in subjects:
             if not subj.url:
                 continue
-            pages = await collect_pages(
-                subj.url,
-                browser_manager=self._browser_manager,
-                proxy_url=proxy_url,
-                max_pages=int(params.get("max_pages") or 8),
-            )
+            if customer_state != "logged_out" and self._browser_manager is not None:
+                # A session lives in the browser, not in an HTTP client:
+                # read the lobby, store, promotions and VIP pages as the
+                # player the browser already is (docs/89).
+                pages = await read_signed_in_pages(self._browser_manager, subj.url, list(kinds))
+            else:
+                pages = await collect_pages(
+                    subj.url,
+                    browser_manager=self._browser_manager,
+                    proxy_url=proxy_url,
+                    max_pages=int(params.get("max_pages") or 8),
+                )
             readable = [p for p in pages if not p.get("error") and p.get("text")]
             by_kind = rank_catalog_pages(readable)
             per: dict[str, Any] = {"subject": subj.name, "pages_read": len(readable), "kinds": {}}

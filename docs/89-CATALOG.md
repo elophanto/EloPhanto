@@ -55,6 +55,18 @@ sends a brand with a thin public catalogue to research and then, still
 short, to `needs_sign_in` — that is how the first full run (2026-09-01)
 left High 5 at 3 games and Pulsz Bingo at 3: they counted as answered.
 
+**A signed-in read goes through the browser, never HTTP.** A session lives
+in the Chrome profile; an HTTP client has no cookies, so a "registered"
+read over HTTP sees the logged-out site — which is why the first two
+registered re-reads (2026-09-01/02) wrote nothing while Pulsz's and Hello
+Millions' lobbies were live sessions. `read_signed_in_pages` opens the
+lobby as the player the browser already is, scrolls so the lazy-loaded
+grid is in the DOM, then clicks through to Providers, Get Coins /
+Store, Promotions and VIP, reading each page's DOM; a modal (an updated
+Terms of Use, a promo) is read through, never accepted on the player's
+behalf. Pages are filed by the kind their title names and stamped with
+the session.
+
 Reads default to **direct, no proxy**: a provider list or a game title
 carries no geo claim, so the state-pinned exit is not spent on it. Pass
 `geo_state` only when the state actually matters (a store's prices).

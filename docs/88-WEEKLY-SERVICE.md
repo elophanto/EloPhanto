@@ -167,7 +167,12 @@ credentials the vault holds keyed by domain (`vault_lookup <domain>`):
    `challenge`, `no_form`, `unreachable`.
 
 A page is **logged in only on an account control** — "log out", "my
-account", "my profile". "Sweeps coins", "redeem" and "buy coins" are sold
+account", "my profile" — or a wallet balance ("GC 5,000 · SC 2.00", the
+code before the number, an offer reads "5,000 GC") with no Log In button
+on the page. The judgement waits for the app to render (a spinner reads
+as logged out), and "no password field" is re-judged: on a live lobby the
+click lands on nothing, and that is `already_logged_in`, not `no_form`
+(Pulsz, Hello Millions, 2026-09-02). "Sweeps coins", "redeem" and "buy coins" are sold
 to everyone (LuckyLand's logged-out homepage was once judged "already
 logged in" on those words while its header read Sign Up / Login); they
 make a verdict *unclear* at most, and never outweigh a Login button.

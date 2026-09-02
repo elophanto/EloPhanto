@@ -73,6 +73,107 @@ def rank_catalog_pages(
     return out
 
 
+# ── Signed-in reads ───────────────────────────────────────────────────
+# A session lives in the browser profile, not in an HTTP client: a
+# "registered" read that fetches over plain HTTP sees the logged-out site
+# (2026-09-01/02: two registered re-reads wrote nothing while Pulsz's and
+# Hello Millions' lobbies were live sessions in Chrome). So a signed-in
+# read goes through the browser only — the lobby first, then the pages a
+# player reaches by clicking: Providers, Get Coins, Promotions, VIP.
+_SIGNED_IN_NAV: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("provider", "Providers", ("Providers", "Game Providers", "Studios")),
+    ("coin_package", "Store – Get Coins", ("Get Coins", "Buy Coins", "Store", "Shop", "Buy", "Cashier")),
+    ("promotion", "Promotions", ("Promotions", "Promos", "Specials", "Offers", "Rewards", "Daily Bonus")),
+    ("loyalty_tier", "VIP loyalty club", ("VIP", "Loyalty", "Loyalty Lounge", "VIP Club", "Status")),
+)
+
+
+async def _scroll_to_load(bm: Any, rounds: int = 4, wait_ms: int = 900) -> None:
+    """Lobbies lazy-load their grid; scroll the page to the bottom a few
+    times so the titles are in the DOM before it is read."""
+    for _ in range(max(1, rounds)):
+        try:
+            await bm.call_tool("browser_eval", {"code": "window.scrollTo(0, document.body.scrollHeight)"})
+            await bm.call_tool("browser_wait", {"ms": wait_ms})
+        except Exception:
+            return
+    try:
+        await bm.call_tool("browser_eval", {"code": "window.scrollTo(0, 0)"})
+    except Exception:
+        pass
+
+
+async def _rendered_text(bm: Any, max_chars: int = 60000) -> str:
+    from core.watch_observe import _result_text, html_to_text
+
+    try:
+        raw = _result_text(await bm.call_tool("browser_get_html", {}))
+    except Exception:
+        return ""
+    return " ".join(html_to_text(raw).split())[:max_chars]
+
+
+async def read_signed_in_pages(
+    bm: Any, start_url: str, kinds: list[str], *, scroll_rounds: int = 4,
+) -> list[dict[str, Any]]:
+    """Read a brand as the signed-in player the browser already is. Returns
+    pages shaped like ``collect_pages`` (url, title, text, error, method)
+    with ``method="browser_session"``; titles name the kind so
+    :func:`rank_catalog_pages` files them. A modal (an updated Terms of
+    Use, a promo) does not stop the read — the DOM behind it is read, and
+    nothing is accepted on the player's behalf."""
+    from core.watch_login import _click_text
+    from core.watch_observe import dismiss_consent
+
+    pages: list[dict[str, Any]] = []
+    if bm is None or not start_url:
+        return pages
+
+    async def open_home() -> None:
+        await bm.call_tool("browser_navigate", {"url": start_url})
+        await bm.call_tool("browser_wait", {"ms": 3500})
+        await dismiss_consent(bm)
+
+    try:
+        await open_home()
+        await _scroll_to_load(bm, scroll_rounds)
+        text = await _rendered_text(bm)
+        pages.append({"url": start_url, "title": "Lobby games", "text": text,
+                      "error": None if text else "lobby returned no text", "method": "browser_session"})
+    except Exception as e:
+        return [{"url": start_url, "title": "Lobby games", "text": "", "error": f"browser: {e}",
+                 "method": "browser_session"}]
+    for kind, title, labels in _SIGNED_IN_NAV:
+        if kind not in kinds:
+            continue
+        hit = ""
+        for label in labels:
+            try:
+                hit = await _click_text(bm, label, exact=False)
+            except Exception:
+                hit = ""
+            if hit:
+                break
+        if not hit:
+            continue
+        try:
+            await bm.call_tool("browser_wait", {"ms": 2500})
+            await _scroll_to_load(bm, scroll_rounds)
+            text = await _rendered_text(bm)
+            pages.append({"url": f"{start_url.rstrip('/')}/#{kind}", "title": title, "text": text,
+                          "error": None if text else f"{title}: no text", "method": "browser_session",
+                          "via": hit})
+            await open_home()
+        except Exception as e:
+            pages.append({"url": f"{start_url.rstrip('/')}/#{kind}", "title": title, "text": "",
+                          "error": f"browser: {e}", "method": "browser_session"})
+            try:
+                await open_home()
+            except Exception:
+                break
+    return pages
+
+
 def dedupe_key(brand: str, kind: str, name: str) -> str:
     base = "|".join(
         [
