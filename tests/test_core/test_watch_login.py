@@ -65,6 +65,9 @@ class _Browser:
             expr = params["expression"]
             if "location.href" in expr:
                 return {"success": True, "resultJson": json.dumps(self.url)}
+            if "document.body" in expr and "innerText" in expr:
+                # the whole visible page: header/sidebar/modal ("body") around the <main> text
+                return {"success": True, "resultJson": json.dumps(self.page.get("body", self.page.get("text", "")))}
             if expr.startswith("[...document.querySelectorAll('input[type=password]')]"):
                 return {"success": True, "resultJson": json.dumps(1 if self.page.get("password") else 0)}
             if "out.kind" in expr or "g-recaptcha-response" in expr:
@@ -463,3 +466,35 @@ class TestTheAgentJudgesThePage:
         res2 = await login_to_site(b2, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"},
                                    router=_Judge("logged_in", "Log out"))
         assert res2["verdict"] != "already_logged_in"
+
+
+class TestTheWholePageIsJudged:
+    """browser_extract returns the <main> element only. Pulsz's main is the
+    offer banners and the grid; the balance, the points, the customer id
+    and the Logout control are in the header, the sidebar and a modal —
+    and a live session was judged logged out twice on the <main> slice
+    (2026-09-02). The verdict reads what a person sees: the whole page."""
+
+    @pytest.mark.asyncio
+    async def test_a_session_visible_outside_main_is_a_session(self) -> None:
+        from core.watch_login import login_to_site, page_text
+
+        main = "It's always free to play our SWEEPSTAKES COINS GAMES WELCOME OFFER 100,000 GOLD COINS BUY NOW $4.99 New Games"
+        whole = ("Search games GET COINS GC 5,000 SC 2.00 Gold Coins Sweepstakes Coins REDEEM Pulsz Points: 0 "
+                 "Status: Hero Home Slots Providers Customer ID: ujdbjz Pulsz Terms of Use update LOGOUT I AGREE " + main)
+        lobby = {"text": main, "body": whole, "password": False, "clickable": ["I AGREE", "Providers"]}
+        b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
+        assert (await page_text(b)).startswith("Search games GET COINS")            # not the <main> slice
+        res = await login_to_site(b, {"brand": "Pulsz", "url": "https://b.example/", "username": "u", "password": "p"})
+        assert res["verdict"] == "already_logged_in", res
+        assert "logout" in res["note"] or "coin balance shown" in res["note"]
+        assert res["page_excerpt"].startswith("Search games GET COINS")             # what it was read from
+        assert not any(n == "browser_type_text" for n, _ in b.calls)                # nothing typed into a live session
+
+    @pytest.mark.asyncio
+    async def test_without_body_text_the_extract_still_serves(self) -> None:
+        from core.watch_login import page_text
+
+        b = _Browser(pages={"https://b.example/": {"text": "Log in or create account", "body": "ok"}},
+                     start="https://b.example/")
+        assert await page_text(b) == "Log in or create account"                      # too short a body → extract

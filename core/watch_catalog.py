@@ -107,7 +107,7 @@ async def _rendered_text(bm: Any, max_chars: int = 60000) -> str:
     from core.watch_observe import _result_text, html_to_text
 
     try:
-        raw = _result_text(await bm.call_tool("browser_get_html", {}))
+        raw = _result_text(await bm.call_tool("browser_get_html", {"maxLength": 400000}))   # default cuts at 50k
     except Exception:
         return ""
     return " ".join(html_to_text(raw).split())[:max_chars]

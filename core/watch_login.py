@@ -428,10 +428,27 @@ def login_error(text: str) -> str:
 
 
 async def page_text(bm: Any) -> str:
-    from core.watch_observe import _result_text
+    """What a person sees: the whole visible page. ``browser_extract``
+    returns only the page's <main> element — on Pulsz that is the offer
+    banners and the grid, while the balance, the points, the customer id
+    and the Logout control sit in the header, the sidebar and a modal
+    (2026-09-02: a live session judged logged out twice on that slice)."""
+    from core.watch_observe import _result_text, html_to_text
 
     try:
-        return _result_text(await bm.call_tool("browser_extract", {}))
+        body = await _eval(bm, "document.body ? document.body.innerText : ''", max_length=20000)
+        if isinstance(body, str) and len(body.split()) >= 5:
+            return body
+    except Exception:
+        pass
+    try:
+        text = _result_text(await bm.call_tool("browser_extract", {}))
+        if text.strip():
+            return text
+    except Exception:
+        pass
+    try:
+        return html_to_text(_result_text(await bm.call_tool("browser_get_html", {"maxLength": 400000})))
     except Exception:
         return ""
 
@@ -439,12 +456,7 @@ async def page_text(bm: Any) -> str:
 async def session_state(bm: Any) -> tuple[str, list[str], list[str]]:
     """What the page says the session is now: ``logged_in`` / ``logged_out``
     / ``unclear``, with the words that decided it."""
-    from core.watch_observe import _result_text
-
-    try:
-        text = _result_text(await bm.call_tool("browser_extract", {})).lower()
-    except Exception:
-        text = ""
+    text = (await page_text(bm)).lower()
     strong = sorted({w for w in LOGGED_IN_STRONG if w in text})
     weak = sorted({w for w in LOGGED_IN_WEAK if w in text})
     hits_out = sorted({w for w in LOGGED_OUT_WORDS if w in text})
@@ -521,14 +533,9 @@ async def settled_session_state(bm: Any, *, tries: int = 3, wait_ms: int = 3000)
     """These lobbies are JS apps: three seconds after navigation the page
     can still be a spinner, and an empty page reads as logged out. Wait
     until the page has words, then judge."""
-    from core.watch_observe import _result_text
-
     state, hits_in, hits_out = "logged_out", [], []
     for i in range(max(1, tries)):
-        try:
-            text = _result_text(await bm.call_tool("browser_extract", {}))
-        except Exception:
-            text = ""
+        text = await page_text(bm)
         state, hits_in, hits_out = await session_state(bm)
         if state == "logged_in" or len(text.split()) >= 40:
             break
@@ -657,16 +664,20 @@ async def login_to_site(
             if attempt:
                 out.update(verdict="unreachable", note="navigation failed twice")
                 return out
-        state, _, _ = await settled_session_state(bm)
+        from core.watch_observe import dismiss_consent
+
+        await dismiss_consent(bm)   # the banner's text is not the page's
+        state, hits_in, _ = await settled_session_state(bm)
+        judged = await page_text(bm)
+        out["page_excerpt"] = " ".join(judged.split())[:240]   # what the verdict was read from
+        proof = ", ".join(hits_in[:3])
         if state != "logged_in" and router is not None:
             # The keyword check could not tell: let the agent read the page.
-            m_state, evidence = await judge_session(router, await page_text(bm))
+            m_state, evidence = await judge_session(router, judged)
             if m_state == "logged_in":
-                state = "logged_in"
-                out["judged_by"] = f"model: {evidence}"
+                state, proof = "logged_in", f"model: {evidence}"
         if state == "logged_in":
-            out.update(verdict="already_logged_in",
-                       note="session already active" + (f" ({out['judged_by']})" if out.get("judged_by") else ""))
+            out.update(verdict="already_logged_in", note=f"session already active ({proof})")
         else:
             note = await open_login_form(bm, url, str(creds.get("username") or ""))
             if not await has_password_field(bm):
