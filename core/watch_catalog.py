@@ -633,7 +633,8 @@ def focus_text(kind: str, text: str, limit: int = 22000, step: int = 2000) -> st
     if not positions:
         return text[:limit]
     best_start, best_n = 0, -1
-    for start in range(0, max(1, len(text) - limit + 1), step):
+    last = max(0, len(text) - limit)
+    for start in [*range(0, last, step), last]:      # the tail is always a candidate — modals live there
         n = sum(1 for p in positions if start <= p < start + limit)
         if n > best_n:
             best_start, best_n = start, n
