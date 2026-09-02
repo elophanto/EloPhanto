@@ -407,3 +407,59 @@ class TestLiveSessionIsRecognised:
         b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
         res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"})
         assert res["verdict"] == "already_logged_in", res
+
+
+class _Judge:
+    """A router whose answer is fixed — the guardrail under test is that a
+    verdict only counts when its evidence is printed on the page."""
+
+    def __init__(self, state, evidence):
+        self.state, self.evidence, self.calls = state, evidence, 0
+
+    async def complete(self, **kw):
+        import json
+        from types import SimpleNamespace
+
+        self.calls += 1
+        return SimpleNamespace(content=json.dumps({"state": self.state, "evidence": self.evidence, "why": "x"}))
+
+
+class TestTheAgentJudgesThePage:
+    """'The agent would recognise we're already logged in' (Petr,
+    2026-09-02). When the keyword check cannot tell, the model reads the
+    page — and its verdict counts only with proof printed on the page."""
+
+    @pytest.mark.asyncio
+    async def test_a_verdict_needs_printed_proof(self) -> None:
+        from core.watch_login import judge_session
+
+        page = "Pulsz Points: 0 Status: Hero Next: Star Customer ID: ujdbjz Search games"
+        assert await judge_session(_Judge("logged_in", "Customer ID: ujdbjz"), page) == ("logged_in", "Customer ID: ujdbjz")
+        assert await judge_session(_Judge("logged_in", "Log out"), page) == ("unclear", "")     # not on the page
+        assert await judge_session(_Judge("nonsense", "Pulsz Points"), page) == ("unclear", "")
+        assert await judge_session(None, page) == ("unclear", "")
+
+        class Broken:
+            async def complete(self, **kw):
+                raise RuntimeError("model down")
+
+        assert await judge_session(Broken(), page) == ("unclear", "")                           # never raises
+
+    @pytest.mark.asyncio
+    async def test_a_lobby_with_no_keyword_signal_is_a_session_when_the_model_proves_it(self) -> None:
+        from core.watch_login import login_to_site
+
+        lobby = {"text": "Pulsz Points: 0 Status: Hero Next: Star Customer ID: ujdbjz Search games Slots Providers",
+                 "password": False, "clickable": ["Providers"]}
+        b = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
+        judge = _Judge("logged_in", "Customer ID: ujdbjz")
+        res = await login_to_site(b, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"},
+                                  router=judge)
+        assert res["verdict"] == "already_logged_in" and "model: Customer ID: ujdbjz" in res["note"], res
+        assert judge.calls == 1
+
+        # the model says logged in but cannot quote the page: the script's own verdict stands
+        b2 = _Browser(pages={"https://b.example/": lobby}, start="https://b.example/")
+        res2 = await login_to_site(b2, {"brand": "B", "url": "https://b.example/", "username": "u", "password": "p"},
+                                   router=_Judge("logged_in", "Log out"))
+        assert res2["verdict"] != "already_logged_in"

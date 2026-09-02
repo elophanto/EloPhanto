@@ -464,6 +464,59 @@ async def session_state(bm: Any) -> tuple[str, list[str], list[str]]:
     return "logged_out", hits_in[:4], hits_out[:3]
 
 
+SESSION_JUDGE_SYSTEM = """You are looking at the text of one page of a social casino site, as
+the agent's browser rendered it. Decide whether the browser is signed in
+to a player account on this page.
+
+Signed in looks like: a wallet balance (e.g. "GC 5,000", "SC 2.00"), a
+player level or points, a customer/account id, a Logout control, a
+"my account" area, a claimable daily bonus. Signed out looks like: Log
+In / Sign Up controls, a welcome offer addressed to new players, a
+login form. A captcha or "verify you are human" is a challenge.
+
+Return STRICT JSON: {"state": "logged_in" | "logged_out" | "challenge" | "unclear",
+ "evidence": "<a short phrase copied EXACTLY from the page that proves it>",
+ "why": "<one plain sentence>"}
+The evidence must be verbatim from the page; if nothing on the page
+proves either state, say unclear."""
+
+
+async def judge_session(router: Any, text: str) -> tuple[str, str]:
+    """The agent's own reading of the page when the keyword check cannot
+    tell. Returns ``(state, evidence)``; the evidence must be printed on
+    the page or the verdict is discarded — the same rule every other
+    claim in this organ obeys. Never raises."""
+    if router is None or not (text or "").strip():
+        return "unclear", ""
+    try:
+        resp = await router.complete(
+            messages=[
+                {"role": "system", "content": SESSION_JUDGE_SYSTEM},
+                {"role": "user", "content": json.dumps({"page_text": text[:12000]})},
+            ],
+            task_type="analysis",
+            temperature=0.0,
+            max_tokens=200,
+        )
+        body = (resp.content or "").strip()
+        if body.startswith("```"):
+            parts = body.split("```")
+            body = parts[1] if len(parts) > 1 else body
+            body = body[4:] if body.startswith("json") else body
+        raw = json.loads(body)
+        state = str(raw.get("state") or "unclear").strip().lower()
+        evidence = " ".join(str(raw.get("evidence") or "").split())
+    except Exception as e:
+        logger.debug("watch_login: session judgement failed: %s", e)
+        return "unclear", ""
+    if state not in ("logged_in", "logged_out", "challenge"):
+        return "unclear", ""
+    norm = " ".join(text.split()).lower()
+    if not evidence or evidence.lower() not in norm:
+        return "unclear", ""             # a verdict without printed proof is no verdict
+    return state, evidence
+
+
 async def settled_session_state(bm: Any, *, tries: int = 3, wait_ms: int = 3000) -> tuple[str, list[str], list[str]]:
     """These lobbies are JS apps: three seconds after navigation the page
     can still be a spinner, and an empty page reads as logged out. Wait
@@ -578,6 +631,7 @@ async def login_to_site(
     screenshot_path: str = "",
     assist_seconds: int = 0,
     exit_state: str = "",
+    router: Any = None,
 ) -> dict[str, Any]:
     """Log the browser into one brand. Never raises; the verdict is read
     from the page, so a failure cannot be reported as a session.
@@ -604,17 +658,28 @@ async def login_to_site(
                 out.update(verdict="unreachable", note="navigation failed twice")
                 return out
         state, _, _ = await settled_session_state(bm)
+        if state != "logged_in" and router is not None:
+            # The keyword check could not tell: let the agent read the page.
+            m_state, evidence = await judge_session(router, await page_text(bm))
+            if m_state == "logged_in":
+                state = "logged_in"
+                out["judged_by"] = f"model: {evidence}"
         if state == "logged_in":
-            out.update(verdict="already_logged_in", note="session already active")
+            out.update(verdict="already_logged_in",
+                       note="session already active" + (f" ({out['judged_by']})" if out.get("judged_by") else ""))
         else:
             note = await open_login_form(bm, url, str(creds.get("username") or ""))
             if not await has_password_field(bm):
                 # No password field is what a LIVE session looks like too:
                 # the click landed on nothing and the lobby is behind it.
                 state, hits_in, _ = await settled_session_state(bm, tries=2)
+                proof = ", ".join(hits_in[:3])
+                if state != "logged_in" and router is not None:
+                    m_state, evidence = await judge_session(router, await page_text(bm))
+                    if m_state == "logged_in":
+                        state, proof = "logged_in", f"model: {evidence}"
                 if state == "logged_in":
-                    out.update(verdict="already_logged_in",
-                               note=f"session already active ({', '.join(hits_in[:3])}); {note}")
+                    out.update(verdict="already_logged_in", note=f"session already active ({proof}); {note}")
                 else:
                     out.update(verdict="no_form", note=note)
             else:

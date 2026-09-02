@@ -4791,6 +4791,7 @@ class WatchLoginTool(_WatchToolBase):
         self._vault: Any = None
         self._browser_manager: Any = None
         self._config: Any = None
+        self._router: Any = None   # the agent's own reading of a page when keywords cannot tell
 
     @property
     def name(self) -> str:
@@ -4946,6 +4947,7 @@ class WatchLoginTool(_WatchToolBase):
                 screenshot_path=str(shots / f"{domain.replace('.', '-')}.jpg"),
                 assist_seconds=int(params.get("assist_seconds") or 0),
                 exit_state=want_state,
+                router=self._router,
             )
             res["domain"] = domain
             rows.append(res)

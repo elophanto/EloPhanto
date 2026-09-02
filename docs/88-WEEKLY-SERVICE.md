@@ -177,6 +177,15 @@ to everyone (LuckyLand's logged-out homepage was once judged "already
 logged in" on those words while its header read Sign Up / Login); they
 make a verdict *unclear* at most, and never outweigh a Login button.
 
+**When the keywords cannot tell, the agent reads the page.** The keyword
+check is a script; a person sees a signed-in account in one glance. So
+when the script does not say `logged_in`, `judge_session` gives the page
+text to the model, which answers `logged_in` / `logged_out` / `challenge`
+/ `unclear` with a phrase copied from the page as evidence — and the
+verdict counts only if that phrase is printed there, the same rule every
+claim in this organ obeys. A verdict without printed proof is discarded
+and the script's own reading stands.
+
 **Never twice in a row.** Every attempt is stamped and stored — merged into
 `workspace/login-checks/results.json`, so a call for one brand keeps every
 other brand's verdict (the agent signs in one brand per call); a brand
