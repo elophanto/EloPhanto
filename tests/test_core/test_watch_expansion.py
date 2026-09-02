@@ -1175,7 +1175,7 @@ class TestMarketEvents:
         )
         prs = Presentation(str(out))
         texts = ["\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame) for sl in prs.slides]
-        assert "MARKET EVENT" in texts[2] and "closing on September 14, 2026" in texts[2]   # summary follows the guide
+        assert "MARKET EVENT" in texts[3] and "closing on September 14, 2026" in texts[3]   # cover, contents, guide, summary
         moves = next(t for t in texts if "Market moves" in t or "MARKET MOVES" in t.upper())
         assert "1 market event on record" in moves and "Brand H" in moves
 

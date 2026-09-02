@@ -211,7 +211,7 @@ class TestDeck:
         render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], [], comms=comms), gaps=[],
                               evidence_count=1, path=b, comms=comms)
         na, nb = len(Presentation(str(a)).slides), len(Presentation(str(b)).slides)
-        assert nb == na + 1
+        assert nb == na + 2          # the comms page, and the Market context divider it opens
         texts = []
         for sl in Presentation(str(b)).slides:
             parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]

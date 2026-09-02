@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 import re
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -47,12 +48,14 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── house tokens ─────────────────────────────────────────────────────
-_INK = "111827"  # near-black: headings, display numbers, dark canvases
-_BODY = "4B5563"  # body copy
-_MUTED = "9CA3AF"  # eyebrows, footers, labels
+_INK = "0B2545"  # navy: headings, display numbers, dark canvases, table rules
+_BODY = "334155"  # body copy
+_MUTED = "6B7280"  # eyebrows, footers, labels
+FONT_BODY = "Arial"     # one family for everything that is read
+FONT_TITLE = "Georgia"  # titles only — the consulting-house pairing
 _HAIR = "E5E7EB"  # hairlines
-_CARD = "F9FAFB"  # zebra rows / note cards
-_GAP_BG = "F3F4F6"  # heatmap: not observed
+_CARD = "F8FAFC"  # zebra rows / note cards
+_GAP_BG = "F1F5F9"  # heatmap: not observed
 _ACCENT = "D97706"  # amber: the accent rule, and *our* brand everywhere
 _PEER = "64748B"  # slate: peer brands
 _DARK_BODY = "D1D5DB"  # body copy on dark canvases
@@ -164,6 +167,7 @@ def _text(
     line: float | None = None,
     wrap: bool = True,
     fit: bool = True,
+    font: str | None = None,
 ) -> Any:
     from pptx.enum.text import PP_ALIGN
     from pptx.util import Inches, Pt
@@ -183,6 +187,7 @@ def _text(
     if line:
         p.line_spacing = line
     for r in p.runs:
+        r.font.name = font or FONT_BODY
         r.font.size = Pt(size)
         r.font.bold = bold
         r.font.italic = italic
@@ -238,15 +243,26 @@ def _bullets(
         if accent_bullet:
             r0 = p.add_run()
             r0.text = "•  "
+            r0.font.name = FONT_BODY
             r0.font.size = Pt(size)
             r0.font.bold = True
             r0.font.color.rgb = _rgb(_ACCENT)
         r = p.add_run()
         r.text = _clean(item, cap)
+        r.font.name = FONT_BODY
         r.font.size = Pt(size)
         r.font.color.rgb = _rgb(color)
         p.space_after = Pt(gap_pt)
     return box
+
+
+def _hairline(slide: Any, y: float, *, x: float = 0.7, w: float = 11.9) -> None:
+    from pptx.enum.shapes import MSO_CONNECTOR
+    from pptx.util import Inches, Pt
+
+    ln = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x), Inches(y), Inches(x + w), Inches(y))
+    ln.line.color.rgb = _rgb(_HAIR)
+    ln.line.width = Pt(0.5)
 
 
 def _rule(slide: Any, y: float, *, x: float = 0.7, w: float = 0.7) -> None:
@@ -281,9 +297,73 @@ def _eyebrow(slide: Any, text: str, *, y: float, x: float = 0.7, color: str = _M
     )
 
 
-def _footer(slide: Any, deck_title: str, page: int) -> None:
-    _text(slide, 0.7, 7.08, 8.5, 0.3, _clean(deck_title, 70), size=8.5, color=_MUTED)
-    _text(slide, 12.0, 7.08, 0.7, 0.3, str(page), size=8.5, color=_MUTED, align="right")
+_SECTION: ContextVar[str] = ContextVar("_watch_deck_section", default="")
+_ON_DARK = "C7D2E0"  # secondary text on the navy canvases
+
+
+def _footer(slide: Any, deck_title: str, page: int, *, dark: bool = False) -> None:
+    """Deck title left, the section tracker and the page number right."""
+    colour = _ON_DARK if dark else _MUTED
+    _text(slide, 0.7, 7.08, 6.5, 0.3, _clean(deck_title, 70), size=8.5, color=colour)
+    section = _SECTION.get()
+    if section:
+        _text(slide, 7.2, 7.08, 4.6, 0.3, section.upper(), size=7.5, color=colour, align="right", spacing=1.5)
+    _text(slide, 12.0, 7.08, 0.7, 0.3, str(page), size=8.5, color=colour, align="right")
+
+
+def _theme_links(prs: Any) -> None:
+    """Hyperlinked text takes the theme's link colour whatever the run says
+    (PowerPoint and LibreOffice both); make that colour the ink, so linked
+    names read as text with a hand cursor, not as a web page."""
+    from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+    try:
+        theme = prs.slide_master.part.part_related_by(RT.THEME)
+    except Exception:
+        return
+    blob = theme.blob.decode("utf-8")
+    for tag in ("hlink", "folHlink"):
+        i = blob.find(f"<a:{tag}>")
+        if i < 0:
+            continue
+        j = blob.find(f"</a:{tag}>", i)
+        blob = blob[:i] + f'<a:{tag}><a:srgbClr val="{_INK}"/></a:{tag}>' + blob[j + len(f"</a:{tag}>"):]
+    theme._blob = blob.encode("utf-8")
+
+
+def _slide_divider(prs: Any, number: int, name: str, blurb: str, page: int, deck_title: str) -> None:
+    """A section divider: navy canvas, the section number large, the name
+    and one line on what the section answers."""
+    s = _blank(prs)
+    _dark(s)
+    _text(s, 0.7, 1.9, 3.0, 1.4, f"{number:02d}", size=64, color=_ACCENT, font=FONT_TITLE)
+    _text(s, 0.7, 3.35, 11.9, 0.9, _clean(name, 60), size=34, bold=True, color=_WHITE, font=FONT_TITLE)
+    _rule(s, 4.35)
+    if blurb:
+        _text(s, 0.7, 4.55, 9.5, 0.8, _clean(blurb, 160), size=13, color=_ON_DARK, line=1.25)
+    _footer(s, deck_title, page, dark=True)
+
+
+def _slide_agenda(prs: Any, page: int, deck_title: str) -> Any:
+    """The contents page, made early and filled once every page is placed."""
+    s = _blank(prs)
+    _header(s, "Contents", "What is in this deck")
+    _footer(s, deck_title, page)
+    return s
+
+
+def _fill_agenda(slide: Any, entries: list[tuple[str, int, str]]) -> None:
+    """``entries`` are (section name, first page, one-line blurb) in deck order."""
+    y = 2.05
+    row_h = 0.44 if len(entries) <= 10 else 0.38
+    for i, (name, first_page, blurb) in enumerate(entries, start=1):
+        _text(slide, 0.7, y, 0.8, row_h, f"{i:02d}", size=13, color=_ACCENT, font=FONT_TITLE)
+        _text(slide, 1.5, y, 5.4, row_h, _clean(name, 60), size=13, color=_INK, bold=True)
+        if blurb:
+            _text(slide, 6.9, y + 0.02, 4.7, row_h, _clean(blurb, 90), size=9.5, color=_BODY)
+        _text(slide, 11.7, y, 0.9, row_h, str(first_page), size=11, color=_MUTED, align="right")
+        _hairline(slide, y + row_h - 0.02)
+        y += row_h
 
 
 def _header(slide: Any, eyebrow: str, title: str, commentary: str = "") -> float:
@@ -299,8 +379,9 @@ def _header(slide: Any, eyebrow: str, title: str, commentary: str = "") -> float
         11.9,
         0.85,
         _clean(title, 110),
-        size=23,
+        size=24,
         bold=True,
+        font=FONT_TITLE,
         line=1.08,
     )
     _rule(slide, 1.62)
@@ -826,7 +907,7 @@ def _slide_title(
 ) -> None:
     s = _blank(prs)
     _dark(s)
-    _eyebrow(s, market or "Competitive intelligence", y=1.05)
+    _eyebrow(s, market or "Competitive intelligence", y=1.05, color=_ON_DARK)
     _text(
         s,
         0.7,
@@ -838,15 +919,16 @@ def _slide_title(
         bold=True,
         color=_WHITE,
         line=1.06,
+        font=FONT_TITLE,
     )
-    _text(s, 0.7, 3.55, 11.0, 0.5, _clean(period, 120), size=15, color=_MUTED)
+    _text(s, 0.7, 3.55, 11.0, 0.5, _clean(period, 120), size=15, color=_ON_DARK)
     _rule(s, 4.35)
-    _text(s, 0.7, 4.6, 11.9, 0.4, _clean(basis, 160), size=11, color=_MUTED)
+    _text(s, 0.7, 4.6, 11.9, 0.4, _clean(basis, 160), size=11, color=_ON_DARK)
     try:
         month = datetime.fromisoformat(generated).strftime("%B %Y")
     except Exception:
         month = datetime.now(UTC).strftime("%B %Y")
-    _text(s, 0.7, 6.75, 5.0, 0.3, month, size=10, color=_MUTED)
+    _text(s, 0.7, 6.75, 5.0, 0.3, month, size=10, color=_ON_DARK)
 
 
 def _slide_reading_guide(
@@ -1231,6 +1313,7 @@ def _slide_standings(
         va.minimum_scale = 0
         va.maximum_scale = 100
         va.has_major_gridlines = False
+        ch.font.name = FONT_BODY
         va.tick_labels.font.size = Pt(9)
         va.tick_labels.font.color.rgb = _rgb(_MUTED)
         ca = ch.category_axis
@@ -1303,6 +1386,7 @@ def _slide_standings(
         va.minimum_scale = 0
         va.maximum_scale = 100
         va.has_major_gridlines = False
+        ch.font.name = FONT_BODY
         va.tick_labels.font.size = Pt(9)
         va.tick_labels.font.color.rgb = _rgb(_MUTED)
         ca = ch.category_axis
@@ -1609,6 +1693,7 @@ def _slide_dimension_leaders(
         Inches(min(0.34 * (len(dims) + 1), 6.55 - top)),
     )
     tbl = shape.table
+    _hairlines(tbl)
     for ci, w in enumerate(widths):
         tbl.columns[ci].width = Inches(w)
     # Twelve dimensions and a wide field wrap the leaders cell; the rows
@@ -1635,7 +1720,7 @@ def _slide_dimension_leaders(
         _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, name in enumerate(cols):
-        cell_write(0, ci, name, bg=_INK, fg=_WHITE, bold=True, size=10)
+        cell_write(0, ci, name, bg=_WHITE, fg=_INK, bold=True, size=10)
     for ri, d in enumerate(dims, start=1):
         dname = d["name"]
         bg = _WHITE if ri % 2 else _CARD
@@ -1986,6 +2071,7 @@ def _slide_voice(
         Inches(row_h * (len(brands) + 1)),
     )
     tbl = shape.table
+    _hairlines(tbl)
     for r_ in tbl.rows:
         r_.height = Inches(row_h)
     tbl.columns[0].width = Inches(first_w)
@@ -2002,10 +2088,10 @@ def _slide_voice(
         cell.margin_top = cell.margin_bottom = Inches(0.01)
         _cell_font(cell, size, bold=bold, color=fg)
 
-    cell_write(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
-    cell_write(0, 1, "n", bg=_INK, fg=_WHITE, bold=True)
+    cell_write(0, 0, "Brand", bg=_WHITE, fg=_INK, bold=True)
+    cell_write(0, 1, "n", bg=_WHITE, fg=_INK, bold=True)
     for ci, t in enumerate(themes):
-        cell_write(0, 2 + ci, _theme_label(t), bg=_INK, fg=_WHITE, bold=True, size=7)
+        cell_write(0, 2 + ci, _theme_label(t), bg=_WHITE, fg=_INK, bold=True, size=7)
     for ri, b in enumerate(brands, start=1):
         bg = _SELF_ROW if b.get("is_self") else _WHITE
         cell_write(ri, 0, f"{b['name']}{'  (us)' if b.get('is_self') else ''}", bg=bg, bold=bool(b.get("is_self")))
@@ -2159,6 +2245,7 @@ def _slide_comms(
     shape = s.shapes.add_table(len(brands) + 1, 3 + len(cats), Inches(0.7), Inches(top), Inches(total_w),
                                Inches(min(0.3 * (len(brands) + 1), 6.2 - top)))
     tbl = shape.table
+    _hairlines(tbl)
     tbl.columns[0].width = Inches(first_w)
     tbl.columns[1].width = Inches(n_w)
     tbl.columns[2].width = Inches(wk_w)
@@ -2174,11 +2261,11 @@ def _slide_comms(
         cell.margin_top = cell.margin_bottom = Inches(0.01)
         _cell_font(cell, size, bold=bold, color=fg)
 
-    cw(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
-    cw(0, 1, "n", bg=_INK, fg=_WHITE, bold=True)
-    cw(0, 2, "/week", bg=_INK, fg=_WHITE, bold=True)
+    cw(0, 0, "Brand", bg=_WHITE, fg=_INK, bold=True)
+    cw(0, 1, "n", bg=_WHITE, fg=_INK, bold=True)
+    cw(0, 2, "/week", bg=_WHITE, fg=_INK, bold=True)
     for ci, c in enumerate(cats):
-        cw(0, 3 + ci, _cat_label(c), bg=_INK, fg=_WHITE, bold=True, size=7)
+        cw(0, 3 + ci, _cat_label(c), bg=_WHITE, fg=_INK, bold=True, size=7)
     for ri, b in enumerate(brands, start=1):
         bg = _SELF_ROW if b.get("is_self") else _WHITE
         cw(ri, 0, f"{b['name']}{'  (us)' if b.get('is_self') else ''}", bg=bg, bold=bool(b.get("is_self")))
@@ -2248,6 +2335,7 @@ def _slide_regulatory(
         shape = s.shapes.add_table(len(ahead) + 1, 5, Inches(0.7), Inches(top), Inches(8.2),
                                    Inches(min(0.32 * (len(ahead) + 1), 3.6)))
         tbl = shape.table
+        _hairlines(tbl)
         for ci, w in enumerate((1.0, 0.8, 1.2, 4.0, 1.2)):
             tbl.columns[ci].width = Inches(w)
 
@@ -2265,7 +2353,7 @@ def _slide_regulatory(
                     run.font.color.rgb = _rgb(fg)
 
         for ci, h in enumerate(("Date", "Where", "Kind", "Item", "Status")):
-            cw(0, ci, h, bg=_INK, fg=_WHITE, bold=True)
+            cw(0, ci, h, bg=_WHITE, fg=_INK, bold=True)
         for ri, i in enumerate(ahead, start=1):
             bg = _CARD if ri % 2 else _WHITE
             cw(ri, 0, i.get("event_date", ""), bg=bg, bold=True)
@@ -2325,7 +2413,7 @@ def _slide_trends(
     """Overall score per brand across the stored cycles — a line chart, our
     brands in the accent colour, the leader and top peers in slate."""
     from pptx.chart.data import CategoryChartData
-    from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+    from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_LEGEND_POSITION
     from pptx.util import Inches, Pt
 
     s = _blank(prs)
@@ -2360,6 +2448,14 @@ def _slide_trends(
     ch.legend.position = XL_LEGEND_POSITION.BOTTOM
     ch.legend.include_in_layout = False
     ch.legend.font.size = Pt(9)
+    ch.legend.font.name = FONT_BODY
+    ch.font.name = FONT_BODY
+    # No gridlines, a hairline axis: the lines carry the story.
+    ch.value_axis.has_major_gridlines = False
+    ch.value_axis.format.line.color.rgb = _rgb(_HAIR)
+    ch.category_axis.format.line.color.rgb = _rgb(_HAIR)
+    ch.value_axis.tick_labels.font.color.rgb = _rgb(_MUTED)
+    ch.category_axis.tick_labels.font.color.rgb = _rgb(_MUTED)
     # The axis follows the data: scores live in a twenty-point band, and a
     # 0–100 axis flattened every move into one line. Rounded to tens.
     vals = [float(v) for pt in pts for n, v in pt.get("scores", {}).items() if n in shown and v is not None]
@@ -2381,6 +2477,18 @@ def _slide_trends(
             colour, pi = peer_colours[pi % len(peer_colours)], pi + 1
         ser.format.line.color.rgb = _rgb(colour)
         ser.format.line.width = Pt(2.5 if name in us else 1.5)
+        last = max((k for k, pt in enumerate(pts) if pt["scores"].get(name) is not None), default=None)
+        if last is not None:
+            dl = ser.points[last].data_label
+            dl.has_text_frame = True
+            dl.text_frame.text = f"{name} {pts[last]['scores'][name]:.0f}"
+            dl.position = XL_LABEL_POSITION.RIGHT
+            for para in dl.text_frame.paragraphs:
+                for run in para.runs:
+                    run.font.size = Pt(8)
+                    run.font.name = FONT_BODY
+                    run.font.bold = name in us
+                    run.font.color.rgb = _rgb(colour)
         try:
             ser.marker.format.fill.solid()
             ser.marker.format.fill.fore_color.rgb = _rgb(colour)
@@ -2458,6 +2566,7 @@ def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -
         return
     shape = s.shapes.add_table(len(weeks) + 1, 2, Inches(0.7), Inches(top), Inches(11.9), Inches(min(0.5 * (len(weeks) + 1), 6.2 - top)))
     tbl = shape.table
+    _hairlines(tbl)
     tbl.columns[0].width = Inches(2.2)
     tbl.columns[1].width = Inches(9.7)
 
@@ -2470,8 +2579,8 @@ def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -
         cell.margin_top = cell.margin_bottom = Inches(0.02)
         _cell_font(cell, size, bold=bold, color=fg)
 
-    cw(0, 0, "Week of", bg=_INK, fg=_WHITE, bold=True)
-    cw(0, 1, "Dates that move play", bg=_INK, fg=_WHITE, bold=True)
+    cw(0, 0, "Week of", bg=_WHITE, fg=_INK, bold=True)
+    cw(0, 1, "Dates that move play", bg=_WHITE, fg=_INK, bold=True)
     for ri, w in enumerate(weeks, start=1):
         bg = _CARD if ri % 2 else _WHITE
         cw(ri, 0, w["week_of"], bg=bg, bold=True)
@@ -2501,6 +2610,7 @@ def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page:
         Inches(min(0.34 * (len(rows) + 1), 5.9 - top)),
     )
     tbl = shape.table
+    _hairlines(tbl)
     for ci, w in enumerate((1.9, 1.9, 0.8, 0.9, 0.9, 5.5)):
         tbl.columns[ci].width = Inches(w)
 
@@ -2514,7 +2624,7 @@ def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page:
         _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, h in enumerate(("Brand", "Voice", "CAPS", "!/line", "Urgency", "In its own words")):
-        cw(0, ci, h, bg=_INK, fg=_WHITE, bold=True)
+        cw(0, ci, h, bg=_WHITE, fg=_INK, bold=True)
     for ri, b in enumerate(rows, start=1):
         bg = _SELF_ROW if b["is_self"] else (_CARD if ri % 2 else _WHITE)
         f = b["features"]
@@ -2553,6 +2663,7 @@ def _table(
     shape = slide.shapes.add_table(len(rows) + 1, len(header), Inches(x), Inches(y),
                                    Inches(sum(widths)), Inches(h))
     tbl = shape.table
+    _hairlines(tbl)
     for ci, w in enumerate(widths):
         tbl.columns[ci].width = Inches(w)
 
@@ -2566,7 +2677,7 @@ def _table(
         _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, htxt in enumerate(header):
-        cw(0, ci, htxt, bg=_INK, fg=_WHITE, bold=True)
+        cw(0, ci, htxt, bg=_WHITE, fg=_INK, bold=True)
     for ri, row in enumerate(rows, start=1):
         bg = _CARD if ri % 2 else _WHITE
         for ci, txt in enumerate(row):
@@ -2585,6 +2696,48 @@ def _table(
     return y + h + 0.15
 
 
+def _cell_border(cell: Any, side: str, color: str | None, width_pt: float) -> None:
+    """One edge of a table cell: ``color`` None means no line."""
+    from lxml import etree
+
+    ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    tcPr = cell._tc.get_or_add_tcPr()
+    tag = f"{{{ns}}}ln{side}"
+    for old_ln in tcPr.findall(tag):
+        tcPr.remove(old_ln)
+    ln = etree.SubElement(tcPr, tag)
+    ln.set("w", str(int(width_pt * 12700)))
+    if color is None:
+        etree.SubElement(ln, f"{{{ns}}}noFill")
+    else:
+        sf = etree.SubElement(ln, f"{{{ns}}}solidFill")
+        etree.SubElement(sf, f"{{{ns}}}srgbClr").set("val", color)
+    # schema order: lnL, lnR, lnT, lnB come before any fill
+    order = ["lnL", "lnR", "lnT", "lnB"]
+    lns = [c for c in tcPr if etree.QName(c).localname in order]
+    for c in lns:
+        tcPr.remove(c)
+    for i, c in enumerate(sorted(lns, key=lambda c: order.index(etree.QName(c).localname))):
+        tcPr.insert(i, c)
+
+
+def _hairlines(tbl: Any, *, header_rows: int = 1) -> None:
+    """The consulting-house table: no vertical rules, a hairline under each
+    row, a navy rule under the header — the theme's boxed grid switched off."""
+    n_rows = len(tbl.rows)
+    for ri, row in enumerate(tbl.rows):
+        for cell in row.cells:
+            _cell_border(cell, "L", None, 0)
+            _cell_border(cell, "R", None, 0)
+            _cell_border(cell, "T", None, 0)
+            if ri < header_rows:
+                _cell_border(cell, "B", _INK, 1.0)
+            elif ri == n_rows - 1:
+                _cell_border(cell, "B", _INK, 0.75)
+            else:
+                _cell_border(cell, "B", _HAIR, 0.5)
+
+
 def _cell_font(cell: Any, size: float, *, bold: bool = False, color: str = _INK) -> None:
     """Size a table cell's text — including the end-of-paragraph mark that
     PowerPoint uses to size a row when the cell is EMPTY. Without it every
@@ -2596,7 +2749,9 @@ def _cell_font(cell: Any, size: float, *, bold: bool = False, color: str = _INK)
     sz = str(int(round(size * 100)))
     for p_ in cell.text_frame.paragraphs:
         p_.font.size = Pt(size)
+        p_.font.name = FONT_BODY
         for run in p_.runs:
+            run.font.name = FONT_BODY
             run.font.size = Pt(size)
             run.font.bold = bold
             run.font.color.rgb = _rgb(color)
@@ -2616,6 +2771,32 @@ def _fmt_coins(v: Any) -> str:
     return f"{int(f):,}" if f == int(f) else f"{f:,.2f}"
 
 
+def _coins_takeaway(pkgs: list[dict[str, Any]], promos: list[dict[str, Any]]) -> str:
+    """One computed line: the price ladder's range and what the promotions
+    mostly are — the 'so what' a reader wants before the table."""
+    parts: list[str] = []
+    prices = sorted(float(p["price_usd"]) for p in pkgs if p.get("price_usd") is not None)
+    if prices:
+        parts.append(
+            f"{len(pkgs)} packages from ${prices[0]:,.2f} to ${prices[-1]:,.2f}" if len(prices) > 1
+            else f"{len(pkgs)} package{'s' if len(pkgs) != 1 else ''} at ${prices[0]:,.2f}"
+        )
+    elif pkgs:
+        parts.append(f"{len(pkgs)} packages, prices not printed")
+    if promos:
+        freq: dict[str, int] = {}
+        for pr in promos:
+            key = str(pr.get("frequency") or "").strip().lower()
+            if key and key != "–":
+                freq[key] = freq.get(key, 0) + 1
+        if freq:
+            top_f, n_f = max(freq.items(), key=lambda kv: kv[1])
+            parts.append(f"{len(promos)} promotions, {n_f} of them {top_f}")
+        else:
+            parts.append(f"{len(promos)} promotions")
+    return ("; ".join(parts) + ".") if parts else ""
+
+
 def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_title: str) -> None:
     """'<Brand> – Coins / Promotions': the ladder as Package · Gold coins ·
     Sweeps coins · Description on the left, promotions as Promotion ·
@@ -2623,11 +2804,13 @@ def _slide_brand_coins_promos(prs: Any, brand: dict[str, Any], page: int, deck_t
     reference layout. Names link to the page they were read from."""
     s = _blank(prs)
     c = brand["counts"]
+    pkgs = brand.get("packages") or []
+    promos_all = brand.get("promotions_full") or brand.get("promotions") or []
     top = _header(
         s, "Raw data",
         f"{brand['name']}{'  (us)' if brand.get('is_self') else ''} – Coins / Promotions",
+        _coins_takeaway(pkgs, promos_all),
     )
-    pkgs = brand.get("packages") or []
     pkg_rows: list[list[str]] = []
     pkg_links: list[str] = []
     for pkg in pkgs[:10]:
@@ -2691,11 +2874,14 @@ def _slide_brand_loyalty(prs: Any, brand: dict[str, Any], page: int, deck_title:
     """'<Brand> – Loyalty Club': Tier · Qualification · Reward."""
     s = _blank(prs)
     tiers = brand.get("tiers") or []
+    said = [t for t in tiers if (t.get("qualification") or t.get("reward"))]   # a name alone is not a row
+    ladder = (f"{len(said)} tiers, from {_clean(str(said[0]['name']), 22)} to {_clean(str(said[-1]['name']), 22)}."
+              if len(said) > 1 else "")
     top = _header(
         s, "Raw data",
         f"{brand['name']}{'  (us)' if brand.get('is_self') else ''} – Loyalty Club",
+        ladder,
     )
-    said = [t for t in tiers if (t.get("qualification") or t.get("reward"))]   # a name alone is not a row
     rows = [[_clean(t["name"], 22), _clean(t.get("qualification") or "–", 60),
              _clean(t.get("reward") or "–", 90)] for t in said[:12]]
     _table(s, 0.7, top, [2.2, 4.2, 5.5], ["Loyalty Club tier", "Qualification", "Reward"],
@@ -2712,9 +2898,14 @@ def _slide_brand_library(prs: Any, brand: dict[str, Any], page: int, deck_title:
     """'<Brand> – Providers / Games': every studio carried and the titles read."""
     s = _blank(prs)
     c = brand["counts"]
+    n_games = len(brand.get("games_full") or brand.get("games_sample") or [])
     top = _header(
         s, "Raw data",
         f"{brand['name']}{'  (us)' if brand.get('is_self') else ''} – Providers / Games",
+        (f"{c.get('provider', 0)} studios carried and {c.get('game', 0)} titles read"
+         + (" from the signed-in lobby." if n_games >= 10 else
+            "; the public pages name few titles, the lobby sits behind a login."))
+        if (c.get("provider") or c.get("game")) else "",
     )
 
     def more(items: list[Any], shown: int) -> str:
@@ -2770,6 +2961,20 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
     self_names = {b["name"] for b in catalog.get("brands", []) if b.get("is_self")}
     c = matrix.get("counts", {})
     listed = c.get("on_client_list", 0)
+    seen_listed = sum(1 for r in rows if r.get("on_client_list", True) and any(
+        (cell or {}).get("carried") for cell in (r.get("brands") or {}).values()))
+    reach = sorted(
+        ((sum(1 for cell in (r.get("brands") or {}).values() if (cell or {}).get("carried")), r["name"]) for r in rows),
+        reverse=True,
+    )
+    takeaway = ""
+    if reach and reach[0][0]:
+        widest = [n for k, n in reach if k == reach[0][0]][:3]
+        takeaway = (
+            (f"{seen_listed} of the {listed} studios on the client's list were seen on at least one brand. "
+             if listed else "")
+            + f"Widest reach: {', '.join(widest)} on {reach[0][0]} of {len(brands)} brands."
+        )
 
     def short(name: str) -> str:
         n = re.sub(r"\s+(?:Casino|Slots)$", "", name, flags=re.I)
@@ -2781,6 +2986,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
             s, "Appendix · raw data",
             f"Game portfolio – {c.get('observed', len(rows))} studios × {len(brands)} brands"
             + (f"  ({pi} of {len(pages)})" if len(pages) > 1 else ""),
+            takeaway if pi == 1 else "",
         )
         prov_w = 2.3
         col_w = (11.9 - prov_w - 0.45) / max(1, len(brands))
@@ -2789,6 +2995,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
             Inches(0.2 * (len(chunk) + 1)),
         )
         tbl = shape.table
+        _hairlines(tbl)
         tbl.columns[0].width = Inches(prov_w)
         for ci in range(len(brands)):
             tbl.columns[1 + ci].width = Inches(col_w)
@@ -2811,11 +3018,11 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
                     p_.alignment = PP_ALIGN.CENTER
             _cell_font(cell, size, bold=bold, color=fg)
 
-        cw(0, 0, "Game provider", bg=_INK, fg=_WHITE, bold=True, size=7)
+        cw(0, 0, "Game provider", bg=_WHITE, fg=_INK, bold=True, size=7)
         for ci, b in enumerate(brands):
             cw(0, 1 + ci, short(b) + ("  (us)" if b in self_names else ""),
-               bg=_ACCENT if b in self_names else _INK, fg=_WHITE, bold=True, size=6, center=True)
-        cw(0, 1 + len(brands), "n", bg=_INK, fg=_WHITE, bold=True, size=6.5, center=True)
+               bg=_WHITE, fg=_ACCENT if b in self_names else _INK, bold=True, size=6, center=True)
+        cw(0, 1 + len(brands), "n", bg=_WHITE, fg=_INK, bold=True, size=6.5, center=True)
         for ri, row in enumerate(chunk, start=1):
             bg = _CARD if ri % 2 else _WHITE
             cw(ri, 0, _clean(row["name"], 30) + ("" if row.get("on_client_list", True) else " *"),
@@ -2866,6 +3073,7 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
         Inches(min(0.32 * (len(rows) + 1), 6.1 - top)),
     )
     tbl = shape.table
+    _hairlines(tbl)
     for ci, w in enumerate((2.1, 1.2, 3.3, 4.0, 1.3)):
         tbl.columns[ci].width = Inches(w)
 
@@ -2879,7 +3087,7 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
         _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, h in enumerate(("Brand", "Price", "What it grants", "Notes", "Read from")):
-        cw(0, ci, h, bg=_INK, fg=_WHITE, bold=True)
+        cw(0, ci, h, bg=_WHITE, fg=_INK, bold=True)
     for ri, (b, pkg) in enumerate(rows, start=1):
         bg = _SELF_ROW if b["is_self"] else (_CARD if ri % 2 else _WHITE)
         cw(ri, 0, f"{b['name']}{'  (us)' if b['is_self'] else ''}", bg=bg, bold=b["is_self"])
@@ -3009,6 +3217,7 @@ def _slide_offers_page(
         len(shown) + 1, len(cols), Inches(0.7), Inches(top), Inches(sum(widths)), Inches(tbl_h)
     )
     tbl = shape.table
+    _hairlines(tbl)
     for ci, w in enumerate(widths):
         tbl.columns[ci].width = Inches(w)
 
@@ -3024,7 +3233,7 @@ def _slide_offers_page(
         _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, name in enumerate(cols):
-        cell_write(0, ci, name, bg=_INK, fg=_WHITE, bold=True, size=9.5)
+        cell_write(0, ci, name, bg=_WHITE, fg=_INK, bold=True, size=9.5)
     for ri, o in enumerate(shown, start=1):
         is_self = bool(o.get("is_self"))
         bg = _SELF_ROW if is_self else (_WHITE if ri % 2 else _CARD)
@@ -3306,6 +3515,7 @@ def _slide_implications(
             Inches(0.42 * (len(chunk) + 1)),
         )
         tbl = shape.table
+        _hairlines(tbl)
         for ci, w in enumerate(widths):
             tbl.columns[ci].width = Inches(w)
         for ci, name in enumerate(cols):
@@ -3520,6 +3730,7 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
         Inches(min(0.32 * (len(rows) + 1), 6.6 - top)),
     )
     tbl = shape.table
+    _hairlines(tbl)
     # Fifteen brands and a header of long dimension names ran past the
     # footnote (2026-09-02): rows shrink to fit under it, the header is
     # short, the body a touch smaller when the field is wide.
@@ -3542,10 +3753,10 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
         cell.margin_top = cell.margin_bottom = Inches(0.01)
         _cell_font(cell, size, bold=bold, color=fg)
 
-    cell_write(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
-    cell_write(0, 1, "Overall", bg=_INK, fg=_WHITE, bold=True)
+    cell_write(0, 0, "Brand", bg=_WHITE, fg=_INK, bold=True)
+    cell_write(0, 1, "Overall", bg=_WHITE, fg=_INK, bold=True)
     for ci, d in enumerate(dims):
-        cell_write(0, 2 + ci, _clean(d, 26), bg=_INK, fg=_WHITE, bold=True, size=6.5)
+        cell_write(0, 2 + ci, _clean(d, 26), bg=_WHITE, fg=_INK, bold=True, size=6.5)
     for ri, r in enumerate(rows, start=1):
         bg = _SELF_ROW if r.get("is_self") else _WHITE
         mark = "†" if r.get("provisional") and r["overall"]["normalized_pct"] is not None else ""
@@ -3637,7 +3848,7 @@ def _slide_closing(prs: Any, narrative: dict[str, Any], deck_title: str) -> None
     s = _blank(prs)
     _dark(s)
     _eyebrow(s, "Next steps", y=1.0)
-    _text(s, 0.7, 1.4, 11.9, 1.0, "Where this goes next", size=30, bold=True, color=_WHITE)
+    _text(s, 0.7, 1.4, 11.9, 1.0, "Where this goes next", size=30, bold=True, color=_WHITE, font=FONT_TITLE)
     _rule(s, 2.5)
     steps = [str(b) for b in narrative.get("next_steps") or []][:4]
     if not steps:
@@ -3694,6 +3905,7 @@ def render_executive_deck(
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
+    _theme_links(prs)
 
     rows = card.get("rows", [])
     dims = card.get("dimensions", [])
@@ -3721,11 +3933,28 @@ def render_executive_deck(
         basis=basis,
         generated=generated,
     )
-    page = 2
+    # Sections: the agenda is filled once every page has its number; each
+    # divider opens a section and the footer tracks it (see _footer).
+    sections: list[tuple[str, int, str]] = []
+    _SECTION.set("")
+    agenda = _slide_agenda(prs, 2, deck_title)
+    page = 3
+
+    def open_section(name: str, blurb: str, *, divider: bool = True) -> None:
+        nonlocal page
+        sections.append((name, page, blurb))
+        _SECTION.set(name)
+        if divider:
+            _slide_divider(prs, len(sections), name, blurb, page, deck_title)
+            page += 1
+
+    open_section("How to read this deck", "Where the facts come from and what the scores mean.", divider=False)
     _slide_reading_guide(prs, card, evidence_count, page, deck_title, voice=voice, catalog=catalog, trends=trends)
     page += 1
+    open_section("Executive summary", "The headline, the moves that matter and what to decide.", divider=False)
     _slide_summary(prs, card, narrative, page, deck_title, events=events)
     page += 1
+    open_section("Where the brands stand", "Scores, ranks and the gap to the leader, dimension by dimension.")
     _slide_glance(
         prs,
         card,
@@ -3747,6 +3976,7 @@ def render_executive_deck(
     # photographed, captioned with the offer they show.
     offer_rows = [o for o in (offers or []) if o.get("welcome") or o.get("ongoing")]
     if offer_rows:
+        open_section("Offers and promotions", "What each brand puts in front of a new player, and the pages that show it.")
         page = _slide_offers(prs, offer_rows, narrative, page, deck_title)
         promo_items: list[tuple[str, dict[str, str], bool]] = []
         captions: dict[str, str] = {}
@@ -3773,6 +4003,13 @@ def render_executive_deck(
             )
             page += 1
 
+    has_trends = bool(trends and int(trends.get("cycles", 0)) >= 3)
+    has_reg = bool(regulatory and regulatory.get("total"))
+    has_cal = bool(calendar and calendar.get("weeks"))
+    has_comms = bool(comms and comms.get("emails"))
+    if has_trends or has_reg or has_cal or has_comms:
+        open_section("Market context", "How scores have moved, what regulators did and what the brands send players.")
+
     # Trends — only once three or more scored cycles exist.
     if trends and int(trends.get("cycles", 0)) >= 3:
         _slide_trends(prs, trends, card, narrative, page, deck_title)
@@ -3798,6 +4035,7 @@ def render_executive_deck(
     # only when something was collected. Opinion, labelled as such.
     voice_by_brand: dict[str, dict[str, Any]] = {}
     if voice and voice.get("mentions"):
+        open_section("What players say", "Public reviews and forum posts, sentiment by brand. Opinion, labelled as such.")
         _slide_voice(prs, voice, narrative, page, deck_title)
         page += 1
         _slide_voice_changes(prs, voice_diff, narrative, page, deck_title)
@@ -3807,10 +4045,15 @@ def render_executive_deck(
     # Competitor deep dives — one slide per profiled brand, in the model's
     # order (the ranked leader first). Only brands that exist in the card.
     by_name = {r["name"]: r for r in rows}
-    for profile in (narrative.get("profiles") or [])[:8]:
-        row = by_name.get(str(profile.get("brand") or ""))
-        if row is None:
-            continue
+    profiles = [
+        (p, by_name[str(p.get("brand") or "")])
+        for p in (narrative.get("profiles") or [])[:8]
+        if str(p.get("brand") or "") in by_name
+    ]
+    has_shots = any(shots.get(r["name"]) for r in rows)
+    if profiles or has_shots:
+        open_section("Brand deep dives", "One page per competitor: where it scores, what it does well, and its storefront.")
+    for profile, row in profiles:
         _slide_profile(
             prs,
             row,
@@ -3851,6 +4094,11 @@ def render_executive_deck(
         )
         page += 1
 
+    open_section(
+        "What changed and what to do",
+        "What moved since the last cycle, what it implies and the decisions it calls for." if diff
+        else "What the baseline shows, what it implies and the decisions it calls for.",
+    )
     _slide_changes(prs, diff, narrative, page, deck_title, events=events)
     page += 1
     page += _slide_implications(
@@ -3870,6 +4118,7 @@ def render_executive_deck(
         deck_title,
     )
     page += 1
+    open_section("Evidence and method", "How much was seen of each brand, what was not, and how the numbers are built.")
     _slide_evidence(prs, card, gaps, evidence_count, narrative, page, deck_title)
     page += 1
     _slide_heatmap(prs, card, page, deck_title)
@@ -3878,9 +4127,12 @@ def render_executive_deck(
     if tone and tone.get("brands"):
         _slide_tone(prs, tone, narrative, page, deck_title)
         page += 1
+    _slide_method(prs, card, diff, page, deck_title)
+    page += 1
 
     # Appendix · raw data (docs/89) — the inventory behind the scores.
     if catalog and catalog.get("items"):
+        open_section("Appendix: raw data", "Game providers, coin packages, promotions, games and loyalty tiers per brand, as printed.")
         if catalog["totals"].get("provider"):
             page = _slides_portfolio(prs, catalog, page, deck_title)
         # The cross-brand summaries (top-12 studios, one ladder, twelve
@@ -3903,9 +4155,9 @@ def render_executive_deck(
                 _slide_brand_library(prs, brand_row, page, deck_title)
                 page += 1
 
-    _slide_method(prs, card, diff, page, deck_title)
-    page += 1
+    _SECTION.set("")
     _slide_closing(prs, narrative, deck_title)
+    _fill_agenda(agenda, sections)
 
     out = Path(path).expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)

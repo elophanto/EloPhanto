@@ -755,10 +755,10 @@ class TestDeckAndWorkbook:
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=a)
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=b,
                               catalog=self._catalog())
-        # the Game portfolio page + the brand's Coins/Promotions page + its
-        # Providers/Games page (no loyalty tiers in this fixture); the
-        # cross-brand summaries are gone
-        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 3
+        # the appendix divider + the Game portfolio page + the brand's
+        # Coins/Promotions page + its Providers/Games page (no loyalty tiers
+        # in this fixture); the cross-brand summaries are gone
+        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 4
         texts = []
         for sl in Presentation(str(b)).slides:
             parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]

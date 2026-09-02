@@ -175,7 +175,8 @@ class TestDeck:
         n = factual_narrative(card, None, [], [])
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=a)
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=b, regulatory=cal)
-        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 1
+        # the calendar page, and the Market context divider that opens it
+        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 2
         texts = []
         for sl in Presentation(str(b)).slides:
             parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]

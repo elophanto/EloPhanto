@@ -98,6 +98,7 @@ class TestAppMetaAndTrends:
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=a)
         render_executive_deck(card, diff=None, judged=[], summary=n, gaps=[], evidence_count=1, path=b, trends=tr,
                               calendar=demand_calendar(weeks=8))
-        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 2
+        # the two pages trends already added, plus the Market context divider that opens them
+        assert len(Presentation(str(b)).slides) == len(Presentation(str(a)).slides) + 3
         texts = ["\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame) for sl in Presentation(str(b)).slides]
         assert any("Scores over 3 collection runs" in t for t in texts) and any("Demand calendar" in t.title() or "DEMAND CALENDAR" in t for t in texts)

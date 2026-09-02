@@ -59,14 +59,14 @@ class TestReadingGuide:
             "items": 5, "label": "", "totals": {"provider": 5}, "third_party_only": [],
             "brands": [{"subject_id": "b", "name": "Brand 1", "is_self": False, "counts": {"provider": 5},
                         "providers": ["A", "B"], "packages": [], "promotions": [], "games_sample": [], "sources": {}}]})
-        guide = texts[1]
+        guide = texts[2]                                                  # cover, contents, guide
         assert "HOW TO READ THIS DECK" in guide.upper()
         assert "3 brands" in guide and "4,393 facts" in guide and "4 dimensions" in guide
         assert "† Provisional" in guide and "rank is withheld" in guide
         assert "behind a login" in guide                                  # why a store can be empty
         assert "opinion" in guide and "Reddit" in guide                   # what "players say" is
         assert "raw inventory" in guide and "Click a name" in guide
-        assert "Executive summary" in texts[2] or "EXECUTIVE SUMMARY" in texts[2].upper()
+        assert "Executive summary" in texts[3] or "EXECUTIVE SUMMARY" in texts[3].upper()   # after the guide
 
     def test_no_slide_says_pairs_or_cycles(self, tmp_path) -> None:
         _prs, texts = _render(tmp_path)
