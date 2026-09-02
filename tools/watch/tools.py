@@ -1518,10 +1518,10 @@ def _resolve_input(path: str, config: Any = None) -> Path:
     client's sheet without a search of the home directory (2026-09-02: the
     agent spent five minutes listing ~ recursively for game_portfolio.csv)."""
     p = Path(path).expanduser()
-    if p.is_absolute() or p.exists():
+    if p.is_absolute():
         return p
     root = Path(str(getattr(config, "workspace", "") or "workspace")).expanduser()
-    for cand in (root / "watch" / p, root / p, Path.cwd() / p):
+    for cand in (root / "watch" / p, root / p, Path.cwd() / p):   # the workspace first, always
         if cand.exists():
             return cand
     return p
