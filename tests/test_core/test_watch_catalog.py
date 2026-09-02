@@ -1117,6 +1117,8 @@ class TestTheAgentReadsTheLobby:
                 if name == "browser_get_html":
                     body = {"https://www.pulsz.com/": "<h3>Money Train 2</h3><h3>Scarab Surge</h3>",
                             "https://www.pulsz.com/store": "<div>$4.99 79,500 GC + 5 SC</div>"}[self.here]
+                    if (params or {}).get("maxLength", 50000) < 1000:      # the agent's own short ask
+                        return {"success": True, "html": body[:8]}
                     return {"success": True, "html": body}
                 if name == "browser_navigate":
                     self.here = params["url"]
@@ -1133,17 +1135,28 @@ class TestTheAgentReadsTheLobby:
             async def run_isolated(self, goal, *, excluded_tool_names=None, max_steps_override=None):
                 Agent.excluded = set(excluded_tool_names or ())
                 assert "you cannot navigate" in goal and "Do not accept" in goal
-                await bm.call_tool("browser_get_html", {})                 # the lobby
+                await bm.call_tool("browser_get_html", {"maxLength": 200})  # the lobby, the agent's short ask
                 bm.here = "https://www.pulsz.com/store"                    # the agent clicked "Get Coins"
-                await bm.call_tool("browser_get_html", {})                 # the store
+                await bm.call_tool("browser_get_html", {"maxLength": 200})  # the store
                 return SimpleNamespace(content="PAGE 1: lobby\nPAGE 2: store", steps_taken=6, tool_calls_made=[])
 
         pages = await read_signed_in_pages(bm, "https://www.pulsz.com/", ["game", "coin_package"], agent=Agent())
         assert [(p["title"], p["url"]) for p in pages] == [("Lobby games", "https://www.pulsz.com/"),
                                                             ("Store – Get Coins", "https://www.pulsz.com/store")]
-        assert "Money Train 2" in pages[0]["text"] and "$4.99" in pages[1]["text"]
+        assert "Money Train 2" in pages[0]["text"] and "$4.99" in pages[1]["text"]   # the full DOM, not the stub
         assert all(p["method"] == "browser_session" and p["via"] == "agent" for p in pages)
+        assert [p["kind"] for p in pages] == ["game", "coin_package"]                  # filed as the agent labelled
         by_kind = rank_catalog_pages(pages)
         assert by_kind["game"][0]["title"] == "Lobby games" and by_kind["coin_package"][0]["title"] == "Store – Get Coins"
         assert {"browser_navigate", "browser_eval", "vault_lookup"} <= Agent.excluded
         assert bm.call_tool is not None and not hasattr(bm.call_tool, "pages")   # the recorder is unwrapped after
+
+
+    def test_a_labelled_page_is_filed_by_its_label_even_on_an_unfriendly_url(self) -> None:
+        from core.watch_catalog import rank_catalog_pages
+
+        pages = [{"url": "https://www.pulsz.com/sweepstakes-lobby", "title": "Lobby games", "text": "x",
+                  "kind": "game"},
+                 {"url": "https://www.pulsz.com/help", "title": "Promotions", "text": "y", "kind": "promotion"}]
+        by_kind = rank_catalog_pages(pages)
+        assert by_kind["game"][0]["title"] == "Lobby games" and by_kind["promotion"][0]["title"] == "Promotions"

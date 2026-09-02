@@ -64,8 +64,12 @@ def rank_catalog_pages(
     """Group readable pages by the catalog kind they serve, best first."""
     out: dict[str, list[dict[str, Any]]] = {}
     for page in pages:
-        kind = catalog_page_kind(str(page.get("url") or ""), str(page.get("title") or ""))
-        if not kind:
+        # A page the agent labelled is filed as labelled; the URL/title
+        # patterns are for pages nobody labelled.
+        kind = str(page.get("kind") or "") or catalog_page_kind(
+            str(page.get("url") or ""), str(page.get("title") or "")
+        )
+        if not kind or kind not in CATALOG_KINDS:
             continue
         bucket = out.setdefault(kind, [])
         if len(bucket) < per_kind:
@@ -119,7 +123,9 @@ browser_get_elements or browser_screenshot first, act, then look again):
 {wanted}
 For EACH page you reach: scroll to the bottom a few times so lazy-loaded grids are
 complete (browser_scroll), then call browser_get_html ONCE — that call is what puts
-the page on record. Do not accept, agree to, buy or claim anything; if a modal asks
+the page on record (ask for a small maxLength if you like; the record is taken in
+full regardless). Prefer browser_get_elements over screenshots: it is faster and
+enough to find the next control. Do not accept, agree to, buy or claim anything; if a modal asks
 you to agree to terms, leave it and read the page behind it. Never guess an address:
 you cannot navigate. If a page cannot be found by clicking, skip it.
 
@@ -139,6 +145,8 @@ _LOBBY_TITLES = {
     "lobby": "Lobby games", "providers": "Providers", "store": "Store – Get Coins",
     "promotions": "Promotions", "vip": "VIP loyalty club", "other": "Other page",
 }
+_LOBBY_KINDS = {"lobby": "game", "providers": "provider", "store": "coin_package",
+                "promotions": "promotion", "vip": "loyalty_tier"}
 _AGENT_LOBBY_TOOLS = frozenset({
     "browser_click", "browser_click_text", "browser_click_at", "browser_press_key",
     "browser_select_option", "browser_scroll", "browser_scroll_container", "browser_hover",
@@ -164,13 +172,21 @@ class _PageRecorder:
         if name == "browser_get_html":
             from core.watch_observe import _result_text, html_to_text
 
+            # The agent may ask for a short maxLength to spare its context;
+            # the record needs the whole DOM (2026-09-02: four pages captured,
+            # nothing extracted). Capture it ourselves, return the agent its own.
+            try:
+                full = await self._orig("browser_get_html", {"maxLength": 400000})
+            except Exception:
+                full = res
             try:
                 here = await self._orig("browser_eval", {"expression": "location.href", "maxLength": 2000})
                 url = _result_text(here) if isinstance(here, str) else str(
                     json.loads((here or {}).get("resultJson") or '""')) if isinstance(here, dict) else ""
             except Exception:
                 url = ""
-            self.pages.append({"url": url, "text": " ".join(html_to_text(_result_text(res)).split())[:60000]})
+            text = " ".join(html_to_text(_result_text(full)).split())[:60000]
+            self.pages.append({"url": url, "text": text, "chars": len(text)})
         return res
 
     def __enter__(self) -> _PageRecorder:
@@ -181,7 +197,7 @@ class _PageRecorder:
         self._bm.call_tool = self._orig
 
 
-async def agent_reads_lobby(agent: Any, bm: Any, start_url: str, kinds: list[str], *, timeout: float = 420.0) -> list[dict[str, Any]]:
+async def agent_reads_lobby(agent: Any, bm: Any, start_url: str, kinds: list[str], *, timeout: float = 900.0) -> list[dict[str, Any]]:
     """The agent visits the lobby, providers, store, promotions and VIP
     pages by clicking what it sees; every ``browser_get_html`` it makes is
     recorded here with the URL, and its final report names which page each
@@ -207,7 +223,8 @@ async def agent_reads_lobby(agent: Any, bm: Any, start_url: str, kinds: list[str
                 timeout=timeout,
             )
         except Exception as e:
-            logger.warning("watch_catalog: agent lobby read failed: %s", e)
+            logger.warning("watch_catalog: agent lobby read stopped: %s (%d page(s) kept)",
+                           f"{type(e).__name__}: {e}".strip(": "), len(rec.pages))
             resp = None
     report = str(getattr(resp, "content", "") or "")
     labels = [m.group(1).lower() for m in re.finditer(r"PAGE\s*\d+\s*:\s*([a-z]+)", report, re.I)]
@@ -218,8 +235,11 @@ async def agent_reads_lobby(agent: Any, bm: Any, start_url: str, kinds: list[str
         out.append({
             "url": page["url"] or f"{start_url.rstrip('/')}/#{label}", "title": title,
             "text": page["text"], "error": None if page["text"] else f"{title}: no text",
-            "method": "browser_session", "via": "agent",
+            "method": "browser_session", "via": "agent", "kind": _LOBBY_KINDS.get(label, ""),
+            "chars": page.get("chars", len(page["text"])),
         })
+    logger.info("watch_catalog: agent read %d page(s): %s", len(out),
+                ", ".join(f"{p['title']} ({p['chars']} chars)" for p in out))
     return out
 
 
