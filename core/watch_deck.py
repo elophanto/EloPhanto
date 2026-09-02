@@ -2344,6 +2344,17 @@ def _slide_trends(
         key=lambda r: -float(r["overall"]["normalized_pct"]),
     )
     shown = us + [r["name"] for r in ranked[:5]]
+    # The brands the panel talks about (largest rise and fall) are plotted
+    # too — a mover named in the text and missing from the chart reads as
+    # an error (2026-09-02).
+    moves = _trend_moves(trends)
+    if moves:
+        for name in (max(moves, key=lambda m: m[3])[0], min(moves, key=lambda m: m[3])[0]):
+            if name not in shown:
+                shown.append(name)
+    # Runs where none of the plotted brands were scored are empty columns:
+    # drop them (the 2026-07-25 run scored other brands only).
+    pts = [pt for pt in pts if any(pt.get("scores", {}).get(n) is not None for n in shown)] or pts
     cd = CategoryChartData()
     cd.categories = [pt["taken_at"] for pt in pts]
     for name in shown:
@@ -2354,23 +2365,54 @@ def _slide_trends(
     ch.legend.position = XL_LEGEND_POSITION.BOTTOM
     ch.legend.include_in_layout = False
     ch.legend.font.size = Pt(9)
-    ch.value_axis.maximum_scale = 100
-    ch.value_axis.minimum_scale = 0
+    # The axis follows the data: scores live in a twenty-point band, and a
+    # 0–100 axis flattened every move into one line. Rounded to tens.
+    vals = [float(v) for pt in pts for n, v in pt.get("scores", {}).items() if n in shown and v is not None]
+    lo = max(0, int((min(vals) - 8) // 10 * 10)) if vals else 0
+    hi = min(100, int((max(vals) + 8) // 10 * 10 + 10)) if vals else 100
+    ch.value_axis.maximum_scale = hi
+    ch.value_axis.minimum_scale = lo
     ch.value_axis.tick_labels.font.size = Pt(9)
     ch.category_axis.tick_labels.font.size = Pt(9)
+    self_colours = [_ACCENT, "B45309"]                               # amber, dark amber
+    peer_colours = ["475569", "0F766E", "7C3AED", "65A30D", "0369A1", "9F1239", "B45309"]
+    si = pi = 0
     for i, name in enumerate(shown):
         ser = ch.series[i]
         ser.smooth = False
-        ser.format.line.color.rgb = _rgb(_ACCENT if name in us else _PEER)
-        ser.format.line.width = Pt(2.25 if name in us else 1.25)
+        if name in us:
+            colour, si = self_colours[si % len(self_colours)], si + 1
+        else:
+            colour, pi = peer_colours[pi % len(peer_colours)], pi + 1
+        ser.format.line.color.rgb = _rgb(colour)
+        ser.format.line.width = Pt(2.5 if name in us else 1.5)
+        try:
+            ser.marker.format.fill.solid()
+            ser.marker.format.fill.fore_color.rgb = _rgb(colour)
+            ser.marker.format.line.color.rgb = _rgb(colour)
+        except Exception:
+            pass
     panel = (narrative.get("slides") or {}).get("trends") or _trends_facts(trends, us)
     _sidebar(s, [str(o) for o in panel.get("observations") or []],
              [str(i) for i in panel.get("implications") or []], top=top)
     _text(s, 0.7, 6.6, 11.9, 0.44,
           "Each point is one run – a date on which every brand's pages were read. The line is the brand's "
-          "overall score (0–100) that day; a gap means the brand was not read that run.",
+          f"overall score that day (axis {lo}–{hi} of 100, so moves are visible); a gap means the brand was not "
+          "read that run; runs where none of these brands were scored are left out.",
           size=8, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
+
+
+def _trend_moves(trends: dict[str, Any]) -> list[tuple[str, float, float, float, int]]:
+    """(brand, first score, latest score, delta, runs scored) for every brand
+    scored at two or more runs — the move runs from its first scored run."""
+    pts = trends.get("points") or []
+    moves: list[tuple[str, float, float, float, int]] = []
+    for b in trends.get("brands", []):
+        scored = [float(pt["scores"][b]) for pt in pts if pt.get("scores", {}).get(b) is not None]
+        if len(scored) >= 2:
+            moves.append((b, scored[0], scored[-1], scored[-1] - scored[0], len(scored)))
+    return moves
 
 
 def _trends_facts(trends: dict[str, Any], us: list[str]) -> dict[str, list[str]]:
@@ -2382,11 +2424,7 @@ def _trends_facts(trends: dict[str, Any], us: list[str]) -> dict[str, list[str]]
     if len(pts) < 2:
         return {"observations": [], "implications": []}
     obs: list[str] = [f"{len(pts)} collection runs from {pts[0]['taken_at']} to {pts[-1]['taken_at']}."]
-    moves: list[tuple[str, float, float, float, int]] = []
-    for b in trends.get("brands", []):
-        scored = [float(pt["scores"][b]) for pt in pts if pt.get("scores", {}).get(b) is not None]
-        if len(scored) >= 2:
-            moves.append((b, scored[0], scored[-1], scored[-1] - scored[0], len(scored)))
+    moves = _trend_moves(trends)
 
     def fmt(m: tuple[str, float, float, float, int]) -> str:
         return f"{m[0]}: {m[1]:.1f} → {m[2]:.1f} ({m[3]:+.1f})"
@@ -2649,12 +2687,15 @@ def _slide_brand_loyalty(prs: Any, brand: dict[str, Any], page: int, deck_title:
         s, "Raw data",
         f"{brand['name']}{'  (us)' if brand.get('is_self') else ''} – Loyalty Club",
     )
+    said = [t for t in tiers if (t.get("qualification") or t.get("reward"))]   # a name alone is not a row
     rows = [[_clean(t["name"], 22), _clean(t.get("qualification") or "–", 60),
-             _clean(t.get("reward") or "–", 90)] for t in tiers[:12]]
+             _clean(t.get("reward") or "–", 90)] for t in said[:12]]
     _table(s, 0.7, top, [2.2, 4.2, 5.5], ["Loyalty Club tier", "Qualification", "Reward"],
-           rows, size=8.5, highlight_first_col=True, max_h=5.0)
+           rows, size=8.5, highlight_first_col=True, max_h=5.0, links=[str(t.get("url") or "") for t in said[:12]])
     _text(s, 0.7, 6.6, 11.9, 0.44,
-          f"{len(tiers)} tiers as printed; latest {brand.get('observed_at', '')}.",
+          f"{len(said)} of {len(tiers)} tiers on record carry a qualification or reward as printed"
+          + (f"; the other {len(tiers) - len(said)} are names only, in the workbook" if len(tiers) > len(said) else "")
+          + f". Click a tier to open the page it was read from; latest {brand.get('observed_at', '')}.",
           size=7.5, italic=True, color=_MUTED)
     _footer(s, deck_title, page)
 
@@ -3859,7 +3900,10 @@ def render_executive_deck(
             if cnt.get("coin_package") or cnt.get("promotion"):
                 _slide_brand_coins_promos(prs, brand_row, page, deck_title)
                 page += 1
-            if brand_row.get("tiers"):
+            # A loyalty page only when the tiers say something: names alone
+            # (no qualification, no reward) make a page of dashes, and the
+            # names are in the workbook anyway (2026-09-02: Spinfinite).
+            if any((t.get("qualification") or t.get("reward")) for t in brand_row.get("tiers") or []):
                 _slide_brand_loyalty(prs, brand_row, page, deck_title)
                 page += 1
             if cnt.get("provider") or cnt.get("game"):

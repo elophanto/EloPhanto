@@ -169,3 +169,69 @@ class TestNarratorRules:
         assert "first time" in sysm and "game-format merchandising" in sysm
         assert "vs_field_pts" in sysm and "in line with the field" in sysm
         assert "draws more negativity" in sysm
+
+
+class TestTrendsChartReadsAtAGlance:
+    def test_axis_follows_the_data_empty_runs_go_and_movers_are_plotted(self, tmp_path) -> None:
+        """2026-09-02: a 0–100 axis flattened a twenty-point band into one
+        line, the first run was an empty column, and the panel named a
+        faller the chart did not plot."""
+        from pptx import Presentation
+
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        card = _card(7)
+        card["rows"][0]["overall"]["normalized_pct"] = 67.0          # Brand 0 is us
+        trends = {
+            "cycles": 3, "brands": [f"Brand {i}" for i in range(7)] + ["Ghost"],
+            "points": [
+                {"taken_at": "2026-07-25", "scores": {"Ghost": 40.0}},                        # nobody plotted
+                {"taken_at": "2026-08-15", "scores": {f"Brand {i}": 60.0 + i for i in range(6)}},
+                {"taken_at": "2026-08-27", "scores": {**{f"Brand {i}": 61.0 + i for i in range(5)}, "Brand 5": 52.0}},
+            ],
+        }
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, trends=trends)
+        prs = Presentation(str(out))
+        sl = next(sl for sl in prs.slides if any(sh.has_text_frame and "collection runs" in sh.text_frame.text for sh in sl.shapes))
+        chart = next(sh for sh in sl.shapes if sh.has_chart).chart
+        cats = list(chart.plots[0].categories)
+        assert cats == ["2026-08-15", "2026-08-27"]                               # the empty run is gone
+        assert chart.value_axis.minimum_scale == 40 and chart.value_axis.maximum_scale == 80   # 52…67, padded to tens
+        names = [s.name for s in chart.series]
+        assert "Brand 5" in names                                                  # the largest faller is plotted
+        assert len({s.format.line.color.rgb for s in chart.series}) >= 5           # lines you can tell apart
+        text = "\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame)
+        assert "axis 40–80 of 100" in text
+
+
+class TestLoyaltyPagesOnlyWithSubstance:
+    def test_name_only_tiers_get_no_page(self, tmp_path) -> None:
+        from core.watch_deck import factual_narrative, render_executive_deck
+
+        def brand(name, tiers):
+            return {"subject_id": name, "name": name, "is_self": False,
+                    "counts": {"provider": 1, "loyalty_tier": len(tiers)}, "providers": ["A"],
+                    "packages": [], "promotions": [], "games_sample": [], "sources": {}, "tiers": tiers,
+                    "customer_states": ["logged_out"], "observed_at": "2026-09-02"}
+        catalog = {"items": 10, "label": "", "totals": {"provider": 2, "loyalty_tier": 9}, "third_party_only": [],
+                   "brands": [brand("Spinfinite", [{"name": f"Tier {i}", "qualification": "", "reward": "", "url": "u"} for i in range(7)]),
+                              brand("Pulsz", [{"name": "Bronze", "qualification": "0–499 VIP points", "reward": "400,000 GC on $9.99", "url": "u"},
+                                              {"name": "Ghost", "qualification": "", "reward": "", "url": "u"}])]}
+        card = {"rows": [], "dimensions": []}
+        out = tmp_path / "d.pptx"
+        render_executive_deck(card, diff=None, judged=[], summary=factual_narrative(card, None, [], []),
+                              gaps=[], evidence_count=1, path=out, catalog=catalog)
+        from pptx import Presentation
+        texts = []
+        for sl in Presentation(str(out)).slides:
+            parts = [sh.text_frame.text for sh in sl.shapes if sh.has_text_frame]
+            for sh in sl.shapes:
+                if sh.has_table:
+                    parts += [" | ".join(c.text for c in r.cells) for r in sh.table.rows]
+            texts.append("\n".join(parts))
+        assert not any("Spinfinite – Loyalty Club" in t for t in texts)          # names only: no page
+        page = next(t for t in texts if "Pulsz – Loyalty Club" in t)
+        assert "Bronze | 0–499 VIP points | 400,000 GC on $9.99" in page
+        assert "Ghost" not in page                                                # an empty row is dropped
