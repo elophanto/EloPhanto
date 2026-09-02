@@ -1559,7 +1559,7 @@ def _slide_dimension_leaders(
     """Who leads each battleground: per weighted dimension, the top observed
     score, our score, and the gap — the per-area breakout a steering
     committee expects after the overall standings."""
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     s = _blank(prs)
     title = (narrative.get("titles") or {}).get("dimensions") or "Who leads each dimension"
@@ -1628,11 +1628,7 @@ def _slide_dimension_leaders(
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.06)
         cell.margin_top = cell.margin_bottom = Inches(0.02)
-        for p_ in cell.text_frame.paragraphs:
-            for run in p_.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, name in enumerate(cols):
         cell_write(0, ci, name, bg=_INK, fg=_WHITE, bold=True, size=10)
@@ -1944,7 +1940,7 @@ def _slide_voice(
     """Brands × themes: the share of each brand's mentions on a theme,
     coloured by how negative they are, with n — and the reading panel.
     Opinion, labelled as such on the slide."""
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     s = _blank(prs)
     title = (narrative.get("titles") or {}).get("voice") or "What players say about the field"
@@ -2000,11 +1996,7 @@ def _slide_voice(
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.03)
         cell.margin_top = cell.margin_bottom = Inches(0.01)
-        for p in cell.text_frame.paragraphs:
-            for run in p.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     cell_write(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
     cell_write(0, 1, "n", bg=_INK, fg=_WHITE, bold=True)
@@ -2137,7 +2129,7 @@ def _slide_comms(
 ) -> None:
     """Brands × categories: e-mails sent in the window, cadence per week,
     the latest offer line — first-party, dated, from our own inboxes."""
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     s = _blank(prs)
     title = (narrative.get("titles") or {}).get("comms") or "What they send players"
@@ -2176,11 +2168,7 @@ def _slide_comms(
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.03)
         cell.margin_top = cell.margin_bottom = Inches(0.01)
-        for p in cell.text_frame.paragraphs:
-            for run in p.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     cw(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
     cw(0, 1, "n", bg=_INK, fg=_WHITE, bold=True)
@@ -2456,7 +2444,7 @@ def _trends_facts(trends: dict[str, Any], us: list[str]) -> dict[str, list[str]]
 
 def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -> None:
     """The next eight weeks of dates that move play, week by week."""
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     s = _blank(prs)
     top = _header(s, "Demand calendar", f"The next {len(cal.get('weeks') or [])} weeks")
@@ -2476,11 +2464,7 @@ def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.05)
         cell.margin_top = cell.margin_bottom = Inches(0.02)
-        for p in cell.text_frame.paragraphs:
-            for run in p.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     cw(0, 0, "Week of", bg=_INK, fg=_WHITE, bold=True)
     cw(0, 1, "Dates that move play", bg=_INK, fg=_WHITE, bold=True)
@@ -2495,7 +2479,7 @@ def _slide_calendar(prs: Any, cal: dict[str, Any], page: int, deck_title: str) -
 def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page: int, deck_title: str) -> None:
     """How each brand talks to players: measured habits, then the voice,
     with a line of its own to prove it."""
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     s = _blank(prs)
     rows = tone.get("brands", [])[:14]
@@ -2523,11 +2507,7 @@ def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page:
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.04)
         cell.margin_top = cell.margin_bottom = Inches(0.01)
-        for p in cell.text_frame.paragraphs:
-            for run in p.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, h in enumerate(("Brand", "Voice", "CAPS", "!/line", "Urgency", "In its own words")):
         cw(0, ci, h, bg=_INK, fg=_WHITE, bold=True)
@@ -2560,7 +2540,7 @@ def _table(
     """A plain, readable table in the deck's style. Returns the y below it.
     The client's reference pages are exactly this: bordered cells, one
     fact per cell, nothing decorative."""
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     if not rows:
         return y
@@ -2579,11 +2559,7 @@ def _table(
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.05)
         cell.margin_top = cell.margin_bottom = Inches(0.02)
-        for p_ in cell.text_frame.paragraphs:
-            for run in p_.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, htxt in enumerate(header):
         cw(0, ci, htxt, bg=_INK, fg=_WHITE, bold=True)
@@ -2599,6 +2575,27 @@ def _table(
             except Exception:
                 pass
     return y + h + 0.15
+
+
+def _cell_font(cell: Any, size: float, *, bold: bool = False, color: str = _INK) -> None:
+    """Size a table cell's text — including the end-of-paragraph mark that
+    PowerPoint uses to size a row when the cell is EMPTY. Without it every
+    blank cell in a matrix is an 18pt line and the rows grow to a quarter
+    inch whatever height was set (2026-09-02: the portfolio ran off the
+    slide)."""
+    from pptx.util import Pt
+
+    sz = str(int(round(size * 100)))
+    for p_ in cell.text_frame.paragraphs:
+        p_.font.size = Pt(size)
+        for run in p_.runs:
+            run.font.size = Pt(size)
+            run.font.bold = bold
+            run.font.color.rgb = _rgb(color)
+        try:
+            p_._p.get_or_add_endParaRPr().set("sz", sz)
+        except Exception:
+            pass
 
 
 def _fmt_coins(v: Any) -> str:
@@ -2743,7 +2740,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
     """The client's own game-portfolio layout — one row per studio, one
     column per brand, ● where carried — paginated so every studio is on a
     page, not the twelve most common. Returns the next page number."""
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     matrix = catalog.get("matrix")
     if not matrix:
@@ -2760,7 +2757,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
     brands = matrix.get("brands") or []
     if not rows or not brands:
         return page
-    per_page = 26
+    per_page = 20                      # a page a reader can scan; 27 ran off the slide
     pages = [rows[i:i + per_page] for i in range(0, len(rows), per_page)]
     self_names = {b["name"] for b in catalog.get("brands", []) if b.get("is_self")}
     c = matrix.get("counts", {})
@@ -2781,7 +2778,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
         col_w = (11.9 - prov_w - 0.45) / max(1, len(brands))
         shape = s.shapes.add_table(
             len(chunk) + 1, 2 + len(brands), Inches(0.7), Inches(top), Inches(11.9),
-            Inches(0.16 * (len(chunk) + 1)),
+            Inches(0.2 * (len(chunk) + 1)),
         )
         tbl = shape.table
         tbl.columns[0].width = Inches(prov_w)
@@ -2789,10 +2786,10 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
             tbl.columns[1 + ci].width = Inches(col_w)
         tbl.columns[1 + len(brands)].width = Inches(0.45)
         for r_ in tbl.rows:
-            r_.height = Inches(0.16)   # 27 rows end at 6.32in, clear of the footnote at 6.6
+            r_.height = Inches(0.2)    # 21 rows end at 6.2in, clear of the footnote at 6.6
 
         def cw(r: int, col: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False,
-               size: float = 6.5, center: bool = False, tbl: Any = tbl) -> None:
+               size: float = 7.0, center: bool = False, tbl: Any = tbl) -> None:
             from pptx.enum.text import PP_ALIGN
 
             cell = tbl.cell(r, col)
@@ -2801,13 +2798,10 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
             cell.fill.fore_color.rgb = _rgb(bg)
             cell.margin_left = cell.margin_right = Inches(0.03)
             cell.margin_top = cell.margin_bottom = Inches(0.0)
-            for p_ in cell.text_frame.paragraphs:
-                if center:
+            if center:
+                for p_ in cell.text_frame.paragraphs:
                     p_.alignment = PP_ALIGN.CENTER
-                for run in p_.runs:
-                    run.font.size = Pt(size)
-                    run.font.bold = bold
-                    run.font.color.rgb = _rgb(fg)
+            _cell_font(cell, size, bold=bold, color=fg)
 
         cw(0, 0, "Game provider", bg=_INK, fg=_WHITE, bold=True, size=7)
         for ci, b in enumerate(brands):
@@ -2839,7 +2833,7 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
 
 def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: str) -> None:
     """The coin-package price ladder, brand by brand."""
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     s = _blank(prs)
     brands = [b for b in catalog.get("brands", []) if b["packages"]]
@@ -2874,11 +2868,7 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.04)
         cell.margin_top = cell.margin_bottom = Inches(0.01)
-        for p in cell.text_frame.paragraphs:
-            for run in p.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, h in enumerate(("Brand", "Price", "What it grants", "Notes", "Read from")):
         cw(0, ci, h, bg=_INK, fg=_WHITE, bold=True)
@@ -2992,7 +2982,7 @@ def _slide_offers_page(
     pi: int,
     n_pages: int,
 ) -> None:
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     s = _blank(prs)
     title = (narrative.get("titles") or {}).get("offers") or "The offers on the table"
@@ -3023,11 +3013,7 @@ def _slide_offers_page(
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.05)
         cell.margin_top = cell.margin_bottom = Inches(0.02)
-        for p_ in cell.text_frame.paragraphs:
-            for run in p_.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     for ci, name in enumerate(cols):
         cell_write(0, ci, name, bg=_INK, fg=_WHITE, bold=True, size=9.5)
@@ -3503,7 +3489,7 @@ def _slide_evidence(
 
 
 def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -> None:
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     s = _blank(prs)
     top = _header(s, "Appendix", "Scores by dimension")
@@ -3546,11 +3532,7 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
         cell.fill.fore_color.rgb = _rgb(bg)
         cell.margin_left = cell.margin_right = Inches(0.03)
         cell.margin_top = cell.margin_bottom = Inches(0.01)
-        for p in cell.text_frame.paragraphs:
-            for run in p.runs:
-                run.font.size = Pt(size)
-                run.font.bold = bold
-                run.font.color.rgb = _rgb(fg)
+        _cell_font(cell, size, bold=bold, color=fg)
 
     cell_write(0, 0, "Brand", bg=_INK, fg=_WHITE, bold=True)
     cell_write(0, 1, "Overall", bg=_INK, fg=_WHITE, bold=True)
