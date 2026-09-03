@@ -123,7 +123,12 @@ _TOOL_DEFS: list[tuple[str, str, dict[str, Any], PermissionLevel]] = [
         "browser_navigate",
         "Navigate to a URL. Opens Chrome browser if not already open. "
         "Returns the page URL, title, and interactive elements. "
-        "Use the element indices with browser_click and browser_type.",
+        "Use the element indices with browser_click and browser_type. "
+        "Only navigate to a URL you were given, read off a page (a link's href), "
+        "or got from a search result. Never invent a path such as /login, /offers "
+        "or /promotions: guessed URLs 404 or land on the wrong page and hide what "
+        "the site actually shows. To reach another page, click its visible link "
+        "or menu item (browser_click_text); if nothing visible leads there, search.",
         {
             "type": "object",
             "properties": {

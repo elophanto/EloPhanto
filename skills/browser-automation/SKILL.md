@@ -100,6 +100,12 @@ Choose your approach based on what you're doing:
 
 ### 3. Tool Selection Decision Tree
 
+**"I need to reach another page on the site"**
+- The page shows a link or menu item for it → browser_click_text (preferred) or browser_click
+- I know the URL from the user, a page, or a search result → browser_navigate
+- Nothing visible leads there → web_search for the page, then navigate to the result
+- NEVER type a guessed path (/login, /offers, /promotions, /usa/...). A guessed URL 404s or lands on the wrong page and hides what the site really shows. The browser drives the site the way a person does: find the control, click it.
+
 **"I need to click something"**
 - I know the visible text → browser_click_text (preferred)
 - I know the element index → browser_click
