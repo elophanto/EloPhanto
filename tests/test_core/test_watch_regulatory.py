@@ -131,11 +131,12 @@ class TestManagerAndPack:
 
         await wm.add_subject(company_id="c1", name="Brand C")
 
-        async def fake_search(q, *, api_key, max_results=8, timeout=30.0):
+        async def fake_search(q, *, api_key, max_results=8, timeout=30.0, **kw):
+            assert kw.get("since") and kw.get("freshness_boost")      # recent pages, newest first
             return [{"title": "NY signs ban", "url": "https://news.example/ny", "snippet": ""},
                     {"title": "dup", "url": "https://news.example/ny", "snippet": ""}]
 
-        async def fake_fetch(url, *, browser_manager=None, proxy_url=None, timeout=20.0):
+        async def fake_fetch(url, *, browser_manager=None, proxy_url=None, timeout=20.0, meta=None):
             return ("Governor signed S5935; the law takes effect on September 19, 2026.", None, "http")
 
         monkeypatch.setattr(O, "search_web", fake_search)

@@ -3092,6 +3092,10 @@ class WatchAnalyzeTool(_WatchToolBase):
                     "note": "no search_sh_api_key in vault — expansion skipped",
                 }
             elif missing:
+                from datetime import date as _date
+                from datetime import timedelta as _timedelta
+
+                from core.watch_catalog import STALE_AFTER_DAYS, is_stale
                 from core.watch_observe import (
                     expansion_queries,
                     fetch_page_best_effort,
@@ -3103,19 +3107,31 @@ class WatchAnalyzeTool(_WatchToolBase):
                 results: list[dict[str, str]] = []
                 queries = expansion_queries(subj.name, missing)
                 search_key = str(api_key)
+                # Recent pages only: a 2024 review saying a brand takes a
+                # payment method is not evidence of what it takes today.
+                since = (_date.today() - _timedelta(days=2 * STALE_AFTER_DAYS)).isoformat()
                 for q in queries:
-                    results.extend(await search_web(q, api_key=search_key))
+                    results.extend(await search_web(q, api_key=search_key, since=since, freshness_boost=True))
                 extra_urls = pick_expansion_urls(results, already_fetched=fetched, limit=4)
                 exp_written = 0
                 exp_pages: list[dict[str, Any]] = []
                 for url in extra_urls:
+                    page_meta: dict[str, Any] = {}
                     text, fetch_err, method = await fetch_page_best_effort(
                         url,
                         browser_manager=self._browser_manager,
                         proxy_url=proxy_url,
+                        meta=page_meta,
                     )
                     if fetch_err or not text:
                         exp_pages.append({"url": url, "error": fetch_err})
+                        continue
+                    pdate = str(page_meta.get("page_date") or "")
+                    if is_stale(pdate):
+                        # Read, dated, and not filed: third-party evidence
+                        # only stands while its page is inside the horizon.
+                        exp_pages.append({"url": url, "method": method, "page_date": pdate,
+                                          "skipped": f"page dated {pdate}, past the {STALE_AFTER_DAYS}-day horizon"})
                         continue
                     claims = await extract_claims_multi(
                         self._router,
@@ -4605,9 +4621,18 @@ class WatchRegulatoryCollectTool(_WatchToolBase):
         brands = [s_.name for s_ in subjects]
         year = datetime.now(UTC).year
         queries = regulatory_queries(states, brands[:15], year=year)
+        from datetime import date as _date
+        from datetime import timedelta as _timedelta
+
+        from core.watch_catalog import STALE_AFTER_DAYS, is_stale
+
         results: list[dict[str, str]] = []
+        # Bills and enforcement are the most time-sensitive material here;
+        # ask for the last year, newest first.
+        since = (_date.today() - _timedelta(days=2 * STALE_AFTER_DAYS)).isoformat()
         for q in queries:
-            results.extend(await search_web(q, api_key=str(api_key), max_results=6))
+            results.extend(await search_web(q, api_key=str(api_key), max_results=6, since=since,
+                                            freshness_boost=True))
         seen: set[str] = set()
         urls: list[str] = []
         for r in results:
@@ -4627,16 +4652,24 @@ class WatchRegulatoryCollectTool(_WatchToolBase):
         dup = 0
         read = 0
         errors: list[str] = []
+        dated_skipped: list[str] = []
         for u in urls:
+            page_meta: dict[str, Any] = {}
             text, ferr, _method = await fetch_page_best_effort(
-                u, browser_manager=self._browser_manager, proxy_url=proxy_url
+                u, browser_manager=self._browser_manager, proxy_url=proxy_url, meta=page_meta
             )
             if ferr or not text:
                 errors.append(f"{u}: {ferr or 'empty'}")
                 continue
             read += 1
+            pdate = str(page_meta.get("page_date") or "")
             items = await extract_regulatory(self._router, page_text=text, brands=brands, states=states)
             for it in items:
+                if is_stale(pdate) and not it.get("event_date"):
+                    # An old page's undated item would read as news; a
+                    # dated fact (a filing date, an effective date) stands.
+                    dated_skipped.append(f"{it['title'][:80]} ({u[:60]}, page dated {pdate})")
+                    continue
                 if not save:
                     filed.append({**it, "source_url": u})
                     continue
@@ -4658,6 +4691,7 @@ class WatchRegulatoryCollectTool(_WatchToolBase):
         return ToolResult(
             success=True,
             data={
+                "dated_skipped": dated_skipped,
                 "company_id": cid,
                 "states": [state_name(x) for x in states],
                 "queries": len(queries),

@@ -627,3 +627,75 @@ class TestDeckAndWorkbookShowReported:
         }
         assert marks["Hacksaw Gaming"] == "●" and marks["Pragmatic Play"] == "○"
         assert "○ reported only" in str(ws["A1"].value)
+
+
+class TestTheHorizonReachesTheOtherCollectors:
+    """The analyze expansion and the regulatory collector ask for recent
+    pages and refuse what an old page says about today."""
+
+    @pytest.mark.asyncio
+    async def test_expansion_files_no_evidence_from_a_page_past_the_horizon(self, monkeypatch) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import core.watch_catalog as wc
+        from core.database import Database
+        from core.watch import WatchManager
+        from tests.test_core.test_watch_expansion import _analyze
+
+        monkeypatch.setattr(wc, "is_stale", lambda pdate, today=None, **kw: True)   # every page reads as old
+        db = Database(str(Path(tempfile.mkdtemp()) / "t.db"))
+        await db.initialize()
+        wm = WatchManager(db)
+        res = await _analyze(
+            wm, monkeypatch, vault_key="sk-test",
+            search_results=[{"url": "https://reviews.example/brand-k", "title": "Brand K review", "snippet": ""}],
+        )
+        assert res.success, res.error
+        exp = res.data["source_expansion"]
+        assert exp["attempted"] is True and exp["evidence_written"] == 0
+        assert any("past the" in str(p.get("skipped", "")) for p in exp["pages"])
+        rows = await wm.list_evidence("c1")
+        assert not [r for r in rows if r.source_type == "third_party"]
+
+    @pytest.mark.asyncio
+    async def test_regulatory_keeps_dated_facts_and_drops_undated_ones_from_an_old_page(self, monkeypatch) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import core.watch_catalog as wc
+        import core.watch_observe as O
+        from core.database import Database
+        from core.watch import WatchManager
+        from tests.test_core.test_watch_regulatory import _Router
+        from tools.watch import tools as T
+
+        db = Database(str(Path(tempfile.mkdtemp()) / "t.db"))
+        await db.initialize()
+        wm = WatchManager(db)
+        await wm.add_subject(company_id="c1", name="Brand C")
+        monkeypatch.setattr(wc, "is_stale", lambda pdate, today=None, **kw: True)
+
+        async def fake_search(q, *, api_key, **kw):
+            return [{"title": "old news", "url": "https://news.example/old", "snippet": ""}]
+
+        async def fake_fetch(url, **kw):
+            if kw.get("meta") is not None:
+                kw["meta"].update({"page_date": "2024-02-02", "page_date_confidence": "high"})
+            return ("Regulators sent letters; S5935 takes effect on September 19, 2026.", None, "http")
+
+        monkeypatch.setattr(O, "search_web", fake_search)
+        monkeypatch.setattr(O, "fetch_page_best_effort", fake_fetch)
+        t = T.WatchRegulatoryCollectTool()
+        t._watch_manager, t._config = wm, None
+        t._vault = {"search_sh_api_key": "k"}
+        t._router = _Router([
+            {"kind": "effective_date", "jurisdiction": "NY", "title": "S5935 takes effect", "status": "signed",
+             "event_date": "2026-09-19", "subjects": [], "excerpt": "takes effect on September 19, 2026"},
+            {"kind": "enforcement", "jurisdiction": "NY", "title": "Letters sent to operators", "status": "reported",
+             "event_date": "", "subjects": [], "excerpt": "Regulators sent letters"},
+        ])
+        r = await t.execute({"company_id": "c1", "states": ["NY"]})
+        assert r.success, r.error
+        assert r.data["filed"] == 1
+        assert len(r.data["dated_skipped"]) == 1 and "page dated 2024-02-02" in r.data["dated_skipped"][0]
