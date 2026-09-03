@@ -20,6 +20,7 @@ Design: tmp/competitive-intel-organ-spec.md
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -5105,7 +5106,7 @@ class WatchCatalogCollectTool(_WatchToolBase):
             collect_pages,
             fetch_page_best_effort,
             screenshot_filename,
-            search_web,
+            search_web_dated,
         )
         from core.watch_voice import brand_aliases
 
@@ -5246,8 +5247,23 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 # when it dates sources, sinks the old ones further).
                 since = (date.today() - timedelta(days=2 * STALE_AFTER_DAYS)).isoformat()
                 for _kind, query in research_queries(subj.name, [kind], year=year):
-                    hits = await search_web(query, api_key=str(search_key), max_results=6, since=since)
-                    urls.extend(rank_research_urls(hits, brand_host=brand_host, limit=2))
+                    got = await search_web_dated(
+                        query, api_key=str(search_key), max_results=6, since=since, freshness_boost=True,
+                    )
+                    urls.extend(rank_research_urls(got["sources"], brand_host=brand_host, limit=2))
+                    # The engine read the pages' dates and, where a newer
+                    # source contradicts an older one, says so. That is
+                    # reported, not acted on: a claim in prose is not a row.
+                    for c in got.get("conflicts") or []:
+                        if c.get("summary"):
+                            per["kinds"][kind].setdefault("conflicts", []).append(
+                                c["summary"][:200]
+                                + (f" (newer {c['newer']['date']}, older {c['older']['date']})"
+                                   if c.get("dated") else " (one side undated)")
+                            )
+                            logging.getLogger(__name__).info(
+                                "watch: %s/%s — sources disagree across time: %s",
+                                subj.name, kind, c["summary"][:160])
                 seen_urls: set[str] = set()
                 for u in urls[:4]:
                     if u in seen_urls:

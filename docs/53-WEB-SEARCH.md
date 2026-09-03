@@ -35,6 +35,9 @@ Use `browser_navigate` only when you need to:
 | `mode` | string | No | `fast` (3-8s, default) or `deep` (15-30s) |
 | `region` | string | No | ISO country code (default: `us`) |
 | `max_results` | integer | No | 1-20 (default: 10) |
+| `since` | string | No | ISO date: only pages the engine dates on/after this day (a filter) |
+| `recency` | string | No | `past_day`, `past_week`, `past_month`, `past_year`; with `since`, the tighter bound wins |
+| `freshness_boost` | boolean | No | Rank newer pages higher without excluding older ones; undated pages are not moved |
 
 **Modes:**
 - **fast** — Single search + AI answer. 3-8 seconds. Use for quick lookups.
@@ -46,7 +49,15 @@ Use `browser_navigate` only when you need to:
   "answer": "AI-synthesized answer text...",
   "confidence": 0.85,
   "sources": [
-    {"title": "...", "url": "...", "snippet": "..."}
+    {"title": "...", "url": "...", "snippet": "...",
+     "published_at": "2026-02-11T09:00:00.000Z", "modified_at": "2026-06-30T14:12:00.000Z",
+     "date_confidence": "high",
+     "date_sources": {"published_at": "article:published_time", "modified_at": "json-ld:dateModified"}}
+  ],
+  "conflicts": [
+    {"summary": "...", "dated": true,
+     "newer": {"claim": "...", "source_url": "...", "source_title": "...", "date": "2026-07-14T08:00:00.000Z"},
+     "older": {"claim": "...", "source_url": "...", "source_title": "...", "date": "2024-03-02"}}
   ],
   "citations": ["..."],
   "related_queries": ["..."],
@@ -66,11 +77,40 @@ Use `browser_navigate` only when you need to:
 ```json
 {
   "pages": [
-    {"url": "...", "title": "...", "content": "cleaned text (max 5000 chars)"}
+    {"url": "...", "title": "...", "content": "cleaned text (max 5000 chars)",
+     "published_at": null, "modified_at": "2026-02-11T03:14:00.000Z",
+     "date_confidence": "high", "date_sources": {"modified_at": "json-ld:dateModified"}}
   ],
   "count": 1
 }
 ```
+
+## Dates, recency and conflicts (2026-09-03)
+
+Facts change; a search that cannot say *when* a source said something
+cannot say whether it is still true. Search.sh dates every source and
+extracted page (`published_at`, `modified_at`, `date_confidence`:
+`high` from the page's structured markup, `medium` from visible "Last
+updated" text or the engine's own label, `low` from the HTTP
+`Last-Modified` header — a deploy time, an upper bound on the page's age,
+never an update date; check `date_sources` before trusting `modified_at`).
+
+Three request controls: `since` (filter, ISO date), `recency` (filter,
+relative window) and `freshness_boost` (ranking bias only). Without any,
+news-like queries get an automatic one-year window.
+
+`conflicts[]` lists pairs of sources that disagree across time, newer
+first; `dated: true` means both sides carry dates and the order was
+verified server-side. **When it is non-empty, do not average the claims:
+prefer the newer side when `dated` is true, carry the date along, and
+re-query with `since` set just before the older source's date if the
+change needs corroborating.** The same pairs appear on the affected
+`citations[].conflict`.
+
+The watch organ's research (`core/watch_observe.search_web_dated`) sends
+`since` and `freshness_boost`, reads the source dates into its ranking,
+and reports the engine's conflicts per brand and kind (docs/89, "How old
+is the page").
 
 ## Research Pattern
 

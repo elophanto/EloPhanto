@@ -46,7 +46,16 @@ web_search query="comparison of Next.js vs Remix for production apps" mode="deep
 - `fast` (default) — single search + AI answer. 3-8 seconds. Use for quick lookups.
 - `deep` — generates sub-queries, searches in parallel, extracts full page content. 15-30 seconds. Use for thorough research.
 
-**Returns:** answer, sources (title + URL + snippet), citations with attribution, confidence score (0-1), related queries.
+**Returns:** answer, sources (title + URL + snippet + `published_at` / `modified_at` / `date_confidence`), citations with attribution, `conflicts` (sources that disagree across time, newer first), confidence score (0-1), related queries.
+
+**Dates and recency:**
+- `since="2026-01-15"` — only pages the engine dates on/after that day. `recency="past_month"` (`past_day|past_week|past_month|past_year`) — the same, relative. `freshness_boost=true` — newer pages ranked higher, older ones kept.
+- Check the dates before trusting a fact: a `modified_at` whose `date_sources.modified_at` is `http:last-modified` is the site's deploy time, not an update.
+- When `conflicts` is non-empty, do not average the two claims: prefer the `newer` side when `dated` is true, mention the date in anything you pass on, and re-query with `since` set just before the older source's date if you need corroboration.
+
+```
+web_search query="studios powering <brand> lobby" since="2026-03-01" freshness_boost=true
+```
 
 ### web_extract
 
@@ -56,7 +65,7 @@ Extract clean text from URLs. Use after `web_search` to read full content from s
 web_extract urls=["https://example.com/article"]
 ```
 
-Returns cleaned text (scripts/nav/footer removed), max 5000 chars per page. Up to 10 URLs per call.
+Returns cleaned text (scripts/nav/footer removed), max 5000 chars per page, plus the page's own date (`published_at`, `modified_at`, `date_confidence`, `date_sources`). Up to 10 URLs per call.
 
 ## Research Pattern
 

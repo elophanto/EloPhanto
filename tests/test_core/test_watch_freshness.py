@@ -69,11 +69,46 @@ class TestPageDate:
 
 
 class TestSearchEngineDates:
-    def test_since_is_sent_only_when_given(self) -> None:
+    def test_since_and_freshness_boost_are_sent_only_when_given(self) -> None:
         from core.watch_observe import search_payload
 
-        assert "since" not in search_payload("q")
-        assert search_payload("q", since="2026-03-01")["since"] == "2026-03-01"
+        plain = search_payload("q")
+        assert "since" not in plain and "freshness_boost" not in plain
+        body = search_payload("q", since="2026-03-01", freshness_boost=True)
+        assert body["since"] == "2026-03-01" and body["freshness_boost"] is True
+
+    def test_a_header_only_modified_date_is_not_the_best_date(self) -> None:
+        """Search.sh: a modified_at read from HTTP Last-Modified is the
+        site's deploy time — an upper bound, never an update date."""
+        from core.watch_observe import source_dates
+
+        marked_up = source_dates({"published_at": "2024-02-01", "modified_at": "2026-06-30T14:12:00.000Z",
+                                  "date_confidence": "high",
+                                  "date_sources": {"modified_at": "json-ld:dateModified"}})
+        assert marked_up["best_date"] == "2026-06-30"
+        header = source_dates({"published_at": "2024-02-01", "modified_at": "2026-09-01",
+                               "date_confidence": "low", "date_sources": {"modified_at": "http:last-modified"}})
+        assert header["best_date"] == "2024-02-01" and header["modified_at"] == "2026-09-01"
+        nothing = source_dates({"published_at": None, "modified_at": None, "date_confidence": None})
+        assert nothing == {"published_at": "", "modified_at": "", "date_confidence": "", "best_date": ""}
+
+    def test_the_engines_conflicts_come_back_normalised(self) -> None:
+        from core.watch_observe import _search_conflicts
+
+        got = _search_conflicts({"conflicts": [
+            {"summary": "a source from 2026-07 says the studio left the brand; an older one still lists it",
+             "dated": True,
+             "newer": {"claim": "the studio left the brand in June 2026", "source_url": "https://n.example/",
+                       "source_title": "n", "date": "2026-07-14T08:00:00.000Z"},
+             "older": {"claim": "the studio is part of the brand", "source_url": "https://o.example/",
+                       "source_title": "o", "date": "2024-03-02"}},
+            "not a dict",
+        ]})
+        assert len(got) == 1
+        c = got[0]
+        assert c["dated"] and c["newer"]["date"] == "2026-07-14" and c["older"]["date"] == "2024-03-02"
+        assert c["newer"]["url"] == "https://n.example/" and "left the brand" in c["newer"]["claim"]
+        assert _search_conflicts({"sources": []}) == [] and _search_conflicts(None) == []
 
     def test_sources_carry_dates_when_the_engine_gives_them(self) -> None:
         from core.watch_observe import _search_sources
@@ -147,21 +182,60 @@ class TestSearchEngineDates:
         assert [g["url"] for g in got] == ["https://r.example/p"]
         assert "since" in calls[0] and "since" not in calls[1]
 
+    @pytest.mark.asyncio
+    async def test_the_dated_search_returns_sources_conflicts_and_answer(self, monkeypatch) -> None:
+        import core.watch_observe as wo
+
+        class _Resp:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {
+                    "answer": "The studio left in June 2026.",
+                    "sources": [{"url": "https://n.example/", "title": "n", "snippet": "",
+                                 "published_at": "2026-07-14", "modified_at": None, "date_confidence": "high"}],
+                    "conflicts": [{"summary": "newer says left, older says carried", "dated": True,
+                                   "newer": {"claim": "left", "source_url": "https://n.example/", "date": "2026-07-14"},
+                                   "older": {"claim": "carried", "source_url": "https://o.example/", "date": "2024-03-02"}}],
+                }
+
+        class _Client:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, *, json, headers):
+                assert json["since"] == "2026-03-01" and json["freshness_boost"] is True
+                return _Resp()
+
+        import httpx
+        monkeypatch.setattr(httpx, "AsyncClient", _Client)
+        got = await wo.search_web_dated("q", api_key="k", since="2026-03-01", freshness_boost=True)
+        assert got["sources"][0]["best_date"] == "2026-07-14"
+        assert got["conflicts"][0]["older"]["date"] == "2024-03-02"
+        assert got["answer"].startswith("The studio left")
+
     def test_dated_old_results_sink_below_undated_ones(self) -> None:
         from core.watch_catalog import rank_research_urls
 
         got = rank_research_urls(
-            [
-                {"url": "https://old.example/brand", "modified_at": "2024-01-01"},
-                {"url": "https://undated.example/brand"},
-                {"url": "https://fresh.example/brand", "published_at": "2026-08-20"},
-            ],
+            [{"url": "https://old.example/brand", "modified_at": "2024-01-01"},
+             {"url": "https://undated.example/brand"},
+             {"url": "https://fresh.example/brand", "published_at": "2026-08-20"},
+             # a deploy-time modified date does not rescue an old page
+             {"url": "https://deployed.example/brand", "published_at": "2023-05-05", "modified_at": "2026-09-01",
+              "best_date": "2023-05-05"}],
             today=date(2026, 9, 2),
+            limit=10,
         )
-        assert got.index("https://old.example/brand") > got.index(
-            "https://undated.example/brand"
-        )
-
+        assert got.index("https://old.example/brand") > got.index("https://undated.example/brand")
+        assert got.index("https://deployed.example/brand") > got.index("https://undated.example/brand")
     def test_provider_and_game_queries_carry_the_year(self) -> None:
         from core.watch_catalog import research_queries
 

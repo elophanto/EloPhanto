@@ -1321,10 +1321,13 @@ async def verify_browser_exit(
 _SEARCH_URL = "https://search.sh/api/search"
 
 
-def search_payload(query: str, *, max_results: int = 8, since: str | None = None) -> dict[str, Any]:
+def search_payload(
+    query: str, *, max_results: int = 8, since: str | None = None, freshness_boost: bool = False,
+) -> dict[str, Any]:
     """The request body. ``since`` (``YYYY-MM-DD``) asks the engine for
-    pages written on or after that day; it is only sent when given, so an
-    engine without the parameter is asked nothing new."""
+    pages it dates on or after that day (a filter); ``freshness_boost``
+    ranks newer pages higher without excluding older ones. Both are only
+    sent when set, so an engine without them is asked nothing new."""
     body: dict[str, Any] = {
         "query": query[:500],
         "mode": "fast",
@@ -1333,12 +1336,35 @@ def search_payload(query: str, *, max_results: int = 8, since: str | None = None
     }
     if since:
         body["since"] = since
+    if freshness_boost:
+        body["freshness_boost"] = True
     return body
+
+
+def source_dates(src: dict[str, Any]) -> dict[str, str]:
+    """The engine's dates on one source or extracted page, normalised:
+    ``published_at``, ``modified_at`` (day precision), ``date_confidence``,
+    and ``best_date`` — the modified date when the engine read it off the
+    page's own markup, else the published date. A ``modified_at`` that came
+    from the HTTP ``Last-Modified`` header is the site's deploy time, an
+    upper bound on the page's age, and never the best date."""
+    ds = src.get("date_sources") if isinstance(src.get("date_sources"), dict) else {}
+    published = parse_date_text(str(src.get("published_at") or src.get("published") or src.get("published_date") or ""))
+    modified = parse_date_text(str(src.get("modified_at") or src.get("updated_at") or ""))
+    header_only = str(ds.get("modified_at") or "").startswith("http:")
+    best = modified if (modified and not header_only) else (published or modified)
+    return {
+        "published_at": published,
+        "modified_at": modified,
+        "date_confidence": str(src.get("date_confidence") or ""),
+        "best_date": best,
+    }
 
 
 def _search_sources(data: Any) -> list[dict[str, str]]:
     """Sources → [{title, url, snippet, published_at, modified_at,
-    date_confidence}]; the date fields are '' when the engine says nothing."""
+    date_confidence, best_date}]; the date fields are '' when the engine
+    says nothing."""
     out: list[dict[str, str]] = []
     for src in (data.get("sources") or []) if isinstance(data, dict) else []:
         if not isinstance(src, dict) or not str(src.get("url") or "").startswith("http"):
@@ -1347,11 +1373,72 @@ def _search_sources(data: Any) -> list[dict[str, str]]:
             "title": str(src.get("title") or ""),
             "url": str(src.get("url") or ""),
             "snippet": str(src.get("snippet") or ""),
-            "published_at": parse_date_text(str(src.get("published_at") or src.get("published") or "")),
-            "modified_at": parse_date_text(str(src.get("modified_at") or src.get("updated_at") or "")),
-            "date_confidence": str(src.get("date_confidence") or ""),
+            **source_dates(src),
         })
     return out
+
+
+def _search_conflicts(data: Any) -> list[dict[str, Any]]:
+    """The engine's ``conflicts[]`` — pairs of sources that disagree across
+    time — normalised to {summary, dated, newer: {claim, url, date},
+    older: {…}}. Empty when the sources agree or the engine is older."""
+    out: list[dict[str, Any]] = []
+    for c in (data.get("conflicts") or []) if isinstance(data, dict) else []:
+        if not isinstance(c, dict):
+            continue
+        sides = {}
+        for side in ("newer", "older"):
+            raw = c.get(side) if isinstance(c.get(side), dict) else {}
+            sides[side] = {
+                "claim": str(raw.get("claim") or ""),
+                "url": str(raw.get("source_url") or raw.get("url") or ""),
+                "date": parse_date_text(str(raw.get("date") or "")),
+            }
+        out.append({"summary": str(c.get("summary") or ""), "dated": bool(c.get("dated")), **sides})
+    return out
+
+
+async def search_web_dated(
+    query: str,
+    *,
+    api_key: str,
+    max_results: int = 8,
+    timeout: float = 30.0,
+    since: str | None = None,
+    freshness_boost: bool = False,
+) -> dict[str, Any]:
+    """Web search with the engine's dating: ``{sources, conflicts, answer}``.
+    Sources carry their dates (see :func:`source_dates`); ``conflicts`` are
+    the pairs of sources the engine found disagreeing across time. Empty
+    on any failure. An engine that rejects ``since`` is asked again
+    without it."""
+    import httpx
+
+    empty: dict[str, Any] = {"sources": [], "conflicts": [], "answer": ""}
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                _SEARCH_URL,
+                json=search_payload(query, max_results=max_results, since=since, freshness_boost=freshness_boost),
+                headers=headers,
+            )
+            if (since or freshness_boost) and resp.status_code in (400, 422):
+                logger.info("watch: search engine refused the date controls; asking again without them")
+                resp = await client.post(_SEARCH_URL, json=search_payload(query, max_results=max_results),
+                                         headers=headers)
+        if resp.status_code != 200:
+            logger.warning("watch: search failed (%s): %s", resp.status_code, resp.text[:120])
+            return empty
+        data = resp.json()
+        return {
+            "sources": _search_sources(data),
+            "conflicts": _search_conflicts(data),
+            "answer": str(data.get("answer") or "") if isinstance(data, dict) else "",
+        }
+    except Exception as e:
+        logger.warning("watch: search failed: %s", e)
+        return empty
 
 
 async def search_web(
@@ -1361,28 +1448,14 @@ async def search_web(
     max_results: int = 8,
     timeout: float = 30.0,
     since: str | None = None,
+    freshness_boost: bool = False,
 ) -> list[dict[str, str]]:
-    """Plain web search → [{title, url, snippet, published_at, modified_at,
-    date_confidence}]. Empty on any failure. ``since`` asks for recent
-    pages; an engine that rejects the parameter is asked again without it."""
-    import httpx
-
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(_SEARCH_URL, json=search_payload(query, max_results=max_results, since=since),
-                                     headers=headers)
-            if since and resp.status_code in (400, 422):
-                logger.info("watch: search engine refused 'since'; asking again without it")
-                resp = await client.post(_SEARCH_URL, json=search_payload(query, max_results=max_results),
-                                         headers=headers)
-        if resp.status_code != 200:
-            logger.warning("watch: search failed (%s): %s", resp.status_code, resp.text[:120])
-            return []
-        return _search_sources(resp.json())
-    except Exception as e:
-        logger.warning("watch: search failed: %s", e)
-        return []
+    """Plain web search → the sources of :func:`search_web_dated`."""
+    got = await search_web_dated(
+        query, api_key=api_key, max_results=max_results, timeout=timeout,
+        since=since, freshness_boost=freshness_boost,
+    )
+    return list(got.get("sources") or [])
 
 
 def expansion_queries(brand: str, missing_dimensions: list[str], *, limit: int = 3) -> list[str]:

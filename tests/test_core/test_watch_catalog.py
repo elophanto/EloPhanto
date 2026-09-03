@@ -147,14 +147,16 @@ class TestResearchFirst:
 
         async def fake_search(query, *, api_key, **kw):
             assert api_key == "sk-test"
-            return [{"url": "https://review.example/brand-k", "title": "review", "snippet": ""}]
+            assert kw.get("since") and kw.get("freshness_boost")          # recent pages, newest first
+            return {"sources": [{"url": "https://review.example/brand-k", "title": "review", "snippet": ""}],
+                    "conflicts": [], "answer": ""}
 
         async def fake_fetch(url, **kw):
             assert kw.get("proxy_url") is None, "research must not spend the metered exit"
             return ("Brand K carries Pragmatic Play and Hacksaw Gaming titles.", None, "http")
 
         monkeypatch.setattr(wo, "collect_pages", fake_collect)
-        monkeypatch.setattr(wo, "search_web", fake_search)
+        monkeypatch.setattr(wo, "search_web_dated", fake_search)
         monkeypatch.setattr(wo, "fetch_page_best_effort", fake_fetch)
 
         t = T.WatchCatalogCollectTool()
@@ -192,14 +194,15 @@ class TestResearchFirst:
 
         async def fake_search(query, *, api_key, **kw):
             searched.append(query)
-            return [{"url": "https://review.example/brand-g", "title": "review", "snippet": ""}]
+            return {"sources": [{"url": "https://review.example/brand-g", "title": "review", "snippet": ""}],
+                    "conflicts": [], "answer": ""}
 
         async def fake_fetch(url, **kw):
             return ("Brand G games: Green Machine, Golden Knight, Shake the Sky, Jaguar Wild.",
                     None, "http")
 
         monkeypatch.setattr(wo, "collect_pages", teaser)
-        monkeypatch.setattr(wo, "search_web", fake_search)
+        monkeypatch.setattr(wo, "search_web_dated", fake_search)
         monkeypatch.setattr(wo, "fetch_page_best_effort", fake_fetch)
         t = T.WatchCatalogCollectTool()
         t._watch_manager, t._config, t._browser_manager = wm, None, None
@@ -236,10 +239,10 @@ class TestResearchFirst:
                      "text": "Sign in to see your prices.", "error": None, "method": "http"}]
 
         async def no_hits(query, *, api_key, **kw):
-            return []
+            return {"sources": [], "conflicts": [], "answer": ""}
 
         monkeypatch.setattr(wo, "collect_pages", empty_pages)
-        monkeypatch.setattr(wo, "search_web", no_hits)
+        monkeypatch.setattr(wo, "search_web_dated", no_hits)
 
         t = T.WatchCatalogCollectTool()
         t._watch_manager, t._config, t._browser_manager = wm, None, None

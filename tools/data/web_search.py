@@ -15,8 +15,23 @@ _BASE_URL = "https://search.sh/api"
 _TIMEOUT = 65.0  # API timeout is 60s
 
 
+def _dates(page: dict[str, Any]) -> dict[str, Any]:
+    """The engine's dates on a source or extracted page, passed through as
+    they came: ``published_at`` / ``modified_at`` (ISO, or None), the
+    confidence tier, and where each date was read from. A ``modified_at``
+    whose source is ``http:last-modified`` is the site's deploy time — an
+    upper bound on the page's age, not an update date."""
+    return {
+        "published_at": page.get("published_at"),
+        "modified_at": page.get("modified_at"),
+        "date_confidence": page.get("date_confidence"),
+        "date_sources": page.get("date_sources") or {},
+    }
+
+
 class WebSearchTool(BaseTool):
-    """Search the web via Search.sh — returns AI answer, sources, and citations."""
+    """Search the web via Search.sh — returns AI answer, sources with their
+    dates, citations, and the conflicts between sources across time."""
 
     _vault: Any = None  # Injected by agent
 
@@ -34,9 +49,12 @@ class WebSearchTool(BaseTool):
             "Search the web and get an AI-synthesized answer with ranked sources, "
             "citations, and confidence score. Two modes: 'fast' (3-8s, quick lookup) "
             "and 'deep' (15-30s, generates sub-queries, extracts page content, "
-            "cross-references sources). Use this instead of browser_navigate for "
-            "research, fact-checking, market research, competitor analysis, and "
-            "any task that starts with finding information online."
+            "cross-references sources). Every source carries its own date "
+            "(published_at, modified_at, date_confidence); 'since'/'recency' restrict "
+            "to recent pages and 'freshness_boost' prefers them; 'conflicts' lists "
+            "sources that disagree across time — prefer the newer side. Use this "
+            "instead of browser_navigate for research, fact-checking, market research, "
+            "competitor analysis, and any task that starts with finding information online."
         )
 
     @property
@@ -64,6 +82,25 @@ class WebSearchTool(BaseTool):
                 "max_results": {
                     "type": "integer",
                     "description": "Max search results (1-20). Default: 10.",
+                },
+                "since": {
+                    "type": "string",
+                    "description": (
+                        "ISO date (YYYY-MM-DD): only pages the engine dates on or after "
+                        "this day. Use when only current material will do."
+                    ),
+                },
+                "recency": {
+                    "type": "string",
+                    "enum": ["past_day", "past_week", "past_month", "past_year"],
+                    "description": "Relative window; with 'since', the tighter bound wins.",
+                },
+                "freshness_boost": {
+                    "type": "boolean",
+                    "description": (
+                        "Rank newer pages higher without excluding older ones (undated "
+                        "pages are not moved). Default: false."
+                    ),
                 },
             },
             "required": ["query"],
@@ -103,6 +140,12 @@ class WebSearchTool(BaseTool):
             "region": region,
             "max_results": max_results,
         }
+        if params.get("since"):
+            body["since"] = str(params["since"])[:10]
+        if params.get("recency"):
+            body["recency"] = params["recency"]
+        if params.get("freshness_boost"):
+            body["freshness_boost"] = True
 
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -138,13 +181,21 @@ class WebSearchTool(BaseTool):
                         "title": s.get("title", ""),
                         "url": s.get("url", ""),
                         "snippet": s.get("snippet", ""),
+                        **_dates(s),
                     }
                     for s in data.get("sources", [])
                 ],
                 "citations": data.get("citations", []),
+                # Sources that disagree across time, newer first. A non-empty
+                # list means: do not average the claims; prefer the newer side
+                # when 'dated' is true, and carry the date along.
+                "conflicts": data.get("conflicts", []) or [],
                 "related_queries": data.get("related_queries", []),
                 "mode": mode,
             }
+            for key in ("since", "recency", "freshness_boost"):
+                if key in body:
+                    result[key] = body[key]
 
             # Deep mode extras
             if mode == "deep":
@@ -181,10 +232,11 @@ class WebExtractTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Extract clean text content from one or more URLs. Returns title and "
-            "cleaned text (scripts/nav/footer removed, max 5000 chars per page). "
-            "Use after web_search to read full page content from specific sources, "
-            "or to extract content from any URL."
+            "Extract clean text content from one or more URLs. Returns title, "
+            "cleaned text (scripts/nav/footer removed) and the page's own date "
+            "(published_at, modified_at, date_confidence) so you know how old what "
+            "you read is. Use after web_search to read full page content from "
+            "specific sources, or to extract content from any URL."
         )
 
     @property
@@ -259,6 +311,9 @@ class WebExtractTool(BaseTool):
                             "url": p.get("url", ""),
                             "title": p.get("title", ""),
                             "content": p.get("content", ""),
+                            **_dates(p),
+                            **({"via": p["via"], "snapshot_date": p.get("snapshot_date")}
+                               if p.get("via") else {}),
                         }
                         for p in pages
                     ],

@@ -1233,7 +1233,7 @@ def rank_research_urls(
             score += 2
         if _LOW_TRUST.search(url):
             score -= 2
-        if is_stale(str(r.get("modified_at") or r.get("published_at") or ""), today):
+        if is_stale(str(r.get("best_date") or r.get("modified_at") or r.get("published_at") or ""), today):
             score -= 1.5
         # Only genuinely legal pages are refused here; review sites file
         # brands under paths like /sweepstakes-casinos/reviews/…, and the
