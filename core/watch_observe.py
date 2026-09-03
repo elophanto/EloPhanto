@@ -146,6 +146,7 @@ async def fetch_page(
     proxy_url: str | None = None,
     timeout: float = 20.0,
     max_chars: int = 40000,
+    meta: dict[str, Any] | None = None,
 ) -> tuple[str, str | None]:
     """Fetch a URL and return ``(text, error)``. Never raises."""
     import httpx
@@ -170,9 +171,123 @@ async def fetch_page(
             resp = await client.get(url)
             if resp.status_code >= 400:
                 return "", f"HTTP {resp.status_code}"
+            if meta is not None:
+                d, conf = page_date(resp.text, resp.headers)
+                meta.update({"page_date": d, "page_date_confidence": conf})
             return html_to_text(resp.text)[:max_chars], None
     except Exception as e:
         return "", f"{type(e).__name__}: {e}"
+
+
+# ── How old is this page? ────────────────────────────────────────────────
+#
+# A review written in 2024 still says a studio powers a brand that dropped it
+# since (2026-09-02: one studio "still carried" on the strength of a dated
+# page). The register stamps when WE read a page; the page's own date is a
+# different fact and is read here — structured markup first, visible
+# "Last updated" text next, the HTTP header last (CDNs stamp it with now).
+
+_MONTHS = "jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec"
+_DATE_FORMS = (
+    r"\d{4}-\d{2}-\d{2}",                                   # 2026-09-02
+    rf"(?:{_MONTHS})[a-z]*\.?\s+\d{{1,2}},?\s+\d{{4}}",       # September 2, 2026
+    rf"\d{{1,2}}\s+(?:{_MONTHS})[a-z]*\.?,?\s+\d{{4}}",       # 2 September 2026
+    r"\d{1,2}/\d{1,2}/\d{4}",                               # 09/02/2026 (US)
+)
+_DATE_TEXT_RE = re.compile("|".join(f"(?:{f})" for f in _DATE_FORMS), re.I)
+_UPDATED_RE = re.compile(
+    r"\b(?:last\s+)?(?:updated|modified|reviewed|revised|published|posted)(?:\s+on)?\s*:?\s*"
+    r"(" + "|".join(f"(?:{f})" for f in _DATE_FORMS) + r")",
+    re.I,
+)
+_META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.I)
+_ATTR_RE = re.compile(r"""([\w:.-]+)\s*=\s*["']([^"']*)["']""")
+_JSONLD_DATE_RE = re.compile(r'"date(Modified|Published)"\s*:\s*"([^"]+)"')
+_TIME_TAG_RE = re.compile(r"""<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["']""", re.I)
+_META_MODIFIED = {"article:modified_time", "og:updated_time", "dcterms.modified", "dc.date.modified",
+                  "last-modified", "lastmod", "datemodified", "revised"}
+_META_PUBLISHED = {"article:published_time", "dcterms.date", "dc.date", "date", "pubdate", "publish-date",
+                   "publishdate", "datepublished", "parsely-pub-date", "sailthru.date", "og:published_time"}
+
+
+def parse_date_text(raw: str) -> str:
+    """A date in any of the forms a page prints → ``YYYY-MM-DD`` or ''."""
+    from datetime import datetime
+
+    t = (raw or "").strip()
+    if not t:
+        return ""
+    try:
+        return datetime.fromisoformat(t[:19].replace("Z", "")).date().isoformat()
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(t[:10]).date().isoformat()
+    except ValueError:
+        pass
+    cleaned = re.sub(r"(?<=[a-z])\.", "", t.replace(",", " "), flags=re.I)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"\bsept\b", "Sep", cleaned, flags=re.I)   # the one abbreviation strptime lacks
+    for fmt in ("%B %d %Y", "%b %d %Y", "%d %B %Y", "%d %b %Y", "%m/%d/%Y",
+                "%a %d %b %Y %H:%M:%S GMT", "%a, %d %b %Y %H:%M:%S GMT"):
+        try:
+            return datetime.strptime(cleaned if "GMT" not in t else t, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def _plausible(iso: str) -> bool:
+    from datetime import date, timedelta
+
+    try:
+        d = date.fromisoformat(iso)
+    except ValueError:
+        return False
+    return date(2000, 1, 1) <= d <= date.today() + timedelta(days=1)
+
+
+def page_date(html: str, headers: Any = None) -> tuple[str, str]:
+    """``(YYYY-MM-DD, confidence)`` for when the page was last written.
+
+    ``high``: structured markup (meta tags, JSON-LD, <time datetime>), the
+    latest *modified* date when one is given, else the latest published.
+    ``medium``: visible "Last updated …" text. ``low``: the HTTP
+    Last-Modified header. ``('', '')`` when nothing says."""
+    modified: list[str] = []
+    published: list[str] = []
+    for tag in _META_TAG_RE.findall(html or ""):
+        attrs = {k.lower(): v for k, v in _ATTR_RE.findall(tag)}
+        key = (attrs.get("property") or attrs.get("name") or attrs.get("itemprop") or "").lower()
+        val = attrs.get("content", "")
+        if not key or not val:
+            continue
+        if key in _META_MODIFIED:
+            modified.append(val)
+        elif key in _META_PUBLISHED:
+            published.append(val)
+    for which, val in _JSONLD_DATE_RE.findall(html or ""):
+        (modified if which == "Modified" else published).append(val)
+    published.extend(_TIME_TAG_RE.findall(html or ""))
+    for bucket in (modified, published):
+        dates = sorted({d for d in (parse_date_text(v) for v in bucket) if d and _plausible(d)})
+        if dates:
+            return dates[-1], "high"
+    text = html_to_text(html or "")[:30000] if html else ""
+    m = _UPDATED_RE.search(text)
+    if m:
+        d = parse_date_text(m.group(1))
+        if d and _plausible(d):
+            return d, "medium"
+    if headers is not None:
+        try:
+            lm = headers.get("last-modified") or headers.get("Last-Modified") or ""
+        except Exception:
+            lm = ""
+        d = parse_date_text(lm) if lm else ""
+        if d and _plausible(d):
+            return d, "low"
+    return "", ""
 
 
 # Below this many characters, a "successful" fetch didn't really get the page —
@@ -198,7 +313,7 @@ def _result_text(payload: Any) -> str:
 
 
 async def fetch_page_via_browser(
-    browser_manager: Any, url: str, *, max_chars: int = 40000
+    browser_manager: Any, url: str, *, max_chars: int = 40000, meta: dict[str, Any] | None = None
 ) -> tuple[str, str | None]:
     """Render a page in the agent's real Chrome and return ``(text, error)``.
 
@@ -213,10 +328,20 @@ async def fetch_page_via_browser(
         await browser_manager.call_tool("browser_navigate", {"url": url})
         payload = await browser_manager.call_tool("browser_extract", {})
         text = _result_text(payload)
+        raw_html = ""
         if not text.strip():
             # Fall back to raw HTML and strip it ourselves.
             payload = await browser_manager.call_tool("browser_get_html", {})
-            text = html_to_text(_result_text(payload))
+            raw_html = _result_text(payload)
+            text = html_to_text(raw_html)
+        if meta is not None:
+            if not raw_html:
+                try:
+                    raw_html = _result_text(await browser_manager.call_tool("browser_get_html", {}))
+                except Exception:
+                    raw_html = ""
+            d, conf = page_date(raw_html)
+            meta.update({"page_date": d, "page_date_confidence": conf})
         text = _WS_RE.sub(" ", text).strip()
         if not text:
             return "", "browser returned no readable text"
@@ -231,14 +356,17 @@ async def fetch_page_best_effort(
     browser_manager: Any = None,
     proxy_url: str | None = None,
     timeout: float = 20.0,
+    meta: dict[str, Any] | None = None,
 ) -> tuple[str, str | None, str]:
     """Fetch a page the cheap way, escalating to the browser when needed.
 
     Returns ``(text, error, method)``. Plain HTTP is tried first because it is
     fast and contention-free; the browser is reserved for the pages that
     actually need it (empty shells, 403s), since it is a shared, slow resource.
+    With ``meta`` (a dict), the page's own date lands in it as ``page_date``
+    and ``page_date_confidence`` (see :func:`page_date`).
     """
-    text, err = await fetch_page(url, proxy_url=proxy_url, timeout=timeout)
+    text, err = await fetch_page(url, proxy_url=proxy_url, timeout=timeout, meta=meta)
     if not err and len(text) >= THIN_PAGE_CHARS:
         return text, None, "http"
     if browser_manager is None:
@@ -249,7 +377,7 @@ async def fetch_page_best_effort(
         if text:
             return text, None, "http_thin"
         return "", err or "page unreadable (likely a JS app)", "http"
-    b_text, b_err = await fetch_page_via_browser(browser_manager, url)
+    b_text, b_err = await fetch_page_via_browser(browser_manager, url, meta=meta)
     if b_err and not text:
         return "", b_err, "browser"
     if len(b_text) > len(text):
@@ -1193,40 +1321,65 @@ async def verify_browser_exit(
 _SEARCH_URL = "https://search.sh/api/search"
 
 
+def search_payload(query: str, *, max_results: int = 8, since: str | None = None) -> dict[str, Any]:
+    """The request body. ``since`` (``YYYY-MM-DD``) asks the engine for
+    pages written on or after that day; it is only sent when given, so an
+    engine without the parameter is asked nothing new."""
+    body: dict[str, Any] = {
+        "query": query[:500],
+        "mode": "fast",
+        "region": "us",
+        "max_results": max_results,
+    }
+    if since:
+        body["since"] = since
+    return body
+
+
+def _search_sources(data: Any) -> list[dict[str, str]]:
+    """Sources → [{title, url, snippet, published_at, modified_at,
+    date_confidence}]; the date fields are '' when the engine says nothing."""
+    out: list[dict[str, str]] = []
+    for src in (data.get("sources") or []) if isinstance(data, dict) else []:
+        if not isinstance(src, dict) or not str(src.get("url") or "").startswith("http"):
+            continue
+        out.append({
+            "title": str(src.get("title") or ""),
+            "url": str(src.get("url") or ""),
+            "snippet": str(src.get("snippet") or ""),
+            "published_at": parse_date_text(str(src.get("published_at") or src.get("published") or "")),
+            "modified_at": parse_date_text(str(src.get("modified_at") or src.get("updated_at") or "")),
+            "date_confidence": str(src.get("date_confidence") or ""),
+        })
+    return out
+
+
 async def search_web(
     query: str,
     *,
     api_key: str,
     max_results: int = 8,
     timeout: float = 30.0,
+    since: str | None = None,
 ) -> list[dict[str, str]]:
-    """Plain web search → [{title, url, snippet}]. Empty on any failure."""
+    """Plain web search → [{title, url, snippet, published_at, modified_at,
+    date_confidence}]. Empty on any failure. ``since`` asks for recent
+    pages; an engine that rejects the parameter is asked again without it."""
     import httpx
 
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                _SEARCH_URL,
-                json={
-                    "query": query[:500],
-                    "mode": "fast",
-                    "region": "us",
-                    "max_results": max_results,
-                },
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-            )
+            resp = await client.post(_SEARCH_URL, json=search_payload(query, max_results=max_results, since=since),
+                                     headers=headers)
+            if since and resp.status_code in (400, 422):
+                logger.info("watch: search engine refused 'since'; asking again without it")
+                resp = await client.post(_SEARCH_URL, json=search_payload(query, max_results=max_results),
+                                         headers=headers)
         if resp.status_code != 200:
             logger.warning("watch: search failed (%s): %s", resp.status_code, resp.text[:120])
             return []
-        return [
-            {
-                "title": str(s.get("title") or ""),
-                "url": str(s.get("url") or ""),
-                "snippet": str(s.get("snippet") or ""),
-            }
-            for s in (resp.json().get("sources") or [])
-            if isinstance(s, dict) and str(s.get("url") or "").startswith("http")
-        ]
+        return _search_sources(resp.json())
     except Exception as e:
         logger.warning("watch: search failed: %s", e)
         return []

@@ -461,7 +461,8 @@ def write_portfolio_sheet(wb: Any, catalog_rows: list[dict[str, Any]],
            f"{c['list_only']} not yet, {c['observed_only']} observed that are not on the list"
            if universe else "")
         + ". ● carried, as printed on the brand's pages or public reviews (Providers sheet says which); "
-          "a number is that studio's titles read."
+          "a number is that studio's titles read; ○ reported only — by a page older than six months, or by "
+          "a review the brand's signed-in lobby read did not confirm — and not counted."
     ])
     ws["A1"].font = Font(bold=True, size=12)
     ws.append([])
@@ -473,7 +474,8 @@ def write_portfolio_sheet(wb: Any, catalog_rows: list[dict[str, Any]],
         cells = []
         for b in matrix["brands"]:
             cell = row["brands"][b]
-            cells.append(("●" + (f" {cell['games']}" if cell["games"] else "")) if cell["carried"] else "")
+            cells.append(("●" + (f" {cell['games']}" if cell["games"] else "")) if cell["carried"]
+                         else "○" if cell.get("reported") else "")
         ws.append([row["name"] + ("" if row["on_client_list"] else " *"), *cells, row["brand_count"]]
                   + (["yes" if row["on_client_list"] else "no"] if universe else []))
     for i in range(2, len(hdr) + 1):

@@ -862,16 +862,26 @@ def provider_matrix(
     brands: list[dict[str, Any]],
     universe: list[str] | None = None,
     universe_brands: list[str] | None = None,
+    today: Any = None,
 ) -> dict[str, Any]:
     """Provider × Brand. ``items`` are catalog rows as dicts (brand, kind,
-    name, detail, source_type); ``brands`` the register's order ({name,
-    is_self}). With ``universe`` (the client's list) the rows follow that
-    list first, and studios we observed that are not on it come after,
-    marked; a studio on the list that nothing has shown yet stays a row
-    with empty cells — the client can see the gap, not just our answer."""
+    name, detail, source_type, and optionally customer_state, page_date);
+    ``brands`` the register's order ({name, is_self}). With ``universe``
+    (the client's list) the rows follow that list first, and studios we
+    observed that are not on it come after, marked; a studio on the list
+    that nothing has shown yet stays a row with empty cells — the client
+    can see the gap, not just our answer.
+
+    A cell is *carried* on current evidence: the brand's own pages, or a
+    third-party page inside :data:`STALE_AFTER_DAYS` that the brand's
+    signed-in lobby read (when there is one) does not contradict. Older
+    or contradicted third-party claims stay visible as *reported*, with
+    the reason, and count for nothing."""
     order = [b["name"] for b in brands]
     forms: dict[str, dict[str, int]] = {}
-    carried: dict[str, dict[str, str]] = {}
+    # best evidence per (studio, brand): rank, source, page date, stale
+    best: dict[str, dict[str, tuple[int, str, str, bool]]] = {}
+    lobby_keys: dict[str, set[str]] = {}     # brand → studios its signed-in lobby showed
     for it in items:
         if it.get("kind") != "provider":
             continue
@@ -881,9 +891,16 @@ def provider_matrix(
         forms.setdefault(key, {})
         forms[key][it["name"]] = forms[key].get(it["name"], 0) + 1
         src = it.get("source_type") or "site"
-        prev = carried.setdefault(key, {}).get(it["brand"])
-        if prev is None or (src == "site" and prev != "site"):
-            carried[key][it["brand"]] = src
+        signed_in = src == "site" and (it.get("customer_state") or "logged_out") != "logged_out"
+        if signed_in:
+            lobby_keys.setdefault(it["brand"], set()).add(key)
+        pdate = str(it.get("page_date") or "")
+        stale = src != "site" and is_stale(pdate, today)
+        rank = 3 if signed_in else 2 if src == "site" else 0 if stale else 1
+        prev = best.setdefault(key, {}).get(it["brand"])
+        if prev is None or rank > prev[0] or (rank == prev[0] and pdate > prev[2]):
+            best[key][it["brand"]] = (rank, src, pdate, stale)
+    carried: dict[str, dict[str, str]] = {k: {b: v[1] for b, v in bb.items()} for k, bb in best.items()}
     games: dict[str, dict[str, int]] = {}
     known = set(carried) | {canonical_provider(u) for u in (universe or [])}
     for it in items:
@@ -911,15 +928,34 @@ def provider_matrix(
     for key in sorted(set(carried) - listed,
                       key=lambda k: (-len(carried[k]), display(k).lower())):
         rows.append({"key": key, "name": display(key), "on_client_list": not universe})
+    demoted = 0
     for row in rows:
         key = row["key"]
         cells = {}
         for b in order:
-            src = carried.get(key, {}).get(b)
-            cells[b] = {"carried": src is not None, "source": src or "",
-                        "games": games.get(key, {}).get(b, 0)}
+            ev = best.get(key, {}).get(b)
+            cell: dict[str, Any] = {"carried": False, "source": "", "games": games.get(key, {}).get(b, 0),
+                                    "page_date": "", "reported": False, "reason": ""}
+            if ev is not None:
+                rank, src, pdate, stale = ev
+                cell["source"], cell["page_date"] = src, pdate
+                # A third-party claim is current only while its page is
+                # inside the horizon AND the brand's own signed-in lobby,
+                # when one was read, did not leave the studio out.
+                superseded = src != "site" and b in lobby_keys and key not in lobby_keys[b]
+                if src == "site" or not (stale or superseded):
+                    cell["carried"] = True
+                else:
+                    cell["reported"] = True
+                    cell["reason"] = (
+                        "not in the signed-in lobby read" if superseded
+                        else f"page dated {pdate}"
+                    )
+                    demoted += 1
+            cells[b] = cell
         row["brands"] = cells
         row["brand_count"] = sum(1 for c in cells.values() if c["carried"])
+        row["reported_count"] = sum(1 for c in cells.values() if c["reported"])
         row["observed"] = row["brand_count"] > 0
     ours = {brand_key(b): b for b in order}
     theirs = [brand_key(b) for b in (universe_brands or [])]
@@ -927,11 +963,12 @@ def provider_matrix(
         "providers": rows,
         "brands": order,
         "counts": {
-            "observed": len(carried),
+            "observed": sum(1 for r in rows if r["observed"]),
             "on_client_list": len(listed),
             "both": sum(1 for r in rows if r["on_client_list"] and r["observed"]),
             "list_only": sum(1 for r in rows if r["on_client_list"] and not r["observed"]),
             "observed_only": sum(1 for r in rows if not r["on_client_list"]),
+            "reported_only": demoted,
         },
         "brands_only_on_client_list": [
             b for b in (universe_brands or []) if brand_key(b) not in ours
@@ -946,7 +983,10 @@ def catalog_items(rows: list[Any], subjects: list[Any]) -> tuple[list[dict[str, 
     names = {s.subject_id: s.name for s in subjects}
     items = [
         {"brand": names.get(r.subject_id, r.subject_id), "kind": r.kind, "name": r.name,
-         "detail": r.detail, "source_type": getattr(r, "source_type", "site")}
+         "detail": r.detail, "source_type": getattr(r, "source_type", "site"),
+         "customer_state": getattr(r, "customer_state", "logged_out"),
+         "page_date": str((getattr(r, "meta", None) or {}).get("page_date") or ""),
+         "observed_at": str(getattr(r, "observed_at", "") or "")[:10]}
         for r in rows if r.subject_id in names
     ]
     brands = sorted(({"name": s.name, "is_self": bool(s.is_self)} for s in subjects
@@ -1030,6 +1070,13 @@ def summarize_catalog(
         universe=(universe or {}).get("providers"),
         universe_brands=(universe or {}).get("brands"),
     ) if totals.get("provider") else None
+    if matrix:
+        for b in per:
+            b["providers_reported"] = [
+                f"{row['name']} ({row['brands'][b['name']]['reason']})"
+                for row in matrix["providers"]
+                if row["brands"].get(b["name"], {}).get("reported")
+            ]
     return {
         "brands": per,
         "totals": totals,
@@ -1051,7 +1098,7 @@ def summarize_catalog(
 
 _RESEARCH_QUERIES: dict[str, tuple[str, ...]] = {
     "provider": (
-        '"{brand}" game providers list software studios',
+        '"{brand}" game providers list software studios {year}',
         '"{brand}" casino games by provider Pragmatic Hacksaw',
     ),
     "coin_package": (
@@ -1067,7 +1114,7 @@ _RESEARCH_QUERIES: dict[str, tuple[str, ...]] = {
         '"{brand}" VIP program tiers bronze silver gold platinum',
     ),
     "game": (
-        '"{brand}" game list slots titles available',
+        '"{brand}" game list slots titles available {year}',
         '"{brand}" popular games catalogue',
     ),
 }
@@ -1085,6 +1132,32 @@ _COMPARISON = re.compile(
     r"best-\d|top-\d|-vs-",
     re.I,
 )
+
+
+# A third-party page older than this says what WAS true. Studios come and
+# go from a lobby inside a year (2026-09-02: one had left a brand while a
+# 2024 review still listed it); half a year is the horizon for "current".
+STALE_AFTER_DAYS = 180
+
+
+def page_age_days(page_date: str, today: Any = None) -> int | None:
+    """Days since the page was written, or None when the date is unknown."""
+    from datetime import date
+
+    if not page_date:
+        return None
+    try:
+        d = date.fromisoformat(str(page_date)[:10])
+    except ValueError:
+        return None
+    return ((today or date.today()) - d).days
+
+
+def is_stale(page_date: str, today: Any = None, *, days: int = STALE_AFTER_DAYS) -> bool:
+    """True when the page is older than the horizon. Unknown is not stale:
+    it is reported as undated, never silently discounted."""
+    age = page_age_days(page_date, today)
+    return age is not None and age > days
 
 
 def research_page_ok(url: str, text: str, brand: str, aliases: list[str] | None = None) -> bool:
@@ -1141,10 +1214,11 @@ def research_queries(brand: str, kinds: list[str], *, year: int) -> list[tuple[s
 
 
 def rank_research_urls(
-    results: list[dict[str, str]], *, brand_host: str = "", limit: int = 3
+    results: list[dict[str, str]], *, brand_host: str = "", limit: int = 3, today: Any = None
 ) -> list[str]:
     """Best public pages to read: the brand's own domain first, then
-    ordinary editorial, coupon farms last."""
+    ordinary editorial, coupon farms last; a result the engine dates
+    beyond the horizon sinks below undated ones."""
     scored: list[tuple[float, str]] = []
     seen: set[str] = set()
     for r in results:
@@ -1159,6 +1233,8 @@ def rank_research_urls(
             score += 2
         if _LOW_TRUST.search(url):
             score -= 2
+        if is_stale(str(r.get("modified_at") or r.get("published_at") or ""), today):
+            score -= 1.5
         # Only genuinely legal pages are refused here; review sites file
         # brands under paths like /sweepstakes-casinos/reviews/…, and the
         # brand-page filter's "sweepstake" word would throw those away.

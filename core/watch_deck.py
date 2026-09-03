@@ -2913,9 +2913,13 @@ def _slide_brand_library(prs: Any, brand: dict[str, Any], page: int, deck_title:
         return f"  (+{extra} more in the workbook)" if extra > 0 else ""
 
     provs = [str(p_) for p_ in brand.get("providers") or []]
+    reported = [str(p_) for p_ in brand.get("providers_reported") or []]
     _eyebrow(s, f"Game providers carried · {c.get('provider', 0)}", y=top, x=0.7, color=_PEER)
-    _text(s, 0.7, top + 0.26, 11.9, 1.9,
-          (", ".join(provs[:60]) + more(provs, 60)) if provs else "—", size=8, color=_BODY, line=1.15)
+    prov_text = (", ".join(provs[:60]) + more(provs, 60)) if provs else "—"
+    if reported:
+        prov_text += ("   Reported but not counted — a dated page, or a review the signed-in lobby did not "
+                      "confirm: " + ", ".join(reported[:12]) + more(reported, 12))
+    _text(s, 0.7, top + 0.26, 11.9, 1.9, prov_text, size=8, color=_BODY, line=1.15)
     games = [str(g) for g in brand.get("games_full") or brand.get("games_sample") or []]
     _eyebrow(s, f"Games read · {c.get('game', 0)}", y=top + 2.35, x=0.7, color=_PEER)
     games_h = 6.5 - (top + 2.61) - (0.45 if len(games) < 10 else 0.05)
@@ -3029,12 +3033,15 @@ def _slides_portfolio(prs: Any, catalog: dict[str, Any], page: int, deck_title: 
                bg=bg, size=6.5, fg=_INK if row.get("observed") else _MUTED)
             for ci, b in enumerate(brands):
                 cell = row["brands"].get(b) or {}
-                mark = ("●" + (f" {cell['games']}" if cell.get("games") else "")) if cell.get("carried") else ""
+                mark = (("●" + (f" {cell['games']}" if cell.get("games") else "")) if cell.get("carried")
+                        else "○" if cell.get("reported") else "")
                 cw(ri, 1 + ci, mark, bg=(_SELF_ROW if (b in self_names and cell.get("carried")) else bg),
                    size=6.5, center=True)
             cw(ri, 1 + len(brands), str(row.get("brand_count", 0)), bg=bg, size=6.5, center=True)
         _text(s, 0.7, 6.6, 11.9, 0.44,
             "● carried, as printed on the brand's pages or public reviews (the workbook says which); "
+            "○ reported only — by a page older than six months, or by a review the brand's signed-in lobby "
+            "read did not confirm — and not counted; "
             "a number is that studio's titles read; n = brands carrying it."
             + (f" Rows follow the client's list of {listed}; * = observed, not on their list; "
                "a grey row is on their list and not yet seen." if listed else

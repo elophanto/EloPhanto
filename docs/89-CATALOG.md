@@ -145,7 +145,7 @@ row their brand columns, every cell empty for us to fill. So:
   studio, so "Jackpot Slots" never becomes a provider. Brands only on
   their sheet (Brand F) and only in the register are reported, never
   reconciled — the register is canon.
-* Deck: *Game portfolio – N studios × M brands (i of k)*, 26 rows a page,
+* Deck: *Game portfolio – N studios × M brands (i of k)*, 20 rows a page,
   every studio; replaces the twelve-most-common slide. Workbook: a *Game
   portfolio* sheet first among the catalog sheets, same cells, plus
   *Brands* and *On client list* columns.
@@ -159,6 +159,55 @@ observed that they do not list. The thin brands are Brand H (0 studios on
 record), Brand G (7), Brand O (8), Brand B (10): their lobbies are
 behind a login, which is what `watch_catalog_collect kinds=provider,game
 sign_in_if_missing=true` is for.
+
+## How old is the page (2026-09-03)
+
+A review written in 2024 still says a studio powers a brand that dropped
+it since; on 2026-09-02 one studio was shown as carried by one of our
+brands on the strength of such a page. The register stamped when *we*
+read the page and nothing else, so an old claim and a fresh one were
+indistinguishable. Now:
+
+* **The page's own date is read.** `page_date(html, headers)` in
+  `core/watch_observe.py` returns `(YYYY-MM-DD, confidence)`: `high` from
+  structured markup (`article:modified_time` / `published_time`,
+  `og:updated_time`, Dublin Core, JSON-LD `dateModified` / `datePublished`,
+  `<time datetime>`; the latest *modified* date wins, else the latest
+  published), `medium` from visible "Last updated …" text in the common
+  forms, `low` from the HTTP `Last-Modified` header (CDNs stamp it with
+  now). `fetch_page_best_effort(..., meta=dict)` fills it on the way past,
+  over HTTP or the browser; the collector files it on every research row
+  as `meta.page_date` / `meta.page_date_confidence`.
+* **The horizon is six months** (`STALE_AFTER_DAYS = 180`). A third-party
+  row past it is *stale*; an undated row is not — it is reported as
+  undated, never silently discounted. The brand's own pages are never
+  stale: they say what the brand says today.
+* **The matrix ranks evidence** per studio × brand: signed-in lobby read
+  > the brand's public page > a third-party page inside the horizon > one
+  past it. A cell is ● *carried* only on current evidence. Otherwise it
+  is ○ *reported* — with the reason (`page dated 2024-11-03`, or `not in
+  the signed-in lobby read` when the brand's lobby was read as a player
+  and did not show the studio, whatever the review's date) — and counts
+  for nothing: not in `brand_count`, not in `observed`. `counts.reported_only`
+  says how many cells were demoted; each brand's summary carries
+  `providers_reported`, and its *Providers / Games* page prints them under
+  "Reported but not counted". The workbook's *Game portfolio* sheet shows
+  the same ○ with the legend in row 1.
+* **The search asks for recent pages.** `search_web(..., since=)` sends
+  `since` (today − 360 days) to the engine; an engine that rejects the
+  parameter is asked again without it. When the engine dates its sources
+  (`published_at`, `modified_at`, `date_confidence`) the client passes
+  them through and `rank_research_urls` sinks results past the horizon
+  below undated ones. Provider and game queries now carry the year, as
+  promotion queries always did.
+* **The collector reports it.** Per brand × kind, `dated_pages` lists the
+  research pages past the horizon (with their date) and `undated_pages`
+  the ones that said nothing, so the operator knows which claims are
+  standing on old ground.
+
+What it does not do: guess a date from a URL, or drop a stale row from
+the register — the row stays, as printed, with its date; only its weight
+in the matrix changes.
 
 ## Read cold (2026-09-02)
 

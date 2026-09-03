@@ -1515,7 +1515,7 @@ def _catalog_rows_for_export(rows: list[Any], subjects: list[Any]) -> list[dict[
             "brand": names.get(r.subject_id, r.subject_id), "kind": r.kind, "name": r.name,
             "detail": r.detail, "price_usd": r.price_usd, "coins": r.coins_text,
             "sort_index": r.sort_index, "url": r.source_url, "image": r.image_path,
-            "session": r.customer_state, "observed_at": r.observed_at,
+            "session": r.customer_state, "customer_state": r.customer_state, "observed_at": r.observed_at,
             "source_type": r.source_type, "is_self": r.subject_id in selves, **(r.meta or {}),
             # the workbook's Benefit / How to claim / Frequency read like the deck's
             **(promo_fields(r.name, r.detail, r.meta) if r.kind == "promotion" else {}),
@@ -5086,9 +5086,13 @@ class WatchCatalogCollectTool(_WatchToolBase):
             return err
         if self._router is None:
             return ToolResult(success=False, error="no router — catalog reading needs the model")
+        from datetime import date, timedelta
+
         from core.watch_catalog import (
             CATALOG_KINDS,
+            STALE_AFTER_DAYS,
             extract_catalog,
+            is_stale,
             known_review_urls,
             rank_catalog_pages,
             rank_research_urls,
@@ -5144,12 +5148,17 @@ class WatchCatalogCollectTool(_WatchToolBase):
         year = datetime.now(UTC).year
 
         async def _file(kind: str, items: list[dict[str, Any]], *, subj: Any, url: str,
-                        source_type: str, shot: str, session: str) -> int:
-            """Store what a page yielded; returns how many rows were new."""
+                        source_type: str, shot: str, session: str,
+                        page_meta: dict[str, Any] | None = None) -> int:
+            """Store what a page yielded; returns how many rows were new.
+            ``page_meta`` (the page's own date) rides along on every item."""
             new_rows = 0
+            extra = {k: v for k, v in (page_meta or {}).items() if v}
             for item in items:
                 if not save:
                     continue
+                if extra:
+                    item = {**item, "meta": {**(item.get("meta") or {}), **extra}}
                 _row, is_new = await wm.add_catalog_item(
                     company_id=cid, subject_id=subj.subject_id, kind=kind,
                     brand_name=subj.name, source_url=url, source_type=source_type,
@@ -5232,16 +5241,21 @@ class WatchCatalogCollectTool(_WatchToolBase):
                 # A review site with a predictable per-brand page comes before
                 # any search: written per brand, so attribution is not in doubt.
                 urls: list[str] = list(known_review_urls(subj.name))
+                # Ask for recent pages: the web remembers studios a lobby
+                # dropped, and the engine is told the horizon (its answer,
+                # when it dates sources, sinks the old ones further).
+                since = (date.today() - timedelta(days=2 * STALE_AFTER_DAYS)).isoformat()
                 for _kind, query in research_queries(subj.name, [kind], year=year):
-                    hits = await search_web(query, api_key=str(search_key), max_results=6)
+                    hits = await search_web(query, api_key=str(search_key), max_results=6, since=since)
                     urls.extend(rank_research_urls(hits, brand_host=brand_host, limit=2))
                 seen_urls: set[str] = set()
                 for u in urls[:4]:
                     if u in seen_urls:
                         continue
                     seen_urls.add(u)
+                    page_meta: dict[str, Any] = {}
                     text, ferr, _m = await fetch_page_best_effort(
-                        u, browser_manager=self._browser_manager, proxy_url=proxy_url
+                        u, browser_manager=self._browser_manager, proxy_url=proxy_url, meta=page_meta,
                     )
                     if ferr or not text:
                         continue
@@ -5257,7 +5271,15 @@ class WatchCatalogCollectTool(_WatchToolBase):
                     new += await _file(
                         kind, items, subj=subj, url=u,
                         source_type="third_party", shot="", session=customer_state,
+                        page_meta=page_meta,
                     )
+                    pdate = str(page_meta.get("page_date") or "")
+                    if is_stale(pdate):
+                        # Filed, dated, and reported as such: the matrix shows
+                        # it as reported-only, and the operator sees why.
+                        per["kinds"][kind].setdefault("dated_pages", []).append(f"{u[:60]} ({pdate})")
+                    elif not pdate:
+                        per["kinds"][kind].setdefault("undated_pages", []).append(u[:60])
                 if found > site_found:
                     per["kinds"][kind].update({
                         "found": found, "new": new,

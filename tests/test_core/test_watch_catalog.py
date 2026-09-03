@@ -862,10 +862,12 @@ class TestGamePortfolio:
         assert names == ["3 Oaks", "BGaming", "Golden Rock Studios"]   # their order, then ours
         oaks, bg, gr = m["providers"]
         assert oaks["on_client_list"] and not oaks["observed"] and oaks["brand_count"] == 0
-        assert bg["brands"]["Brand A"] == {"carried": True, "source": "site", "games": 2}   # site beats review; spellings merge
+        a = bg["brands"]["Brand A"]
+        assert (a["carried"], a["source"], a["games"]) == (True, "site", 2)   # site beats review; spellings merge
         assert bg["brands"]["Brand J"]["carried"] and bg["brands"]["Brand J"]["source"] == "third_party"
         assert not gr["on_client_list"] and gr["brand_count"] == 1
-        assert m["counts"] == {"observed": 2, "on_client_list": 2, "both": 1, "list_only": 1, "observed_only": 1}
+        assert m["counts"] == {"observed": 2, "on_client_list": 2, "both": 1, "list_only": 1, "observed_only": 1,
+                               "reported_only": 0}
         assert m["brands_only_on_client_list"] == ["Brand F"]
         assert m["brands_only_in_register"] == []
         assert "Jackpot Slots" not in names                                # a category is not a studio
