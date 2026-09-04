@@ -511,6 +511,18 @@ class FilePatchTool(BaseTool):
         )
 
 
+# A recursive listing is for the project, not its dependencies. 2026-09-04:
+# one walk into node_modules helped push the context past the emergency
+# trim, which dropped the conversation and the model re-ran a stale
+# command. These trees are skipped when walking, and the count is capped.
+HEAVY_DIRS = frozenset({
+    "node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build",
+    ".next", ".nuxt", "target", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    "site-packages", ".tox", "coverage", ".turbo",
+})
+MAX_LIST_ENTRIES = 2_000
+
+
 class FileListTool(BaseTool):
     """Lists files and directories."""
 
@@ -578,8 +590,24 @@ class FileListTool(BaseTool):
             else:
                 items = list(dir_path.iterdir())
 
+            skipped_dirs: set[str] = set()
+            capped = 0
             for item in sorted(items):
                 if not include_hidden and item.name.startswith("."):
+                    continue
+                if recursive:
+                    # Dependency and build trees are not the project: a
+                    # recursive listing that walks node_modules returns
+                    # tens of thousands of rows and is the context.
+                    heavy = next(
+                        (part for part in item.relative_to(dir_path).parts[:-1] if part in HEAVY_DIRS),
+                        None,
+                    )
+                    if heavy is not None:
+                        skipped_dirs.add(heavy)
+                        continue
+                if len(entries) >= MAX_LIST_ENTRIES:
+                    capped += 1
                     continue
 
                 try:
@@ -598,10 +626,19 @@ class FileListTool(BaseTool):
                 except (PermissionError, OSError):
                     continue
 
-            return ToolResult(
-                success=True,
-                data={"entries": entries, "count": len(entries)},
-            )
+            data: dict[str, Any] = {"entries": entries, "count": len(entries)}
+            if skipped_dirs:
+                data["skipped_dirs"] = sorted(skipped_dirs)
+                data["note"] = (
+                    "dependency and build directories were not walked "
+                    f"({', '.join(sorted(skipped_dirs))}); list one of them directly if you need it"
+                )
+            if capped:
+                data["truncated"] = capped
+                data["note"] = (data.get("note", "") + " " if data.get("note") else "") + (
+                    f"{capped:,} more entries not shown (limit {MAX_LIST_ENTRIES:,}); use a pattern or a subdirectory"
+                )
+            return ToolResult(success=True, data=data)
         except Exception as e:
             return ToolResult(success=False, error=f"Failed to list directory: {e}")
 

@@ -158,6 +158,30 @@ _PARALLEL_SAFE_TOOLS = frozenset(
 _KEEP_RECENT_SCREENSHOTS = 3  # Keep last N screenshots as actual images
 _MAX_ELEMENTS_CHARS = 4000  # Truncate pseudo-HTML element lists beyond this
 _MAX_CONTEXT_CHARS = 800_000  # ~200K tokens — aggressively compress above this
+# One tool result may not exceed this many characters when it enters the
+# history (2026-09-04: a multi-megabyte grep result forced an emergency
+# trim that dropped the conversation; the model then re-ran a stale
+# command it found at the top of what was left).
+_MAX_TOOL_RESULT_CHARS = 120_000
+
+
+def _clip_tool_content(content: str, limit: int) -> str:
+    """Keep a tool result inside ``limit`` chars — head and tail, and a
+    JSON wrapper that says how much was dropped, so the model knows the
+    result is partial rather than reading a cut-off string as complete."""
+    if len(content) <= limit:
+        return content
+    head = int(limit * 0.7)
+    tail = limit - head
+    return json.dumps(
+        {
+            "result_clipped": True,
+            "chars_dropped": len(content) - limit,
+            "note": "the tool returned more than the history can hold; the middle was dropped — "
+                    "ask for less (a narrower command, a pattern, a subdirectory)",
+            "content": content[:head] + "\n…[clipped]…\n" + content[-tail:],
+        }
+    )
 _KEEP_RECENT_TOOL_RESULTS = 6  # Keep last N tool results at full size
 _MAX_OLD_TOOL_RESULT_CHARS = 1500  # Truncate older tool results to this length
 
@@ -4937,6 +4961,11 @@ class Agent:
                                 {"result": tool_content, "loop_warning": loop_notice}
                             )
                         loop_notice = ""
+
+                    # Last line of defence: no single result may be the
+                    # context. Tools clip at the source (shell, file_list);
+                    # this catches every other one.
+                    tool_content = _clip_tool_content(tool_content, _MAX_TOOL_RESULT_CHARS)
 
                     messages.append(
                         {

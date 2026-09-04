@@ -34,6 +34,31 @@ _DANGEROUS_PATTERNS = [
 ]
 
 
+# One tool result must never be the context. 2026-09-04: a recursive grep
+# over a project's built bundles returned megabytes; the emergency trim
+# that followed dropped the conversation and the model re-ran a stale
+# command from the top of the transcript. Output is clipped here, at the
+# source, head and tail kept, and the model is told how much went missing.
+MAX_STDOUT_CHARS = 40_000
+MAX_STDERR_CHARS = 8_000
+
+
+def clip_output(text: str, limit: int) -> tuple[str, int]:
+    """Keep the head and the tail of ``text`` inside ``limit`` characters.
+    Returns ``(clipped, chars_dropped)``; unchanged text drops nothing."""
+    if len(text) <= limit:
+        return text, 0
+    head = int(limit * 0.7)
+    tail = limit - head
+    dropped = len(text) - limit
+    return (
+        text[:head]
+        + f"\n\n…[{dropped:,} chars clipped from the middle — output exceeded {limit:,} chars]…\n\n"
+        + text[-tail:],
+        dropped,
+    )
+
+
 class ShellExecuteTool(BaseTool):
     """Runs shell commands on the user's system."""
 
@@ -257,15 +282,20 @@ class ShellExecuteTool(BaseTool):
                 logger.info("[shell] stderr: %s", stderr_preview)
             logger.debug("[shell] stdout: %s", stdout_preview)
 
-            return ToolResult(
-                success=True,
-                data={
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "exit_code": exit_code,
-                    "timed_out": timed_out,
-                },
-            )
+            stdout, cut_out = clip_output(stdout, MAX_STDOUT_CHARS)
+            stderr, cut_err = clip_output(stderr, MAX_STDERR_CHARS)
+            data: dict[str, Any] = {
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code,
+                "timed_out": timed_out,
+            }
+            if cut_out or cut_err:
+                data["output_clipped"] = (
+                    f"output exceeded the tool's limit ({cut_out + cut_err:,} chars dropped from the "
+                    "middle); narrow the command (grep -c, head, --exclude-dir=node_modules) to see more"
+                )
+            return ToolResult(success=True, data=data)
 
         except Exception as e:
             elapsed = time.monotonic() - t0

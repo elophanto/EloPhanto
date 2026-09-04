@@ -197,6 +197,56 @@ Be factual and dense. Use bullet points. Do NOT include pleasantries or filler.
 Target 20% of the original length. Return ONLY the summary."""
 
 
+_TRIM_KEEP_LAST = 5
+_TRIM_NOTICE = (
+    "[context trimmed: the earlier conversation was dropped to fit the model's "
+    "window. The task is the LAST user message below and nothing older; do not "
+    "re-run earlier requests.]"
+)
+
+
+def is_goal_message(m: dict[str, Any]) -> bool:
+    """A user turn written by a person — not a browser page dump or a
+    tool-shaped pseudo-user message."""
+    if m.get("role") != "user":
+        return False
+    content = m.get("content")
+    if isinstance(content, list):
+        return any(isinstance(p, dict) and p.get("type") == "text" for p in content)
+    if not isinstance(content, str):
+        return False
+    head = content.lstrip()[:40]
+    return not (head.startswith("Page after browser_") or head.startswith("[tool") or head.startswith("[context trimmed"))
+
+
+def emergency_trim(messages: list[dict[str, Any]], *, keep_last: int = _TRIM_KEEP_LAST) -> list[dict[str, Any]]:
+    """Drop history from the OLD end, anchored on the current task.
+
+    Keeps a leading system message, the most recent user goal message (the
+    request the agent is working on) and the last ``keep_last`` messages
+    after it, and says so in a notice. Never keeps "the first two messages":
+    in a session with persisted history those are stale commands from days
+    ago, and a model handed a stale command at the top of the transcript
+    with the current context gone will run it (2026-09-04: a question about
+    a download's file extension turned into a rebuilt scorecard)."""
+    if not messages:
+        return messages
+    system = [messages[0]] if messages[0].get("role") == "system" else []
+    body = messages[len(system):]
+    anchor = max((i for i, m in enumerate(body) if is_goal_message(m)), default=None)
+    if anchor is None:
+        kept = body[-keep_last:]
+    else:
+        tail = body[anchor:]
+        if len(tail) > keep_last + 1:
+            # the goal, then the freshest turns after it
+            tail = [body[anchor]] + body[-keep_last:]
+        kept = tail
+    notice = {"role": "user", "content": _TRIM_NOTICE}
+    out = system + [notice] + kept
+    return _fix_orphaned_tool_calls(out)
+
+
 async def compress_messages(
     messages: list[dict[str, Any]],
     router: Any,
@@ -439,11 +489,8 @@ async def tiered_compress(
     tier3_threshold = (context_window * _TIER3_EMERGENCY_TRIM_PCT) // 100
     if total > tier3_threshold:
         logger.warning("Tier 3 emergency trim \u2014 dropping oldest messages")
-        keep_first = 2
-        keep_last = 5
-        if len(messages) > keep_first + keep_last + 2:
-            messages = messages[:keep_first] + messages[-keep_last:]
-            messages = _fix_orphaned_tool_calls(messages)
+        if len(messages) > _TRIM_KEEP_LAST + 2:
+            messages = emergency_trim(messages, keep_last=_TRIM_KEEP_LAST)
             logger.info("Emergency trimmed to %d messages", len(messages))
             total = _total_tokens(messages)
 
