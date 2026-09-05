@@ -166,6 +166,27 @@ allow_metered_fallback_in_chat: false
   cardholder_id: ""
 """,
     ),
+    # Agent Society, added 2026-09-05. Ships on: the campus is the
+    # ordinary way to watch the agent work. An operator who already
+    # wrote `society.enabled: false` keeps that — _get_nested returns
+    # False, not None, so this migration is not pending for them.
+    Migration(
+        id="agent-society-2026-09",
+        key_path="society.enabled",
+        banner=(
+            "Agent Society: a live isometric campus of the agent and its "
+            "collaborators, on by default. Read-only, loopback-only, and "
+            "opened in its own browser profile so the automated Chrome is "
+            "never disturbed. Set enabled: false to turn off the server, "
+            "the telemetry and the window; open_browser: false keeps the "
+            "server without opening a window. See docs/93-AGENT-SOCIETY.md."
+        ),
+        inner_yaml="""enabled: true
+host: 127.0.0.1       # loopback only — any other host is refused
+port: 18790
+open_browser: true    # false = serve, but open no window
+""",
+    ),
 ]
 
 

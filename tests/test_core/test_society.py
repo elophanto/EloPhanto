@@ -33,7 +33,7 @@ def society(tmp_path: Path):
 
 
 def test_config_defaults_and_yaml_roundtrip(tmp_path: Path):
-    assert Config().society.enabled is False
+    assert Config().society.enabled is True   # ships on; `enabled: false` turns it off
     config = tmp_path / "config.yaml"
     config.write_text("society:\n  enabled: true\n  port: 19790\n  open_browser: false\n")
     parsed = load_config(config).society
@@ -59,7 +59,8 @@ def test_invalid_config_rejected(values):
 
 def test_disabled_service_opens_nothing(tmp_path: Path):
     with patch("core.society.ThreadingHTTPServer") as server:
-        assert SocietyService(SocietyConfig(), tmp_path).start() is False
+        # SocietyConfig() is enabled now — say what this test is about.
+        assert SocietyService(SocietyConfig(enabled=False), tmp_path).start() is False
         server.assert_not_called()
 
 

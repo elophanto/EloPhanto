@@ -253,7 +253,11 @@ class BrowserConfig:
 class SocietyConfig:
     """Local, read-only agents society visualization; independent of automation."""
 
-    enabled: bool = False
+    # On unless the operator says otherwise: the campus is how most people
+    # will watch the agent work, and it costs nothing when nobody looks —
+    # loopback only, read-only, and a failed build or missing browser
+    # leaves the CLI exactly as it was.
+    enabled: bool = True
     host: str = "127.0.0.1"
     port: int = 18790
     open_browser: bool = True
@@ -2680,7 +2684,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
     if not isinstance(society_raw, dict):
         raise ValueError("society must be a YAML mapping")
     society_config = SocietyConfig(
-        enabled=society_raw.get("enabled", False),
+        enabled=society_raw.get("enabled", True),
         host=society_raw.get("host", "127.0.0.1"),
         port=society_raw.get("port", 18790),
         open_browser=society_raw.get("open_browser", True),

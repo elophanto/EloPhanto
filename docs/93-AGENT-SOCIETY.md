@@ -6,7 +6,7 @@ Agent Society is a live, isometric campus for EloPhanto. The lead agent and its 
 
 ## Start it
 
-Add this to `config.yaml`:
+Society is on by default. A fresh `elophanto init` writes the block below, `./update.sh` adds it to an existing `config.yaml`, and a config with no `society:` section at all runs it too:
 
 ```yaml
 society:
@@ -18,7 +18,7 @@ society:
 
 Run `./start.sh` as usual. It prepares the graphics when necessary, then starts your normal CLI. The agent opens Society in a separate app window at `http://127.0.0.1:18790/society/`. This also works with `./start.sh chat --direct`, `./start.sh gateway`, and `./start.sh --web`.
 
-Set `enabled: false` to disable the server, telemetry, and automatic window on the next startup. Set `open_browser: false` to run the local server without opening a window. The feature defaults to disabled when the config section is absent. The port is configurable; the service accepts only local connections.
+Set `enabled: false` to disable the server, telemetry, and automatic window on the next startup — an explicit `false` is preserved by config migrations and never re-enabled for you. Set `open_browser: false` to run the local server without opening a window. The port is configurable; the service accepts only local connections.
 
 Node.js and npm are required to build the frontend, as for the existing web dashboard. Startup uses a content fingerprint to reuse an unchanged build. A visual build, browser launch, occupied port, or telemetry failure leaves the CLI available. For direct `elophanto` commands or daemon installs, build once with `cd web && npm ci && npm run build` before starting the agent. No CDN or remote assets are needed after building.
 

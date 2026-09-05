@@ -1834,6 +1834,15 @@ def _run_full_wizard(config_dir: str) -> None:
         },
     )
     config.setdefault(
+        "society",
+        {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 18790,
+            "open_browser": True,
+        },
+    )
+    config.setdefault(
         "goals",
         {
             "enabled": True,

@@ -30,7 +30,7 @@ git clone https://github.com/elophanto/EloPhanto.git && cd EloPhanto
 
 **[The Agent Society.](docs/93-AGENT-SOCIETY.md)** The agent and everyone working for it, as residents of a campus. Each walks to the department its current work belongs to — Research for the browser, Engineering for the shell, Communications for outbound mail — and the moves are real: a tool starting, an approval waiting on you, a failure, a child agent assigned. Delegates running in parallel are separate residents.
 
-It reads the agent and cannot touch it. The server is loopback-only and read-only; prompts, tool arguments, browser URLs and file contents never leave the process; and the window runs in its own browser profile, so the Chrome the agent automates is never disturbed. Off until you set `society.enabled: true`. *(Above: the built-in demo tour, marked as such on screen, which runs no tools.)*
+It reads the agent and cannot touch it. The server is loopback-only and read-only; prompts, tool arguments, browser URLs and file contents never leave the process; and the window runs in its own browser profile, so the Chrome the agent automates is never disturbed. It is on out of the box; `society.enabled: false` turns it off. *(Above: the built-in demo tour, marked as such on screen, which runs no tools.)*
 
 ---
 
@@ -94,7 +94,7 @@ elophanto doctor     # what's healthy, broken, or missing
 ./update.sh          # pull + deps + config migrate
 ```
 
-**Agent Society.** `society.enabled: true` in `config.yaml` opens the campus above on the next `./start.sh` — with `chat --direct`, `gateway` and `--web` alike. Node.js builds it once and caches the build; a failed build, a taken port or a missing browser leaves the CLI working. [Setup and controls](docs/93-AGENT-SOCIETY.md).
+**Agent Society.** The campus above opens with `./start.sh` — with `chat --direct`, `gateway` and `--web` alike — unless you set `society.enabled: false`. Node.js builds it once and caches the build; a failed build, a taken port or a missing browser leaves the CLI working. [Setup and controls](docs/93-AGENT-SOCIETY.md).
 
 The background mind ships disabled. Setting `autonomous_mind.enabled: true` starts it — and the agent cannot start it for you: asking to run unattended is a CRITICAL action that prompts, so "continue my current task" is never sufficient reason to override a setting you chose.
 
