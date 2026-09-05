@@ -84,6 +84,8 @@ elophanto doctor     # what's healthy, broken, or missing
 ./update.sh          # pull + deps + config migrate
 ```
 
+**Agent Society.** Set `society.enabled: true` in `config.yaml` to open a live isometric campus when you run `./start.sh`. Residents move between departments as the agent and its collaborators work. The view runs in a separate browser profile, independent of agent browser automation. [Setup and controls](docs/93-AGENT-SOCIETY.md).
+
 The background mind ships disabled. Setting `autonomous_mind.enabled: true` starts it — and the agent cannot start it for you: asking to run unattended is a CRITICAL action that prompts, so "continue my current task" is never sufficient reason to override a setting you chose.
 
 **EloPhanto Hosted.** For when you'd rather not run infrastructure. A dedicated instance with its own browser profile, reachable from the dashboard and Telegram, awake around the clock.

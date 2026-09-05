@@ -18,6 +18,8 @@ import yaml
 
 from core.config import Config
 from core.registry import ToolRegistry
+from core.society import emit as society_emit
+from core.society import observe_tool
 from tools.base import BaseTool, PermissionLevel, ToolResult
 
 # ── Pre-Tool Guards ──────────────────────────────────────────────────
@@ -134,6 +136,7 @@ class Executor:
     def __init__(self, config: Config, registry: ToolRegistry) -> None:
         self._config = config
         self._registry = registry
+        self._society: Any = None
         self._approval_callback: Callable[[str, str, dict[str, Any]], bool] | None = (
             None
         )
@@ -184,6 +187,7 @@ class Executor:
         """
         self._approval_callback = callback
 
+    @observe_tool
     async def execute(
         self,
         tool_call: dict[str, Any],
@@ -351,6 +355,7 @@ class Executor:
         # tool in a run holds the lock for the rest of the cycle);
         # VAULT_WRITE / LLM_BURST are acquired around just this call.
         try:
+            society_emit(self._society, "working", tool_name)
             logger.info(f"Executing tool '{tool_name}' with params: {params}")
             tool_resources: frozenset[Any] = getattr(tool, "resources", frozenset())
             if tool_resources:
@@ -614,6 +619,7 @@ class Executor:
         async def _ask(reason: str = "") -> bool:
             if not callback:
                 return False
+            society_emit(self._society, "waiting", tool.name)
             description = self._format_approval_request(tool, params)
             if reason:
                 # Say WHY this is being asked. A bare "approve browser_navigate?"

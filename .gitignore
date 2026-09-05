@@ -155,3 +155,6 @@ AGENT_PROTOCOL.md
 # client data — never committed
 game_portfolio.csv
 workspace/watch/
+
+# Society's independent, non-automated browser profile
+.society-browser/

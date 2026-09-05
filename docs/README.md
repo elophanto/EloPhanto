@@ -94,6 +94,7 @@ New to EloPhanto? Start here: **[5-Minute Quick Start](30-QUICKSTART.md)** — G
 | 84 | [The Action Layer](84-ACTION-LAYER.md) | Authenticated `http_request` behind three guards — SSRF/network policy with per-redirect-hop revalidation, the self-owned-scope guard (destructive-on-not-yours is refused, not prompted), and a credential broker whose secrets reach the model only as sentinels; per-call permission tiering via `dynamic_permission_level` |
 | 85 | [Reach, Memory & Autonomy Guards](85-REACH-AND-MEMORY.md) | User OAuth (PKCE) + real Gmail/Calendar, Signal · iMessage · WhatsApp · voice channels, companion-device node protocol (sensitive capabilities opt-in *and* CRITICAL), media understanding + generation, standing preferences with supersede-in-place and provenance, MMR recall, loop detection, agent packages |
 | 86 | [Judge Panels](86-JUDGE-PANELS.md) | Independent review and the refine-until-good loop — distinct lenses, rejections that must cite a defect, blocking findings that beat a high average, honest non-convergence; `panel_review` / `panel_refine`, plus `delegate` made genuinely concurrent |
+| 93 | [Agent Society](93-AGENT-SOCIETY.md) | Live isometric campus, animated agents, CLI telemetry, isolated browser window and config toggle |
 | — | [Use Cases](USE-CASES.md) | Real-world use cases and what EloPhanto means as a persistent digital entity |
 | — | [Website & Hub](WEBSITE.md) | elophanto.com website and EloPhantoHub skill registry |
 

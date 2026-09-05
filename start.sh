@@ -67,8 +67,8 @@ case "${1:-}" in
             # flaky network-dependent check disagree between runs — which is how
             # "doctor found blockers" could be followed by "No blockers" in the
             # same start. One run = the shown report always matches the decision.
-            doctor_out="$(elophanto doctor 2>&1)"
-            doctor_rc=$?
+            doctor_rc=0
+            doctor_out="$(elophanto doctor 2>&1)" || doctor_rc=$?
             if [ "$doctor_rc" -ne 0 ]; then
                 echo ""
                 printf '%s\n' "$doctor_out"
@@ -101,6 +101,12 @@ if [ ! -f "knowledge/system/identity.md" ] && [ -t 0 ]; then
     echo ""
 fi
 
+# Build the optional Society view before the agent starts. The Python agent
+# owns its read-only server and isolated window in both direct and gateway mode.
+# Disabled installs and non-runtime commands do no frontend work. A failed
+# visual build must not prevent CLI operation.
+python -m core.society_assets "$@" || echo "Society preparation unavailable; continuing CLI startup."
+
 # Kill any leftover gateway from a previous unclean shutdown
 STALE_PID=$(lsof -ti :18789 2>/dev/null || true)
 if [ -n "$STALE_PID" ]; then
@@ -111,6 +117,7 @@ fi
 
 # --web flag: start gateway + web dashboard together
 if [ "$1" = "--web" ]; then
+    shift
     WEB_DIR="$SCRIPT_DIR/web"
     if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
         echo "❌ Node.js + npm are required for the web dashboard."
@@ -175,7 +182,7 @@ if [ "$1" = "--web" ]; then
     trap cleanup INT TERM HUP EXIT
 
     # Start gateway in background (--no-cli since there's no terminal stdin)
-    elophanto gateway --no-cli &
+    elophanto gateway --no-cli "$@" &
     GATEWAY_PID=$!
 
     # Give gateway a moment to start
@@ -192,6 +199,7 @@ if [ "$1" = "--web" ]; then
 
     # Wait for either to exit
     wait $GATEWAY_PID $WEB_PID
+    exit 0
 fi
 
 # Run elophanto with all passed arguments, default to 'chat'

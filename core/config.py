@@ -250,6 +250,24 @@ class BrowserConfig:
 
 
 @dataclass
+class SocietyConfig:
+    """Local, read-only agents society visualization; independent of automation."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 18790
+    open_browser: bool = True
+
+    def __post_init__(self) -> None:
+        if self.host not in {"127.0.0.1", "localhost"}:
+            raise ValueError("society.host must be 127.0.0.1 or localhost")
+        if isinstance(self.port, bool) or not isinstance(self.port, int) or not 0 <= self.port <= 65535:
+            raise ValueError("society.port must be an integer between 0 and 65535")
+        if not isinstance(self.enabled, bool) or not isinstance(self.open_browser, bool):
+            raise ValueError("society.enabled and society.open_browser must be YAML booleans")
+
+
+@dataclass
 class DesktopConfig:
     """Desktop GUI automation configuration."""
 
@@ -1458,6 +1476,7 @@ class Config:
     plugins: PluginConfig = field(default_factory=PluginConfig)
     self_dev: SelfDevConfig = field(default_factory=SelfDevConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
+    society: SocietyConfig = field(default_factory=SocietyConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
@@ -2657,6 +2676,16 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
             ),
         )
 
+    society_raw = raw.get("society") or {}
+    if not isinstance(society_raw, dict):
+        raise ValueError("society must be a YAML mapping")
+    society_config = SocietyConfig(
+        enabled=society_raw.get("enabled", False),
+        host=society_raw.get("host", "127.0.0.1"),
+        port=society_raw.get("port", 18790),
+        open_browser=society_raw.get("open_browser", True),
+    )
+
     config = Config(
         agent_name=agent_name,
         permission_mode=permission_mode,
@@ -2671,6 +2700,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         plugins=plugins_config,
         self_dev=self_dev_config,
         browser=browser_config,
+        society=society_config,
         scheduler=scheduler_config,
         telegram=telegram_config,
         gateway=gateway_config,

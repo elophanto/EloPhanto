@@ -11,5 +11,15 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    proxy: {
+      "/api/society": {
+        target: "http://127.0.0.1:18790",
+        changeOrigin: true,
+        configure: (proxy) =>
+          proxy.on("proxyReq", (request) => {
+            request.removeHeader("origin");
+          }),
+      },
+    },
   },
 });

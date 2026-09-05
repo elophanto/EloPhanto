@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from core.config import KidConfig
 from core.kid_runtime import ContainerRuntime, ContainerRuntimeError, detect_runtime
 from core.protocol import EventType
+from core.society import emit as society_emit
 
 if TYPE_CHECKING:
     from core.database import Database
@@ -83,6 +84,7 @@ class KidManager:
         self._vault = vault
         self._parent_gateway_url = parent_gateway_url
         self._kids: dict[str, KidAgent] = {}
+        self._society: Any = None
         self._runtime: ContainerRuntime | None = None
         self._monitor_task: asyncio.Task[None] | None = None
         self._last_spawn_at: float = 0.0
@@ -337,6 +339,7 @@ class KidManager:
                 EventType.CHILD_TASK_ASSIGNED,
                 {"kid_id": kid.kid_id, "task": task, "type": "kid"},
             )
+        society_emit(self._society, "worker_event", "kid", kid.kid_id, "assigned")
         kid.last_active = datetime.now(UTC).isoformat()
         await self._persist_kid(kid)
 
@@ -350,23 +353,30 @@ class KidManager:
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
+                society_emit(self._society, "worker_event", "kid", kid.kid_id, "failed")
                 raise TimeoutError(
                     f"Kid {kid.name} did not respond within {timeout}s. "
                     f"Collected {len(collected)} partial messages."
                 )
             try:
                 content = await asyncio.wait_for(inbox.get(), timeout=remaining)
+            except asyncio.CancelledError:
+                society_emit(self._society, "worker_event", "kid", kid.kid_id, "cancelled")
+                raise
             except TimeoutError as e:
+                society_emit(self._society, "worker_event", "kid", kid.kid_id, "failed")
                 raise TimeoutError(
                     f"Kid {kid.name} did not respond within {timeout}s."
                 ) from e
             collected.append(content)
             # Terminal markers — kid_agent_adapter._run_task emits these.
             if "done in" in content or "ERROR" in content:
+                society_emit(self._society, "worker_event", "kid", kid.kid_id, "failed" if "ERROR" in content else "completed")
                 return content
             # Defensive cap — if the kid floods us with chatter, bail
             # rather than buffer forever.
             if len(collected) > 64:
+                society_emit(self._society, "worker_event", "kid", kid.kid_id, "failed")
                 return (
                     "[kid output exceeded 64 messages without terminal "
                     "marker — returning partial collected stream]\n\n"

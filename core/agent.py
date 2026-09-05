@@ -94,6 +94,8 @@ from core.reflector import Reflector
 from core.registry import ToolRegistry
 from core.router import LLMRouter
 from core.skills import SkillManager
+from core.society import SocietyService, observe_delegate, observe_run
+from core.society import emit as society_emit
 
 logger = logging.getLogger(__name__)
 
@@ -585,6 +587,8 @@ class Agent:
         self._router = LLMRouter(config)
         self._registry = ToolRegistry(config.project_root)
         self._executor = Executor(config, self._registry)
+        self._society: SocietyService | None = None
+        self._society_sync_task: asyncio.Task[None] | None = None
         self._reflector = Reflector()
 
         # Phase 1: Knowledge & Memory
@@ -771,6 +775,20 @@ class Agent:
         def _status(msg: str) -> None:
             if on_status:
                 on_status(msg)
+
+        # The optional viewer has its own server and browser profile. Start it
+        # before slow subsystem initialization so ./start.sh brings it alive.
+        if self._config.society.enabled and self._society is None:
+            try:
+                service = SocietyService(
+                    self._config.society, self._config.project_root, self._config.agent_name
+                )
+                if service.start():
+                    self._society = service
+                    self._executor._society = service
+                    self._society_sync_task = asyncio.create_task(self._sync_society_workers())
+            except Exception:
+                logger.warning("Society unavailable; agent startup continues", exc_info=True)
 
         _status("Loading tools")
         self._registry.load_builtin_tools(self._config)
@@ -1769,6 +1787,7 @@ class Agent:
                     vault=self._vault,
                     parent_gateway_url=gateway_url,
                 )
+                self._kid_manager._society = self._society
                 await self._kid_manager.start()
                 self._inject_kid_deps()
                 # Hook the gateway so inbound chat from channel="kid-agent"
@@ -2003,6 +2022,12 @@ class Agent:
             except Exception as e:
                 logger.debug("Dataset collection setup failed: %s", e)
 
+    async def _sync_society_workers(self) -> None:
+        """Keep external worker presence current without inspecting their output."""
+        while True:
+            society_emit(self._society, "sync_managers", self)
+            await asyncio.sleep(1)
+
     async def _periodic_usage_flush(self) -> None:
         """Drain CostTracker / ProviderTracker rings into llm_usage.
 
@@ -2035,6 +2060,15 @@ class Agent:
 
     async def shutdown(self) -> None:
         """Clean up all subsystems gracefully."""
+        if self._society_sync_task:
+            self._society_sync_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._society_sync_task
+            self._society_sync_task = None
+        if self._society is not None:
+            society_emit(self._society, "stop")
+            self._society = None
+            self._executor._society = None
         if self._usage_flush_task:
             try:
                 self._usage_flush_task.cancel()
@@ -3783,6 +3817,7 @@ class Agent:
         else:
             self._base_loop_detector = value
 
+    @observe_delegate
     async def run_isolated(
         self,
         goal: str,
@@ -3864,6 +3899,7 @@ class Agent:
             # lose each other's contribution.
             self._router.cost_tracker.task_total += state.cost_task_total
 
+    @observe_run
     async def _run_with_history(
         self,
         goal: str,

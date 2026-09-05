@@ -805,3 +805,10 @@ dashboard:
   # Product default is blade (Blade Runner 2049 — amber on rain-city black).
   # Other built-ins: default (cream), nocturne (teal), mocha (mauve).
   theme: blade
+
+# Live isometric agent campus, in a browser isolated from agent browser control.
+society:
+  enabled: true
+  host: 127.0.0.1
+  port: 18790
+  open_browser: true
