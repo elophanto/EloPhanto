@@ -431,6 +431,14 @@ class AutonomousMind:
         # releases it) so a role pin never outlives the cycle that earned it.
         self._role_pin_token: Any = None
 
+        # Decision step state (docs/94 §10): the menu the arbiter produced,
+        # and what the thinking call committed to.
+        self._last_menu: list[Any] = []
+        self._last_menu_text: str = ""
+        self._last_state_text: str = ""
+        self._last_posture: str = ""
+        self._last_decision: Any = None
+
         # Register mind-specific tools
         self._register_mind_tools()
 
@@ -1300,11 +1308,14 @@ class AutonomousMind:
         # Cleared first so a legacy-prompt cycle never reports (or labels
         # its memory with) the previous cycle's arbiter pick.
         self._last_arbiter_top = None
+        self._last_menu = []
+        self._last_decision = None
         if (
             getattr(self._config, "arbiter", None) is not None
             and self._config.arbiter.enabled
         ):
             prompt = await self._build_arbiter_prompt()
+            prompt = await self._decide(prompt)
         else:
             prompt = await self._build_prompt()
 
@@ -1332,6 +1343,10 @@ class AutonomousMind:
                 "dedup_key": top.dedup_key or "",
                 "metadata": {k: str(v)[:80] for k, v in (top.metadata or {}).items()},
             }
+            decision = getattr(self, "_last_decision", None)
+            if decision is not None:
+                wakeup_payload["intent"]["why"] = decision.why
+                wakeup_payload["intent"]["done_when"] = decision.done_when
         await self._broadcast_event(EventType.MIND_WAKEUP, wakeup_payload)
 
         # Approval for autonomous mode: ask the operator on every channel,
@@ -1565,6 +1580,73 @@ class AutonomousMind:
         if learner is None:
             return None
         return getattr(learner, "_instinct_store", None)
+
+    def _apply_role_pin(self, candidate: Any, posture_obj: str = "") -> None:
+        """Pin the cycle to a role when the chosen candidate is role work."""
+        # Release first: overwriting a live token strands the contextvar
+        # permanently, because the only handle that could restore it is the
+        # one being discarded. That turns a one-cycle leak into an
+        # unrecoverable one.
+        self._release_role_pin()
+        if candidate is None or getattr(candidate, "source", "") != "role_neglect":
+            return
+        role_name = str(
+            (candidate.metadata or {}).get("role_name")
+            or (candidate.metadata or {}).get("role")
+            or ""
+        )
+        if not role_name:
+            return
+        try:
+            from core.role_context import set_current_role
+
+            # Keep the token: the pin is scoped to THIS cycle and _think's
+            # finally resets it. Discarding the token left the mask set
+            # forever, so a role that won once kept gating every later cycle
+            # — including cycles where role work did not win — and the
+            # narrow allowlists then denied the mind its own goal
+            # bookkeeping.
+            self._role_pin_token = set_current_role(role_name)
+            logger.info(
+                "[arbiter] posture=%s pinned role=%s for cycle", posture_obj, role_name
+            )
+        except Exception as e:
+            logger.debug("arbiter: role pin failed: %s", e)
+
+    async def _decide(self, prompt: str) -> str:
+        """Commit to one candidate before acting (docs/94 §10).
+
+        A separate thinking call weighs the arbiter's top candidates and
+        picks one with why / expected outcome / done-when. The acting run is
+        then told what it decided instead of choosing mid-action, and the
+        dashboard and memory record the actual choice, not just the top
+        score. Returns the prompt unchanged when disabled or on failure.
+        """
+        menu = getattr(self, "_last_menu", None) or []
+        if not getattr(self._config, "deliberate", False) or len(menu) < 2:
+            return prompt
+        from core.deliberation import decide_mind_action
+
+        recent = "\n".join(
+            f"{a.get('ts', '')} {a.get('summary', '')}" for a in self._recent_actions[-8:]
+        )
+        decision = await decide_mind_action(
+            self._agent._router,
+            menu=getattr(self, "_last_menu_text", ""),
+            n_candidates=len(menu),
+            state=getattr(self, "_last_state_text", ""),
+            recent=recent or "(nothing recent)",
+        )
+        if decision is None:
+            return prompt
+        self._spent_today_usd += decision.cost
+        picked = menu[decision.pick - 1]
+        self._last_decision = decision
+        if picked is not self._last_arbiter_top:
+            self._last_arbiter_top = picked
+            self._apply_role_pin(picked, getattr(self, "_last_posture", ""))
+        logger.info("[arbiter] decided #%d: %s — %s", decision.pick, picked.action_spec[:100], decision.why[:160])
+        return prompt + "\n\n" + decision.render(picked.action_spec)
 
     def _release_role_pin(self) -> None:
         """Drop the per-cycle role mask, if one was set.
@@ -2270,38 +2352,11 @@ class AutonomousMind:
 
         # Mechanical role pin when role_neglect wins — previously the
         # menu only *advised* role_use; the executor never saw the mask.
-        if self._last_arbiter_top is not None:
-            top = self._last_arbiter_top
-            if top.source == "role_neglect":
-                role_name = str(
-                    (top.metadata or {}).get("role_name")
-                    or (top.metadata or {}).get("role")
-                    or ""
-                )
-                if role_name:
-                    try:
-                        from core.role_context import set_current_role
-
-                        # Keep the token: the pin is scoped to THIS cycle and
-                        # _think's finally resets it. Discarding the token left
-                        # the mask set forever, so a role that won once kept
-                        # gating every later cycle — including cycles where
-                        # role work did not win — and the narrow allowlists
-                        # then denied the mind its own goal bookkeeping.
-                        #
-                        # Release first: overwriting a live token strands the
-                        # contextvar permanently, because the only handle that
-                        # could restore it is the one being discarded. That
-                        # turns a one-cycle leak into an unrecoverable one.
-                        self._release_role_pin()
-                        self._role_pin_token = set_current_role(role_name)
-                        logger.info(
-                            "[arbiter] posture=%s pinned role=%s for cycle",
-                            posture_obj,
-                            role_name,
-                        )
-                    except Exception as e:
-                        logger.debug("arbiter: role pin failed: %s", e)
+        self._apply_role_pin(self._last_arbiter_top, posture_obj)
+        # Kept for the decision step (docs/94 §10), which may pick another.
+        self._last_menu = [sc.candidate for sc in scored]
+        self._last_menu_text = menu
+        self._last_posture = posture_obj
 
         # Side-channel observability: every arbiter wakeup logs the
         # menu so operators can `grep '[arbiter]'` the log and audit
@@ -2338,6 +2393,8 @@ class AutonomousMind:
         remaining = max(0, daily_budget - self._spent_today_usd)
 
         from core.skills import tail_truncate
+
+        self._last_state_text = tail_truncate(state_snapshot, 3000)
 
         return _ARBITER_PROMPT.format(
             max_rounds=self._config.max_rounds_per_wakeup,

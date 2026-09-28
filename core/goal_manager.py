@@ -247,6 +247,31 @@ Guidelines:
 """ + _PLAN_RULES + """\
 </goal_decomposition>"""
 
+_CRITIQUE_SYSTEM = """\
+<plan_critique>
+You review a DRAFT plan for a long-running goal before any work starts, and
+return the corrected plan. A wrong plan costs hours: every checkpoint runs
+unattended. Check each checkpoint against:
+1. It produces a tangible result and names the tool that does the work.
+2. Its success criteria can be shown by what a TOOL RETURNS — a count, a
+   row, a file, a URL — never by the agent's own description of its work.
+3. Order: unknowns and risks first; for anything sold, built or launched,
+   a validate checkpoint before any build.
+4. No plumbing checkpoints (setup, credentials, routing, "verify X works").
+5. Nothing the goal needs is missing; nothing it does not need is there.
+6. Each fits in 5-30 tool calls — split or merge otherwise.
+7. The kill criterion is measurable (a number and a date or volume).
+Use the CONTEXT: do not repeat approaches that failed before.
+
+Return ONLY a JSON object with the draft's schema plus a critique field:
+{"critique": "<what you changed and why, one short paragraph; 'no changes' if none>",
+ "kill_criterion": "...",
+ "checkpoints": [{"order": 1, "title": "...", "description": "...",
+                  "success_criteria": "...", "stage": "..."}]}
+
+""" + _PLAN_RULES + """\
+</plan_critique>"""
+
 _SUMMARIZE_SYSTEM = """\
 Summarize what was accomplished in this checkpoint execution. Be factual,
 concise, and preserve key data points (names, URLs, numbers, decisions made).
@@ -348,6 +373,10 @@ class GoalManager:
         self._db = db
         self._router = router
         self._config = config
+        # Optional async callable (goal_text) -> str giving decomposition
+        # the context a planner needs: related past work (including what
+        # failed) and the tools that exist. Set by the Agent.
+        self._context_provider: Any = None
         # Optional callback fired when a goal flips to "completed". The
         # autonomous mind registers a hook so finishing a goal kicks the
         # next dream cycle immediately instead of waiting up to several
@@ -355,6 +384,10 @@ class GoalManager:
         # multiple subscribers (e.g. analytics + mind).
         # Signature: async def hook(goal_id: str) -> None
         self._on_goal_completed: list[Any] = []
+
+    def set_context_provider(self, provider: Any) -> None:
+        """Register ``async (goal_text) -> str`` for decomposition context."""
+        self._context_provider = provider
 
     def add_completion_hook(self, hook: Any) -> None:
         """Register an async callback fired after a goal flips to
@@ -752,21 +785,36 @@ class GoalManager:
     # --- Decomposition ---
 
     async def decompose(self, goal: Goal) -> list[Checkpoint]:
-        """Use LLM to decompose a goal into ordered checkpoints."""
+        """Decompose a goal into ordered checkpoints: draft, critique, revise.
+
+        The draft used to be one cheap JSON call that saw only the goal text
+        — no past work, no failures, no tool list — and was executed as-is
+        for hours. Now it gets context, runs on the planning tier, and a
+        second pass checks it against the plan rules before any work starts
+        (docs/94 §10).
+        """
+        context = ""
+        if self._context_provider is not None:
+            try:
+                context = str(await self._context_provider(goal.goal) or "")
+            except Exception as e:
+                logger.debug("decompose context unavailable: %s", e)
+        user = f"Decompose this goal into checkpoints: {goal.goal}"
+        if context:
+            user += f"\n\nCONTEXT (related past work, available tools):\n{context[:6000]}"
         response = await self._router.complete(
             messages=[
                 {"role": "system", "content": _DECOMPOSE_SYSTEM},
-                {
-                    "role": "user",
-                    "content": f"Decompose this goal into checkpoints: {goal.goal}",
-                },
+                {"role": "user", "content": user},
             ],
-            task_type="simple",
+            task_type="planning",
             temperature=0.3,
         )
         goal.llm_calls_used += 1
 
         raw = response.content or "[]"
+        if getattr(self._config, "plan_critique", False):
+            raw = await self._critique_plan(goal, raw, context)
         checkpoints = self._parse_checkpoint_json(raw, goal.goal_id)
         if not checkpoints:
             logger.warning(
@@ -818,6 +866,56 @@ class GoalManager:
         await self._persist_goal(goal)
 
         return checkpoints
+
+    async def _critique_plan(self, goal: Goal, draft: str, context: str) -> str:
+        """Review the draft plan and return the corrected one (or the draft).
+
+        The critique is kept on the goal's run ledger as a decision, so the
+        operator can see what the planner changed and why.
+        """
+        if not self._parse_checkpoint_json(draft, goal.goal_id):
+            return draft  # nothing to critique; decompose reports the failure
+        user = (
+            f"GOAL: {goal.goal}\n\nDRAFT PLAN:\n{draft[:8000]}\n\n"
+            f"CONTEXT:\n{(context or '(none)')[:4000]}"
+        )
+        try:
+            response = await self._router.complete(
+                messages=[
+                    {"role": "system", "content": _CRITIQUE_SYSTEM},
+                    {"role": "user", "content": user},
+                ],
+                task_type="planning",
+                temperature=0.2,
+            )
+            goal.llm_calls_used += 1
+        except Exception as e:
+            logger.warning("plan critique failed, keeping the draft: %s", e)
+            return draft
+        revised = response.content or ""
+        data = _loads_json_lenient(revised)
+        if not self._parse_checkpoint_json(revised, goal.goal_id):
+            return draft
+        critique = data.get("critique") if isinstance(data, dict) else ""
+        if critique:
+            try:
+                from core.run_ledger import RunLedger
+
+                await RunLedger(self._db).add(
+                    goal.goal_id,
+                    "decision",
+                    f"Plan critique: {str(critique)[:1500]}",
+                    source="model",
+                )
+            except Exception:
+                pass
+        # Keep the draft's kill criterion if the revision dropped it.
+        if isinstance(data, dict) and not data.get("kill_criterion"):
+            kc = self._extract_kill_criterion(draft)
+            if kc:
+                data["kill_criterion"] = kc
+                return json.dumps(data)
+        return revised
 
     async def revise_plan(self, goal: Goal, reason: str) -> list[Checkpoint]:
         """Revise remaining checkpoints based on new information."""

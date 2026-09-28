@@ -96,6 +96,7 @@ class ScriptedModel:
     goal_ids_seen: list[tuple[str, str]] = field(default_factory=list)
     handoff_requests: int = 0
     chats: int = 0
+    plans: int = 0
 
     async def complete(self, messages: list[dict[str, Any]], **kw: Any) -> LLMResponse:
         task_type = kw.get("task_type", "planning")
@@ -105,8 +106,26 @@ class ScriptedModel:
         )
         first_user = first_user if isinstance(first_user, str) else ""
 
-        if task_type != "planning":
+        if task_type != "planning" or any(
+            marker in (system or "") for marker in ("goal_decomposition", "plan_critique")
+        ):
             return self._simple(system, messages)
+
+        if "planning step of an autonomous agent" in (system or ""):
+            self.plans += 1
+            return _resp(
+                json.dumps(
+                    {
+                        "diagnosis": "",
+                        "approach": "Write the part with soak_write_report.",
+                        "steps": ["write part 1", "write part 2", "write part 3"],
+                        "assumptions": ["the output directory is writable"],
+                        "risks": ["interruption — resume from the handoff"],
+                        "verification": "soak_write_report returns status written",
+                        "reuse": [],
+                    }
+                )
+            )
 
         if CHECKPOINT_MARKER not in first_user:
             self.chats += 1
@@ -154,6 +173,8 @@ class ScriptedModel:
                 ],
             }
             return _resp(json.dumps(plan))
+        if "plan_critique" in (system or ""):
+            return _resp("no changes")  # unusable critique → the draft stands
         if "goal_evaluation" in (system or ""):
             return _resp(
                 json.dumps({"on_track": True, "revision_needed": False, "reason": "ok"})

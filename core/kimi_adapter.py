@@ -142,6 +142,8 @@ class KimiAdapter:
             tool_calls=tool_calls,
             finish_reason=finish_reason,
             suspected_truncated=truncated,
+            # Kimi thinking models return reasoning_content; keep it.
+            reasoning=str(message.get("reasoning_content") or ""),
         )
 
     async def health_check(self) -> bool:

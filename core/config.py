@@ -93,6 +93,10 @@ class LLMConfig:
     # gated here — those have their own daily-budget cap in
     # ``budget``.
     allow_metered_fallback_in_chat: bool = False
+    # Send earlier turns' reasoning back to providers that support it (Z.ai
+    # ``clear_thinking: false``), so a multi-step tool loop keeps its train
+    # of thought. Off by default: it grows input tokens (docs/94 §10).
+    preserve_reasoning: bool = False
 
 
 @dataclass
@@ -652,6 +656,17 @@ class GoalsConfig:
     max_total_time_per_goal_seconds: int = 7200  # 2 hours
     cost_budget_per_goal_usd: float = 5.0
     pause_between_checkpoints_seconds: int = 2
+    # Thinking before acting (docs/94 §10). ``deliberate``: one planning call
+    # before each checkpoint attempt writes a plan — approach, assumptions,
+    # risks, how it will be verified, and on a retry why the last attempt
+    # failed — into the run ledger and the checkpoint prompt.
+    # ``plan_critique``: decomposition drafts a plan, critiques it against
+    # the plan rules, and revises it.
+    deliberate: bool = True
+    plan_critique: bool = True
+    # Reasoning effort for those thinking calls (provider-dependent; Z.ai:
+    # minimal|low|medium|high|xhigh|max). Empty = the task type's setting.
+    deliberation_effort: str = "high"
 
 
 @dataclass
@@ -703,6 +718,10 @@ class AutonomousMindConfig:
     verbosity: str = "normal"  # minimal | normal | verbose
     # Arbiter sub-config — see ``MindArbiterConfig``. Defaults disabled.
     arbiter: MindArbiterConfig = field(default_factory=MindArbiterConfig)
+    # Weigh the arbiter's top candidates in a separate thinking call and
+    # commit to one — with why, expected outcome and done-when — before the
+    # acting run starts (docs/94 §10).
+    deliberate: bool = True
 
 
 @dataclass
@@ -1477,6 +1496,12 @@ class Config:
     # at 70/85/95% of this. It was hard-coded to 200K for every model, so a
     # 128K model overflowed before compression began (docs/94 F11).
     context_window_tokens: int = 200_000
+    # Before a CRITICAL tool runs in an autonomous run (mind, goal,
+    # heartbeat, schedule), a short review call states the expected outcome
+    # and whether the call is warranted. A declined call is returned to the
+    # model with the objection; repeating the identical call proceeds
+    # (docs/94 §10).
+    pre_action_review: bool = True
     llm: LLMConfig = field(default_factory=LLMConfig)
     shell: ShellConfig = field(default_factory=ShellConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
@@ -1819,6 +1844,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
     max_time_seconds = agent.get("max_time_seconds", 0)
     max_agent_loop_seconds = agent.get("max_agent_loop_seconds", 7200)
     context_window_tokens = int(agent.get("context_window_tokens", 200_000) or 200_000)
+    pre_action_review = bool(agent.get("pre_action_review", True))
     workspace = agent.get("workspace", "")
 
     # Parse LLM section
@@ -1865,6 +1891,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         tool_profiles=tool_profiles,
         vision_model=llm_raw.get("vision_model", ""),
         metered_providers=metered_providers,
+        preserve_reasoning=bool(llm_raw.get("preserve_reasoning", False)),
         allow_metered_fallback_in_chat=bool(
             llm_raw.get("allow_metered_fallback_in_chat", False)
         ),
@@ -2167,6 +2194,9 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         pause_between_checkpoints_seconds=goals_raw.get(
             "pause_between_checkpoints_seconds", 2
         ),
+        deliberate=bool(goals_raw.get("deliberate", True)),
+        plan_critique=bool(goals_raw.get("plan_critique", True)),
+        deliberation_effort=str(goals_raw.get("deliberation_effort", "high") or ""),
     )
 
     # Parse identity section
@@ -2586,6 +2616,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         max_rounds_per_wakeup=am_raw.get("max_rounds_per_wakeup", 8),
         verbosity=am_raw.get("verbosity", "normal"),
         arbiter=arbiter_config,
+        deliberate=bool(am_raw.get("deliberate", True)),
     )
 
     # Parse heartbeat section
@@ -2702,6 +2733,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         max_time_seconds=max_time_seconds,
         max_agent_loop_seconds=max_agent_loop_seconds,
         context_window_tokens=context_window_tokens,
+        pre_action_review=pre_action_review,
         workspace=workspace,
         llm=llm_config,
         shell=shell_config,

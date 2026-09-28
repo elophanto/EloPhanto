@@ -172,8 +172,12 @@ runner resume on its own from that record (§5.3).
   reasoning.
 - Planning runs on Z.ai `GLM-5.3-Flash` with `reasoning_effort: medium` in
   config, but `_call_zai` / `_call_kimi` take no effort parameter
-  (`router.py:1002-1015, 1080-1093`), so the preferred planning provider never
-  gets it. Codex does, but runs with `store: False, include: []`, so reasoning
+  (`router.py:1002-1015, 1080-1093`), so the setting never reaches the
+  provider. *Correction (verified against Z.ai's API reference during
+  Phase 2):* that does not mean GLM does not think — `thinking` defaults to
+  enabled and `reasoning_effort` to `max`, so every call ran at maximum
+  effort regardless of the config, and its `reasoning_content` was discarded
+  every turn. Codex does, but runs with `store: False, include: []`, so reasoning
   is never replayed across tool turns. `LLMResponse` has no reasoning field.
 - Temperature is fixed at 0.2 for planning.
 - Decomposition is a single `task_type="simple"` JSON call that sees only the
@@ -482,3 +486,32 @@ checkpoint's receipt cites a tool output; the ledger holds the artifacts.
 
 Different from §5.1: mind-thread ledgers are deferred — the mind does not know
 which candidate it will pick until after the call. Phase 2 records the pick.
+
+---
+
+## 10. Phase 2 — verified implementation spec (thinking)
+
+**Status: implemented 2026-09-28.** 3,861 tests pass (13 new).
+
+Verified before code: Z.ai's chat completion API (docs.z.ai, API reference)
+accepts `thinking: {"type": "enabled" | "disabled"}` (GLM-4.5 and later,
+including GLM-5.3), `reasoning_effort` (`max`, `xhigh`, `high`, `medium`,
+`low`, `minimal`, `none`; default `max`, effective when thinking is on),
+returns `reasoning_content`, and keeps earlier turns' reasoning with
+`clear_thinking: false`. Kimi's parameters were not verified, so Kimi only
+has its `reasoning_content` captured; nothing new is sent to it.
+
+| Piece | What it does |
+| --- | --- |
+| Effort reaches Z.ai | `_call_zai` passes the task type's `reasoning_effort` as `thinking` + `reasoning_effort` ("none"/"off" disables thinking; empty keeps the API default). `LLMRouter.complete(reasoning_effort=…)` overrides it per call. |
+| Reasoning is kept | `LLMResponse.reasoning` carries Z.ai/Kimi `reasoning_content` and Codex reasoning summaries. The agent loop stores it on the assistant turn under the private key `_reasoning` (stripped before any other provider sees it), counts it in the context estimate, and uses it in handoffs. `llm.preserve_reasoning: true` sends it back to Z.ai with `clear_thinking: false` (off by default: it grows input tokens). |
+| Checkpoint plan | `goals.deliberate` (default on): before each attempt, one planning-tier call at `goals.deliberation_effort` (default `high`) returns approach, steps, assumptions, risks, how the criteria will be shown by tool outputs, what it reuses, and on a retry a diagnosis of the last failure. Recorded as a ledger `plan` (with the reasoning summary), charged to the goal, and put in the checkpoint prompt. A failed planning call is skipped, never blocking. |
+| Mind decision | `autonomous_mind.deliberate` (default on): a separate call weighs the arbiter's top candidates and commits to one with why, the rejected alternative, expected outcome and done-when. The acting prompt carries the decision; the dashboard intent and the memory title follow the actual pick; the role pin follows it too. |
+| Pre-action review | `agent.pre_action_review` (default on): in mind/goal/heartbeat/scheduled runs, a CRITICAL tool call (static or dynamic level) gets a short review first. A decline returns the objection to the model without running the call; the identical call repeated proceeds. An approved review records the expected outcome and check as a ledger decision. Chat is never reviewed — the operator is present. |
+| Plan critique | `goals.plan_critique` (default on): decomposition runs on the planning tier with context from `Agent._goal_plan_context` (related past runs with their outcomes, tools by group), then a critique pass checks the draft against seven rules plus `_PLAN_RULES` and returns a corrected plan; the critique is recorded as a goal-level ledger decision. An unusable critique keeps the draft. |
+| Prompt rule | `<reasoning>` keeps "one or two sentences" for chat and adds: autonomous work follows the plan made before it, records decisions when reality contradicts it, and diagnoses a failed step before retrying. |
+
+Not done, and why: replaying Codex's encrypted reasoning items across tool
+turns (`include: ["reasoning.encrypted_content"]`) changes the Responses-API
+input format and cannot be verified without live calls on the operator's
+subscription; it stays a follow-up.

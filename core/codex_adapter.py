@@ -629,6 +629,7 @@ class CodexAdapter:
             tool_calls=tool_calls_out,
             finish_reason=finish_reason,
             suspected_truncated=truncated,
+            reasoning=_strip_summary_separators("".join(reasoning_parts))[:4000],
         )
 
     async def health_check(self) -> bool:

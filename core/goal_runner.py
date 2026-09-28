@@ -753,6 +753,13 @@ class GoalRunner:
             prompt += self._retry_note(
                 attempt_no, str(getattr(checkpoint, "result_summary", "") or "")
             )
+            plan_text = await self._deliberate(goal, checkpoint, ledger, ledger_text, attempt_no)
+            if plan_text:
+                prompt += (
+                    "\nYOUR PLAN FOR THIS ATTEMPT (made before starting — follow "
+                    "it; if what you find contradicts it, record a decision with "
+                    "goal_note and adapt):\n" + plan_text + "\n"
+                )
 
             # Approval requests for background work go to every channel.
             approval_cb = self._make_broadcast_approval() if self._gateway else None
@@ -1055,6 +1062,63 @@ class GoalRunner:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _deliberate(
+        self,
+        goal: Goal,
+        checkpoint: Any,
+        ledger: Any,
+        ledger_text: str,
+        attempt_no: int,
+    ) -> str:
+        """Think before acting: plan this attempt in a separate call.
+
+        Records the plan in the ledger (so a later attempt can see what was
+        tried and why) and returns it for the checkpoint prompt. Returns ""
+        when disabled or when planning fails — it never blocks the work.
+        """
+        if not getattr(self._config, "deliberate", False):
+            return ""
+        router = getattr(self._agent, "_router", None)
+        if router is None:
+            return ""
+        from core.deliberation import plan_checkpoint
+
+        last = str(getattr(checkpoint, "result_summary", "") or "")
+        plan = await plan_checkpoint(
+            router,
+            goal=goal.goal,
+            order=checkpoint.order,
+            total=goal.total_checkpoints,
+            title=checkpoint.title,
+            description=checkpoint.description,
+            criteria=checkpoint.success_criteria or "",
+            stage=checkpoint.stage or "unknown",
+            ledger_text=ledger_text,
+            attempt=attempt_no,
+            last_failure=last if attempt_no > 1 or last.startswith(_PREEMPT_PREFIX) else "",
+            effort=str(getattr(self._config, "deliberation_effort", "") or ""),
+        )
+        if plan is None:
+            return ""
+        text = plan.render()
+        if ledger is not None:
+            record = text
+            if plan.reasoning:
+                record += "\nREASONING (summary): " + plan.reasoning[:1200]
+            await ledger.add(
+                goal.goal_id,
+                "plan",
+                record,
+                checkpoint_order=checkpoint.order,
+                attempt=attempt_no,
+                source="model",
+            )
+        try:
+            await self._gm.add_cost(goal.goal_id, plan.cost)
+        except Exception:
+            pass
+        return text
 
     def _ledger(self) -> Any:
         """The run ledger over the goal manager's DB (None if unavailable)."""

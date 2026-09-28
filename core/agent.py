@@ -2903,8 +2903,43 @@ class Agent:
 
         return []
 
+    async def _goal_plan_context(self, goal_text: str) -> str:
+        """What a planner needs besides the goal text (docs/94 §10): related
+        past runs — including the ones that stopped — and the tools that
+        exist, so a plan neither repeats a failure nor invents a tool."""
+        parts: list[str] = []
+        try:
+            if self._memory_manager is not None:
+                past = await self._memory_manager.search_memory(goal_text, limit=6)
+                lines = [
+                    f"- [{m.get('outcome', '?')}] {str(m.get('goal', ''))[:140]} — "
+                    f"{str(m.get('summary', ''))[:260]}"
+                    for m in past or []
+                ]
+                if lines:
+                    parts.append("RELATED PAST RUNS:\n" + "\n".join(lines))
+        except Exception as e:
+            logger.debug("plan context: memory search failed: %s", e)
+        try:
+            groups: dict[str, list[str]] = {}
+            for t in self._registry.all_tools():
+                groups.setdefault(getattr(t, "group", "system"), []).append(t.name)
+            lines = [
+                f"- {g}: {', '.join(sorted(names)[:14])}"
+                + (f" (+{len(names) - 14})" if len(names) > 14 else "")
+                for g, names in sorted(groups.items())
+            ]
+            parts.append("AVAILABLE TOOLS BY GROUP:\n" + "\n".join(lines))
+        except Exception as e:
+            logger.debug("plan context: tool catalog failed: %s", e)
+        return "\n\n".join(parts)[:6000]
+
     def _inject_goal_deps(self) -> None:
         """Inject goal manager and goal runner into goal tools."""
+        if self._goal_manager is not None and hasattr(
+            self._goal_manager, "set_context_provider"
+        ):
+            self._goal_manager.set_context_provider(self._goal_plan_context)
         ledger = None
         if self._db is not None:
             from core.run_ledger import RunLedger
@@ -4529,6 +4564,10 @@ class Agent:
         # Loop-detection state is per-run: a scheduled job that legitimately
         # repeats an action every hour must not inherit last run's counters.
         self._loop_detector.reset()
+        # (tool, args) signatures a pre-action review declined this run. A
+        # repeat of the identical call proceeds: the model has now seen the
+        # objection and chosen to go ahead (docs/94 §10).
+        _review_declined: set[str] = set()
         loop_notice = ""
         loop_abort = False
         while step < hard_limit:
@@ -4955,6 +4994,11 @@ class Agent:
                 "content": response.content,
                 "tool_calls": response.tool_calls,
             }
+            # Keep this turn's reasoning with it (private key: stripped for
+            # providers that would reject it, sent back to Z.ai when
+            # llm.preserve_reasoning is on, read by handoffs).
+            if getattr(response, "reasoning", ""):
+                assistant_msg["_reasoning"] = str(response.reasoning)[:8000]
             messages.append(assistant_msg)
 
             # === EXECUTE tool calls (parallel where safe) ===
@@ -4999,6 +5043,13 @@ class Agent:
                         )
                     except Exception:
                         _loop_blocked = False
+                    if not _loop_blocked:
+                        _declined = await self._maybe_review_critical(
+                            _task_title, tc, messages, _review_declined
+                        )
+                        if _declined is not None:
+                            authority_blocked.append((tc, _declined))
+                            continue
                     if _loop_blocked:
                         authority_blocked.append(
                             (
@@ -5490,6 +5541,92 @@ class Agent:
             handoff=handoff_text,
         )
 
+    _AUTONOMOUS_SOURCES = frozenset({"mind", "goal", "heartbeat", "scheduled"})
+
+    async def _maybe_review_critical(
+        self,
+        task: str,
+        tc: dict[str, Any],
+        messages: list[dict[str, Any]],
+        declined: set[str],
+    ) -> ExecutionResult | None:
+        """Review a CRITICAL call before it runs unattended.
+
+        Returns an ExecutionResult carrying the objection when the review
+        declines the call (it is then not executed), or None to proceed.
+        Chat runs are never reviewed here — the operator is present and the
+        approval flow applies. A failed review call proceeds: thinking must
+        not be the reason work stops.
+        """
+        if not getattr(self._config, "pre_action_review", False):
+            return None
+        from core.execution_context import current_context
+        from tools.base import PermissionLevel
+
+        if str(current_context().source) not in self._AUTONOMOUS_SOURCES:
+            return None
+        name = tc.get("function", {}).get("name", "")
+        tool = self._registry.get(name)
+        if tool is None:
+            return None
+        args = _parse_tool_args(tc)
+        level = tool.permission_level
+        try:
+            dynamic = tool.dynamic_permission_level(args)
+            if isinstance(dynamic, PermissionLevel):
+                level = dynamic
+        except Exception:
+            pass
+        if level != PermissionLevel.CRITICAL:
+            return None
+        sig = f"{name}:{hash(json.dumps(args, sort_keys=True, default=str))}"
+        if sig in declined:
+            return None  # repeated after the objection: the model's call
+        recent: list[str] = []
+        for m in messages[-8:]:
+            content = m.get("content")
+            text = content if isinstance(content, str) else ""
+            calls = ", ".join(
+                c.get("function", {}).get("name", "?") for c in m.get("tool_calls") or []
+            )
+            recent.append(f"{m.get('role')}: {text[:300]}" + (f" [calls {calls}]" if calls else ""))
+        from core.deliberation import review_action
+
+        review = await review_action(
+            self._router,
+            task=task,
+            tool_name=name,
+            args=args,
+            recent="\n".join(recent),
+        )
+        if review is None:
+            return None
+        goal_id = current_context().goal_id
+        if review.proceed:
+            if goal_id and self._db is not None:
+                from core.run_ledger import RunLedger
+
+                await RunLedger(self._db).add(
+                    goal_id,
+                    "decision",
+                    f"{name}: expected {review.expected_outcome or '(unstated)'}; "
+                    f"check: {review.check or '(unstated)'}",
+                    source="code",
+                )
+            return None
+        declined.add(sig)
+        logger.warning("[pre-action review] declined %s: %s", name, review.objection[:200])
+        return ExecutionResult(
+            tool_name=name,
+            tool_call_id=tc.get("id", ""),
+            error=(
+                f"Pre-action review declined this {name} call: "
+                f"{review.objection or 'no reason given'}. It was not run. If the "
+                "call is still right, say why and repeat it exactly — a repeated "
+                "call proceeds."
+            ),
+        )
+
     # Stops where a higher-priority task (or the operator) is waiting: no LLM
     # call — the handoff is built from the transcript alone.
     _CODE_ONLY_HANDOFF = frozenset({"preempted", "stop_file", "budget"})
@@ -5522,6 +5659,8 @@ class Agent:
                     p.get("text", "") for p in content if isinstance(p, dict)
                 )
             text = str(content or "")[:800]
+            if m.get("_reasoning"):
+                text += f" [reasoning: {str(m['_reasoning'])[:400]}]"
             for tc in m.get("tool_calls") or []:
                 fn = tc.get("function", {}) if isinstance(tc, dict) else {}
                 text += f" [call {fn.get('name', '?')} {str(fn.get('arguments', ''))[:200]}]"

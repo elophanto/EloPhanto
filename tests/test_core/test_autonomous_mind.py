@@ -56,7 +56,7 @@ def router() -> AsyncMock:
 
 @pytest.fixture
 async def goal_manager(db: Database, router: AsyncMock) -> GoalManager:
-    return GoalManager(db=db, router=router, config=GoalsConfig())
+    return GoalManager(db=db, router=router, config=GoalsConfig(plan_critique=False))
 
 
 @pytest.fixture

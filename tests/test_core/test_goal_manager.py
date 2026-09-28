@@ -31,7 +31,9 @@ async def db(tmp_path: Path) -> Database:
 
 @pytest.fixture
 def config() -> GoalsConfig:
-    return GoalsConfig()
+    # Decomposition mechanics are tested one scripted response per call;
+    # the critique pass has its own tests.
+    return GoalsConfig(plan_critique=False)
 
 
 @pytest.fixture
@@ -331,7 +333,7 @@ class TestCheckpoints:
     async def test_mark_checkpoint_failed_pauses_goal(
         self, gm: GoalManager, router: AsyncMock
     ) -> None:
-        config = GoalsConfig(max_checkpoint_attempts=1)
+        config = GoalsConfig(max_checkpoint_attempts=1, plan_critique=False)
         gm_strict = GoalManager(db=gm._db, router=router, config=config)
         router.complete.return_value = FakeLLMResponse(content=_SAMPLE_CHECKPOINTS_JSON)
 

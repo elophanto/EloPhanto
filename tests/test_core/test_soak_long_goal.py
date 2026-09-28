@@ -111,6 +111,10 @@ class TestLongGoalUnderDisturbance:
         for order in range(1, 7):
             assert any(f"cp{order}_part" in a for a in artifacts), (order, artifacts)
 
+        # Every attempt was planned before it ran, and the plan is on record.
+        assert model.plans >= 6
+        assert len([e for e in entries if e.kind == "plan"]) == model.plans
+
         # Every checkpoint run saw its own goal's plan.
         assert model.goal_ids_seen
         assert {gid for _, gid in model.goal_ids_seen} == {goal.goal_id}

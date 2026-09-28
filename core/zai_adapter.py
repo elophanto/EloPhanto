@@ -55,11 +55,23 @@ class ZaiAdapter:
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        reasoning_effort: str = "",
+        preserve_reasoning: bool = False,
     ) -> Any:
-        """Make a chat completion call to Z.ai."""
+        """Make a chat completion call to Z.ai.
+
+        ``reasoning_effort`` maps to Z.ai's ``thinking`` + ``reasoning_effort``
+        (GLM-4.5 and later): "none"/"off" disables thinking, any other value
+        sets the effort. Empty leaves the API default (thinking on, max).
+        ``preserve_reasoning`` sends earlier turns' reasoning back
+        (``clear_thinking: false``) so a multi-step tool loop keeps its train
+        of thought instead of re-deriving it every turn.
+        """
         from core.router import LLMResponse
 
-        formatted_messages = self._reformat_messages(messages)
+        formatted_messages = self._reformat_messages(
+            messages, keep_reasoning=preserve_reasoning
+        )
 
         headers = {
             "Content-Type": "application/json",
@@ -76,6 +88,14 @@ class ZaiAdapter:
             payload["max_tokens"] = max_tokens
         if tools:
             payload["tools"] = tools
+        effort = (reasoning_effort or "").strip().lower()
+        if effort in ("none", "off", "disabled"):
+            payload["thinking"] = {"type": "disabled"}
+        elif effort:
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = effort
+        if preserve_reasoning:
+            payload["clear_thinking"] = False
 
         response = await self._client.post(
             f"{self._base_url}/chat/completions",
@@ -138,6 +158,7 @@ class ZaiAdapter:
             tool_calls=tool_calls,
             finish_reason=finish_reason,
             suspected_truncated=truncated,
+            reasoning=str(message.get("reasoning_content") or ""),
         )
 
     async def health_check(self) -> bool:
@@ -177,9 +198,14 @@ class ZaiAdapter:
             return False
 
     def _reformat_messages(
-        self, messages: list[dict[str, Any]]
+        self, messages: list[dict[str, Any]], keep_reasoning: bool = False
     ) -> list[dict[str, Any]]:
-        """Apply GLM message constraints to ensure API compatibility."""
+        """Apply GLM message constraints to ensure API compatibility.
+
+        The agent keeps a turn's reasoning under the private key
+        ``_reasoning``; it becomes ``reasoning_content`` when
+        ``keep_reasoning`` is set and is dropped otherwise.
+        """
         result: list[dict[str, Any]] = []
 
         # Constraint 1: Collect and merge all system messages into one at index 0
@@ -201,7 +227,9 @@ class ZaiAdapter:
         seen_tool_call_ids: set[str] = set()
 
         for msg in non_system:
-            formatted = dict(msg)
+            formatted = {k: v for k, v in msg.items() if not k.startswith("_")}
+            if keep_reasoning and msg.get("role") == "assistant" and msg.get("_reasoning"):
+                formatted["reasoning_content"] = msg["_reasoning"]
 
             # Strip multimodal content — GLM/Z.ai doesn't support image_url blocks.
             # When content is a list, extract only text parts; discard images.

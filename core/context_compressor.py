@@ -77,6 +77,9 @@ def _message_tokens(msg: dict[str, Any]) -> int:
         for part in content:
             if isinstance(part, dict) and part.get("type") == "text":
                 total += _estimate_tokens(part.get("text", ""))
+    reasoning = msg.get("_reasoning")
+    if isinstance(reasoning, str) and reasoning:
+        total += _estimate_tokens(reasoning)
     for tc in msg.get("tool_calls") or []:
         try:
             args = tc.get("function", {}).get("arguments", "")

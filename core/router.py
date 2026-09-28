@@ -67,6 +67,11 @@ class LLMResponse:
     latency_ms: int = 0
     fallback_from: str = ""
     suspected_truncated: bool = False
+    # The model's reasoning for this turn, when the provider returns it
+    # (Z.ai / Kimi ``reasoning_content``, Codex reasoning summaries). It was
+    # discarded; now the agent loop can keep it with the turn and use it in
+    # handoffs (docs/94 §10).
+    reasoning: str = ""
 
 
 @dataclass
@@ -222,6 +227,14 @@ class CostTracker:
         self._pending_records.clear()
 
 
+def _strip_private_keys(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop underscore-prefixed keys the agent keeps on messages for itself
+    (``_reasoning``) before they reach a provider that would reject them."""
+    if not any(any(k.startswith("_") for k in m) for m in messages):
+        return messages
+    return [{k: v for k, v in m.items() if not k.startswith("_")} for m in messages]
+
+
 class LLMRouter:
     """Routes LLM calls to the appropriate provider and model."""
 
@@ -305,20 +318,21 @@ class LLMRouter:
                     result = await self._call_zai(
                         messages, model, tools, temperature, max_tokens,
                         task_type=task_type,
+                        reasoning_effort=reasoning_effort,
                     )
                 elif provider == "kimi":
                     result = await self._call_kimi(
-                        messages, model, tools, temperature, max_tokens,
-                        task_type=task_type,
+                        _strip_private_keys(messages), model, tools, temperature,
+                        max_tokens, task_type=task_type,
                     )
                 elif provider == "codex":
                     result = await self._call_codex(
-                        messages, model, tools, reasoning_effort,
+                        _strip_private_keys(messages), model, tools, reasoning_effort,
                         task_type=task_type,
                     )
                 else:
                     result = await self._call_litellm(
-                        messages,
+                        _strip_private_keys(messages),
                         model,
                         provider,
                         tools,
@@ -506,8 +520,12 @@ class LLMRouter:
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> LLMResponse:
         """Route an LLM call to the appropriate provider.
+
+        ``reasoning_effort`` overrides the task type's configured effort for
+        this call — deliberation steps ask for more than execution steps.
 
         Each provider is retried up to MAX_RETRIES times for transient
         failures. If all retries fail, tries the next provider in the
@@ -623,9 +641,14 @@ class LLMRouter:
                 f"[TIMING] routing to {provider}/{model} for task_type={task_type}"
             )
 
-            # Pick up reasoning_effort from per-task routing config
+            # Pick up reasoning_effort from per-task routing config, unless
+            # the caller asked for a specific effort.
             _routing = self._config.llm.routing.get(task_type)
-            _reasoning_effort = _routing.reasoning_effort if _routing else ""
+            _reasoning_effort = (
+                reasoning_effort
+                if reasoning_effort is not None
+                else (_routing.reasoning_effort if _routing else "")
+            )
 
             try:
                 result = await self._call_with_retries(
@@ -1051,12 +1074,26 @@ class LLMRouter:
         temperature: float,
         max_tokens: int | None,
             task_type: str = "unknown",
+        reasoning_effort: str = "",
     ) -> LLMResponse:
-        """Call via Z.ai custom adapter."""
+        """Call via Z.ai custom adapter.
+
+        The configured ``reasoning_effort`` used to be dropped here, so every
+        GLM call ran at Z.ai's default — thinking on, effort ``max`` — no
+        matter what the config said (docs/94 §10).
+        """
         adapter = self._get_zai_adapter()
         try:
             response = await adapter.complete(
-                messages, model, tools, temperature, max_tokens
+                messages,
+                model,
+                tools,
+                temperature,
+                max_tokens,
+                reasoning_effort=reasoning_effort,
+                preserve_reasoning=bool(
+                    getattr(self._config.llm, "preserve_reasoning", False)
+                ),
             )
             self._cost_tracker.record(
                 "zai",
