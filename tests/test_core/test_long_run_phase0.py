@@ -442,8 +442,10 @@ class TestNoSilentStalls:
             (g.goal_id,),
         )
         state, _ = await gm.diagnose_no_pending(g.goal_id)
-        assert state == "completed"
-        assert (await gm.get_goal(g.goal_id)).status == "completed"
+        # Every checkpoint done is "verify the goal now", not "completed"
+        # (docs/94 §11): the runner's final verification decides.
+        assert state == "all_done"
+        assert (await gm.get_goal(g.goal_id)).status == "active"
 
     async def test_the_runner_moves_on_to_the_next_active_goal(
         self, gm: GoalManager, router: AsyncMock, goals_config: GoalsConfig

@@ -1313,6 +1313,9 @@ _SCHEMA = [
 # Idempotent ALTER TABLE migrations — SQLite raises OperationalError
 # ("duplicate column name") if the column already exists, which we catch.
 _MIGRATIONS = [
+    # A machine- or panel-checkable verification per checkpoint, declared
+    # when the plan is made (core/checkpoint_verify.py, docs/94 §11).
+    "ALTER TABLE goal_checkpoints ADD COLUMN verification TEXT NOT NULL DEFAULT ''",
     # Watch: geo_state became a *verified* provenance claim; the exit IP that
     # passed verification is recorded beside it (see core/watch_observe.py).
     "ALTER TABLE watch_evidence ADD COLUMN exit_ip TEXT NOT NULL DEFAULT ''",

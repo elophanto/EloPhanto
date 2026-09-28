@@ -97,6 +97,7 @@ class ScriptedModel:
     handoff_requests: int = 0
     chats: int = 0
     plans: int = 0
+    final_checks: int = 0
 
     async def complete(self, messages: list[dict[str, Any]], **kw: Any) -> LLMResponse:
         task_type = kw.get("task_type", "planning")
@@ -107,7 +108,8 @@ class ScriptedModel:
         first_user = first_user if isinstance(first_user, str) else ""
 
         if task_type != "planning" or any(
-            marker in (system or "") for marker in ("goal_decomposition", "plan_critique")
+            marker in (system or "")
+            for marker in ("goal_decomposition", "plan_critique", "You verify, independently")
         ):
             return self._simple(system, messages)
 
@@ -173,6 +175,11 @@ class ScriptedModel:
                 ],
             }
             return _resp(json.dumps(plan))
+        if "You verify, independently" in (system or ""):
+            self.final_checks += 1
+            return _resp(
+                json.dumps({"met": True, "evidence": "all six parts written", "missing": []})
+            )
         if "plan_critique" in (system or ""):
             return _resp("no changes")  # unusable critique → the draft stands
         if "goal_evaluation" in (system or ""):

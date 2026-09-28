@@ -111,6 +111,13 @@ class TestLongGoalUnderDisturbance:
         for order in range(1, 7):
             assert any(f"cp{order}_part" in a for a in artifacts), (order, artifacts)
 
+        # The goal was verified as a whole before it was called complete.
+        assert model.final_checks == 1
+        assert any(
+            e.kind == "decision" and e.content.startswith("Final verification: met")
+            for e in entries
+        )
+
         # Every attempt was planned before it ran, and the plan is on record.
         assert model.plans >= 6
         assert len([e for e in entries if e.kind == "plan"]) == model.plans

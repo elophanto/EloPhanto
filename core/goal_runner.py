@@ -524,6 +524,11 @@ class GoalRunner:
                     # instead of exiting and leaving an unfinished goal
                     # 'active' with nothing running it (docs/94 F10).
                     state, detail = await self._gm.diagnose_no_pending(goal_id)
+                    if state == "all_done":
+                        outcome = await self._finish_goal(goal_id)
+                        if outcome == "revised":
+                            continue
+                        return
                     if state == "completed":
                         goal = await self._gm.get_goal(goal_id)
                         await self._broadcast_event(
@@ -584,6 +589,10 @@ class GoalRunner:
                     )
                 else:
                     goal = await self._gm.get_goal(goal_id)
+                    if goal and goal.status == "paused" and await self._try_recover(
+                        goal, checkpoint
+                    ):
+                        continue
                     if goal and goal.status in (
                         "paused",
                         "awaiting_approval",
@@ -609,8 +618,10 @@ class GoalRunner:
                         evaluation = await self._gm.evaluate_progress(goal)
                         if not evaluation.revision_needed:
                             # The only thing that counts as progress here:
-                            # an evaluation that finds the goal on track.
-                            revisions_without_progress = 0
+                            # an evaluation that READ as on track. An
+                            # unparseable answer is not progress.
+                            if evaluation.parsed and evaluation.on_track:
+                                revisions_without_progress = 0
                         else:
                             revisions_without_progress += 1
                             logger.info(
@@ -638,7 +649,12 @@ class GoalRunner:
                                     f"should inspect, supersede, or cancel.",
                                 )
                                 return
-                            await self._gm.revise_plan(goal, evaluation.reason)
+                            reason = evaluation.reason
+                            if evaluation.suggested_changes:
+                                # Dropped before: the evaluator said what to
+                                # change and the reviser was never told.
+                                reason += f" Suggested changes: {evaluation.suggested_changes}"
+                            await self._gm.revise_plan(goal, reason)
 
                 # Brief pause between checkpoints
                 if self._config.pause_between_checkpoints_seconds > 0:
@@ -947,10 +963,31 @@ class GoalRunner:
                 )
                 return False
 
+            vres = await self._verify(goal, checkpoint, tool_trace, response, ledger)
+            if not vres.ok:
+                reason = f"verification: {vres.reason}"
+                if vres.findings:
+                    reason += " Findings: " + "; ".join(vres.findings[:6])
+                logger.warning(
+                    "Checkpoint %d of goal %s failed verification: %s",
+                    checkpoint.order,
+                    goal.goal_id,
+                    reason[:300],
+                )
+                await self._gm.mark_checkpoint_failed(goal.goal_id, checkpoint.order, reason)
+                await self._ledger_failure(
+                    goal.goal_id, checkpoint.order, attempt_no, reason, tool_trace
+                )
+                await self._broadcast_checkpoint_failed(goal, checkpoint, reason[:300])
+                return False
+
             await self._gm.mark_checkpoint_complete(
                 goal.goal_id,
                 checkpoint.order,
-                f"{summary}\n[receipt] {verdict.reason}",
+                f"{summary}\n[receipt] {verdict.reason}\n[verified] {vres.reason}",
+                # The goal is completed by _finish_goal after it is verified
+                # as a whole, not by the last checkpoint passing.
+                defer_completion=True,
             )
 
             # Optional instinct extraction from verified completions (P2).
@@ -1119,6 +1156,148 @@ class GoalRunner:
         except Exception:
             pass
         return text
+
+    async def _verify(
+        self, goal: Goal, checkpoint: Any, tool_trace: list[dict[str, Any]], response: Any, ledger: Any
+    ) -> Any:
+        """Run the checkpoint's declared verification (docs/94 §11)."""
+        from core.checkpoint_verify import VerificationResult, verify_checkpoint
+
+        raw = getattr(checkpoint, "verification", "") or ""
+        if not raw:
+            return VerificationResult(ok=True, reason="no verification declared")
+        refs: list[str] = []
+        if ledger is not None:
+            refs = [e.ref for e in await ledger.entries(goal.goal_id, kinds=("artifact",))]
+        workspace = getattr(getattr(self._agent, "_config", None), "workspace", "")
+        return await verify_checkpoint(
+            raw,
+            tool_trace=tool_trace,
+            artifact_refs=refs,
+            workspace=workspace if isinstance(workspace, str) else "",
+            router=getattr(self._agent, "_router", None),
+            criteria=checkpoint.success_criteria or "",
+            result_text=str(getattr(response, "content", "") or ""),
+        )
+
+    async def _count_ledger(self, goal_id: str, kind: str, prefix: str) -> int:
+        ledger = self._ledger()
+        if ledger is None:
+            return 0
+        return sum(
+            1 for e in await ledger.entries(goal_id, kinds=(kind,)) if e.content.startswith(prefix)
+        )
+
+    async def _finish_goal(self, goal_id: str) -> str:
+        """Verify the goal as a whole, then complete, extend, or pause it.
+
+        Returns "completed", "revised" (new checkpoints to run) or "paused".
+        """
+        from core.company import ALL_COMPANIES
+
+        goal = await self._gm.get_goal(goal_id, company_id=ALL_COMPANIES)
+        if goal is None:
+            return "paused"
+        ledger = self._ledger()
+        prior_misses = await self._count_ledger(goal_id, "failure", "Final verification: not met")
+        verdict = await self._gm.verify_goal_met(
+            goal, effort=str(getattr(self._config, "deliberation_effort", "") or "")
+        )
+
+        async def _note(kind: str, text: str) -> None:
+            if ledger is not None:
+                await ledger.add(goal_id, kind, text, source="code")
+
+        if verdict is None or verdict.get("met"):
+            if verdict is None:
+                await _note(
+                    "decision",
+                    "Final verification unavailable — completed on checkpoint results.",
+                )
+            else:
+                await _note("decision", f"Final verification: met — {verdict.get('evidence', '')}")
+            await self._gm.complete_goal(goal_id)
+            await self._write_ledger_file(goal)
+            await self._broadcast_event(
+                EventType.GOAL_COMPLETED, {"goal_id": goal_id, "goal": goal.goal}
+            )
+            return "completed"
+
+        missing = "; ".join(verdict.get("missing") or []) or "not specified"
+        await _note("failure", f"Final verification: not met — missing: {missing}")
+        if prior_misses >= 2:
+            await self._pause_goal(
+                goal_id,
+                f"final verification found the goal not met three times; missing: {missing}",
+            )
+            return "paused"
+        new = await self._gm.revise_plan(
+            goal,
+            "Final verification found the goal not met. Missing: "
+            f"{missing}. Add checkpoints that do exactly this missing work — "
+            "nothing already done.",
+        )
+        if not new:
+            await self._pause_goal(goal_id, f"final verification: not met, missing: {missing}")
+            return "paused"
+        await self._broadcast_event(
+            EventType.GOAL_REVISED,
+            {"goal_id": goal_id, "reason": f"final verification: missing {missing}"[:300]},
+        )
+        return "revised"
+
+    async def _try_recover(self, goal: Goal, checkpoint: Any) -> bool:
+        """A checkpoint failed out: re-plan it once before pausing the goal.
+
+        The mind used to be the only thing that could recover a goal paused
+        this way, and only when it was running. The runner now revises the
+        plan with the failure history itself — at most twice per goal — and
+        pauses only when that fails too.
+        """
+        failed = await self._gm.get_checkpoints(goal.goal_id, status="failed")
+        if not any(c.order == checkpoint.order for c in failed):
+            return False  # paused for another reason
+        if await self._count_ledger(goal.goal_id, "decision", "Automatic recovery") >= 2:
+            return False
+        ledger = self._ledger()
+        history = ""
+        if ledger is not None:
+            history = await ledger.render(goal.goal_id, checkpoint_order=checkpoint.order, max_chars=1500)
+        reason = (
+            f"Automatic recovery: checkpoint {checkpoint.order} '{checkpoint.title}' "
+            f"failed all its attempts. Replace it with a different approach — split "
+            f"it into smaller steps or change the method; do not repeat what failed. "
+            f"History: {history[:1200]}"
+        )
+        if ledger is not None:
+            await ledger.add(
+                goal.goal_id,
+                "decision",
+                reason[:1500],
+                checkpoint_order=checkpoint.order,
+                source="code",
+            )
+        try:
+            new = await self._gm.revise_plan(goal, reason)
+        except Exception as e:
+            logger.warning("automatic recovery failed for %s: %s", goal.goal_id, e)
+            return False
+        if not new:
+            return False
+        await self._gm._update_status(goal.goal_id, "active", from_statuses=("paused",))
+        await self._broadcast_event(
+            EventType.GOAL_REVISED,
+            {
+                "goal_id": goal.goal_id,
+                "reason": f"automatic recovery of checkpoint {checkpoint.order}",
+            },
+        )
+        logger.info(
+            "Goal %s: checkpoint %d failed out — plan revised automatically",
+            goal.goal_id,
+            checkpoint.order,
+        )
+        return True
 
     def _ledger(self) -> Any:
         """The run ledger over the goal manager's DB (None if unavailable)."""

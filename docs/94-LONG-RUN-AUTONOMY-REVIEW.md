@@ -515,3 +515,31 @@ Not done, and why: replaying Codex's encrypted reasoning items across tool
 turns (`include: ["reasoning.encrypted_content"]`) changes the Responses-API
 input format and cannot be verified without live calls on the operator's
 subscription; it stays a follow-up.
+
+---
+
+## 11. Phase 3 — verified implementation spec (verification)
+
+**Status: implemented 2026-09-28.** 3,870 tests pass (9 new; the soak run
+now also asserts the goal was verified as a whole before completion).
+
+Verified 2026-09-28 against `d5d34a86`. `goal_checkpoints` has no column for a
+check (live columns: id, goal_id, checkpoint_order, title, description,
+success_criteria, status, result_summary, attempts, started_at, completed_at,
+stage); one is added through `_MIGRATIONS`
+(`ALTER TABLE goal_checkpoints ADD COLUMN verification TEXT NOT NULL DEFAULT ''`),
+so existing rows read as "no check". `mark_checkpoint_complete` has exactly
+one caller (the goal runner), so completion can move behind a final check.
+`core/panel.py` exposes `run_panel(artifact, lenses, judge)` and
+`assess(verdicts, bar)`; judges are plain LLM calls here, not agent runs, so
+verification never contends for `AGENT_LOOP`. `core/net_policy.classify_host`
+blocks private and reserved addresses for URL checks.
+
+| Piece | What it does |
+| --- | --- |
+| Checks | Each checkpoint may carry `verification`: one check or a list, all of which must pass. `tool_output` (a successful call this attempt — optionally of a named tool — returned text containing X), `file_exists` (path relative to the workspace; optional `contains`, `min_bytes`), `url_ok` (public http(s) only, status < 400, optional `contains`), `artifact` (the ledger holds an artifact whose ref contains X), `judgment` (an independent panel — `analysis`, `writing` or `code` lens pack — reviews the checkpoint's result against its criteria). Unknown types are ignored, not failed. |
+| Where checks come from | The decompose and revise prompts ask for a `verification` per checkpoint (code-checkable where possible, `judgment` only where quality is the point); the critique pass checks for it. |
+| Runner | Checks run after the receipt gate. A failed check fails the attempt with the reason (and a panel's specific findings) in the retry note and the ledger. |
+| Final verification | When the last checkpoint completes, the goal is not marked complete yet: one planning-tier call compares the original goal (and kill criterion) with the checkpoint results and the ledger and answers met / not met with the missing pieces. Met → completed. Not met → the plan is revised to add the missing work (at most twice), then the goal pauses for the operator with the findings. An unavailable verifier completes the goal, noting it on the ledger. |
+| Self-recovery | A checkpoint that exhausts its attempts no longer pauses the goal at once: the runner revises the plan once with the ledger's failure history (splitting or re-approaching the checkpoint), up to twice per goal, and pauses only when that fails too. |
+| Evaluation | `evaluate_progress` reads the ledger (artifacts, facts, failures) as well as summaries, parses leniently, and marks an unparseable answer as such: it no longer counts as "on track" and no longer resets the no-progress guard. `revise_plan` receives the evaluation's `suggested_changes`, which were dropped. |

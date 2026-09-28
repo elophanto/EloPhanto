@@ -432,7 +432,11 @@ class TestEvaluation:
         goal = await gm.create_goal("Bad eval")
         await gm.decompose(goal)
         result = await gm.evaluate_progress(goal)
-        assert result.on_track is True  # safe fallback
+        # An answer nobody could read is not evidence of progress: it must
+        # not reset the no-progress guard (docs/94 §11). It does not force a
+        # revision either.
+        assert result.parsed is False
+        assert result.on_track is False
         assert result.revision_needed is False
 
 

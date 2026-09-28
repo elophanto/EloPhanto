@@ -66,6 +66,9 @@ class Checkpoint:
     # 'unknown' for pre-migration / legacy checkpoints. Lets the decompose
     # prompt mark which checkpoint is the validate gate.
     stage: str = "unknown"
+    # JSON: one check or a list, run after the receipt gate
+    # (core/checkpoint_verify.py). "" = no declared check.
+    verification: str = ""
 
 
 @dataclass
@@ -126,6 +129,9 @@ class EvaluationResult:
     revision_needed: bool
     reason: str
     suggested_changes: str | None = None
+    # False when the evaluator's answer could not be parsed. An unparsed
+    # answer is not evidence the goal is on track.
+    parsed: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -233,10 +239,21 @@ Return ONLY a JSON object. No markdown, no explanation:
       "title": "<short title, max 60 chars>",
       "description": "<what to do, 1-3 sentences>",
       "success_criteria": "<how to verify completion, objective and measurable>",
-      "stage": "<one of: scan|validate|build|launch|acquire|operate|scale>"
+      "stage": "<one of: scan|validate|build|launch|acquire|operate|scale>",
+      "verification": <a check the runner can execute, or null — see VERIFICATION>
     }
   ]
 }
+
+VERIFICATION — how the runner proves the checkpoint without taking the
+agent's word for it. Prefer a code check; one object or a list:
+  {"type": "tool_output", "tool": "<tool>", "contains": "<text its output must contain>"}
+  {"type": "file_exists", "path": "<path under the workspace>", "contains": "<text>", "min_bytes": <n>}
+  {"type": "url_ok", "url": "<public URL that must answer>", "contains": "<text>"}
+  {"type": "artifact", "contains": "<part of a produced file path / URL / id>"}
+  {"type": "judgment", "pack": "analysis|writing|code", "focus": "<what the reviewers must check>"}
+Use "judgment" only when quality is the point (research, writing,
+strategy); an independent panel reviews the result. null if nothing fits.
 
 Guidelines:
 - Front-load risky or uncertain steps; the validate gate above overrides the
@@ -261,6 +278,9 @@ unattended. Check each checkpoint against:
 5. Nothing the goal needs is missing; nothing it does not need is there.
 6. Each fits in 5-30 tool calls — split or merge otherwise.
 7. The kill criterion is measurable (a number and a date or volume).
+8. Each checkpoint has a verification the runner can execute where one is
+   possible (tool_output / file_exists / url_ok / artifact), "judgment" only
+   where quality is the point.
 Use the CONTEXT: do not repeat approaches that failed before.
 
 Return ONLY a JSON object with the draft's schema plus a critique field:
@@ -301,7 +321,8 @@ remaining (uncompleted) portion of the plan.
 
 Return ONLY a JSON array of new checkpoint objects, each with:
 {"order": <int>, "title": "...", "description": "...",
- "success_criteria": "...", "stage": "scan|validate|build|launch|acquire|operate|scale"}
+ "success_criteria": "...", "stage": "scan|validate|build|launch|acquire|operate|scale",
+ "verification": <a check object/list as in the original plan, or null>}
 Start ordering from the next checkpoint number after the last completed one.
 Honor the validate-first rule: do not introduce a `build` checkpoint if no
 `validate` checkpoint has yet produced a paying-party signal.
@@ -707,7 +728,8 @@ class GoalManager:
         """Why a goal has no pending checkpoint.
 
         Returns ``(state, detail)``, where state is one of:
-          - ``completed``       — the goal is done (and is marked so)
+          - ``completed``       — the goal is already marked completed
+          - ``all_done``        — every checkpoint is done; verify, then complete
           - ``failed_checkpoint`` — a checkpoint failed out; detail names it
           - ``plan_incomplete`` — nothing pending, not all completed
           - ``in_progress``     — a checkpoint is still active
@@ -732,13 +754,9 @@ class GoalManager:
             )
         done = [c for c in cps if c.status in ("completed", "skipped")]
         if cps and len(done) == len(cps):
-            now = datetime.now(UTC).isoformat()
-            goal.status = "completed"
-            goal.completed_at = now
-            goal.updated_at = now
-            await self._persist_goal(goal)
-            await self._fire_completion_hooks(goal_id)
-            return "completed", ""
+            # Every checkpoint is done; whether the GOAL is met is the
+            # caller's final verification to decide.
+            return "all_done", ""
         return (
             "plan_incomplete",
             f"no pending checkpoints but {len(done)}/{len(cps)} done — the plan "
@@ -830,8 +848,8 @@ class GoalManager:
             await self._db.execute_insert(
                 "INSERT INTO goal_checkpoints "
                 "(goal_id, checkpoint_order, title, description, success_criteria, "
-                "stage) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "stage, verification) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     cp.goal_id,
                     cp.order,
@@ -839,6 +857,7 @@ class GoalManager:
                     cp.description,
                     cp.success_criteria,
                     cp.stage,
+                    cp.verification,
                 ),
             )
 
@@ -991,8 +1010,8 @@ class GoalManager:
             await self._db.execute_insert(
                 "INSERT INTO goal_checkpoints "
                 "(goal_id, checkpoint_order, title, description, success_criteria, "
-                "stage) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "stage, verification) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     cp.goal_id,
                     cp.order,
@@ -1000,6 +1019,7 @@ class GoalManager:
                     cp.description,
                     cp.success_criteria,
                     cp.stage,
+                    cp.verification,
                 ),
             )
 
@@ -1261,8 +1281,8 @@ class GoalManager:
         )
 
     async def mark_checkpoint_complete(
-        self, goal_id: str, order: int, summary: str
-    ) -> None:
+        self, goal_id: str, order: int, summary: str, *, defer_completion: bool = False
+    ) -> bool:
         """Mark a checkpoint as completed and advance the goal.
 
         Uses ALL_COMPANIES on the internal goal fetch so a context
@@ -1280,10 +1300,11 @@ class GoalManager:
 
         goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
         if not goal:
-            return
+            return False
 
         next_cp = await self.get_next_checkpoint(goal_id)
         just_completed = False
+        ready = False
         if next_cp:
             goal.current_checkpoint = next_cp.order
         else:
@@ -1306,9 +1327,14 @@ class GoalManager:
                 int(completed_count_rows[0]["c"]) if completed_count_rows else 0
             )
             if completed_count >= goal.total_checkpoints:
-                goal.status = "completed"
-                goal.completed_at = now
-                just_completed = True
+                if defer_completion:
+                    # The caller verifies the goal as a whole before it is
+                    # called complete (docs/94 §11).
+                    ready = True
+                else:
+                    goal.status = "completed"
+                    goal.completed_at = now
+                    just_completed = True
             else:
                 # Stalled: planning was lost / interrupted. Leave status
                 # 'active' (or whatever it was) so the goal stays visible
@@ -1337,6 +1363,80 @@ class GoalManager:
         # "goal finished" and "next dream cycle wakes up".
         if just_completed:
             await self._fire_completion_hooks(goal_id)
+        return ready
+
+    async def complete_goal(self, goal_id: str) -> bool:
+        """Mark a goal completed and notify subscribers."""
+        goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
+        if goal is None:
+            return False
+        now = datetime.now(UTC).isoformat()
+        goal.status = "completed"
+        goal.completed_at = now
+        goal.updated_at = now
+        await self._persist_goal(goal)
+        await self._fire_completion_hooks(goal_id)
+        return True
+
+    async def verify_goal_met(self, goal: Goal, *, effort: str = "") -> dict[str, Any] | None:
+        """Does the finished plan achieve the goal as stated?
+
+        Every checkpoint passing is not the same as the goal being met: a
+        plan can be completed while missing what the goal asked for. One
+        planning-tier call compares the original goal with the checkpoint
+        results and the run ledger. Returns ``{"met", "evidence",
+        "missing"}`` or None when the verifier is unavailable.
+        """
+        cps = await self.get_checkpoints(goal.goal_id)
+        results = "\n".join(
+            f"[{c.order}] {c.title} — criteria: {c.success_criteria[:200]} — "
+            f"result: {(c.result_summary or '')[:300]}"
+            for c in cps
+        )
+        try:
+            from core.run_ledger import RunLedger
+
+            ledger = await RunLedger(self._db).render(goal.goal_id, max_chars=5000)
+        except Exception:
+            ledger = ""
+        system = (
+            "You verify, independently, whether a finished plan achieved its goal. "
+            "Judge the GOAL as the operator stated it, not the plan. Use only the "
+            "evidence given: checkpoint results and the run ledger (artifacts, "
+            "facts). A claim with no artifact or fact behind it is not evidence.\n"
+            'Return ONLY JSON: {"met": true|false, "evidence": "<what shows it>", '
+            '"missing": ["<specific thing the goal asked for that is not done>"]}'
+        )
+        user = (
+            f"GOAL: {goal.goal}\n"
+            + (f"KILL CRITERION: {goal.kill_criterion}\n" if goal.kill_criterion else "")
+            + f"\nCHECKPOINT RESULTS:\n{results}\n\nRUN LEDGER:\n{ledger or '(empty)'}"
+        )
+        try:
+            response = await self._router.complete(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                task_type="planning",
+                temperature=0.1,
+                reasoning_effort=effort or None,
+            )
+            goal.llm_calls_used += 1
+        except Exception as e:
+            logger.warning("final goal verification unavailable: %s", e)
+            return None
+        data = _loads_json_lenient(response.content or "")
+        if not isinstance(data, dict) or "met" not in data:
+            return None
+        missing = data.get("missing") or []
+        if isinstance(missing, str):
+            missing = [missing]
+        return {
+            "met": bool(data.get("met")),
+            "evidence": str(data.get("evidence") or "")[:800],
+            "missing": [str(m)[:300] for m in missing if str(m).strip()][:10],
+        }
 
     async def mark_checkpoint_failed(
         self, goal_id: str, order: int, error: str
@@ -1501,12 +1601,21 @@ class GoalManager:
         )
         remaining_text = "\n".join(f"[{c.order}] {c.title}" for c in remaining)
 
+        try:
+            from core.run_ledger import RunLedger
+
+            ledger_text = await RunLedger(self._db).render(goal.goal_id, max_chars=4000)
+        except Exception:
+            ledger_text = ""
         prompt = (
             f"Goal: {goal.goal}\n\n"
             f"Completed checkpoints:\n{completed_text}\n\n"
             f"Remaining checkpoints:\n{remaining_text}\n\n"
-            f"Context summary:\n{goal.context_summary}\n\n"
-            f"Evaluate: is this goal on track? Should the remaining plan be revised?"
+            f"Context summary (the model's own prose):\n{goal.context_summary}\n\n"
+            f"Run ledger (artifacts, facts, failed attempts — the evidence):\n"
+            f"{ledger_text or '(empty)'}\n\n"
+            f"Evaluate against the evidence, not the summaries: is this goal on "
+            f"track? Should the remaining plan be revised?"
         )
 
         response = await self._router.complete(
@@ -1519,20 +1628,22 @@ class GoalManager:
         )
         goal.llm_calls_used += 1
 
-        try:
-            data = json.loads(response.content or "{}")
+        data = _loads_json_lenient(response.content or "")
+        if not isinstance(data, dict):
+            # Not "on track": an answer nobody could read is no evidence of
+            # progress, and must not reset the no-progress guard (docs/94 S2).
             return EvaluationResult(
-                on_track=data.get("on_track", True),
-                revision_needed=data.get("revision_needed", False),
-                reason=data.get("reason", ""),
-                suggested_changes=data.get("suggested_changes"),
-            )
-        except (json.JSONDecodeError, AttributeError):
-            return EvaluationResult(
-                on_track=True,
+                on_track=False,
                 revision_needed=False,
                 reason="Could not parse evaluation",
+                parsed=False,
             )
+        return EvaluationResult(
+            on_track=bool(data.get("on_track", True)),
+            revision_needed=bool(data.get("revision_needed", False)),
+            reason=str(data.get("reason", "")),
+            suggested_changes=data.get("suggested_changes"),
+        )
 
     def check_budget(self, goal: Goal) -> tuple[bool, str]:
         """Check if the goal is within its LLM call budget."""
@@ -1664,6 +1775,7 @@ class GoalManager:
             stage = str(item.get("stage", "unknown")).strip().lower() or "unknown"
             if stage not in GOAL_STAGES:
                 stage = "unknown"
+            verification = item.get("verification")
             checkpoints.append(
                 Checkpoint(
                     goal_id=goal_id,
@@ -1672,6 +1784,11 @@ class GoalManager:
                     description=str(item.get("description", "")),
                     success_criteria=str(item.get("success_criteria", "")),
                     stage=stage,
+                    verification=(
+                        json.dumps(verification)
+                        if isinstance(verification, (dict, list)) and verification
+                        else ""
+                    ),
                 )
             )
             next_order += 1
@@ -1742,4 +1859,8 @@ class GoalManager:
             started_at=row["started_at"],
             completed_at=row["completed_at"],
             stage=(row["stage"] if "stage" in row.keys() else "unknown") or "unknown",
+            verification=(
+                row["verification"] if "verification" in row.keys() else ""
+            )
+            or "",
         )

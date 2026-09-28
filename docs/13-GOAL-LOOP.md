@@ -84,6 +84,10 @@ From the long-run review ([94-LONG-RUN-AUTONOMY-REVIEW.md](94-LONG-RUN-AUTONOMY-
 | Cost cap | Each checkpoint run's `CostTracker.task_total` is added to `goals.cost_usd`, so `cost_budget_per_goal_usd` works. |
 | Run ledger | `run_ledger` table (`core/run_ledger.py`): artifacts recorded by code from the tool trail, facts / decisions / questions / plans from the model via `goal_note`, a failure row per failed attempt, a handoff row per interrupted run. Rendered into every checkpoint prompt as `RUN LEDGER`, into `goal_status detail`, and mirrored to `<workspace>/goals/<goal_id>/LEDGER.md`. |
 | Handoffs | Checkpoint runs ask for one (`submit_task(handoff=True)`): a cheap LLM note on time/step/stagnation stops, a transcript-only note on preemption, STOP and budget stops. |
+| Checkpoint checks | `goal_checkpoints.verification` (JSON, from the plan): `tool_output`, `file_exists`, `url_ok` (public hosts only), `artifact`, or `judgment` (an independent panel of LLM judges, `core/panel.py` lens packs). Run after the receipt gate by `core/checkpoint_verify.py`; a failed check fails the attempt with its reason and findings. |
+| Goal completion | The last checkpoint no longer completes the goal. `verify_goal_met` compares the goal as stated with the results and the ledger: met → completed; not met → `revise_plan` adds the missing work (up to twice), then the goal pauses with the findings. |
+| Self-recovery | A checkpoint that exhausts its attempts triggers one automatic `revise_plan` with its failure history (at most twice per goal) before the goal pauses. |
+| Evaluation | Reads the ledger as evidence; an unparseable answer is `parsed=False` and does not reset the no-progress guard; `suggested_changes` reach the reviser. |
 | Pause provenance | `goal_manage pause` / `elophanto goals pause` record "paused by operator" (or "paused by agent"). The mind never resumes operator pauses; system pauses are recoverable. |
 
 ## How Goal Creation is Triggered
