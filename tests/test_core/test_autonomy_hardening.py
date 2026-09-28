@@ -127,7 +127,8 @@ class TestReceiptGate:
                     "tool": "db_query",
                     "status": "ok",
                     "summary": "counted pre-orders",
-                    "data": {"pre-orders": 5},
+                    "data": {"table": "pre_orders"},
+                    "output": "{'pre-orders': 5}",
                 }
             ],
         )

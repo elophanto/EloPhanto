@@ -107,7 +107,7 @@ async def _run(
         return
 
     if action == "pause" and goal_id:
-        ok = await mgr.pause_goal(goal_id)
+        ok = await mgr.pause_goal(goal_id, reason="paused by operator (CLI)")
         _report(ok, "paused", goal_id)
         return
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -226,6 +227,8 @@ class LLMRouter:
 
     # Seconds before a failed provider is retried
     HEALTH_RECOVERY_SECONDS = 60
+    # A provider refusing for billing/credit reasons is parked this long.
+    BILLING_RECOVERY_SECONDS = 3600
     # Retry config for transient failures
     MAX_RETRIES = 3
     RETRY_DELAYS = [2, 5, 10]  # seconds between retries
@@ -235,6 +238,9 @@ class LLMRouter:
         self._cost_tracker = CostTracker()
         self._provider_health: dict[str, bool] = {}
         self._provider_failed_at: dict[str, float] = {}
+        # Per-provider recovery time for the current failure (see
+        # _mark_unhealthy). Missing entry = HEALTH_RECOVERY_SECONDS.
+        self._provider_cooldown: dict[str, float] = {}
         # Lazy singletons — avoid re-creating HTTP clients per call
         self._zai_adapter: Any = None
         self._kimi_adapter: Any = None
@@ -255,10 +261,15 @@ class LLMRouter:
     def provider_tracker(self) -> ProviderTracker:
         return self._provider_tracker
 
-    def _mark_unhealthy(self, provider: str) -> None:
-        """Mark a provider as unhealthy with a recovery timer."""
+    def _mark_unhealthy(self, provider: str, cooldown: float | None = None) -> None:
+        """Mark a provider as unhealthy with a recovery timer.
+
+        ``cooldown`` overrides ``HEALTH_RECOVERY_SECONDS`` for this failure —
+        a provider out of credit will not recover in a minute.
+        """
         self._provider_health[provider] = False
         self._provider_failed_at[provider] = time.time()
+        self._provider_cooldown[provider] = float(cooldown or self.HEALTH_RECOVERY_SECONDS)
 
     def _is_healthy(self, provider: str) -> bool:
         """Check if a provider is healthy, recovering after cooldown."""
@@ -266,7 +277,10 @@ class LLMRouter:
             return True
         # Auto-recover after cooldown
         failed_at = self._provider_failed_at.get(provider, 0)
-        if time.time() - failed_at >= self.HEALTH_RECOVERY_SECONDS:
+        cooldown = getattr(self, "_provider_cooldown", {}).get(
+            provider, self.HEALTH_RECOVERY_SECONDS
+        )
+        if time.time() - failed_at >= cooldown:
             logger.info(f"Provider {provider} health recovered after cooldown")
             self._provider_health[provider] = True
             return True
@@ -331,6 +345,36 @@ class LLMRouter:
                     or "timed out" in str(e).lower()
                 )
                 is_rate_limited = "429" in str(e)
+                # A provider that is out of credit answers 429 too (Z.ai
+                # code 1113 "Insufficient balance"), but it will not recover
+                # in a minute: treating it as a rate limit retried a dead
+                # provider every 60s (76 times in one log). Park it for an
+                # hour and say so plainly (docs/94 F12).
+                _billing_text = str(e).lower()
+                is_billing = any(
+                    marker in _billing_text
+                    for marker in (
+                        "insufficient balance",
+                        "insufficient_quota",
+                        "credit balance",
+                        "payment required",
+                        "billing",
+                        '"code":"1113"',
+                        "'code': '1113'",
+                        "code 1113",
+                    )
+                ) or bool(
+                    re.search(r"\b(?:status(?:_code)?|error|http)\s*[:=]?\s*402\b", _billing_text)
+                )
+
+                if is_billing:
+                    logger.error(
+                        f"[TIMING] {provider}/{model} refused for billing/credit "
+                        f"— provider parked for {self.BILLING_RECOVERY_SECONDS}s. "
+                        f"Top up the account or change provider_priority."
+                    )
+                    self._mark_unhealthy(provider, cooldown=self.BILLING_RECOVERY_SECONDS)
+                    raise
 
                 if is_timeout:
                     logger.warning(

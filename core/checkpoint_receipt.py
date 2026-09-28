@@ -57,6 +57,31 @@ def _flatten_tool_trail(tool_trace: list[dict[str, Any]] | None) -> str:
     return "\n".join(parts).lower()
 
 
+def _flatten_tool_outputs(tool_trace: list[dict[str, Any]] | None) -> str:
+    """What successful tools ANSWERED — never what they were asked.
+
+    ``summary`` and ``data`` on a trace row are built from the call's
+    parameters, so a count found there is a request ("max_results=3"), not a
+    result ("3 posts published"). Counts must be grounded here.
+    """
+    if not tool_trace:
+        return ""
+    parts: list[str] = []
+    for row in tool_trace:
+        if (row.get("status") or "") != "ok" or row.get("error"):
+            continue
+        out = row.get("output")
+        if out:
+            parts.append(str(out)[:2000])
+    return "\n".join(parts).lower()
+
+
+def _has_successful_tool(tool_trace: list[dict[str, Any]] | None) -> bool:
+    return bool(tool_trace) and any(
+        (t.get("status") or "") == "ok" and not t.get("error") for t in tool_trace or []
+    )
+
+
 def verify_checkpoint_receipt(
     success_criteria: str,
     *,
@@ -74,6 +99,9 @@ def verify_checkpoint_receipt(
     trail = _flatten_tool_trail(tool_trace)
     sor = (sor_text or "").strip().lower()
     grounded = f"{trail}\n{sor}".strip()
+    # Counts are grounded only in tool results and a real system-of-record
+    # snippet (docs/94 F8).
+    answered = f"{_flatten_tool_outputs(tool_trace)}\n{sor}".strip()
 
     if not criteria:
         # No criteria declared — require at least one successful tool.
@@ -95,6 +123,14 @@ def verify_checkpoint_receipt(
             "(LLM summary alone is not evidence)",
         )
 
+    # Work is done with tools. A trail of failed calls is not a receipt.
+    if not sor and not _has_successful_tool(tool_trace):
+        return ReceiptVerdict(
+            False,
+            "no successful tool call in this attempt — a checkpoint cannot "
+            "complete on prose or on failed calls",
+        )
+
     # Quantitative: every number mentioned in criteria should appear in
     # grounded evidence (or a clearly larger/equal count for "at least N").
     if _QUANT_RE.search(criteria) or (
@@ -114,17 +150,18 @@ def verify_checkpoint_receipt(
             # smell test for soft-completion, not a proof of the claim, and
             # a stricter rule would refuse honest work over phrasing —
             # which is the failure that produced the three-hour loop.
-            if not any(re.search(rf"\b{n}\b", grounded) for n in counts):
+            if not any(re.search(rf"\b{n}\b", answered) for n in counts):
                 return ReceiptVerdict(
                     False,
                     f"quantitative criteria {criteria!r} not grounded in tool/SoR "
-                    f"evidence (no count from {counts} appears)",
+                    f"evidence (no count from {counts} appears in what a tool "
+                    f"returned)",
                 )
         if percents and not counts:
             # A proportion over a set can only be claimed by someone who
             # enumerated the set, and enumerating leaves a number in the
             # trail. Require that, or the proportion stated literally.
-            if not re.search(r"\d", grounded):
+            if not re.search(r"\d", answered):
                 return ReceiptVerdict(
                     False,
                     f"proportion criteria {criteria!r} not grounded — evidence "

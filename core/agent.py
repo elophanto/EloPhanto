@@ -415,6 +415,39 @@ from core.ego import CAPABILITY_DOMAINS, capability_for_tool
 _TOOL_CAPABILITY_MAP = CAPABILITY_DOMAINS
 
 
+def _describe_stopped_run(
+    reason: str,
+    steps: int,
+    tools: list[str],
+    messages: list[dict[str, Any]],
+) -> str:
+    """A memory summary for a run that did not finish.
+
+    Says why it stopped, what it was doing last and what it last concluded,
+    so a later run (or the operator) can pick it up instead of starting over.
+    """
+    recent: list[str] = []
+    for name in reversed(tools):
+        if name not in recent:
+            recent.append(name)
+        if len(recent) >= 8:
+            break
+    last_note = ""
+    for m in reversed(messages):
+        if m.get("role") != "assistant":
+            continue
+        content = m.get("content")
+        if isinstance(content, str) and content.strip():
+            last_note = content.strip()
+            break
+    parts = [f"Stopped ({reason}) after {steps} steps."]
+    if recent:
+        parts.append("Last tools: " + ", ".join(reversed(recent)) + ".")
+    if last_note:
+        parts.append("Last note: " + last_note[:400])
+    return " ".join(parts)
+
+
 def _capability_from_tools(tools_used: list[str]) -> str:
     """Pick the most representative capability domain for a task."""
     if not tools_used:
@@ -512,6 +545,11 @@ class AgentResponse:
     # because it got stuck" — autonomous mind / cadence callers can
     # resume on the next cycle rather than treating it as failure.
     preempted: bool = False
+    # Why the loop ended: "completed", "preempted", "time_limit",
+    # "max_steps", "stagnation", "loop", "errors", "budget", "stop_file",
+    # "context_overflow" or "error". Callers that resume work (goal runner,
+    # mind) branch on this instead of parsing ``content``.
+    stop_reason: str = ""
 
 
 class _FilteredRegistry:
@@ -2103,7 +2141,9 @@ class Agent:
                 logger.debug("Scheduler shutdown error: %s", e)
         if self._goal_runner:
             try:
-                await self._goal_runner.stop()
+                # close() also stops the idle-goal watchdog.
+                closer = getattr(self._goal_runner, "close", None) or self._goal_runner.stop
+                await closer()
             except Exception as e:
                 logger.debug("GoalRunner shutdown error: %s", e)
         if self._autonomous_mind:
@@ -3512,6 +3552,9 @@ class Agent:
         *,
         max_steps_override: int | None = None,
         cadence: bool = False,
+        time_budget_seconds: float | None = None,
+        isolated_history: bool = False,
+        memory_label: str | None = None,
     ) -> AgentResponse:
         """Single normalized entry point for any task source.
 
@@ -3536,6 +3579,16 @@ class Agent:
                 routes to SCHEDULED_CADENCE priority (yields to
                 mind reflection); when False, deadline-priority
                 SCHEDULED (preempts mind). See action_queue docs.
+            time_budget_seconds: Wall-clock budget for the loop, counted
+                from the moment AGENT_LOOP is acquired — never the time
+                spent queued behind higher-priority work. The loop stops
+                cooperatively between steps (``stop_reason="time_limit"``).
+            isolated_history: Run on a fresh, private conversation
+                history. Background loops use this instead of clearing
+                and restoring the agent-wide history, which raced with
+                other waiters (docs/94 F4).
+            memory_label: Short title stored in long-term memory in place
+                of the prompt text (docs/94 F7).
         """
         from core.execution_context import TaskSource, execution_context
         from core.task_resources import TaskPriority
@@ -3557,6 +3610,9 @@ class Agent:
                 # so the two never disagree.
                 is_user_input=(source in (TaskSource.USER, TaskSource.DELEGATE)),
                 priority=priority_value,
+                time_budget_seconds=time_budget_seconds,
+                isolated_history=isolated_history,
+                memory_label=memory_label,
             )
 
     async def run(
@@ -3566,6 +3622,9 @@ class Agent:
         max_steps_override: int | None = None,
         is_user_input: bool = True,
         priority: int | None = None,
+        time_budget_seconds: float | None = None,
+        isolated_history: bool = False,
+        memory_label: str | None = None,
     ) -> AgentResponse:
         """Execute the plan-execute-reflect loop for a user goal.
 
@@ -3595,6 +3654,15 @@ class Agent:
         from core.authority import AuthorityLevel
         from core.task_resources import TaskPriority, TaskResource
 
+        if isolated_history:
+            # A private history for this run only. Nothing reads it back:
+            # background loops start every cycle clean.
+            history: list[dict[str, Any]] = []
+            append_turn: Callable[[str, str], None] = lambda _u, _a: None  # noqa: E731
+        else:
+            history = self._conversation_history
+            append_turn = self._append_conversation_turn
+
         effective_priority = priority
         if effective_priority is None:
             effective_priority = (
@@ -3612,11 +3680,13 @@ class Agent:
         if current_context().in_agent_loop:
             return await self._run_with_history(
                 goal,
-                self._conversation_history,
-                self._append_conversation_turn,
+                history,
+                append_turn,
                 max_steps_override=max_steps_override,
                 authority=AuthorityLevel.OWNER,
                 is_user_input=is_user_input,
+                time_budget_seconds=time_budget_seconds,
+                memory_label=memory_label,
             )
 
         from core.task_resources import run_scope
@@ -3688,13 +3758,21 @@ class Agent:
                         )
                         if not hold_limit:
                             hold_limit = int(self._config.max_time_seconds or 0)
+                        if time_budget_seconds:
+                            # The caller budgeted this run explicitly. The
+                            # loop stops itself at the budget; the hard
+                            # ceiling only catches an await that never
+                            # returns, so give it a grace period on top.
+                            hold_limit = int(time_budget_seconds) + 300
                         run_coro = self._run_with_history(
                             goal,
-                            self._conversation_history,
-                            self._append_conversation_turn,
+                            history,
+                            append_turn,
                             max_steps_override=max_steps_override,
                             authority=AuthorityLevel.OWNER,
                             is_user_input=is_user_input,
+                            time_budget_seconds=time_budget_seconds,
+                            memory_label=memory_label,
                         )
                         if hold_limit > 0:
                             try:
@@ -3910,6 +3988,8 @@ class Agent:
         authority: Any | None = None,
         session: Any | None = None,
         is_user_input: bool = True,
+        time_budget_seconds: float | None = None,
+        memory_label: str | None = None,
     ) -> AgentResponse:
         """Core plan-execute-reflect loop, parameterized on history source."""
         logger.info("[TIMING] _run_with_history entered for: %s", goal[:80])
@@ -3942,8 +4022,14 @@ class Agent:
         tool_calls_made: list[str] = []
         step = 0
         hard_limit = max_steps_override or self._config.max_steps or 500
-        max_time = self._config.max_time_seconds
+        # A caller's explicit budget wins over the global limit. The clock
+        # starts here, after AGENT_LOOP was acquired — queue time never
+        # counts against the work (docs/94 F2).
+        max_time = time_budget_seconds or self._config.max_time_seconds
         start_time = _time.monotonic()
+        # Machine-readable twin of ``stagnation_reason`` (see AgentResponse).
+        stop_kind = ""
+        _task_title = (memory_label or goal).strip()
         last_model_used = "unknown"
 
         # Stagnation detection: stop when the agent is stuck, not on a clock.
@@ -3976,16 +4062,27 @@ class Agent:
         self_perception_context = ""
         try:
             if self._goal_manager:
-                # Check active first, then paused — mind may have paused the goal
-                goals = await self._goal_manager.list_goals(status="active", limit=1)
-                if not goals:
-                    goals = await self._goal_manager.list_goals(
-                        status="paused", limit=1
-                    )
-                if goals:
+                from core.execution_context import current_context as _cur_ctx
+
+                # A goal checkpoint gets the plan of the goal it belongs to.
+                # Only runs that are not goal work fall back to the most
+                # recently updated goal (docs/94 F3).
+                _ctx_goal_id = _cur_ctx().goal_id
+                if _ctx_goal_id:
                     goal_context = await self._goal_manager.build_goal_context(
-                        goals[0].goal_id
+                        _ctx_goal_id
                     )
+                else:
+                    # Check active first, then paused — mind may have paused the goal
+                    goals = await self._goal_manager.list_goals(status="active", limit=1)
+                    if not goals:
+                        goals = await self._goal_manager.list_goals(
+                            status="paused", limit=1
+                        )
+                    if goals:
+                        goal_context = await self._goal_manager.build_goal_context(
+                            goals[0].goal_id
+                        )
         except Exception:
             pass
 
@@ -4458,6 +4555,7 @@ class Agent:
             # one CLI call halt every in-flight loop at its next
             # safe checkpoint.
             if self._stop_file_present():
+                stop_kind = "stop_file"
                 stagnation_reason = "operator STOP file present"
                 logger.warning(
                     "[stop] data/STOP detected at step %d; halting agent.run()",
@@ -4476,6 +4574,7 @@ class Agent:
                 self._current_preempt_event is not None
                 and self._current_preempt_event.is_set()
             ):
+                stop_kind = "preempted"
                 stagnation_reason = "preempted by higher-priority task"
                 logger.info(
                     "[preempt] yielding AGENT_LOOP at step %d for higher-priority caller",
@@ -4484,12 +4583,14 @@ class Agent:
                 break
 
             if max_time and (_time.monotonic() - start_time) > max_time:
+                stop_kind = "time_limit"
                 stagnation_reason = (
                     f"time limit reached ({int(_time.monotonic() - start_time)}s)"
                 )
                 logger.info("Time limit reached")
                 break
             if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+                stop_kind = "errors"
                 stagnation_reason = f"{consecutive_errors} consecutive errors"
                 logger.info("Stagnation: %s", stagnation_reason)
                 break
@@ -4504,6 +4605,7 @@ class Agent:
                     unique_sigs = set(sig_window)
                     if len(unique_sigs) <= 2:
                         # Truly stuck: same tool with same (or toggling) args
+                        stop_kind = "stagnation"
                         stagnation_reason = (
                             f"repeating {next(iter(unique_names))} "
                             f"{_STAGNATION_WINDOW} times"
@@ -4519,6 +4621,7 @@ class Agent:
                 )
                 _most_common = _hash_counts.most_common(1)[0][1]
                 if _most_common >= _RESPONSE_DEDUP_THRESHOLD:
+                    stop_kind = "stagnation"
                     stagnation_reason = (
                         f"LLM repeating same response "
                         f"({_most_common}/{_RESPONSE_DEDUP_WINDOW})"
@@ -4530,6 +4633,7 @@ class Agent:
                 self._config.llm.budget.daily_limit_usd,
                 self._config.llm.budget.per_task_limit_usd,
             ):
+                stop_kind = "budget"
                 stagnation_reason = (
                     f"budget exceeded "
                     f"(task=${self._router.cost_tracker.effective_task_total:.2f})"
@@ -4549,10 +4653,14 @@ class Agent:
             # Mid-conversation tiered context compression with circuit breaker
             from core.context_compressor import needs_compression, tiered_compress
 
-            if needs_compression(messages):
+            _ctx_window = int(
+                getattr(self._config, "context_window_tokens", 0) or 200_000
+            )
+            if needs_compression(messages, _ctx_window):
                 messages = await tiered_compress(
                     messages,
                     self._router,
+                    context_window=_ctx_window,
                     circuit_breaker=self._compaction_breaker,
                 )
 
@@ -4638,6 +4746,7 @@ class Agent:
                             ),
                             steps_taken=step,
                             tool_calls_made=tool_calls_made,
+                            stop_reason="context_overflow",
                         )
                 else:
                     logger.error("Planning LLM call failed: %s", e)
@@ -4646,6 +4755,7 @@ class Agent:
                         content=f"I encountered an error while thinking: {e}",
                         steps_taken=step,
                         tool_calls_made=tool_calls_made,
+                        stop_reason="error",
                     )
             logger.info(
                 "LLM call step %d: %.1fs (%s/%s)",
@@ -4730,7 +4840,7 @@ class Agent:
                 # gets the response immediately.
                 asyncio.create_task(
                     self._store_task_memory(
-                        goal, final_content, "completed", tool_calls_made
+                        _task_title, final_content, "completed", tool_calls_made
                     )
                 )
 
@@ -4805,6 +4915,7 @@ class Agent:
                     content=final_content,
                     steps_taken=step,
                     tool_calls_made=tool_calls_made,
+                    stop_reason="completed",
                 )
 
                 if self._on_task_complete:
@@ -4857,6 +4968,32 @@ class Agent:
                 allowed_group: list[dict] = []
                 for tc in group:
                     _tc_name = tc.get("function", {}).get("name", "")
+                    # A call the loop detector already blocked is not run
+                    # again — "Blocked" used to be advice attached to a
+                    # result the tool had already produced (docs/94).
+                    try:
+                        _loop_blocked = self._loop_detector.is_blocked(
+                            _tc_name, _parse_tool_args(tc)
+                        )
+                    except Exception:
+                        _loop_blocked = False
+                    if _loop_blocked:
+                        authority_blocked.append(
+                            (
+                                tc,
+                                ExecutionResult(
+                                    tool_name=_tc_name,
+                                    tool_call_id=tc.get("id", ""),
+                                    error=(
+                                        f"Blocked: '{_tc_name}' was already called "
+                                        "with these exact arguments and returned the "
+                                        "same result repeatedly. It was not run again. "
+                                        "Change approach, or report what is blocking you."
+                                    ),
+                                ),
+                            )
+                        )
+                        continue
                     if not check_tool_authority(_tc_name, _authority):
                         authority_blocked.append(
                             (
@@ -4918,6 +5055,7 @@ class Agent:
                     if _loop_signal is not None and _loop_signal.verdict != "ok":
                         loop_notice = _loop_signal.message
                         if _loop_signal.should_stop_run:
+                            stop_kind = "loop"
                             stagnation_reason = (
                                 f"loop detected on {_loop_signal.tool_name} "
                                 f"(x{_loop_signal.count})"
@@ -5274,9 +5412,17 @@ class Agent:
                 f"Task stopped: {reason} after {step} steps. "
                 f"You can continue by sending a follow-up message."
             )
+        # Record WHY the run stopped and where it had got to. A bare "Max
+        # steps reached" (every one of 242 incomplete rows before this fix)
+        # left nothing for a later run — or the operator — to resume from.
+        if not stop_kind:
+            stop_kind = "max_steps"
         asyncio.create_task(
             self._store_task_memory(
-                goal, "Max steps reached", "incomplete", tool_calls_made
+                _task_title,
+                _describe_stopped_run(reason, step, tool_calls_made, messages),
+                "incomplete",
+                tool_calls_made,
             )
         )
 
@@ -5311,7 +5457,8 @@ class Agent:
             content=max_steps_msg,
             steps_taken=step,
             tool_calls_made=tool_calls_made,
-            preempted=stagnation_reason == "preempted by higher-priority task",
+            preempted=stop_kind == "preempted",
+            stop_reason=stop_kind,
         )
 
     def _stop_file_present(self) -> bool:

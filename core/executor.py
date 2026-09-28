@@ -178,6 +178,36 @@ class Executor:
         except Exception:
             return 0.5
 
+    def _fire_tool_executed(
+        self, tool_name: str, params: dict[str, Any], error: str | None
+    ) -> None:
+        """Notify the current task's hook (see core/run_hooks.py), then the
+        instance hook. A hook failure never affects the tool call."""
+        from core.run_hooks import current_run_hooks
+
+        hooks = current_run_hooks()
+        for hook in (hooks.on_tool_executed if hooks else None, self._on_tool_executed):
+            if hook is None:
+                continue
+            try:
+                hook(tool_name, params, error)
+            except Exception:
+                pass
+
+    def _fire_tool_result(
+        self, tool_name: str, params: dict[str, Any], result: Any
+    ) -> None:
+        from core.run_hooks import current_run_hooks
+
+        hooks = current_run_hooks()
+        for hook in (hooks.on_tool_result if hooks else None, self._on_tool_result):
+            if hook is None:
+                continue
+            try:
+                hook(tool_name, params, result)
+            except Exception:
+                pass
+
     def set_approval_callback(
         self, callback: Callable[[str, str, dict[str, Any]], bool]
     ) -> None:
@@ -366,16 +396,16 @@ class Executor:
                 # No declared resources — invoke directly. Same as
                 # legacy behavior for tools that don't contend.
                 result = await tool.execute(params)
-            if self._on_tool_executed:
-                try:
-                    self._on_tool_executed(tool_name, params, None)
-                except Exception:
-                    pass
-            if self._on_tool_result:
-                try:
-                    self._on_tool_result(tool_name, params, result)
-                except Exception:
-                    pass
+            # A tool that returned success=False did not succeed, even though
+            # it did not raise. Report it as an error so trails built from
+            # this hook (goal receipts, mind summaries) do not count it.
+            reported_error: str | None = None
+            if result is not None and getattr(result, "success", True) is False:
+                reported_error = str(
+                    getattr(result, "error", "") or "tool reported failure"
+                )
+            self._fire_tool_executed(tool_name, params, reported_error)
+            self._fire_tool_result(tool_name, params, result)
             # Affect: a clean exception didn't fire, but the tool may
             # have returned success=False. Treat that as mild anxiety —
             # softer than an exception, but still a failure signal that
@@ -408,11 +438,7 @@ class Executor:
             )
         except Exception as e:
             logger.error(f"Tool '{tool_name}' execution failed: {e}")
-            if self._on_tool_executed:
-                try:
-                    self._on_tool_executed(tool_name, params, str(e))
-                except Exception:
-                    pass
+            self._fire_tool_executed(tool_name, params, str(e))
             # Affect: an unhandled exception is the strongest tool-side
             # failure signal. Fire anxiety at full weight.
             if self._affect_manager is not None:
@@ -581,7 +607,14 @@ class Executor:
         """
         import inspect
 
-        callback = approval_callback or self._approval_callback
+        from core.run_hooks import current_run_hooks
+
+        _hooks = current_run_hooks()
+        callback = (
+            approval_callback
+            or (_hooks.approval_callback if _hooks else None)
+            or self._approval_callback
+        )
         override = self._tool_overrides.get(tool.name)
 
         # Per-call permission override. Tools whose risk depends on their

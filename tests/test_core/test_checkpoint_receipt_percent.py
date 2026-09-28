@@ -35,8 +35,9 @@ LEDGER = (
 )
 
 
-def _trail(summary: str) -> list[dict[str, object]]:
-    return [{"tool": "file_list", "status": "ok", "summary": summary}]
+def _trail(output: str) -> list[dict[str, object]]:
+    # The text is what the tool RETURNED — the only place a count grounds.
+    return [{"tool": "file_list", "status": "ok", "summary": "file_list", "output": output}]
 
 
 class TestTheRegression:

@@ -77,12 +77,22 @@ class LoopDetector:
     # (tool, args) → count, ignoring the result. Used by would_repeat() for
     # a cheap pre-call hint.
     _arg_counts: dict[str, int] = field(default_factory=dict, repr=False)
+    # (tool, args) pairs that reached BLOCK. The agent loop refuses to run
+    # them again this run, so "Blocked" means blocked, not advised.
+    _blocked: set[str] = field(default_factory=set, repr=False)
 
     def reset(self) -> None:
         """Clear all state. Call at the start of every run."""
         self._counts.clear()
         self._labels.clear()
         self._arg_counts.clear()
+        self._blocked.clear()
+
+    def is_blocked(self, tool_name: str, params: Any) -> bool:
+        """True if this exact (tool, args) call was already blocked this run."""
+        if not self.enabled:
+            return False
+        return self._args_key(tool_name, params) in self._blocked
 
     @staticmethod
     def _args_key(tool_name: str, params: Any) -> str:
@@ -123,6 +133,7 @@ class LoopDetector:
             return LoopSignal(LoopVerdict.ABORT, count, message, tool_name)
 
         if count >= self.block_at:
+            self._blocked.add(args_key)
             message = (
                 f"Blocked: you have already called '{tool_name}' {count} times "
                 "with these exact arguments and got the same result each time. "

@@ -80,6 +80,29 @@ def _attach_tool_output(tool_trace: list[dict[str, Any]], name: str, result: Any
             return
 
 
+_PREEMPT_PREFIX = "Preempted"
+
+
+def _preemption_note(response: Any, tool_trace: list[dict[str, Any]]) -> str:
+    """What an interrupted attempt had already done, for the next attempt.
+
+    A preempted checkpoint used to restart from zero with no note at all —
+    and because the attempt is refunded it could restart that way forever
+    (docs/94 F9). The note lists the successful calls this attempt made so
+    the resumed run verifies them instead of repeating them.
+    """
+    steps = int(getattr(response, "steps_taken", 0) or 0)
+    done = [
+        f"{row.get('tool')}: {str(row.get('summary') or '')[:120]}"
+        for row in tool_trace
+        if (row.get("status") or "") == "ok"
+    ]
+    note = f"{_PREEMPT_PREFIX} after {steps} steps (attempt refunded)."
+    if done:
+        note += " Already done in that attempt: " + "; ".join(done[-12:])
+    return note[:1000]
+
+
 class GoalRunner:
     """Executes goal checkpoints autonomously as background asyncio tasks."""
 
@@ -97,6 +120,17 @@ class GoalRunner:
         self._current_task: asyncio.Task[None] | None = None
         self._current_goal_id: str | None = None
         self._stop_requested: bool = False
+        # Set when a checkpoint stops for a reason outside the goal (the
+        # operator STOP sentinel, the day's LLM budget): the loop exits and
+        # leaves the goal active instead of burning attempts.
+        self._halted_by_stop: bool = False
+        self._pause_reason: str = ""
+        # Whether the loop that just ended should hand over to the next goal.
+        self._chain_after_exit: bool = True
+        # goal_id → monotonic time before which the watchdog won't restart it.
+        self._cooldown_until: dict[str, float] = {}
+        self._watchdog_task: asyncio.Task[None] | None = None
+        self._closed: bool = False
 
     # ------------------------------------------------------------------
     # Properties
@@ -130,6 +164,7 @@ class GoalRunner:
             return False
 
         self._stop_requested = False
+        self._pause_reason = ""
         self._current_goal_id = goal_id
         # MUST go through _run_goal_loop_entry — see that method for why
         # we cannot create_task(_run_goal_loop) directly.
@@ -155,14 +190,31 @@ class GoalRunner:
         AGENT_LOOP lease instead of piggy-backing the parent's.
         """
         from core.execution_context import TaskSource, execution_context
+        from core.run_hooks import run_hooks
 
-        with execution_context(source=TaskSource.GOAL, in_agent_loop=False):
+        # goal_id tells _run_with_history which goal's plan to show
+        # (docs/94 F3). run_hooks() with no arguments drops any hooks this
+        # task inherited from the chat run that created it.
+        with (
+            execution_context(source=TaskSource.GOAL, in_agent_loop=False, goal_id=goal_id),
+            run_hooks(),
+        ):
             await self._run_goal_loop(goal_id)
+        if self._chain_after_exit and not self._stop_requested and not self._closed:
+            # Hand the runner to the next active goal that has work. Done
+            # inline (not in a detached task) so it finishes before anyone
+            # awaiting this task moves on. _run_goal_loop's finally already
+            # cleared _current_task, so start_goal can launch the next one.
+            try:
+                await self.start_next_goal(exclude=goal_id)
+            except Exception as e:  # pragma: no cover
+                logger.debug("chain to next goal failed: %s", e)
 
-    async def pause(self) -> None:
+    async def pause(self, reason: str = "") -> None:
         """Request the current goal to pause after the current checkpoint."""
         if not self.is_running:
             return
+        self._pause_reason = reason or "pause requested"
         self._stop_requested = True
         # Wait for the loop to finish the current checkpoint
         if self._current_task:
@@ -172,10 +224,13 @@ class GoalRunner:
                 pass
 
     async def resume(self, goal_id: str) -> bool:
-        """Resume a paused goal's background execution."""
-        if self.is_running:
-            return False
+        """Resume a paused goal's background execution.
 
+        If another goal is running, the resumed goal is queued: it is active
+        in the DB and the runner starts it when the current goal stops. It
+        used to be flipped to active and then refused, which stranded it
+        active with nothing running it (docs/94 F10).
+        """
         ok = await self._gm.resume_goal(
             goal_id,
             cost_budget_usd=self._config.cost_budget_per_goal_usd,
@@ -183,9 +238,22 @@ class GoalRunner:
             max_llm_calls=self._config.max_llm_calls_per_goal,
         )
         if not ok:
-            return False
+            # Already active but nothing running it: "resume" means start.
+            goal = await self._gm.get_goal(goal_id)
+            if goal is None or goal.status != "active":
+                return False
+            if self.current_goal_id == goal_id:
+                return True
 
         await self._broadcast_event(EventType.GOAL_RESUMED, {"goal_id": goal_id})
+        self._cooldown_until.pop(goal_id, None)
+        if self.is_running:
+            logger.info(
+                "Goal %s resumed and queued behind running goal %s",
+                goal_id,
+                self._current_goal_id,
+            )
+            return True
         return await self.start_goal(goal_id)
 
     async def stop(self) -> None:
@@ -212,34 +280,132 @@ class GoalRunner:
             self._stop_requested = True
 
     async def resume_on_startup(self) -> None:
-        """Resume any active goals on agent startup (if auto_continue is enabled)."""
+        """Resume active goals on agent startup (if auto_continue is enabled),
+        and keep resuming them: the watchdog starts the next active goal
+        whenever the runner is idle."""
         if not self._config.auto_continue:
             return
         try:
-            active = await self._gm.list_goals(status="active", limit=1)
-            if active:
-                goal = active[0]
-                logger.info("Resuming active goal on startup: %s", goal.goal_id)
+            started = await self.start_next_goal()
+            if started:
+                logger.info("Resumed active goal on startup: %s", started)
+        except Exception as e:
+            logger.warning("Failed to resume goals on startup: %s", e)
+
+    async def start_next_goal(self, *, exclude: str | None = None) -> str | None:
+        """Start the least recently touched active goal that has work left.
+
+        Returns the started goal_id, or None. A goal is 'active' because the
+        operator or the agent wants it pursued; before this, only the one
+        goal resumed at startup ever ran, and every other active goal waited
+        for someone to notice (docs/94 F10).
+        """
+        if self.is_running or self._closed:
+            return None
+        if self._stop_file_present():
+            return None
+        try:
+            active = await self._gm.list_goals(status="active", limit=50)
+            planning = await self._gm.list_goals(status="planning", limit=20)
+        except Exception as e:
+            logger.debug("start_next_goal: list failed: %s", e)
+            return None
+        now = time.monotonic()
+        candidates = sorted(active + planning, key=lambda g: g.updated_at or "")
+        for goal in candidates:
+            if goal.goal_id == exclude:
+                continue
+            if self._cooldown_until.get(goal.goal_id, 0.0) > now:
+                continue
+            if goal.status == "active":
+                nxt = await self._gm.get_next_checkpoint(goal.goal_id)
+                if nxt is None:
+                    continue
+            if await self.start_goal(goal.goal_id):
                 await self._broadcast_event(
                     EventType.GOAL_RESUMED,
                     {"goal_id": goal.goal_id, "goal": goal.goal},
                 )
-                await self.start_goal(goal.goal_id)
-        except Exception as e:
-            logger.warning("Failed to resume goals on startup: %s", e)
+                return goal.goal_id
+        return None
+
+    _WATCHDOG_INTERVAL_S = 300.0
+
+    def start_watchdog(self) -> None:
+        """Start the idle-goal watchdog. Called by the gateway / chat entry
+        points after ``resume_on_startup``; stopped by ``close()``."""
+        if not self._config.auto_continue:
+            return
+        if self._watchdog_task is not None and not self._watchdog_task.done():
+            return
+        self._watchdog_task = asyncio.create_task(
+            self._watchdog_loop(), name="goal-runner-watchdog"
+        )
+
+    async def _watchdog_loop(self) -> None:
+        """Pick up active goals whenever the runner is idle.
+
+        Covers the paths that activate a goal without starting it: a second
+        goal_create while one runs, a goal the mind decomposed, a resume
+        while busy, the STOP sentinel being cleared.
+        """
+        try:
+            while not self._closed:
+                await asyncio.sleep(self._WATCHDOG_INTERVAL_S)
+                if self._closed:
+                    return
+                try:
+                    await self.start_next_goal()
+                except Exception as e:  # pragma: no cover — never kill the watchdog
+                    logger.debug("goal watchdog tick failed: %s", e)
+        except asyncio.CancelledError:
+            return
+
+    async def close(self) -> None:
+        """Shut down: stop the running goal and the watchdog."""
+        self._closed = True
+        if self._watchdog_task is not None and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._watchdog_task = None
+        await self.stop()
+
+    def _stop_file_present(self) -> bool:
+        try:
+            return self._agent._stop_file_present() is True
+        except Exception:
+            return False
+
+    def _daily_budget_exhausted(self) -> bool:
+        try:
+            tracker = self._agent._router.cost_tracker
+            limit = float(self._agent._config.llm.budget.daily_limit_usd)
+            return float(tracker.daily_total) >= limit
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Main execution loop
     # ------------------------------------------------------------------
 
     async def _run_goal_loop(self, goal_id: str) -> None:
-        """Execute checkpoints one by one until done, paused, or failed."""
+        """Execute checkpoints one by one until done, paused, or failed.
+
+        Leaves ``_chain_after_exit`` True when the runner should move on to
+        the next active goal, False after the STOP sentinel, the daily
+        budget, or cancellation.
+        """
+        self._chain_after_exit = True
         goal = await self._gm.get_goal(goal_id)
         if not goal:
             return
 
         start_time = time.monotonic()
         checkpoints_since_eval = 0
+        self._halted_by_stop = False
         # Revision-without-progress counter. Increments on every
         # revise_plan call; resets when an evaluation finds the goal
         # actually on track. If we revise this many times without
@@ -290,7 +456,9 @@ class GoalRunner:
             while True:
                 # --- Pre-checkpoint safety checks ---
                 if self._stop_requested:
-                    await self._pause_goal(goal_id, "User interaction or pause requested")
+                    await self._pause_goal(
+                        goal_id, self._pause_reason or "User interaction or pause requested"
+                    )
                     return
 
                 # Refresh goal state
@@ -320,14 +488,36 @@ class GoalRunner:
 
                 # --- Get next checkpoint ---
                 checkpoint = await self._gm.get_next_checkpoint(goal_id)
+                if not checkpoint and goal.status == "planning":
+                    # Never decomposed (or decomposition returned nothing).
+                    # Plan it here rather than leaving it for someone else.
+                    cps = await self._gm.get_checkpoints(goal_id)
+                    if not cps:
+                        planned = await self._gm.decompose(goal)
+                        if not planned:
+                            await self._pause_goal(
+                                goal_id,
+                                "decomposition produced no checkpoints — "
+                                "restate the goal or revise it",
+                            )
+                            return
+                        continue
                 if not checkpoint:
-                    # All done
-                    goal = await self._gm.get_goal(goal_id)
-                    if goal and goal.status == "completed":
+                    # "No pending checkpoint" is not "done". Say which it is
+                    # instead of exiting and leaving an unfinished goal
+                    # 'active' with nothing running it (docs/94 F10).
+                    state, detail = await self._gm.diagnose_no_pending(goal_id)
+                    if state == "completed":
+                        goal = await self._gm.get_goal(goal_id)
                         await self._broadcast_event(
                             EventType.GOAL_COMPLETED,
-                            {"goal_id": goal_id, "goal": goal.goal},
+                            {"goal_id": goal_id, "goal": goal.goal if goal else ""},
                         )
+                        return
+                    if state == "in_progress":
+                        # Another executor holds a checkpoint; don't race it.
+                        return
+                    await self._pause_goal(goal_id, detail)
                     return
 
                 # --- Founder-doctrine validate-first gate ---
@@ -342,6 +532,10 @@ class GoalRunner:
 
                 # --- Execute checkpoint ---
                 success = await self._execute_checkpoint(goal, checkpoint)
+                if self._halted_by_stop:
+                    # STOP sentinel or daily budget: not this goal's failure.
+                    self._chain_after_exit = False
+                    return
 
                 # Kill criterion after every attempt (success or fail)
                 goal = await self._gm.get_goal(goal_id) or goal
@@ -435,6 +629,7 @@ class GoalRunner:
 
         except asyncio.CancelledError:
             logger.info("Goal %s execution cancelled", goal_id)
+            self._chain_after_exit = False
             raise
         except Exception as e:
             logger.error("Goal %s execution error: %s", goal_id, e, exc_info=True)
@@ -442,6 +637,12 @@ class GoalRunner:
                 EventType.GOAL_FAILED,
                 {"goal_id": goal_id, "error": str(e)},
             )
+            # Pause, don't leave it 'active': an active goal is one the
+            # watchdog restarts, and an error that repeats would loop.
+            try:
+                await self._pause_goal(goal_id, f"runner error: {str(e)[:300]}")
+            except Exception:  # pragma: no cover
+                pass
         finally:
             self._current_task = None
             self._current_goal_id = None
@@ -472,6 +673,17 @@ class GoalRunner:
         brand analyses, failed the receipt gate three times over one
         ungrounded count ("exactly 14 subjects"), and every retry was told
         nothing about it."""
+        reason = (last_failure or "").strip()
+        if reason.startswith(_PREEMPT_PREFIX):
+            # Interrupted, not failed: the attempt was refunded, so this can
+            # be "attempt 1" again — but the work done so far is real.
+            return (
+                "\nRESUME NOTE: an earlier run of this checkpoint was interrupted "
+                "by higher-priority work before it finished. What it did is "
+                "real — verify it in the relevant store or files and continue "
+                "from there; do not redo it.\n"
+                f"{reason[:1000]}\n"
+            )
         if attempt_no <= 1:
             return ""
         note = (
@@ -482,7 +694,6 @@ class GoalRunner:
             "created during this run), then do ONLY the remainder. Redoing "
             "finished work is how the previous attempt died.\n"
         )
-        reason = (last_failure or "").strip()
         if reason:
             note += f"Why the last attempt failed: {reason[:400]}\n"
         if "receipt_gate" in reason or "not grounded" in reason:
@@ -519,14 +730,8 @@ class GoalRunner:
                 attempt_no, str(getattr(checkpoint, "result_summary", "") or "")
             )
 
-            # Isolate conversation history — background runs must not pollute user chat
-            saved_history = list(self._agent._conversation_history)
-            self._agent._conversation_history.clear()
-
-            # Override approval callback for gateway broadcast
-            prev_approval = self._agent._executor._approval_callback
-            if self._gateway:
-                self._agent._executor.set_approval_callback(self._make_broadcast_approval())
+            # Approval requests for background work go to every channel.
+            approval_cb = self._make_broadcast_approval() if self._gateway else None
 
             # GoalRunner is BACKGROUND goal execution — must NOT acquire
             # AGENT_LOOP at USER priority. The previous `agent.run(prompt)`
@@ -541,9 +746,9 @@ class GoalRunner:
             # (lowest), as the enum doc always intended.
             from core.execution_context import TaskSource
             from core.mind_tool_summary import summarize_call
+            from core.run_hooks import run_hooks
 
             tool_trace: list[dict[str, Any]] = []
-            prev_on_tool = getattr(self._agent._executor, "_on_tool_executed", None)
 
             def _on_tool(name: str, params: dict[str, Any], error: str | None) -> None:
                 tool_trace.append(
@@ -555,30 +760,42 @@ class GoalRunner:
                         "data": {k: str(v)[:200] for k, v in list((params or {}).items())[:8]},
                     }
                 )
-                if prev_on_tool:
-                    try:
-                        prev_on_tool(name, params, error)
-                    except Exception:
-                        pass
 
             def _on_result(name: str, params: dict[str, Any], result: Any) -> None:
                 _attach_tool_output(tool_trace, name, result)
 
-            prev_on_result = getattr(self._agent._executor, "_on_tool_result", None)
-            self._agent._executor._on_tool_executed = _on_tool
-            self._agent._executor._on_tool_result = _on_result
-
-            try:
-                response = await asyncio.wait_for(
-                    self._agent.submit_task(TaskSource.GOAL, prompt),
-                    timeout=timeout_s,
+            # Hooks, history and the time budget all belong to THIS task
+            # (docs/94 F2/F4). Nothing agent-wide is swapped, so a mind or
+            # heartbeat waiting for the slot at the same time can neither
+            # clobber this trail nor inherit this approval callback. The
+            # budget starts when AGENT_LOOP is acquired, so time spent queued
+            # behind chat or heartbeats never burns an attempt.
+            with run_hooks(
+                approval_callback=approval_cb,
+                on_tool_executed=_on_tool,
+                on_tool_result=_on_result,
+            ):
+                response = await self._agent.submit_task(
+                    TaskSource.GOAL,
+                    prompt,
+                    time_budget_seconds=timeout_s,
+                    isolated_history=True,
+                    memory_label=(
+                        f"Goal {goal.goal_id} checkpoint {checkpoint.order}/"
+                        f"{goal.total_checkpoints}: {checkpoint.title}"
+                    ),
                 )
-            finally:
-                # Restore conversation history and approval callback
-                self._agent._conversation_history = saved_history
-                self._agent._executor._approval_callback = prev_approval
-                self._agent._executor._on_tool_executed = prev_on_tool
-                self._agent._executor._on_tool_result = prev_on_result
+
+            # Charge what this run spent to the goal (docs/94 F1).
+            try:
+                await self._gm.add_cost(
+                    goal.goal_id,
+                    float(getattr(self._agent._router.cost_tracker, "task_total", 0.0) or 0.0),
+                )
+            except Exception as ce:  # pragma: no cover — accounting must not fail work
+                logger.debug("goal cost accounting failed: %s", ce)
+
+            stop_reason = str(getattr(response, "stop_reason", "") or "")
 
             # A preempted response is a YIELD, not a result. The loop gave
             # the slot to a higher-priority task (operator chat, heartbeat)
@@ -591,25 +808,67 @@ class GoalRunner:
             # refund the attempt (an operator asking "is it working?" must
             # not burn the checkpoint's three attempts), and let the loop
             # re-pick it after the foreground drains.
-            if getattr(response, "preempted", False):
+            if getattr(response, "preempted", False) or stop_reason == "preempted":
                 logger.info(
                     "Checkpoint %d of goal %s preempted — resetting to pending (attempt refunded)",
                     checkpoint.order,
                     goal.goal_id,
                 )
                 await self._reset_checkpoint_pending(
-                    goal.goal_id, checkpoint.order, refund_attempt=True
+                    goal.goal_id,
+                    checkpoint.order,
+                    refund_attempt=True,
+                    note=_preemption_note(response, tool_trace),
                 )
                 await asyncio.sleep(2)  # let the preempting task take the slot
                 return False
 
+            if stop_reason == "stop_file":
+                # The operator's STOP sentinel is not the checkpoint's fault.
+                # Hand the attempt back and stop the loop; the goal stays
+                # active and resumes when STOP is cleared.
+                logger.warning(
+                    "Checkpoint %d of goal %s halted by the STOP sentinel — "
+                    "attempt refunded, goal left active",
+                    checkpoint.order,
+                    goal.goal_id,
+                )
+                await self._reset_checkpoint_pending(
+                    goal.goal_id, checkpoint.order, refund_attempt=True
+                )
+                self._halted_by_stop = True
+                return False
+
+            if stop_reason == "budget" and self._daily_budget_exhausted():
+                # The day's LLM budget ran out mid-checkpoint: nothing is
+                # wrong with the checkpoint. Refund, and let the watchdog
+                # retry after the cooldown.
+                logger.warning(
+                    "Checkpoint %d of goal %s stopped by the daily LLM budget — "
+                    "attempt refunded",
+                    checkpoint.order,
+                    goal.goal_id,
+                )
+                await self._reset_checkpoint_pending(
+                    goal.goal_id, checkpoint.order, refund_attempt=True
+                )
+                self._cooldown_until[goal.goal_id] = time.monotonic() + 1800
+                self._halted_by_stop = True
+                return False
+
+            if stop_reason == "time_limit":
+                raise TimeoutError(f"checkpoint time budget {int(timeout_s)}s spent")
+
             summary = (response.content or "")[:500]
             from core.checkpoint_receipt import verify_checkpoint_receipt
 
+            # No sor_text: the goal's context_summary is the model's own
+            # digest, not a system of record, and it let a checkpoint with
+            # zero tool calls pass on numbers from an earlier summary
+            # (docs/94 F8). Evidence is what tools returned in THIS attempt.
             verdict = verify_checkpoint_receipt(
                 checkpoint.success_criteria or "",
                 tool_trace=tool_trace,
-                sor_text=goal.context_summary or "",
                 assistant_summary=summary,
             )
             if not verdict.ok:
@@ -837,19 +1096,31 @@ class GoalRunner:
         logger.info("Goal %s → %s: %s", goal_id, status, reason)
 
     async def _reset_checkpoint_pending(
-        self, goal_id: str, order: int, *, refund_attempt: bool = False
+        self,
+        goal_id: str,
+        order: int,
+        *,
+        refund_attempt: bool = False,
+        note: str | None = None,
     ) -> None:
         """Return an in-flight checkpoint to pending so resume retries it.
 
         ``refund_attempt`` un-counts the attempt that ``mark_checkpoint_active``
         recorded — used when the checkpoint never got to run (preemption),
         so external interruptions cannot exhaust ``max_checkpoint_attempts``.
+        ``note`` replaces ``result_summary`` so the next attempt is told
+        where the interrupted one got to.
         """
+        sets = "status = 'pending'"
+        params: list[Any] = []
+        if refund_attempt:
+            sets += ", attempts = MAX(attempts - 1, 0)"
+        if note:
+            sets += ", result_summary = ?"
+            params.append(note)
         await self._gm._db.execute(
-            "UPDATE goal_checkpoints SET status = 'pending'"
-            + (", attempts = MAX(attempts - 1, 0)" if refund_attempt else "")
-            + " WHERE goal_id = ? AND checkpoint_order = ?",
-            (goal_id, order),
+            f"UPDATE goal_checkpoints SET {sets} WHERE goal_id = ? AND checkpoint_order = ?",
+            (*params, goal_id, order),
         )
 
     async def _broadcast_checkpoint_failed(self, goal: Any, checkpoint: Any, reason: str) -> None:

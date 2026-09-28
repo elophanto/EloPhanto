@@ -773,6 +773,9 @@ async def _chat_gateway(cfg: Any) -> None:
     if agent._goal_runner:
         agent._goal_runner._gateway = gateway
         asyncio.create_task(agent._goal_runner.resume_on_startup())
+        # Keep active goals running: start the next one whenever the
+        # runner is idle (docs/94 F10).
+        agent._goal_runner.start_watchdog()
 
     # Wire up AutonomousMind with gateway reference + start
     if agent._autonomous_mind:

@@ -131,6 +131,11 @@ class CandidateContext:
     # `from_buildable_blockers` can read strategy state without each
     # generator re-opening the filesystem. None disables those sources.
     strategy_manager: Any = None
+    # GoalRunner handle. Checkpoints are the runner's work: while it is
+    # running (or will pick a goal up), the mind proposes nothing for that
+    # goal; when it is idle, the candidate is to start it — never to do the
+    # checkpoint by hand, which bypassed the receipt gate (docs/94 S8).
+    goal_runner: Any = None
     # ToolRegistry handle (2026-05-27 autonomy-loop closer). Lets
     # `from_buildable_blockers` run `auto_resolve_blockers` against the
     # live registry to detect which `missing_tool` blockers are
@@ -284,7 +289,13 @@ async def from_workable_checkpoints(ctx: CandidateContext) -> list[Candidate]:
                         (r for r in rows if r["status"] == "failed"),
                         None,
                     )
-                    if failed_row is not None and g.status == "paused":
+                    # A goal the operator paused is theirs to resume; only
+                    # system pauses are recoverable (docs/94).
+                    if (
+                        failed_row is not None
+                        and g.status == "paused"
+                        and "paused by operator" not in (g.context_summary or "")
+                    ):
                         failed_title = (failed_row["title"] or "")[:60]
                         failed_order = failed_row["checkpoint_order"]
                         out.append(
@@ -322,6 +333,32 @@ async def from_workable_checkpoints(ctx: CandidateContext) -> list[Candidate]:
                                 },
                             )
                         )
+                    continue
+                runner = ctx.goal_runner
+                if runner is not None:
+                    if getattr(runner, "is_running", False):
+                        # The runner is executing this goal or will reach it
+                        # when the current goal stops. Nothing for the mind.
+                        continue
+                    out.append(
+                        Candidate(
+                            source="workable_checkpoint",
+                            action_spec=(
+                                f"Goal '{g.goal[:60]}' has pending checkpoint "
+                                f"#{next_workable['checkpoint_order']} but the goal "
+                                f"runner is idle. Start it: goal_manage("
+                                f"action='resume', goal_id='{g.goal_id}'). Do not "
+                                f"do the checkpoint's work yourself."
+                            ),
+                            expected_value=7.0,
+                            feasibility=0.95,
+                            lens_match=0.5,
+                            cost=0.5,
+                            mission_id=g.mission_id,
+                            dedup_key=f"goal_start:{g.goal_id}",
+                            metadata={"goal_id": g.goal_id, "kind": "start_runner"},
+                        )
+                    )
                     continue
                 progress = (
                     g.current_checkpoint / g.total_checkpoints

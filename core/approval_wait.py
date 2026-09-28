@@ -23,8 +23,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default: 5m first wait, re-ping, then another 5m → pause (plan: ~10m
-# total before awaiting_approval; goal runner used 300s flat before).
+# Default: 150s first wait, re-ping, then another 150s → pause as
+# awaiting_approval (5 min total; goal runner used 300s flat before). The
+# wait holds AGENT_LOOP, so a longer wait blocks chat behind it.
 _DEFAULT_FIRST_S = 150.0
 _DEFAULT_SECOND_S = 150.0
 

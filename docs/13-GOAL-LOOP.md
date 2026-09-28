@@ -68,6 +68,22 @@ Tests: `tests/test_core/test_checkpoint_receipt_percent.py`,
 `tests/test_core/test_goal_stall_guard.py`,
 `tests/test_core/test_goal_failure_events.py`.
 
+## Long-run hardening (2026-09-28)
+
+From the long-run review ([94-LONG-RUN-AUTONOMY-REVIEW.md](94-LONG-RUN-AUTONOMY-REVIEW.md), phase 0):
+
+| Behaviour | Now |
+| --- | --- |
+| Checkpoint time budget | Passed to the loop as `time_budget_seconds`; the clock starts when `AGENT_LOOP` is acquired and the loop stops cooperatively between steps. Queue time never burns an attempt. |
+| Receipt evidence | Tool **outputs** only (the model's `context_summary` is no longer passed as system-of-record). At least one successful tool call is required; a tool returning `success=False` counts as an error. |
+| Preemption | The checkpoint resets to pending, the attempt is refunded, and the next attempt gets a RESUME NOTE listing what the interrupted one already did. |
+| STOP sentinel / daily LLM budget mid-checkpoint | Attempt refunded, goal left `active`; the runner stops and resumes later. |
+| Resume | Resets `failed` checkpoints to pending with fresh attempts. Resuming while another goal runs queues it. Resuming an `active` goal nothing is running starts it. |
+| No pending checkpoint | Diagnosed: completes the goal, pauses naming the failed checkpoint, or pauses as "plan incomplete". Planning goals with no checkpoints are decomposed by the runner. |
+| Multiple active goals | When a goal stops, the runner starts the least recently touched active goal with pending work. A watchdog (every 5 min, started by the gateway/chat entry points) does the same when the runner is idle. |
+| Cost cap | Each checkpoint run's `CostTracker.task_total` is added to `goals.cost_usd`, so `cost_budget_per_goal_usd` works. |
+| Pause provenance | `goal_manage pause` / `elophanto goals pause` record "paused by operator" (or "paused by agent"). The mind never resumes operator pauses; system pauses are recoverable. |
+
 ## How Goal Creation is Triggered
 
 Goal creation is **LLM-driven, not rule-based**. There is no keyword matcher or heuristic that auto-creates goals. Instead, the system prompt includes a `<goals>` section that teaches the agent *when* to call `goal_create` vs working directly. Two mechanisms guide this decision:
@@ -173,9 +189,11 @@ Autonomous background executor. Runs goal checkpoints as `asyncio.create_task()`
 5. Check `_stop_requested` flag between checkpoints (set by user interaction or pause)
 6. When all checkpoints done → broadcast `GOAL_COMPLETED`
 
-**Conversation isolation**: Each checkpoint starts fresh. Before `agent.run()`, the runner saves and clears `_conversation_history`, then restores it after. Goal context comes from the system prompt (via `build_goal_context()`).
+**Conversation isolation**: Each checkpoint runs with `submit_task(..., isolated_history=True)` — a private, empty history — so nothing agent-wide is cleared or restored. Goal context comes from the system prompt: the runner sets `ExecutionContext.goal_id`, so `build_goal_context()` is built for the goal being executed, not whichever active goal was updated last.
 
-**Approval routing**: Background checkpoint execution overrides the executor's approval callback to broadcast approval requests to all connected gateway clients. Any client on any channel can approve.
+**Approval routing and the tool trail**: set per task with `core/run_hooks.py`, never on the shared executor. (They used to be assigned on the executor before the run waited for `AGENT_LOOP`, so two waiting loops restored each other's hooks.)
+
+**Approval routing**: Background checkpoint execution broadcasts approval requests to all connected gateway clients (a per-task hook). Any client on any channel can approve.
 
 ### Database Tables
 

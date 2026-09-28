@@ -237,6 +237,9 @@ async def _run_gateway(
     if agent._goal_runner:
         agent._goal_runner._gateway = gateway
         asyncio.create_task(agent._goal_runner.resume_on_startup())
+        # Keep active goals running: start the next one whenever the
+        # runner is idle (docs/94 F10).
+        agent._goal_runner.start_watchdog()
 
     # Update AutonomousMind with gateway reference + start.
     # The instance now always exists so the operator can flip it on at

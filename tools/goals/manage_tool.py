@@ -87,11 +87,21 @@ class GoalManageTool(BaseTool):
 
         try:
             if action == "pause":
+                # Record who paused it. The mind must never resume a goal the
+                # operator paused, but may recover one the system paused
+                # after a failure — it could not tell them apart before.
+                from core.execution_context import current_context
+
+                pause_reason = (
+                    "paused by operator"
+                    if current_context().is_user_input
+                    else f"paused by agent ({current_context().source})"
+                )
                 # Pause background runner if active for this goal
                 if self._goal_runner and self._goal_runner.current_goal_id == goal_id:
-                    await self._goal_runner.pause()
+                    await self._goal_runner.pause(reason=pause_reason)
                 else:
-                    ok = await self._goal_manager.pause_goal(goal_id)
+                    ok = await self._goal_manager.pause_goal(goal_id, reason=pause_reason)
                     if not ok:
                         return ToolResult(
                             success=False,
@@ -112,14 +122,17 @@ class GoalManageTool(BaseTool):
                         success=False,
                         error="Cannot resume (goal not paused or not found)",
                     )
-                return ToolResult(
-                    success=True,
-                    data={
-                        "goal_id": goal_id,
-                        "action": "resumed",
-                        "background_execution": bool(self._goal_runner),
-                    },
+                running = bool(
+                    self._goal_runner and self._goal_runner.current_goal_id == goal_id
                 )
+                data: dict[str, Any] = {
+                    "goal_id": goal_id,
+                    "action": "resumed",
+                    "background_execution": running,
+                }
+                if self._goal_runner and not running:
+                    data["queued_behind"] = self._goal_runner.current_goal_id
+                return ToolResult(success=True, data=data)
 
             elif action == "cancel":
                 # Cancel background runner if active for this goal

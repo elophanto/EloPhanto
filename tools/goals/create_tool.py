@@ -161,16 +161,18 @@ class GoalCreateTool(BaseTool):
             if self._goal_runner:
                 bg_started = await self._goal_runner.start_goal(goal.goal_id)
 
-            return ToolResult(
-                success=True,
-                data={
-                    "goal_id": goal.goal_id,
-                    "goal": goal.goal,
-                    "status": goal.status,
-                    "total_checkpoints": goal.total_checkpoints,
-                    "checkpoints": checkpoint_list,
-                    "background_execution": bg_started,
-                },
-            )
+            data: dict[str, Any] = {
+                "goal_id": goal.goal_id,
+                "goal": goal.goal,
+                "status": goal.status,
+                "total_checkpoints": goal.total_checkpoints,
+                "checkpoints": checkpoint_list,
+                "background_execution": bg_started,
+            }
+            if self._goal_runner and not bg_started:
+                # Another goal is running. This one is active and queued:
+                # the runner starts it when the current goal stops.
+                data["queued_behind"] = self._goal_runner.current_goal_id
+            return ToolResult(success=True, data=data)
         except Exception as e:
             return ToolResult(success=False, error=f"Goal creation failed: {e}")

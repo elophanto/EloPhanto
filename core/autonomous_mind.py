@@ -149,8 +149,10 @@ WHO YOU ARE:
 RULES:
 1. Every wakeup must produce value. Never sleep without having done something.
 2. Work toward active goals first. No goals? Create one. You always have something to build.
-   NEVER resume, modify, or work on PAUSED goals. The owner paused them for a reason.
-   Only the owner can resume paused goals. Treat [GOAL-PAUSED] as off-limits.
+   NEVER resume, modify, or work on a goal the OWNER paused — it is marked
+   "paused by operator" in [GOAL-PAUSED]. Only the owner resumes those.
+   A goal the SYSTEM paused (a checkpoint failed out, a budget, a runner
+   error) may be recovered: revise its plan, then resume it with goal_manage.
 3. Trade decisions against STAGE and survival, not raw activity. Goals carry a
    stage (scan|validate|build|launch|acquire|operate|scale):
    - scan: pick the fastest path to learning whether an idea is real.
@@ -169,8 +171,10 @@ RULES:
    revenue.
 4. Never message the owner unless it matters. Silence is professionalism.
 5. Update your scratchpad with what you did and what's next — use update_scratchpad.
-6. When you complete a goal checkpoint, ALWAYS call goal_status to mark it complete in the DB.
-   The scratchpad is your notes — the DB is the source of truth. Both must agree.
+6. Goal checkpoints are executed by the goal runner in the background — do not do a
+   checkpoint's work yourself; it cannot be recorded as complete that way. If an active
+   goal is not running, call goal_manage(action='resume'). The DB is the source of
+   truth; the scratchpad is your notes.
 7. Set your next wakeup based on urgency using set_next_wakeup. Don't waste compute.
 8. You have {max_rounds} tool rounds. Use them efficiently.
 9. If a task needs more than {max_rounds} rounds, create a goal for it.
@@ -575,10 +579,26 @@ class AutonomousMind:
                 age_s,
                 g.attempts + 1,
             )
+            # Count the attempt first: the cancel-after-retries branch above
+            # reads ``attempts``, which nothing incremented, so it could
+            # never fire.
+            g.attempts += 1
             try:
-                await goal_manager.decompose(g)
+                await goal_manager._persist_goal(g)
+            except Exception:
+                pass
+            try:
+                planned = await goal_manager.decompose(g)
             except Exception as e:
                 logger.warning("decompose retry failed for %s: %s", g.goal_id[:8], e)
+                continue
+            # A freshly planned goal is active; make sure something runs it.
+            runner = getattr(self._agent, "_goal_runner", None)
+            if planned and runner is not None:
+                try:
+                    await runner.start_next_goal()
+                except Exception as e:
+                    logger.debug("runner pick-up after decompose failed: %s", e)
 
     async def _on_goal_completed_wakeup(self, goal_id: str) -> None:
         """Hook fired by GoalManager when a goal flips to 'completed'.
@@ -978,12 +998,6 @@ class AutonomousMind:
             },
         )
 
-        # Isolate conversation history
-        saved_history = list(self._agent._conversation_history)
-        self._agent._conversation_history.clear()
-
-        prev_approval = self._agent._executor._approval_callback
-
         async def _auto_approve(
             tool_name: str, description: str, params: dict[str, Any]
         ) -> bool:
@@ -996,8 +1010,6 @@ class AutonomousMind:
                 params=params,
                 label="AutoLoop",
             )
-
-        self._agent._executor.set_approval_callback(_auto_approve)
 
         _tool_uses: list[dict[str, str]] = []
         _loop = asyncio.get_event_loop()
@@ -1032,21 +1044,23 @@ class AutonomousMind:
                 )
             )
 
-        prev_tool_cb = self._agent._executor._on_tool_executed
-        self._agent._executor._on_tool_executed = _on_tool
-
         cycle_start = time.monotonic()
         # Single normalized entry — submit_task handles execution
         # context, priority, and is_user_input from the one TaskSource
         # argument. See core/agent.py:submit_task.
         from core.execution_context import TaskSource
+        from core.run_hooks import run_hooks
 
-        try:
+        # Hooks and history belong to this task only (docs/94 F4): nothing
+        # agent-wide is swapped while this cycle waits for AGENT_LOOP.
+        with run_hooks(approval_callback=_auto_approve, on_tool_executed=_on_tool):
             try:
                 response = await self._agent.submit_task(
                     TaskSource.MIND,
                     prompt,
                     max_steps_override=self._config.max_rounds_per_wakeup,
+                    isolated_history=True,
+                    memory_label=f"AutoLoop {tag} iteration {iterations_run + 1}",
                 )
             except TimeoutError:
                 logger.warning(
@@ -1167,11 +1181,6 @@ class AutonomousMind:
                 },
             )
 
-        finally:
-            self._agent._conversation_history = saved_history
-            self._agent._executor._approval_callback = prev_approval
-            self._agent._executor._on_tool_executed = prev_tool_cb
-
     # ------------------------------------------------------------------
     # Periodic maintenance
     # ------------------------------------------------------------------
@@ -1288,6 +1297,9 @@ class AutonomousMind:
         # generate a scored candidate menu instead of the legacy free-form
         # state snapshot. The legacy path stays available so the rollout is
         # reversible by flipping config.autonomous_mind.arbiter.enabled.
+        # Cleared first so a legacy-prompt cycle never reports (or labels
+        # its memory with) the previous cycle's arbiter pick.
+        self._last_arbiter_top = None
         if (
             getattr(self._config, "arbiter", None) is not None
             and self._config.arbiter.enabled
@@ -1322,14 +1334,9 @@ class AutonomousMind:
             }
         await self._broadcast_event(EventType.MIND_WAKEUP, wakeup_payload)
 
-        # Isolate conversation history (same pattern as GoalRunner)
-        saved_history = list(self._agent._conversation_history)
-        self._agent._conversation_history.clear()
-
-        # Override approval callback — auto-approve in autonomous mode
-        # (spending limits still enforced by tools themselves)
-        prev_approval = self._agent._executor._approval_callback
-
+        # Approval for autonomous mode: ask the operator on every channel,
+        # pause (never deny) on timeout. Spending limits are enforced by
+        # the tools themselves.
         async def _auto_approve(
             tool_name: str, description: str, params: dict[str, Any]
         ) -> bool:
@@ -1342,8 +1349,6 @@ class AutonomousMind:
                 params=params,
                 label="Mind",
             )
-
-        self._agent._executor.set_approval_callback(_auto_approve)
 
         # Hook tool execution to broadcast real-time tool use events
         _tool_uses: list[dict[str, str]] = []
@@ -1373,19 +1378,30 @@ class AutonomousMind:
                 )
             )
 
-        prev_tool_cb = self._agent._executor._on_tool_executed
-        self._agent._executor._on_tool_executed = _on_tool
-
         # Single normalized entry — see AutoLoop sibling above.
         from core.execution_context import TaskSource
+        from core.run_hooks import run_hooks
+
+        # What this cycle set out to do, as its memory title. The prompt
+        # itself used to be the title, so 360 mind memories began with the
+        # same boilerplate and recall over them was noise (docs/94 F7).
+        _intent = self._last_arbiter_top
+        _label = (
+            f"Mind cycle: {_intent.action_spec[:200]}"
+            if _intent is not None and getattr(_intent, "action_spec", "")
+            else "Mind cycle"
+        )
 
         try:
             try:
-                response = await self._agent.submit_task(
-                    TaskSource.MIND,
-                    prompt,
-                    max_steps_override=self._config.max_rounds_per_wakeup,
-                )
+                with run_hooks(approval_callback=_auto_approve, on_tool_executed=_on_tool):
+                    response = await self._agent.submit_task(
+                        TaskSource.MIND,
+                        prompt,
+                        max_steps_override=self._config.max_rounds_per_wakeup,
+                        isolated_history=True,
+                        memory_label=_label,
+                    )
             except TimeoutError:
                 logger.warning(
                     "Mind think cycle skipped — resource held by "
@@ -1509,10 +1525,6 @@ class AutonomousMind:
                 },
             )
         finally:
-            # Restore conversation history, approval callback, and tool callback
-            self._agent._conversation_history = saved_history
-            self._agent._executor._approval_callback = prev_approval
-            self._agent._executor._on_tool_executed = prev_tool_cb
             # Release the per-cycle role mask (set in _build_arbiter_prompt
             # when role_neglect wins). Without this the pin outlives its
             # cycle and silently gates every subsequent one.
@@ -1756,9 +1768,14 @@ class AutonomousMind:
                 for g in paused:
                     nxt = await self._agent._goal_manager.get_next_checkpoint(g.goal_id)
                     nxt_str = f' — next: "{nxt.title}"' if nxt else ""
+                    who = (
+                        "paused by operator — off-limits"
+                        if "paused by operator" in (g.context_summary or "")
+                        else "paused by the system — recoverable"
+                    )
                     sections.append(
                         f'[GOAL-PAUSED] "{g.goal}" — {g.current_checkpoint}/{g.total_checkpoints} '
-                        f"checkpoints done{nxt_str}"
+                        f"checkpoints done{nxt_str} ({who})"
                     )
                 planning = await self._agent._goal_manager.list_goals(
                     status="planning", limit=2
@@ -2195,6 +2212,7 @@ class AutonomousMind:
             predictor=predictor,
             intervention_manager=getattr(self._agent, "_ambient_interventions", None),
             ambient_model=getattr(self._agent, "_ambient_model", None),
+            goal_runner=getattr(self._agent, "_goal_runner", None),
             max_external_proposals_per_day=int(
                 getattr(
                     getattr(self._config, "arbiter", None),

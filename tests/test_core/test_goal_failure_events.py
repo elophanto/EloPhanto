@@ -29,6 +29,14 @@ from core.goal_manager import EvaluationResult, GoalManager
 from core.goal_runner import GoalRunner
 
 
+def _task_tool_hook():
+    """The tool-executed hook the runner/mind installed for this task."""
+    from core.run_hooks import current_run_hooks
+
+    hooks = current_run_hooks()
+    return hooks.on_tool_executed if hooks else None
+
+
 @dataclass
 class FakeAgentResponse:
     content: str = "Did the work."
@@ -92,7 +100,11 @@ def mock_agent() -> MagicMock:
     agent = MagicMock()
 
     async def _submit(*_a, **_kw):
-        cb = getattr(agent._executor, "_on_tool_executed", None)
+        # The runner installs its hooks for the task (core/run_hooks.py).
+        from core.run_hooks import current_run_hooks
+
+        _hooks = current_run_hooks()
+        cb = _hooks.on_tool_executed if _hooks else None
         if callable(cb):
             cb("knowledge_search", {"query": "x"}, None)
         return FakeAgentResponse()
@@ -101,6 +113,10 @@ def mock_agent() -> MagicMock:
     agent.submit_task = AsyncMock(side_effect=_submit)
     agent._conversation_history = []
     agent._executor = MagicMock()
+    # A MagicMock cost is float(MagicMock()) == 1.0 per run — a real
+    # tracker starts at zero.
+    agent._router.cost_tracker.task_total = 0.0
+    agent._router.cost_tracker.daily_total = 0.0
     agent._executor._approval_callback = None
     agent._executor._on_tool_executed = None
     agent._executor.set_approval_callback = MagicMock()
@@ -232,7 +248,7 @@ class TestPreemptionIsAYieldNotAResult:
 
         async def _submit(*_a, **_kw):
             calls["n"] += 1
-            cb = getattr(mock_agent._executor, "_on_tool_executed", None)
+            cb = _task_tool_hook()
             if callable(cb):
                 cb("watch_analyze", {"subject": "Brand A"}, None)
             if calls["n"] == 1:

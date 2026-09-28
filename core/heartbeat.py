@@ -193,13 +193,9 @@ class HeartbeatEngine:
         # Execute the heartbeat content as an agent task
         cycle_start = time.monotonic()
 
-        # Isolate conversation history (same pattern as AutonomousMind)
-        saved_history = list(self._agent._conversation_history)
-        self._agent._conversation_history.clear()
-
-        # Auto-approve tools during heartbeat execution
-        prev_approval = self._agent._executor._approval_callback
-
+        # Approval during heartbeat execution: ask on every channel, pause
+        # (never deny) on timeout. Set per task, not on the shared executor
+        # (docs/94 F4).
         async def _auto_approve(
             tool_name: str, description: str, params: dict[str, Any]
         ) -> bool:
@@ -213,68 +209,66 @@ class HeartbeatEngine:
                 label="Heartbeat",
             )
 
-        self._agent._executor.set_approval_callback(_auto_approve)
+        prompt = (
+            "You are executing a heartbeat task. "
+            "The following instructions were found in HEARTBEAT.md. "
+            "Follow them strictly. Do not infer or repeat old tasks from prior chats. "
+            "If all instructions are already completed, reply HEARTBEAT_OK.\n\n"
+            f"---\n{content}\n---"
+        )
+
+        # Single normalized entry — submit_task picks up
+        # HEARTBEAT source, derives priority, and sets the
+        # execution context. See core/agent.py:submit_task.
+        from core.execution_context import TaskSource
+        from core.run_hooks import run_hooks
 
         try:
-            prompt = (
-                "You are executing a heartbeat task. "
-                "The following instructions were found in HEARTBEAT.md. "
-                "Follow them strictly. Do not infer or repeat old tasks from prior chats. "
-                "If all instructions are already completed, reply HEARTBEAT_OK.\n\n"
-                f"---\n{content}\n---"
-            )
-
-            # Single normalized entry — submit_task picks up
-            # HEARTBEAT source, derives priority, and sets the
-            # execution context. See core/agent.py:submit_task.
-            from core.execution_context import TaskSource
-
-            try:
+            with run_hooks(approval_callback=_auto_approve):
                 response = await self._agent.submit_task(
                     TaskSource.HEARTBEAT,
                     prompt,
                     max_steps_override=self._config.max_rounds,
+                    isolated_history=True,
+                    memory_label="Heartbeat standing orders",
                 )
-            except TimeoutError:
-                logger.warning(
-                    "Heartbeat skipped — resource held by another task. "
-                    "Will retry next cycle."
-                )
-                return
+        except TimeoutError:
+            logger.warning(
+                "Heartbeat skipped — resource held by another task. "
+                "Will retry next cycle."
+            )
+            return
 
-            elapsed = time.monotonic() - cycle_start
-            response_text = (response.content or "")[:500]
+        elapsed = time.monotonic() - cycle_start
+        response_text = (response.content or "")[:500]
 
-            # Check if agent indicated nothing to do
-            is_idle = "HEARTBEAT_OK" in (response_text or "").upper()
+        # Check if agent indicated nothing to do
+        is_idle = "HEARTBEAT_OK" in (response_text or "").upper()
 
-            if is_idle:
-                self._last_action = "HEARTBEAT_OK (all tasks complete)"
-                if not self._config.suppress_idle:
-                    await self._broadcast_event(
-                        EventType.HEARTBEAT_IDLE,
-                        {"reason": "all_complete", "elapsed": f"{elapsed:.1f}s"},
-                    )
-            else:
-                action_summary = (
-                    response_text.split("\n")[0][:120]
-                    if response_text
-                    else "(no output)"
-                )
-                self._last_action = action_summary
-                self._tasks_executed += 1
-
+        if is_idle:
+            self._last_action = "HEARTBEAT_OK (all tasks complete)"
+            if not self._config.suppress_idle:
                 await self._broadcast_event(
-                    EventType.HEARTBEAT_ACTION,
-                    {
-                        "summary": action_summary,
-                        "elapsed": f"{elapsed:.1f}s",
-                        "cycle": self._cycle_count + 1,
-                    },
+                    EventType.HEARTBEAT_IDLE,
+                    {"reason": "all_complete", "elapsed": f"{elapsed:.1f}s"},
                 )
-        finally:
-            self._agent._conversation_history = saved_history
-            self._agent._executor._approval_callback = prev_approval
+        else:
+            action_summary = (
+                response_text.split("\n")[0][:120]
+                if response_text
+                else "(no output)"
+            )
+            self._last_action = action_summary
+            self._tasks_executed += 1
+
+            await self._broadcast_event(
+                EventType.HEARTBEAT_ACTION,
+                {
+                    "summary": action_summary,
+                    "elapsed": f"{elapsed:.1f}s",
+                    "cycle": self._cycle_count + 1,
+                },
+            )
 
     def _read_heartbeat_file(self) -> str:
         """Read HEARTBEAT.md and return its content, or empty string."""

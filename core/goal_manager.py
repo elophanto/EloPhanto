@@ -630,10 +630,79 @@ class GoalManager:
                     goal_id,
                 )
                 return False
-        return await self._update_status(
+        ok = await self._update_status(
             goal_id,
             "active",
             from_statuses=("paused", "awaiting_approval", "budget_paused"),
+        )
+        if ok:
+            # A goal pauses when a checkpoint exhausts its attempts. Resuming
+            # it means "try again": the failed checkpoint goes back to
+            # pending with fresh attempts. Left 'failed', it was skipped —
+            # get_next_checkpoint reads only 'pending' — and the goal ran to
+            # the end of its plan and then sat 'active' with nothing to run
+            # (docs/94 F10). The failure reason stays in result_summary so
+            # the retry note can say why the last attempt failed.
+            await self._db.execute(
+                "UPDATE goal_checkpoints SET status = 'pending', attempts = 0 "
+                "WHERE goal_id = ? AND status = 'failed'",
+                (goal_id,),
+            )
+        return ok
+
+    async def add_cost(self, goal_id: str, usd: float) -> None:
+        """Charge a checkpoint run's LLM spend to its goal.
+
+        ``cost_usd`` was persisted but never incremented, so
+        ``cost_budget_per_goal_usd`` could never trip (docs/94 F1).
+        """
+        if not usd or usd <= 0:
+            return
+        await self._db.execute(
+            "UPDATE goals SET cost_usd = COALESCE(cost_usd, 0) + ? WHERE goal_id = ?",
+            (float(usd), goal_id),
+        )
+
+    async def diagnose_no_pending(self, goal_id: str) -> tuple[str, str]:
+        """Why a goal has no pending checkpoint.
+
+        Returns ``(state, detail)``, where state is one of:
+          - ``completed``       — the goal is done (and is marked so)
+          - ``failed_checkpoint`` — a checkpoint failed out; detail names it
+          - ``plan_incomplete`` — nothing pending, not all completed
+          - ``in_progress``     — a checkpoint is still active
+        The runner used to treat "no pending" as "all done" and exit,
+        leaving an unfinished goal 'active' with nothing running it.
+        """
+        goal = await self.get_goal(goal_id, company_id=ALL_COMPANIES)
+        if goal is None:
+            return "completed", "goal not found"
+        if goal.status == "completed":
+            return "completed", ""
+        cps = await self.get_checkpoints(goal_id)
+        if any(c.status == "active" for c in cps):
+            return "in_progress", ""
+        failed = [c for c in cps if c.status == "failed"]
+        if failed:
+            c = failed[0]
+            return (
+                "failed_checkpoint",
+                f"checkpoint {c.order} '{c.title}' failed: "
+                f"{(c.result_summary or '')[:300]}",
+            )
+        done = [c for c in cps if c.status in ("completed", "skipped")]
+        if cps and len(done) == len(cps):
+            now = datetime.now(UTC).isoformat()
+            goal.status = "completed"
+            goal.completed_at = now
+            goal.updated_at = now
+            await self._persist_goal(goal)
+            await self._fire_completion_hooks(goal_id)
+            return "completed", ""
+        return (
+            "plan_incomplete",
+            f"no pending checkpoints but {len(done)}/{len(cps)} done — the plan "
+            f"is missing its remaining steps",
         )
 
     @staticmethod
@@ -648,8 +717,8 @@ class GoalManager:
         import re
 
         m = re.search(
-            r"\[budget_paused\]\s+limit_cost=([0-9.]+)\s+"
-            r"limit_time=([0-9.]+)\s+limit_llm=(\d+)",
+            r"\[budget_paused\]\s+limit_cost=([0-9.]+|inf)\s+"
+            r"limit_time=([0-9.]+|inf)\s+limit_llm=(\d+)",
             context,
         )
         if not m:
@@ -961,7 +1030,11 @@ class GoalManager:
             created_dt = clock
         age_days = max(0.0, (clock - created_dt).total_seconds() / 86400.0)
 
-        text = f"{kc}\n{evidence_text}\n{goal.context_summary or ''}".lower()
+        # Evidence only — never the criterion's own text. Reading the
+        # criterion found "n 14" in "in 14 days" and "n 5" in "fewer than
+        # 5", so observed counts were the criterion's own numbers and a
+        # "fewer than N" criterion could never fire (docs/94).
+        text = f"{evidence_text}\n{goal.context_summary or ''}".lower()
 
         # Pattern: < N X in/within D days  OR  fewer than N ... D days
         m = re.search(
@@ -982,11 +1055,17 @@ class GoalManager:
                 counts = [
                     int(x)
                     for x in re.findall(
-                        r"(?:pre-?orders?|signups?|sales?|leads?|count|n)\s*[:=]?\s*(\d+)",
+                        r"\b(?:pre-?orders?|signups?|sales?|leads?|replies|count)\b"
+                        r"\s*[:=]\s*(\d+)",
                         text,
                     )
                 ]
-                observed = min(counts) if counts else 0
+                if not counts:
+                    # No measured count in the evidence. Killing on an
+                    # absent number would cancel goals over phrasing; the
+                    # no-progress guard and evaluation cover real stalls.
+                    return False, ""
+                observed = min(counts)
                 # "<5 in 14 days" triggers when observed < 5 after 14 days
                 if re.search(r"(<|>|fewer|less than|under)", kc.lower()):
                     if observed < threshold:

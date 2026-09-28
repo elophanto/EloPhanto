@@ -1473,6 +1473,10 @@ class Config:
     # them. Default 2h matches goals.max_total_time_per_goal_seconds.
     # Set 0 to disable (not recommended).
     max_agent_loop_seconds: int = 7200
+    # Context window of the planning model, in tokens. Compression triggers
+    # at 70/85/95% of this. It was hard-coded to 200K for every model, so a
+    # 128K model overflowed before compression began (docs/94 F11).
+    context_window_tokens: int = 200_000
     llm: LLMConfig = field(default_factory=LLMConfig)
     shell: ShellConfig = field(default_factory=ShellConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
@@ -1814,6 +1818,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
     max_steps = agent.get("max_steps", 0)
     max_time_seconds = agent.get("max_time_seconds", 0)
     max_agent_loop_seconds = agent.get("max_agent_loop_seconds", 7200)
+    context_window_tokens = int(agent.get("context_window_tokens", 200_000) or 200_000)
     workspace = agent.get("workspace", "")
 
     # Parse LLM section
@@ -2696,6 +2701,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         max_steps=max_steps,
         max_time_seconds=max_time_seconds,
         max_agent_loop_seconds=max_agent_loop_seconds,
+        context_window_tokens=context_window_tokens,
         workspace=workspace,
         llm=llm_config,
         shell=shell_config,

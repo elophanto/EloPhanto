@@ -66,17 +66,27 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _message_tokens(msg: dict[str, Any]) -> int:
-    """Estimate tokens in a single message (text content only)."""
+    """Estimate tokens in a single message: text content plus tool-call
+    arguments. Arguments were not counted, so a run writing large files
+    (a file_write carries the whole file) looked far smaller than it was."""
+    total = 0
     content = msg.get("content", "")
     if isinstance(content, str):
-        return _estimate_tokens(content)
-    if isinstance(content, list):
-        total = 0
+        total += _estimate_tokens(content) if content else 0
+    elif isinstance(content, list):
         for part in content:
             if isinstance(part, dict) and part.get("type") == "text":
                 total += _estimate_tokens(part.get("text", ""))
-        return total
-    return 0
+    for tc in msg.get("tool_calls") or []:
+        try:
+            args = tc.get("function", {}).get("arguments", "")
+        except AttributeError:
+            continue
+        if isinstance(args, str):
+            total += _estimate_tokens(args) if args else 0
+        elif args:
+            total += _estimate_tokens(str(args))
+    return total
 
 
 def _total_tokens(messages: list[dict[str, Any]]) -> int:
@@ -254,6 +264,7 @@ async def compress_messages(
     threshold_pct: int = _DEFAULT_THRESHOLD_PCT,
     keep_first: int = _DEFAULT_KEEP_FIRST,
     keep_last: int = _DEFAULT_KEEP_LAST,
+    raise_on_error: bool = False,
 ) -> list[dict[str, Any]]:
     """Compress conversation by summarizing middle turns.
 
@@ -322,9 +333,13 @@ async def compress_messages(
         summary = response.content.strip()
     except Exception as e:
         logger.warning("Context compression failed (LLM error): %s", e)
+        if raise_on_error:
+            raise
         return messages  # Fallback: return uncompressed
 
     if not summary:
+        if raise_on_error:
+            raise RuntimeError("compression summary was empty")
         return messages
 
     # Determine role for summary message to maintain alternation
@@ -471,11 +486,15 @@ async def tiered_compress(
             logger.warning("Circuit breaker tripped \u2014 skipping LLM compaction")
         else:
             try:
+                # raise_on_error: a swallowed failure used to count as a
+                # success, so the breaker could never trip and a failing
+                # summarizer was retried on every step (docs/94 F11).
                 messages = await compress_messages(
                     messages,
                     router,
                     context_window,
                     threshold_pct=0,  # Force compression (we already checked threshold)
+                    raise_on_error=True,
                 )
                 if circuit_breaker:
                     circuit_breaker.record_success()

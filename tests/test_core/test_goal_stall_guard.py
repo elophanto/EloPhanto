@@ -77,7 +77,11 @@ def mock_agent() -> MagicMock:
     agent = MagicMock()
 
     async def _submit_with_tool_trail(*_a, **_kw):
-        cb = getattr(agent._executor, "_on_tool_executed", None)
+        # The runner installs its hooks for the task (core/run_hooks.py).
+        from core.run_hooks import current_run_hooks
+
+        _hooks = current_run_hooks()
+        cb = _hooks.on_tool_executed if _hooks else None
         if callable(cb):
             cb("knowledge_search", {"query": "x"}, None)
         return FakeAgentResponse()
@@ -86,6 +90,10 @@ def mock_agent() -> MagicMock:
     agent.submit_task = AsyncMock(side_effect=_submit_with_tool_trail)
     agent._conversation_history = []
     agent._executor = MagicMock()
+    # A MagicMock cost is float(MagicMock()) == 1.0 per run — a real
+    # tracker starts at zero.
+    agent._router.cost_tracker.task_total = 0.0
+    agent._router.cost_tracker.daily_total = 0.0
     agent._executor._approval_callback = None
     agent._executor._on_tool_executed = None
     agent._executor.set_approval_callback = MagicMock()

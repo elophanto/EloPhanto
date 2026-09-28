@@ -99,6 +99,12 @@ class ExecutionContext:
     source: TaskSource = TaskSource.USER
     in_agent_loop: bool = False
     depth: int = 0
+    # The goal whose checkpoint this task is executing, when the goal
+    # runner started it. ``_run_with_history`` builds the ``<active_goal>``
+    # block for THIS goal. Without it the block showed whichever active goal
+    # was updated most recently, so with two active goals one goal's
+    # checkpoint could run under the other's plan.
+    goal_id: str | None = None
 
     @property
     def is_user_input(self) -> bool:
@@ -151,6 +157,7 @@ def execution_context(
     *,
     source: TaskSource | None = None,
     in_agent_loop: bool | None = None,
+    goal_id: str | None = None,
 ) -> Iterator[ExecutionContext]:
     """Push a new execution context for the body of a `with` block.
 
@@ -173,6 +180,8 @@ def execution_context(
         in_agent_loop=(
             in_agent_loop if in_agent_loop is not None else parent.in_agent_loop
         ),
+        # None inherits; "" clears (a task that is not goal work).
+        goal_id=(parent.goal_id if goal_id is None else (goal_id or None)),
         depth=parent.depth + 1,
     )
     token = _current_context.set(new)

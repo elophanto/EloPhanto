@@ -1,6 +1,23 @@
-"""Knowledge consolidation — prune stale, merge duplicates, enforce caps.
+"""Knowledge consolidation — keep the search index in step with the files.
 
-Runs during autonomous mind maintenance phase to maintain knowledge hygiene.
+Runs during autonomous mind maintenance.
+
+The knowledge base is the markdown files under ``knowledge/``. The
+``knowledge_chunks`` table (plus ``vec_chunks``) is a search index built from
+them, and the indexer rebuilds it from disk at every startup. So this module
+must never treat the index as the data. It used to: it capped the index at
+500 chunks by age, pruned "stale" chunks by age alone (``last_accessed_at``
+was never written, so every chunk older than 90 days qualified), and then
+deleted every ``knowledge/learned/*.md`` file that no longer had chunks —
+its own pruning had just orphaned them. The last recorded run capped 1,166
+chunks and deleted 52 learned files from disk; ``knowledge/learned/`` is
+gitignored, so they were unrecoverable (docs/94 F5).
+
+What it does now:
+  1. drop index rows whose source file no longer exists on disk;
+  2. drop rows that exactly repeat another (same file, heading and content);
+  3. delete the matching ``vec_chunks`` rows for everything it drops.
+It never deletes files and never drops rows for files that still exist.
 """
 
 from __future__ import annotations
@@ -15,13 +32,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_MAX_KNOWLEDGE_ENTRIES = 500
-_STALE_DAYS = 90  # Entries older than this with zero recent access are prunable
 _CONSOLIDATION_INTERVAL_HOURS = 24
+# Missing-file checks per run — bounded so one pass stays cheap.
+_MAX_FILES_CHECKED = 5000
 
 
 class KnowledgeConsolidator:
-    """Prunes, merges, and maintains knowledge base hygiene."""
+    """Keeps the knowledge search index consistent with the files on disk."""
 
     def __init__(self, db: Database, project_root: Path) -> None:
         self._db = db
@@ -44,71 +61,80 @@ class KnowledgeConsolidator:
             return True
 
     async def consolidate(self) -> dict[str, int]:
-        """Run full consolidation cycle. Returns stats dict."""
-        stats: dict[str, int] = {
-            "pruned": 0,
-            "merged": 0,
-            "capped": 0,
-        }
-
-        # Phase 1: Prune stale entries
-        stats["pruned"] = await self._prune_stale()
-
-        # Phase 2: Merge near-duplicates
+        """Run one consolidation pass. Returns stats."""
+        stats: dict[str, int] = {"pruned": 0, "merged": 0, "capped": 0}
+        # Rows whose file is gone (the only rows it is safe to drop).
+        stats["pruned"] = await self._prune_missing_files()
+        # Exact duplicates of the same file + heading.
         stats["merged"] = await self._merge_duplicates()
-
-        # Phase 3: Enforce entry cap
-        stats["capped"] = await self._enforce_cap()
-
-        # Phase 4: Clean orphaned disk files
-        stats["disk_cleaned"] = await self._clean_orphaned_files()
-
-        # Phase 5: Log consolidation
         await self._log_consolidation(stats)
-
         logger.info(
-            "Knowledge consolidation complete: pruned=%d merged=%d capped=%d disk_cleaned=%d",
+            "Knowledge consolidation complete: missing_files=%d merged=%d",
             stats["pruned"],
             stats["merged"],
-            stats["capped"],
-            stats.get("disk_cleaned", 0),
         )
         return stats
 
-    async def _prune_stale(self) -> int:
-        """Remove knowledge entries older than _STALE_DAYS with no recent access."""
-        cutoff = (datetime.now(UTC) - timedelta(days=_STALE_DAYS)).isoformat()
-        # Find entries that haven't been accessed recently and are old
+    def _source_exists(self, file_path: str) -> bool:
+        """Whether an indexed path still exists on disk.
+
+        Index paths are relative to ``knowledge/`` ("learned/x.md"); some
+        callers store them with the ``knowledge/`` prefix or absolute.
+        Unknown shapes count as existing — never drop what we cannot place.
+        """
+        if not file_path:
+            return True
+        candidate = Path(file_path)
+        if candidate.is_absolute():
+            return candidate.exists()
+        knowledge_dir = self._project_root / "knowledge"
+        return (knowledge_dir / file_path).exists() or (
+            self._project_root / file_path
+        ).exists()
+
+    async def _delete_chunks(self, chunk_ids: list[int]) -> None:
+        for cid in chunk_ids:
+            await self._db.execute("DELETE FROM knowledge_chunks WHERE id = ?", (cid,))
+            if getattr(self._db, "vec_available", False):
+                try:
+                    await self._db.execute(
+                        "DELETE FROM vec_chunks WHERE chunk_id = ?", (cid,)
+                    )
+                except Exception as e:  # pragma: no cover — vec table optional
+                    logger.debug("vec_chunks delete failed for %s: %s", cid, e)
+
+    async def _prune_missing_files(self) -> int:
+        """Drop index rows for files that no longer exist on disk."""
         rows = await self._db.execute(
-            "SELECT id, file_path, heading_path FROM knowledge_chunks "
-            "WHERE indexed_at < ? AND last_accessed_at IS NULL "
-            "ORDER BY indexed_at ASC LIMIT 50",
-            (cutoff,),
+            "SELECT DISTINCT file_path FROM knowledge_chunks LIMIT ?",
+            (_MAX_FILES_CHECKED,),
         )
-        if not rows:
-            return 0
-
         pruned = 0
-        for row in rows:
-            await self._db.execute(
-                "DELETE FROM knowledge_chunks WHERE id = ?", (row["id"],)
+        for row in rows or []:
+            fp = row["file_path"] or ""
+            if self._source_exists(fp):
+                continue
+            ids = await self._db.execute(
+                "SELECT id FROM knowledge_chunks WHERE file_path = ?", (fp,)
             )
-            pruned += 1
-            logger.debug(
-                "Pruned stale knowledge: %s / %s",
-                row["file_path"],
-                row["heading_path"],
-            )
-
+            chunk_ids = [r["id"] for r in ids or []]
+            await self._delete_chunks(chunk_ids)
+            pruned += len(chunk_ids)
+            logger.debug("Dropped %d index rows for missing file %s", len(chunk_ids), fp)
         return pruned
 
     async def _merge_duplicates(self) -> int:
-        """Find and merge near-duplicate entries by file_path+heading_path match."""
-        # Exact file_path+heading_path duplicates — keep newest, delete rest
+        """Drop rows that repeat another row exactly — same file, heading AND
+        content — keeping the newest.
+
+        Grouping on file + heading alone deleted real content: a long
+        section is split into several chunks that share one heading (all 6
+        such groups in the live index had distinct content).
+        """
         rows = await self._db.execute(
-            "SELECT file_path, heading_path, COUNT(*) as cnt "
+            "SELECT file_path, heading_path, content, COUNT(*) as cnt "
             "FROM knowledge_chunks "
-            "GROUP BY file_path, heading_path HAVING cnt > 1 LIMIT 20",
+            "GROUP BY file_path, heading_path, content HAVING cnt > 1 LIMIT 50",
             (),
         )
         if not rows:
@@ -117,103 +143,15 @@ class KnowledgeConsolidator:
         merged = 0
         for row in rows:
             dupes = await self._db.execute(
-                "SELECT id, content, indexed_at FROM knowledge_chunks "
-                "WHERE file_path = ? AND heading_path = ? "
+                "SELECT id FROM knowledge_chunks "
+                "WHERE file_path = ? AND heading_path = ? AND content = ? "
                 "ORDER BY indexed_at DESC",
-                (row["file_path"], row["heading_path"]),
+                (row["file_path"], row["heading_path"], row["content"]),
             )
-            # Keep the newest, delete the rest
-            for dupe in dupes[1:]:
-                await self._db.execute(
-                    "DELETE FROM knowledge_chunks WHERE id = ?", (dupe["id"],)
-                )
-                merged += 1
-
+            stale_ids = [d["id"] for d in dupes[1:]]
+            await self._delete_chunks(stale_ids)
+            merged += len(stale_ids)
         return merged
-
-    async def _enforce_cap(self) -> int:
-        """Remove oldest entries if total exceeds _MAX_KNOWLEDGE_ENTRIES."""
-        count_rows = await self._db.execute(
-            "SELECT COUNT(*) as cnt FROM knowledge_chunks", ()
-        )
-        total = count_rows[0]["cnt"] if count_rows else 0
-
-        if total <= _MAX_KNOWLEDGE_ENTRIES:
-            return 0
-
-        excess = total - _MAX_KNOWLEDGE_ENTRIES
-        # Delete oldest entries (by indexed_at)
-        rows = await self._db.execute(
-            "SELECT id FROM knowledge_chunks ORDER BY indexed_at ASC LIMIT ?",
-            (excess,),
-        )
-        for row in rows:
-            await self._db.execute(
-                "DELETE FROM knowledge_chunks WHERE id = ?", (row["id"],)
-            )
-
-        logger.info(
-            "Capped knowledge: removed %d entries (was %d, cap %d)",
-            excess,
-            total,
-            _MAX_KNOWLEDGE_ENTRIES,
-        )
-        return excess
-
-    async def _clean_orphaned_files(self) -> int:
-        """Remove learned/ markdown files that have no DB index entries.
-
-        Files accumulate on disk as the learner creates them, but are never
-        deleted when their DB entries are pruned. This phase finds files in
-        ``knowledge/learned/`` that have zero corresponding rows in
-        ``knowledge_chunks`` and removes them.
-        """
-        learned_dir = self._project_root / "knowledge" / "learned"
-        if not learned_dir.is_dir():
-            return 0
-
-        # Get all indexed file paths from DB
-        rows = await self._db.execute(
-            "SELECT DISTINCT file_path FROM knowledge_chunks", ()
-        )
-        indexed_paths: set[str] = set()
-        for row in rows:
-            fp = row["file_path"]
-            if fp:
-                # Normalize: DB stores relative paths like "learned/strategy/x.md"
-                indexed_paths.add(fp)
-                # Also add with "knowledge/" prefix variant
-                if not fp.startswith("knowledge/"):
-                    indexed_paths.add(f"knowledge/{fp}")
-
-        cleaned = 0
-        for md_file in learned_dir.rglob("*.md"):
-            # Build relative path variants to check against DB
-            rel = md_file.relative_to(self._project_root)
-            rel_str = str(rel)
-            # Also try without "knowledge/" prefix
-            alt_str = str(rel).removeprefix("knowledge/")
-
-            if rel_str not in indexed_paths and alt_str not in indexed_paths:
-                try:
-                    md_file.unlink()
-                    cleaned += 1
-                    logger.debug("Cleaned orphaned file: %s", rel_str)
-                except OSError as e:
-                    logger.debug("Failed to clean %s: %s", rel_str, e)
-
-        # Clean empty directories left behind
-        if cleaned:
-            for dirpath in sorted(learned_dir.rglob("*"), reverse=True):
-                if dirpath.is_dir() and not any(dirpath.iterdir()):
-                    try:
-                        dirpath.rmdir()
-                    except OSError:
-                        pass
-
-        if cleaned:
-            logger.info("Cleaned %d orphaned knowledge files from disk", cleaned)
-        return cleaned
 
     async def _log_consolidation(self, stats: dict[str, int]) -> None:
         """Record consolidation run in metadata table."""
