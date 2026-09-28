@@ -717,12 +717,59 @@ class GoalManager:
         ``cost_usd`` was persisted but never incremented, so
         ``cost_budget_per_goal_usd`` could never trip (docs/94 F1).
         """
-        if not usd or usd <= 0:
+        await self.record_usage(goal_id, cost_usd=usd)
+
+    async def record_usage(
+        self, goal_id: str, *, cost_usd: float = 0.0, seconds: float = 0.0
+    ) -> None:
+        """Add spend and work time to the goal's total and today's row."""
+        cost_usd = max(0.0, float(cost_usd or 0.0))
+        seconds = max(0.0, float(seconds or 0.0))
+        if not cost_usd and not seconds:
             return
+        if cost_usd:
+            await self._db.execute(
+                "UPDATE goals SET cost_usd = COALESCE(cost_usd, 0) + ? WHERE goal_id = ?",
+                (cost_usd, goal_id),
+            )
+        day = datetime.now(UTC).strftime("%Y-%m-%d")
         await self._db.execute(
-            "UPDATE goals SET cost_usd = COALESCE(cost_usd, 0) + ? WHERE goal_id = ?",
-            (float(usd), goal_id),
+            "INSERT INTO goal_usage (goal_id, day, cost_usd, seconds) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(goal_id, day) DO UPDATE SET "
+            "cost_usd = cost_usd + excluded.cost_usd, seconds = seconds + excluded.seconds",
+            (goal_id, day, cost_usd, seconds),
         )
+
+    async def usage(self, goal_id: str) -> dict[str, float]:
+        """Today's spend and work time, and total work time, for a goal."""
+        day = datetime.now(UTC).strftime("%Y-%m-%d")
+        rows = await self._db.execute(
+            "SELECT day, cost_usd, seconds FROM goal_usage WHERE goal_id = ?", (goal_id,)
+        )
+        today = next((r for r in rows or [] if r["day"] == day), None)
+        return {
+            "today_cost_usd": float(today["cost_usd"]) if today else 0.0,
+            "today_seconds": float(today["seconds"]) if today else 0.0,
+            "total_seconds": sum(float(r["seconds"]) for r in rows or []),
+        }
+
+    async def resume_envelope_paused(self) -> list[str]:
+        """Resume goals paused by a daily envelope on an earlier UTC day."""
+        import re
+
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        resumed: list[str] = []
+        for g in await self.list_goals(status="budget_paused", limit=50):
+            m = re.search(r"envelope_day=(\d{4}-\d{2}-\d{2})", g.context_summary or "")
+            if m and m.group(1) < today:
+                g.context_summary = re.sub(
+                    r"^\[budget_paused\][^\n]*envelope_day=[^\n]*\n?", "", g.context_summary or ""
+                )
+                g.status = "active"
+                g.updated_at = datetime.now(UTC).isoformat()
+                await self._persist_goal(g)
+                resumed.append(g.goal_id)
+        return resumed
 
     async def diagnose_no_pending(self, goal_id: str) -> tuple[str, str]:
         """Why a goal has no pending checkpoint.

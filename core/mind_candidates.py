@@ -1171,11 +1171,28 @@ async def _capability_review_due(ctx: CandidateContext) -> tuple[float, str] | N
     Currently uses a simple proxy: the agent's recent task memory.
     Phase 4 can replace this with a dedicated `reflexes` table.
     """
-    # No proper memory dimension yet; return a soft "always slightly
-    # overdue" signal so the reflex appears at a modest score until
-    # the operator wires it to a real source. This is deliberate —
-    # we want the reflex visible in early dry-runs.
-    return (1.0, "never recorded")
+    # The mind records ``mind_last_capability_review`` in the metadata table
+    # when it picks this reflex. It used to be a stub that was "due" on
+    # every wakeup forever (docs/94 S8).
+    db = getattr(ctx.goal_manager, "_db", None)
+    if db is None:
+        return None
+    try:
+        rows = await db.execute(
+            "SELECT value FROM metadata WHERE key = 'mind_last_capability_review'"
+        )
+    except Exception:
+        return None
+    if not rows:
+        return (1.0, "never recorded")
+    try:
+        last = datetime.fromisoformat(rows[0]["value"])
+    except (TypeError, ValueError):
+        return (1.0, "never recorded")
+    days = (datetime.now(UTC) - last).total_seconds() / 86400.0
+    if days < _CAPABILITY_REVIEW_DAYS:
+        return None
+    return (days - _CAPABILITY_REVIEW_DAYS + 1.0, last.isoformat()[:16])
 
 
 async def _mission_rebalance_due(ctx: CandidateContext) -> float | None:

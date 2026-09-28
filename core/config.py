@@ -667,6 +667,16 @@ class GoalsConfig:
     # Reasoning effort for those thinking calls (provider-dependent; Z.ai:
     # minimal|low|medium|high|xhigh|max). Empty = the task type's setting.
     deliberation_effort: str = "high"
+    # Scheduling (docs/94 §12). Daily envelopes: when a goal spends this much
+    # in one UTC day it pauses and resumes by itself the next day, so a
+    # multi-day goal keeps going inside a limit instead of stopping at a
+    # total cap. 0 = no envelope.
+    daily_cost_envelope_usd: float = 0.0
+    daily_time_envelope_seconds: int = 0
+    # Round-robin: after each completed checkpoint, hand the runner to
+    # another active goal that has work, instead of finishing one goal
+    # before starting the next.
+    round_robin: bool = False
 
 
 @dataclass
@@ -2197,6 +2207,9 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         deliberate=bool(goals_raw.get("deliberate", True)),
         plan_critique=bool(goals_raw.get("plan_critique", True)),
         deliberation_effort=str(goals_raw.get("deliberation_effort", "high") or ""),
+        daily_cost_envelope_usd=float(goals_raw.get("daily_cost_envelope_usd", 0.0) or 0.0),
+        daily_time_envelope_seconds=int(goals_raw.get("daily_time_envelope_seconds", 0) or 0),
+        round_robin=bool(goals_raw.get("round_robin", False)),
     )
 
     # Parse identity section

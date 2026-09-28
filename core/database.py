@@ -229,6 +229,18 @@ _SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_run_ledger_thread
         ON run_ledger(thread_id, kind, id)
     """,
+    # Per-goal, per-UTC-day spend and work time. Backs the daily envelopes
+    # (a multi-day goal continues tomorrow instead of pausing forever) and
+    # the total-time cap, which used to reset on every restart (docs/94 §12).
+    """
+    CREATE TABLE IF NOT EXISTS goal_usage (
+        goal_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        seconds REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (goal_id, day)
+    )
+    """,
     # Missions — durable drives the autonomous mind works toward
     # across many goals. See docs/75-AUTONOMOUS-MIND-V2.md §Phase 2.
     # Missions are NEVER "completed" — they're paused or retired by

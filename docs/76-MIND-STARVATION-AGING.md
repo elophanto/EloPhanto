@@ -1,6 +1,6 @@
 # 76 — Mind starvation under sustained pressure (future work)
 
-**Status**: Future consideration. Not scheduled. · **Surfaced**: 2026-05-20
+**Status**: Implemented 2026-09-28 (docs/94 §12): `effective_priority` in `core/task_resources.py`, 60 s per level, floor SCHEDULED. · **Surfaced**: 2026-05-20
 
 ## Observation
 

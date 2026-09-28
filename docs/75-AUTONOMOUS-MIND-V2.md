@@ -270,7 +270,7 @@ Bolted onto the arbiter once the loop is healthy. **Not blocking Phase 4.**
 
 The pieces that make it feel alive.
 
-- [ ] **4.1** **Attractor detector**: rolling hash of last N action
+- [x] **4.1** **Attractor detector** (implemented 2026-09-28 as `demote_attractor`, docs/94 §12 — demotion plus a prompt note rather than an injected candidate): rolling hash of last N action
       descriptions in `_recent_actions`. If entropy < threshold, inject
       high-score "force-diversification" candidate. Targets the exact
       failure mode observed in the 36h reconciliation loop

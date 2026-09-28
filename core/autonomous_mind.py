@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -360,6 +361,38 @@ _PLANNING_STUCK_TIMEOUT_S = 30 * 60
 _PLANNING_MAX_RETRIES = 2
 
 
+def demote_attractor(scored: list[Any], history: list[str]) -> tuple[list[Any], str]:
+    """Rank last a pick the mind keeps returning to without resolving.
+
+    The same intent in 3 of the last 5 cycles means the mind is circling
+    (docs/75 §4.1; the 36-hour "bounded reconciliation" loop). Returns the
+    reordered list and a note for the prompt ("" when not circling).
+    """
+    if len(scored) < 2:
+        return scored, ""
+    recent = history[-5:]
+    top_key = _intent_key(scored[0].candidate)
+    if not top_key or recent.count(top_key) < 3:
+        return scored, ""
+    reordered = scored[1:] + scored[:1]
+    circling = scored[0].candidate
+    logger.warning("[arbiter] attractor demoted: %s", circling.action_spec[:120])
+    note = (
+        f'ATTRACTOR: you picked "{circling.action_spec[:160]}" in '
+        f"{recent.count(top_key)} of your last {len(recent)} cycles and it has not "
+        "resolved. It is ranked last this cycle: do something else, or record in "
+        "the scratchpad exactly why it is blocked."
+    )
+    return reordered, note
+
+
+def _intent_key(candidate: Any) -> str:
+    """Stable identity of what a candidate proposes to do."""
+    return str(
+        getattr(candidate, "dedup_key", "") or getattr(candidate, "action_spec", "")[:120]
+    )
+
+
 def _dream_focus_for_today() -> str:
     """Pick today's dream focus deterministically from the 7-lens rotation.
 
@@ -438,6 +471,10 @@ class AutonomousMind:
         self._last_state_text: str = ""
         self._last_posture: str = ""
         self._last_decision: Any = None
+        # What each recent cycle set out to do — the attractor detector's
+        # window (docs/94 §12).
+        self._intent_history: deque[str] = deque(maxlen=8)
+        self._attractor_note: str = ""
 
         # Register mind-specific tools
         self._register_mind_tools()
@@ -1469,6 +1506,21 @@ class AutonomousMind:
             )
             self._last_action = action_summary
 
+            # Remember what this cycle set out to do (attractor window), and
+            # when the capability-review reflex last ran (it used to be
+            # "due" on every wakeup, forever).
+            picked = self._last_arbiter_top
+            if picked is not None:
+                self._intent_history.append(_intent_key(picked))
+                if getattr(picked, "source", "") == "reflex_capability_review":
+                    try:
+                        await self._agent._db.execute(
+                            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                            ("mind_last_capability_review", datetime.now(UTC).isoformat()),
+                        )
+                    except Exception as e:
+                        logger.debug("capability review timestamp not saved: %s", e)
+
             # Log action
             ts = datetime.now(UTC).strftime("%H:%M")
             self._recent_actions.append({"ts": ts, "summary": action_summary})
@@ -2341,6 +2393,10 @@ class AutonomousMind:
             source_multipliers=source_mult or None,
             role_priorities=role_prio or None,
         )
+        # Attractor detector (docs/75 §4.1, docs/94 §12): the same pick in
+        # 3 of the last 5 cycles means the mind is circling — the 36-hour
+        # "bounded reconciliation" loop. Rank it last this cycle and say so.
+        scored, self._attractor_note = demote_attractor(scored, list(self._intent_history))
         menu = render_menu(scored)
 
         # Stash the top-ranked candidate so the upcoming MIND_WAKEUP
@@ -2396,7 +2452,7 @@ class AutonomousMind:
 
         self._last_state_text = tail_truncate(state_snapshot, 3000)
 
-        return _ARBITER_PROMPT.format(
+        prompt = _ARBITER_PROMPT.format(
             max_rounds=self._config.max_rounds_per_wakeup,
             top_k=len(scored),
             total_candidates=len(all_candidates),
@@ -2411,6 +2467,9 @@ class AutonomousMind:
             last_action=self._last_action,
             utc_now=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         )
+        if self._attractor_note:
+            prompt += "\n\n" + self._attractor_note
+        return prompt
 
     # ------------------------------------------------------------------
     # Budget

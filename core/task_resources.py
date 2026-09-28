@@ -24,9 +24,9 @@ See docs/02-ARCHITECTURE.md (scheduler section) for the full picture.
 from __future__ import annotations
 
 import asyncio
-import heapq
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -77,6 +77,22 @@ class TaskPriority(IntEnum):
 # unmarked work doesn't jump operator chat.
 _DEFAULT_PRIORITY: int = TaskPriority.SCHEDULED.value
 
+# Priority aging (docs/76-MIND-STARVATION-AGING.md, docs/94 §12). Under
+# strict priority, a steady stream of chat and schedules starved the mind and
+# goal work indefinitely — goal work waited up to 21 minutes for its turn.
+# Each full AGE_SECONDS a waiter has waited raises its effective priority one
+# level, but never above AGE_FLOOR: aged work can overtake schedules, never
+# the operator.
+AGE_SECONDS: float = 60.0
+AGE_FLOOR: int = TaskPriority.SCHEDULED.value
+
+
+def effective_priority(priority: int, waited_seconds: float) -> int:
+    """A waiter's priority after aging. Lower number = more urgent."""
+    if priority <= AGE_FLOOR or AGE_SECONDS <= 0:
+        return priority
+    return max(AGE_FLOOR, priority - int(max(0.0, waited_seconds) // AGE_SECONDS))
+
 
 class _Slot:
     """Per-acquisition handle returned by ``_PrioritySemaphore.acquire``.
@@ -118,10 +134,13 @@ class _PrioritySemaphore:
       - When acquired below capacity: immediate, in_use += 1. The
         returned slot is recorded as a current holder so later
         higher-priority waiters can signal it.
-      - When at capacity: caller's future is pushed onto a min-heap
-        keyed by ``(priority, seq)``. ``release()`` pops the highest-
-        priority waiter (lowest priority number) and transfers the
-        slot — in_use stays put, so the next free acquire still blocks.
+      - When at capacity: caller's future joins the wait list.
+        ``release()`` transfers the slot to the waiter with the best
+        *effective* priority — raw priority improved by aging (see
+        ``effective_priority``), ties broken by arrival order — so
+        in_use stays put and the next free acquire still blocks. The
+        winner holds at its aged priority, so work that waited its turn
+        is not immediately preempted back out by a peer.
       - **Preemption signaling**: when a new acquire() arrives with
         higher priority than ANY current holder, that holder's
         ``preempt_requested`` event fires. The holder yields at its
@@ -143,7 +162,10 @@ class _PrioritySemaphore:
         self.capacity = capacity
         self._in_use = 0
         self._seq = 0
-        self._waiters: list[tuple[int, int, asyncio.Future[None]]] = []
+        # (priority, seq, future, queued_at). A plain list scanned at release
+        # time: effective priority changes as waiters age, which a heap
+        # keyed at insertion cannot follow, and waiters are few.
+        self._waiters: list[tuple[int, int, asyncio.Future[int], float]] = []
         # Current holders. List (not set) so multiple holders at
         # cap > 1 each have their own slot. Cleared on release —
         # see release() for the lookup pattern.
@@ -167,18 +189,19 @@ class _PrioritySemaphore:
             return slot
 
         loop = asyncio.get_running_loop()
-        fut: asyncio.Future[None] = loop.create_future()
+        fut: asyncio.Future[int] = loop.create_future()
         self._seq += 1
-        heapq.heappush(self._waiters, (priority, self._seq, fut))
+        self._waiters.append((priority, self._seq, fut, time.monotonic()))
         try:
-            await fut
+            granted = await fut
         except asyncio.CancelledError:
-            # Tombstone — release() will skip when it pops us.
+            # Tombstone — release() will skip it.
             if not fut.done():
                 fut.cancel()
             raise
-        # Slot transferred to us by release(); no in_use bump needed.
-        slot = _Slot(priority)
+        # Slot transferred to us by release(); no in_use bump needed. We
+        # hold at the priority we were granted at (aged, possibly).
+        slot = _Slot(granted if isinstance(granted, int) else priority)
         self._holders.append(slot)
         return slot
 
@@ -197,14 +220,19 @@ class _PrioritySemaphore:
         elif self._holders:
             self._holders.pop()
 
-        # Skip cancelled tombstones; transfer the slot to the highest-
-        # priority live waiter. Falls through to decrementing in_use
-        # only if the heap is empty (or only tombstones remain).
-        while self._waiters:
-            _, _, fut = heapq.heappop(self._waiters)
-            if not fut.done():
-                fut.set_result(None)
-                return
+        # Drop cancelled tombstones; transfer the slot to the live waiter
+        # with the best effective (aged) priority, earliest arrival first.
+        # Falls through to decrementing in_use when nobody is waiting.
+        self._waiters = [w for w in self._waiters if not w[2].done()]
+        if self._waiters:
+            now = time.monotonic()
+            best = min(
+                self._waiters,
+                key=lambda w: (effective_priority(w[0], now - w[3]), w[1]),
+            )
+            self._waiters.remove(best)
+            best[2].set_result(effective_priority(best[0], now - best[3]))
+            return
         self._in_use = max(0, self._in_use - 1)
 
     @property
@@ -215,7 +243,7 @@ class _PrioritySemaphore:
     def waiters(self) -> int:
         # Count live (non-cancelled) waiters — cancelled futures are
         # tombstones that don't represent real demand.
-        return sum(1 for _, _, fut in self._waiters if not fut.done())
+        return sum(1 for _, _, fut, _ in self._waiters if not fut.done())
 
     @property
     def holders(self) -> list[_Slot]:

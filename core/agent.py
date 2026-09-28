@@ -553,6 +553,9 @@ class AgentResponse:
     # For a run that did not finish, when the caller asked for one: where it
     # got to and what comes next, for the run that picks the work up.
     handoff: str = ""
+    # Wall-clock seconds the loop ran — from acquiring AGENT_LOOP to the
+    # end, never the time spent queued. Goal work time is accounted from it.
+    elapsed_seconds: float = 0.0
 
 
 class _FilteredRegistry:
@@ -3771,10 +3774,13 @@ class Agent:
         ) as _slots:
             _wait_elapsed = _time.monotonic() - _wait_start
             _hold_start = _time.monotonic()
+            _granted = getattr(_slots.get(TaskResource.AGENT_LOOP), "priority", effective_priority)
             logger.info(
-                "[agent_loop] ACQ   src=%s waited=%.2fs",
+                "[agent_loop] ACQ   src=%s waited=%.2fs%s",
                 _pri_label,
                 _wait_elapsed,
+                # Aging (docs/94 §12): show when long waiting raised the priority.
+                f" aged_pri={_granted}" if _granted != effective_priority else "",
             )
             # Capture the AGENT_LOOP slot so the loop body can check
             # ``slot.preempt_requested`` between rounds. When a higher-
@@ -4977,6 +4983,7 @@ class Agent:
                     steps_taken=step,
                     tool_calls_made=tool_calls_made,
                     stop_reason="completed",
+                    elapsed_seconds=_time.monotonic() - start_time,
                 )
 
                 if self._on_task_complete:
@@ -5539,6 +5546,7 @@ class Agent:
             preempted=stop_kind == "preempted",
             stop_reason=stop_kind,
             handoff=handoff_text,
+            elapsed_seconds=_time.monotonic() - start_time,
         )
 
     _AUTONOMOUS_SOURCES = frozenset({"mind", "goal", "heartbeat", "scheduled"})

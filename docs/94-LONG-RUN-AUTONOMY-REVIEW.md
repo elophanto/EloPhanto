@@ -543,3 +543,24 @@ blocks private and reserved addresses for URL checks.
 | Final verification | When the last checkpoint completes, the goal is not marked complete yet: one planning-tier call compares the original goal (and kill criterion) with the checkpoint results and the ledger and answers met / not met with the missing pieces. Met → completed. Not met → the plan is revised to add the missing work (at most twice), then the goal pauses for the operator with the findings. An unavailable verifier completes the goal, noting it on the ledger. |
 | Self-recovery | A checkpoint that exhausts its attempts no longer pauses the goal at once: the runner revises the plan once with the ledger's failure history (splitting or re-approaching the checkpoint), up to twice per goal, and pauses only when that fails too. |
 | Evaluation | `evaluate_progress` reads the ledger (artifacts, facts, failures) as well as summaries, parses leniently, and marks an unparseable answer as such: it no longer counts as "on track" and no longer resets the no-progress guard. `revise_plan` receives the evaluation's `suggested_changes`, which were dropped. |
+
+---
+
+## 12. Phase 4 — implementation (scheduling)
+
+**Status: implemented 2026-09-28.** 3,877 tests pass (7 new).
+
+Verified before code: `_PrioritySemaphore` kept a heap keyed `(priority, seq)`
+at insertion, so a waiter's standing never changed however long it waited;
+the only external reader of its internals is `status_dict()["waiters"]`.
+`max_total_time_per_goal_seconds` was measured from `time.monotonic()` at loop
+start. The capability-review reflex returned "due" unconditionally.
+
+| Piece | What it does |
+| --- | --- |
+| Priority aging | `effective_priority(raw, waited)`: one level better per full 60 s of waiting, never better than SCHEDULED — aged work overtakes schedules and the mind, never operator chat. `release()` hands the slot to the best effective priority (ties by arrival); the winner holds at its aged level so a peer arriving next cannot immediately preempt it back out. `[agent_loop] ACQ` logs `aged_pri=` when aging decided it. |
+| Work time and envelopes | `goal_usage (goal_id, day, cost_usd, seconds)`. Each checkpoint run's cost and `AgentResponse.elapsed_seconds` (loop time, never queue time) are recorded. The total-time cap reads the sum across all runs and restarts. `goals.daily_cost_envelope_usd` / `daily_time_envelope_seconds` (0 = off) pause a goal as `budget_paused` with `envelope_day=`; the runner lifts envelope pauses from earlier days itself. |
+| Round-robin | `goals.round_robin` (off by default — sequential finishes each goal sooner): after each completed checkpoint the goal yields to the next active goal with work. |
+| Attractor detector | `demote_attractor`: the same pick (dedup key, else action text) in 3 of the mind's last 5 cycles is ranked last and the prompt says why — docs/75 §4.1, unbuilt until now. |
+| Capability-review reflex | Due only 7 days after the mind last picked it (`metadata.mind_last_capability_review`). |
+| Mind ↔ runner | (Phase 0) with a runner present the mind proposes only starting an idle runner, never doing a checkpoint itself. |

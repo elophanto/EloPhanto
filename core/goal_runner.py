@@ -100,6 +100,19 @@ def _attach_tool_output(tool_trace: list[dict[str, Any]], name: str, result: Any
 _PREEMPT_PREFIX = "Preempted"
 
 
+def _utc_day() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _preemption_note(response: Any, tool_trace: list[dict[str, Any]]) -> str:
     """What an interrupted attempt had already done, for the next attempt.
 
@@ -322,6 +335,11 @@ class GoalRunner:
         if self._stop_file_present():
             return None
         try:
+            for gid in await self._gm.resume_envelope_paused():
+                logger.info("Goal %s: new day — daily envelope lifted", gid)
+        except Exception as e:
+            logger.debug("envelope resume failed: %s", e)
+        try:
             active = await self._gm.list_goals(status="active", limit=50)
             planning = await self._gm.list_goals(status="planning", limit=20)
         except Exception as e:
@@ -420,7 +438,6 @@ class GoalRunner:
         if not goal:
             return
 
-        start_time = time.monotonic()
         checkpoints_since_eval = 0
         self._halted_by_stop = False
         # Revision-without-progress counter. Increments on every
@@ -489,10 +506,22 @@ class GoalRunner:
                     await self._budget_pause(goal, reason)
                     return
 
-                # Time limit
-                elapsed = time.monotonic() - start_time
-                if elapsed > self._config.max_total_time_per_goal_seconds:
+                # Time limit — total work time across every run and restart.
+                # It used to be wall-clock since this loop started, so every
+                # resume or restart reset it.
+                usage = await self._gm.usage(goal_id)
+                if usage["total_seconds"] > self._config.max_total_time_per_goal_seconds:
                     await self._budget_pause(goal, "Total time limit reached")
+                    return
+
+                # Daily envelopes: pause for today, resume tomorrow by itself.
+                envelope = self._envelope_reached(usage)
+                if envelope:
+                    await self._pause_goal(
+                        goal_id,
+                        f"envelope_day={_utc_day()} | {envelope} — resumes tomorrow",
+                        status="budget_paused",
+                    )
                     return
 
                 # Cost limit
@@ -579,6 +608,7 @@ class GoalRunner:
 
                 if success:
                     checkpoints_since_eval += 1
+                    rotate = self._config.round_robin and await self._another_goal_waiting(goal_id)
                     await self._broadcast_event(
                         EventType.GOAL_CHECKPOINT_COMPLETE,
                         {
@@ -655,6 +685,11 @@ class GoalRunner:
                                 # change and the reviser was never told.
                                 reason += f" Suggested changes: {evaluation.suggested_changes}"
                             await self._gm.revise_plan(goal, reason)
+
+                if success and rotate:
+                    # Round-robin: this goal goes to the back of the queue.
+                    logger.info("Goal %s yields to the next active goal (round-robin)", goal_id)
+                    return
 
                 # Brief pause between checkpoints
                 if self._config.pause_between_checkpoints_seconds > 0:
@@ -834,14 +869,18 @@ class GoalRunner:
                     ),
                 )
 
-            # Charge what this run spent to the goal (docs/94 F1).
+            # Charge what this run spent, and how long it worked, to the goal
+            # (docs/94 F1, §12). Work time excludes queueing.
             try:
-                await self._gm.add_cost(
+                await self._gm.record_usage(
                     goal.goal_id,
-                    float(getattr(self._agent._router.cost_tracker, "task_total", 0.0) or 0.0),
+                    cost_usd=float(
+                        getattr(self._agent._router.cost_tracker, "task_total", 0.0) or 0.0
+                    ),
+                    seconds=_as_float(getattr(response, "elapsed_seconds", 0.0)),
                 )
             except Exception as ce:  # pragma: no cover — accounting must not fail work
-                logger.debug("goal cost accounting failed: %s", ce)
+                logger.debug("goal usage accounting failed: %s", ce)
 
             stop_reason = str(getattr(response, "stop_reason", "") or "")
 
@@ -1298,6 +1337,24 @@ class GoalRunner:
             checkpoint.order,
         )
         return True
+
+    def _envelope_reached(self, usage: dict[str, float]) -> str:
+        cost_cap = float(getattr(self._config, "daily_cost_envelope_usd", 0.0) or 0.0)
+        time_cap = float(getattr(self._config, "daily_time_envelope_seconds", 0) or 0)
+        if cost_cap > 0 and usage["today_cost_usd"] >= cost_cap:
+            return f"daily cost envelope ${cost_cap:.2f} reached (${usage['today_cost_usd']:.2f})"
+        if time_cap > 0 and usage["today_seconds"] >= time_cap:
+            return f"daily time envelope {int(time_cap)}s reached"
+        return ""
+
+    async def _another_goal_waiting(self, goal_id: str) -> bool:
+        try:
+            for g in await self._gm.list_goals(status="active", limit=20):
+                if g.goal_id != goal_id and await self._gm.get_next_checkpoint(g.goal_id):
+                    return True
+        except Exception:
+            return False
+        return False
 
     def _ledger(self) -> Any:
         """The run ledger over the goal manager's DB (None if unavailable)."""
