@@ -206,6 +206,29 @@ _SCHEMA = [
         UNIQUE(goal_id, checkpoint_order)
     )
     """,
+    # Run ledger — durable working state per goal (artifacts, facts,
+    # decisions, failed attempts, open questions, handoffs), written as the
+    # work happens and rendered into every checkpoint prompt. No FK to goals:
+    # thread_id is also used for non-goal threads, and goal deletion removes
+    # the rows explicitly. See core/run_ledger.py, docs/94 §9.
+    """
+    CREATE TABLE IF NOT EXISTS run_ledger (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id TEXT NOT NULL,
+        checkpoint_order INTEGER,
+        attempt INTEGER NOT NULL DEFAULT 0,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        ref TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'model',
+        status TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_run_ledger_thread
+        ON run_ledger(thread_id, kind, id)
+    """,
     # Missions — durable drives the autonomous mind works toward
     # across many goals. See docs/75-AUTONOMOUS-MIND-V2.md §Phase 2.
     # Missions are NEVER "completed" — they're paused or retired by

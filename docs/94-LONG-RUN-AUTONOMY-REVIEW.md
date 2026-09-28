@@ -414,3 +414,71 @@ runner present it now proposes only starting an idle runner.
 | F11 compression | `agent.context_window_tokens` (default 200,000) is passed to `needs_compression`/`tiered_compress`. Tool-call arguments count toward the estimate. A failed Tier-2 summary records a breaker failure. | — |
 | F12 provider | Billing errors (`insufficient balance`, code `1113`, `insufficient_quota`, `credit balance`, HTTP 402) put the provider in a 1 h cooldown and log an error, instead of the 60 s rate-limit cooldown. | — |
 | Small | The loop detector really blocks: once a call is blocked, the same tool with the same arguments returns an error without running. `<autonomous_execution>` no longer says a chat message pauses the goal. Mind rule 6 no longer names the read-only `goal_status`. Operator pauses are tagged `by operator`; the recover candidate and the prompt distinguish them from auto-pauses. The kill-criterion count regex needs a word boundary and a `:`/`=`, never reads the criterion's own text, and does not kill on absent evidence. The approval-wait comment matches its 150 s + 150 s values. | Kill-on-absent-evidence was the effective intent of the old code, but it never fired, and enabling it now would cancel goals on phrasing. |
+
+---
+
+## 9. Phase 1 — verified implementation spec (the spine)
+
+**Status: implemented 2026-09-28.** 3,857 tests pass (13 new: ledger, note
+tool, handoff, and the soak run). The soak run completes a six-checkpoint
+goal through two chat preemptions and a mid-checkpoint kill-and-restart
+with every checkpoint at exactly one attempt, no failures, a handoff per
+interruption and every artifact on the record. Found while building it:
+memory retrieval used the entire checkpoint prompt as its search query, so
+every background run searched for the same instructions; it now searches by
+the run's title.
+
+Verified 2026-09-28 against `e02d0e04`. Live DB: 7 goals, 69 checkpoints, no
+ledger table. New tables go in `_SCHEMA` (`CREATE TABLE IF NOT EXISTS`, run at
+every `Database.initialize()`), so existing installs pick them up on restart.
+`PRAGMA foreign_keys=ON` is set, so the ledger deliberately has **no** FK to
+`goals`; `delete_goal` / `delete_all_goals` delete ledger rows explicitly.
+
+**Run ledger** — `run_ledger` table and `core/run_ledger.py`:
+
+```sql
+CREATE TABLE IF NOT EXISTS run_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id TEXT NOT NULL,          -- goal_id today; "mind:<key>" later
+    checkpoint_order INTEGER,         -- NULL = goal-level entry
+    attempt INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL,               -- artifact|fact|decision|failure|question|handoff|plan
+    content TEXT NOT NULL,
+    ref TEXT NOT NULL DEFAULT '',     -- path / URL / id for artifacts
+    source TEXT NOT NULL DEFAULT 'model',   -- 'code' | 'model'
+    status TEXT NOT NULL DEFAULT '',  -- question: open|closed
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_run_ledger_thread ON run_ledger(thread_id, kind, id);
+```
+
+Written by **code** (the goal runner): artifacts extracted from each
+successful call in the checkpoint's `tool_trace` — any `path` / `file_path` /
+`output_path` / `url` parameter of a write-type tool, and any `path` / `url` /
+`id` key a tool returned; a `failure` row for every failed attempt (receipt,
+timeout, error) with the reason and the attempt's last tools; a `handoff` row
+for every stop that is not a completion. Written by the **model** through a new
+CORE tool `goal_note(kind, content, ref)`, which takes the goal from
+`ExecutionContext.goal_id` (refuses outside goal work unless `goal_id` is
+given). Rendered by `RunLedger.render(thread_id, max_chars=4000)` into
+`_CHECKPOINT_PROMPT` as a `RUN LEDGER` block (artifacts, facts, decisions,
+failed attempts, open questions, latest handoff), into `goal_status detail`,
+and to `<agent.workspace>/goals/<goal_id>/LEDGER.md` after each checkpoint.
+`context_summary` stays, labelled as prose.
+
+**Resumable stops** — `_run_with_history(handoff=True)`: on `time_limit`,
+`max_steps`, `stagnation`, `loop` or `errors`, one `simple`-tier call (30 s cap)
+writes "where I am / what's next" from the last 12 messages into
+`AgentResponse.handoff`; on `preempted`, `stop_file` and `budget` it is
+code-only (no LLM call while a higher-priority task waits). The runner stores
+it as the ledger `handoff`; the next attempt's prompt shows the latest handoff.
+
+**Soak harness** — `tests/soak/harness.py`: a scripted router, a fake work
+tool, a real `Agent` + `GoalManager` + `GoalRunner` + DB, with injected
+preemptions and a runner restart. `tests/test_core/test_soak_long_goal.py`
+asserts: no attempt burned without work; no goal left `active` with nothing
+running; every stopped run has a reason and a handoff; every completed
+checkpoint's receipt cites a tool output; the ledger holds the artifacts.
+
+Different from §5.1: mind-thread ledgers are deferred — the mind does not know
+which candidate it will pick until after the call. Phase 2 records the pick.

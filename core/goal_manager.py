@@ -554,6 +554,9 @@ class GoalManager:
         """Permanently delete a goal and its checkpoints."""
         try:
             await self._db.execute_insert(
+                "DELETE FROM run_ledger WHERE thread_id = ?", (goal_id,)
+            )
+            await self._db.execute_insert(
                 "DELETE FROM goal_checkpoints WHERE goal_id = ?", (goal_id,)
             )
             await self._db.execute_insert(
@@ -568,6 +571,10 @@ class GoalManager:
         try:
             rows = await self._db.execute("SELECT goal_id FROM goals")
             count = len(rows)
+            for r in rows:
+                await self._db.execute_insert(
+                    "DELETE FROM run_ledger WHERE thread_id = ?", (r["goal_id"],)
+                )
             await self._db.execute_insert("DELETE FROM goal_checkpoints")
             await self._db.execute_insert("DELETE FROM goals")
             return count
@@ -1350,6 +1357,21 @@ class GoalManager:
             parts.append(
                 f"  <context_summary>\n{goal.context_summary}\n  </context_summary>"
             )
+
+        # The durable record, compact. A checkpoint run already gets the full
+        # ledger in its prompt, so it is left out there to avoid sending it
+        # twice.
+        from core.execution_context import current_context
+
+        if current_context().goal_id != goal_id:
+            try:
+                from core.run_ledger import RunLedger
+
+                ledger_text = await RunLedger(self._db).render(goal_id, max_chars=1500)
+            except Exception:
+                ledger_text = ""
+            if ledger_text:
+                parts.append(f"  <run_ledger>\n{ledger_text}\n  </run_ledger>")
 
         if completed:
             parts.append("  <completed_checkpoints>")

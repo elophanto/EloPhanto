@@ -16,6 +16,7 @@ class GoalStatusTool(BaseTool):
 
     def __init__(self) -> None:
         self._goal_manager: Any = None
+        self._ledger: Any = None
 
     @property
     def name(self) -> str:
@@ -86,7 +87,15 @@ class GoalStatusTool(BaseTool):
                         if goal.context_summary
                         else "",
                         "llm_calls_used": goal.llm_calls_used,
+                        "cost_usd": round(float(getattr(goal, "cost_usd", 0.0) or 0.0), 4),
                         "checkpoints": cp_list,
+                        # The durable record: artifacts, facts, decisions,
+                        # failed attempts, open questions, handoffs.
+                        "ledger": (
+                            await self._ledger.render(goal_id, max_chars=6000)
+                            if self._ledger is not None
+                            else ""
+                        ),
                     },
                 )
             else:

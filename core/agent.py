@@ -550,6 +550,9 @@ class AgentResponse:
     # "context_overflow" or "error". Callers that resume work (goal runner,
     # mind) branch on this instead of parsing ``content``.
     stop_reason: str = ""
+    # For a run that did not finish, when the caller asked for one: where it
+    # got to and what comes next, for the run that picks the work up.
+    handoff: str = ""
 
 
 class _FilteredRegistry:
@@ -2902,10 +2905,17 @@ class Agent:
 
     def _inject_goal_deps(self) -> None:
         """Inject goal manager and goal runner into goal tools."""
-        for tool_name in ("goal_create", "goal_status", "goal_manage"):
+        ledger = None
+        if self._db is not None:
+            from core.run_ledger import RunLedger
+
+            ledger = RunLedger(self._db)
+        for tool_name in ("goal_create", "goal_status", "goal_manage", "goal_note"):
             tool = self._registry.get(tool_name)
             if tool and self._goal_manager:
                 tool._goal_manager = self._goal_manager
+            if tool is not None and ledger is not None and hasattr(tool, "_ledger"):
+                tool._ledger = ledger
             if (
                 tool
                 and self._goal_runner
@@ -3555,6 +3565,7 @@ class Agent:
         time_budget_seconds: float | None = None,
         isolated_history: bool = False,
         memory_label: str | None = None,
+        handoff: bool = False,
     ) -> AgentResponse:
         """Single normalized entry point for any task source.
 
@@ -3589,6 +3600,9 @@ class Agent:
                 other waiters (docs/94 F4).
             memory_label: Short title stored in long-term memory in place
                 of the prompt text (docs/94 F7).
+            handoff: When the run stops without finishing, write a handoff
+                note (``AgentResponse.handoff``) for the run that resumes
+                the work (docs/94 §9).
         """
         from core.execution_context import TaskSource, execution_context
         from core.task_resources import TaskPriority
@@ -3613,6 +3627,7 @@ class Agent:
                 time_budget_seconds=time_budget_seconds,
                 isolated_history=isolated_history,
                 memory_label=memory_label,
+                handoff=handoff,
             )
 
     async def run(
@@ -3625,6 +3640,7 @@ class Agent:
         time_budget_seconds: float | None = None,
         isolated_history: bool = False,
         memory_label: str | None = None,
+        handoff: bool = False,
     ) -> AgentResponse:
         """Execute the plan-execute-reflect loop for a user goal.
 
@@ -3687,6 +3703,7 @@ class Agent:
                 is_user_input=is_user_input,
                 time_budget_seconds=time_budget_seconds,
                 memory_label=memory_label,
+                handoff=handoff,
             )
 
         from core.task_resources import run_scope
@@ -3773,6 +3790,7 @@ class Agent:
                             is_user_input=is_user_input,
                             time_budget_seconds=time_budget_seconds,
                             memory_label=memory_label,
+                            handoff=handoff,
                         )
                         if hold_limit > 0:
                             try:
@@ -3990,6 +4008,7 @@ class Agent:
         is_user_input: bool = True,
         time_budget_seconds: float | None = None,
         memory_label: str | None = None,
+        handoff: bool = False,
     ) -> AgentResponse:
         """Core plan-execute-reflect loop, parameterized on history source."""
         logger.info("[TIMING] _run_with_history entered for: %s", goal[:80])
@@ -4052,7 +4071,10 @@ class Agent:
         _ctx_start = _time.monotonic()
 
         try:
-            await asyncio.wait_for(self._auto_retrieve(goal), timeout=5.0)
+            # Retrieve by what the task IS, not by the whole prompt: a
+            # checkpoint prompt is thousands of chars of shared instructions,
+            # which made every background run's query nearly the same.
+            await asyncio.wait_for(self._auto_retrieve(_task_title), timeout=5.0)
         except Exception:
             pass
 
@@ -5453,13 +5475,84 @@ class Agent:
                 )
             )
 
+        handoff_text = ""
+        if handoff:
+            handoff_text = await self._write_handoff(
+                _task_title, reason, stop_kind, step, tool_calls_made, messages
+            )
+
         return AgentResponse(
             content=max_steps_msg,
             steps_taken=step,
             tool_calls_made=tool_calls_made,
             preempted=stop_kind == "preempted",
             stop_reason=stop_kind,
+            handoff=handoff_text,
         )
+
+    # Stops where a higher-priority task (or the operator) is waiting: no LLM
+    # call — the handoff is built from the transcript alone.
+    _CODE_ONLY_HANDOFF = frozenset({"preempted", "stop_file", "budget"})
+
+    async def _write_handoff(
+        self,
+        title: str,
+        reason: str,
+        stop_kind: str,
+        steps: int,
+        tools: list[str],
+        messages: list[dict[str, Any]],
+    ) -> str:
+        """Where an unfinished run got to and what comes next.
+
+        One cheap LLM call over the last few turns when there is time for
+        it; a transcript-only summary otherwise, or if the call fails. The
+        run that resumes the work reads this instead of starting blind
+        (docs/94 §9).
+        """
+        fallback = _describe_stopped_run(reason, steps, tools, messages)
+        if stop_kind in self._CODE_ONLY_HANDOFF:
+            return fallback
+        transcript: list[str] = []
+        for m in messages[-12:]:
+            role = m.get("role", "")
+            content = m.get("content")
+            if isinstance(content, list):
+                content = " ".join(
+                    p.get("text", "") for p in content if isinstance(p, dict)
+                )
+            text = str(content or "")[:800]
+            for tc in m.get("tool_calls") or []:
+                fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+                text += f" [call {fn.get('name', '?')} {str(fn.get('arguments', ''))[:200]}]"
+            if text.strip():
+                transcript.append(f"{role}: {text}")
+        prompt = (
+            f"Task: {title[:600]}\n"
+            f"The run stopped ({reason}) after {steps} steps.\n\n"
+            "Transcript of the last turns:\n" + "\n".join(transcript) + "\n\n"
+            "Write a handoff for the run that will continue this work, in at "
+            "most 150 words:\n"
+            "DONE: what is finished, with exact paths / URLs / ids.\n"
+            "IN PROGRESS: what was half-done when it stopped.\n"
+            "NEXT: the single next step.\n"
+            "Only state what the transcript shows. No preamble."
+        )
+        try:
+            resp = await asyncio.wait_for(
+                self._router.complete(
+                    messages=[{"role": "user", "content": prompt}],
+                    task_type="simple",
+                    temperature=0.1,
+                    max_tokens=400,
+                ),
+                timeout=30.0,
+            )
+            text = (resp.content or "").strip()
+        except Exception as e:
+            logger.debug("handoff generation failed: %s", e)
+            text = ""
+        return f"{text}\n({fallback})" if text else fallback
 
     def _stop_file_present(self) -> bool:
         """Return True when the operator kill-switch file exists.

@@ -277,11 +277,13 @@ class ToolRegistry:
         from tools.goals.create_tool import GoalCreateTool
         from tools.goals.dream_tool import GoalDreamTool
         from tools.goals.manage_tool import GoalManageTool
+        from tools.goals.note_tool import GoalNoteTool
         from tools.goals.status_tool import GoalStatusTool
 
         self.register(GoalCreateTool())
         self.register(GoalStatusTool())
         self.register(GoalManageTool())
+        self.register(GoalNoteTool())
         self.register(GoalDreamTool())
 
         # Mission tools (Phase 2 — docs/75-AUTONOMOUS-MIND-V2.md)
@@ -851,6 +853,8 @@ class ToolRegistry:
             "knowledge_write",
             "goal_manage",
             "goal_status",
+            # The run ledger's write path — checkpoints must always have it.
+            "goal_note",
             "browser_navigate",
             "browser_click",
             "browser_type",

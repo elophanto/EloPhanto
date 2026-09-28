@@ -39,11 +39,21 @@ CURRENT CHECKPOINT ({order} of {total}):
   Description: {description}
   Success Criteria: {criteria}
 
-CONTEXT FROM PREVIOUS CHECKPOINTS:
+CONTEXT FROM PREVIOUS CHECKPOINTS (prose summary):
 {context}
+
+RUN LEDGER (the durable record of this goal — where it and the summary
+disagree, the ledger is right):
+{ledger}
 
 INSTRUCTIONS:
 - Focus ONLY on this checkpoint's objective.
+- Start from the ledger: reuse artifacts that exist, do not repeat failed
+  attempts, and if a handoff says where the last run stopped, continue from
+  there after checking it.
+- Record what a later run must not have to rediscover with goal_note:
+  facts you establish (with their source), decisions and why, open
+  questions. Files and URLs your tools produce are recorded automatically.
 - Use the success criteria to determine when you are done.
 - Prefer the dedicated tool for the domain over improvising with file/shell
   tools. Competitive intelligence work has a complete pipeline: collection is
@@ -74,9 +84,16 @@ def _attach_tool_output(tool_trace: list[dict[str, Any]], name: str, result: Any
         text = str(payload)
     except Exception:
         text = ""
+    data = getattr(result, "data", None)
     for row in reversed(tool_trace):
         if row.get("tool") == name and "output" not in row:
             row["output"] = text[:2000]
+            if isinstance(data, dict):
+                # Top-level scalars only: enough for the run ledger to find
+                # the path / url / id a tool returned.
+                row["result_data"] = {
+                    k: v for k, v in list(data.items())[:40] if isinstance(v, (str, int, float))
+                }
             return
 
 
@@ -714,6 +731,12 @@ class GoalRunner:
             attempt_no = int(getattr(checkpoint, "attempts", 0) or 0) + 1
             timeout_s = self._checkpoint_timeout(attempt_no)
             await self._gm.mark_checkpoint_active(goal.goal_id, checkpoint.order)
+            ledger = self._ledger()
+            ledger_text = ""
+            if ledger is not None:
+                ledger_text = await ledger.render(
+                    goal.goal_id, checkpoint_order=checkpoint.order
+                )
 
             # Build focused prompt
             prompt = _CHECKPOINT_PROMPT.format(
@@ -725,6 +748,7 @@ class GoalRunner:
                 description=checkpoint.description,
                 criteria=checkpoint.success_criteria,
                 context=goal.context_summary or "(no prior context)",
+                ledger=ledger_text or "(empty — this is the first run of this goal)",
             )
             prompt += self._retry_note(
                 attempt_no, str(getattr(checkpoint, "result_summary", "") or "")
@@ -780,6 +804,7 @@ class GoalRunner:
                     prompt,
                     time_budget_seconds=timeout_s,
                     isolated_history=True,
+                    handoff=True,
                     memory_label=(
                         f"Goal {goal.goal_id} checkpoint {checkpoint.order}/"
                         f"{goal.total_checkpoints}: {checkpoint.title}"
@@ -796,6 +821,26 @@ class GoalRunner:
                 logger.debug("goal cost accounting failed: %s", ce)
 
             stop_reason = str(getattr(response, "stop_reason", "") or "")
+
+            # What the attempt produced exists whether or not it passes.
+            if ledger is not None:
+                await ledger.record_artifacts(
+                    goal.goal_id,
+                    tool_trace,
+                    checkpoint_order=checkpoint.order,
+                    attempt=attempt_no,
+                )
+                handoff_text = str(getattr(response, "handoff", "") or "")
+                if stop_reason and stop_reason != "completed":
+                    note = handoff_text or _preemption_note(response, tool_trace)
+                    await ledger.add(
+                        goal.goal_id,
+                        "handoff",
+                        f"[{stop_reason}] {note}",
+                        checkpoint_order=checkpoint.order,
+                        attempt=attempt_no,
+                        source="code",
+                    )
 
             # A preempted response is a YIELD, not a result. The loop gave
             # the slot to a higher-priority task (operator chat, heartbeat)
@@ -883,6 +928,13 @@ class GoalRunner:
                     checkpoint.order,
                     f"receipt_gate: {verdict.reason}",
                 )
+                await self._ledger_failure(
+                    goal.goal_id,
+                    checkpoint.order,
+                    attempt_no,
+                    f"receipt gate refused: {verdict.reason}",
+                    tool_trace,
+                )
                 await self._broadcast_checkpoint_failed(
                     goal, checkpoint, f"receipt gate: {verdict.reason}"
                 )
@@ -917,6 +969,8 @@ class GoalRunner:
                     await emit_pride(affect_mgr, source="goal")
                 except Exception as e:  # pragma: no cover — defensive
                     logger.debug("Affect emit (pride) failed: %s", e)
+
+            await self._write_ledger_file(goal)
 
             # Update context summary for next checkpoint
             goal_refreshed = await self._gm.get_goal(goal.goal_id)
@@ -972,6 +1026,13 @@ class GoalRunner:
                     f"{attempt_no}). Next attempt gets {next_budget}s and "
                     "is told to keep receipted work instead of redoing it.",
                 )
+                await self._ledger_failure(
+                    goal.goal_id,
+                    checkpoint.order,
+                    attempt_no,
+                    f"ran out of its {int(timeout_s)}s budget",
+                    [],
+                )
                 await self._broadcast_checkpoint_failed(
                     goal,
                     checkpoint,
@@ -986,11 +1047,62 @@ class GoalRunner:
                 e,
             )
             await self._gm.mark_checkpoint_failed(goal.goal_id, checkpoint.order, str(e))
+            await self._ledger_failure(
+                goal.goal_id, checkpoint.order, attempt_no, f"error: {str(e)[:300]}", []
+            )
             return False
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _ledger(self) -> Any:
+        """The run ledger over the goal manager's DB (None if unavailable)."""
+        db = getattr(self._gm, "_db", None)
+        if db is None:
+            return None
+        from core.run_ledger import RunLedger
+
+        return RunLedger(db)
+
+    async def _ledger_failure(
+        self,
+        goal_id: str,
+        order: int,
+        attempt: int,
+        reason: str,
+        tool_trace: list[dict[str, Any]],
+    ) -> None:
+        ledger = self._ledger()
+        if ledger is None:
+            return
+        tried = [str(r.get("tool")) for r in tool_trace if r.get("tool")]
+        tail = f" Tools used: {', '.join(tried[-10:])}." if tried else ""
+        await ledger.add(
+            goal_id,
+            "failure",
+            f"{reason}.{tail}",
+            checkpoint_order=order,
+            attempt=attempt,
+            source="code",
+        )
+
+    async def _write_ledger_file(self, goal: Goal) -> None:
+        """Mirror the ledger to <agent.workspace>/goals/<id>/LEDGER.md."""
+        ledger = self._ledger()
+        if ledger is None:
+            return
+        try:
+            workspace = getattr(self._agent._config, "workspace", "")
+        except Exception:
+            workspace = ""
+        if not isinstance(workspace, str) or not workspace.strip():
+            return
+        await ledger.write_markdown(
+            goal.goal_id,
+            Path(workspace) / "goals" / goal.goal_id / "LEDGER.md",
+            title=goal.goal[:120],
+        )
 
     async def _budget_pause(self, goal: Goal, reason: str) -> None:
         """Hold goal as budget_paused; resume only when limits are raised."""

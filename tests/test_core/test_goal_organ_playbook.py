@@ -78,7 +78,7 @@ class TestExecutorPrefersTheOrgan:
     def test_prompt_still_formats(self) -> None:
         out = _CHECKPOINT_PROMPT.format(
             goal="g", order=1, total=3, title="t", stage="scan",
-            description="d", criteria="c", context="ctx",
+            description="d", criteria="c", context="ctx", ledger="(empty)",
         )
         assert "g" in out and "ctx" in out
 

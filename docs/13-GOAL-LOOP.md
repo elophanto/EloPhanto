@@ -82,6 +82,8 @@ From the long-run review ([94-LONG-RUN-AUTONOMY-REVIEW.md](94-LONG-RUN-AUTONOMY-
 | No pending checkpoint | Diagnosed: completes the goal, pauses naming the failed checkpoint, or pauses as "plan incomplete". Planning goals with no checkpoints are decomposed by the runner. |
 | Multiple active goals | When a goal stops, the runner starts the least recently touched active goal with pending work. A watchdog (every 5 min, started by the gateway/chat entry points) does the same when the runner is idle. |
 | Cost cap | Each checkpoint run's `CostTracker.task_total` is added to `goals.cost_usd`, so `cost_budget_per_goal_usd` works. |
+| Run ledger | `run_ledger` table (`core/run_ledger.py`): artifacts recorded by code from the tool trail, facts / decisions / questions / plans from the model via `goal_note`, a failure row per failed attempt, a handoff row per interrupted run. Rendered into every checkpoint prompt as `RUN LEDGER`, into `goal_status detail`, and mirrored to `<workspace>/goals/<goal_id>/LEDGER.md`. |
+| Handoffs | Checkpoint runs ask for one (`submit_task(handoff=True)`): a cheap LLM note on time/step/stagnation stops, a transcript-only note on preemption, STOP and budget stops. |
 | Pause provenance | `goal_manage pause` / `elophanto goals pause` record "paused by operator" (or "paused by agent"). The mind never resumes operator pauses; system pauses are recoverable. |
 
 ## How Goal Creation is Triggered
