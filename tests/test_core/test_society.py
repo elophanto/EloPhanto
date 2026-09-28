@@ -339,6 +339,7 @@ def test_external_worker_lifecycle_omits_task_and_profile_secrets(society):
 
 
 @pytest.mark.asyncio
+@pytest.mark.society
 async def test_agent_owns_service_start_and_shutdown_without_provider_calls(test_config):
     from core.agent import Agent
 
