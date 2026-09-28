@@ -51,6 +51,25 @@ Return {"lessons": []} if:
 - The task outcome was incomplete or errored
 </lesson_extraction>"""
 
+_FAILURE_LESSON_SYSTEM = """\
+<failure_lesson>
+An AI agent's run did NOT finish. From what happened, extract at most ONE
+lesson that would stop the same failure next time — only if the failure
+reveals something generalizable: a tool that does not work the way it was
+used, an approach that loops, a precondition that was missing, a check that
+could not pass as written.
+
+Return ONLY a JSON object:
+{"lessons": [{"title": "Avoid: <5-8 words>", "when": "<the situation>",
+  "lesson": "<what went wrong and the rule that avoids it, 2-3 sentences>",
+  "tags": ["failure", "..."]}]}
+Return {"lessons": []} when the stop was bad luck (a timeout on a slow site,
+an interruption) or too specific to generalize.
+</failure_lesson>"""
+
+# Stops that say nothing about how the work was done.
+_UNINSTRUCTIVE_STOPS = ("preempted", "operator STOP", "budget exceeded")
+
 _COMPRESS_SYSTEM = """\
 Compress the following knowledge document to be dense and factual.
 Rules:
@@ -154,6 +173,12 @@ class LessonExtractor:
         if not self._enabled:
             return
         if outcome != "completed":
+            # Failures used to teach nothing: the learner returned here for
+            # every run that did not finish (docs/94 S6).
+            if summary.startswith("Stopped (") and not any(
+                marker in summary[:120] for marker in _UNINSTRUCTIVE_STOPS
+            ):
+                await self.learn_from_failure(goal, summary, tools_used)
             return
 
         # Extract lessons (existing behavior)
@@ -187,6 +212,46 @@ class LessonExtractor:
 
         for lesson in lessons[:2]:  # Cap at 2 per task
             await self._write_lesson(lesson, goal)
+
+    async def learn_from_failure(
+        self, task: str, what_happened: str, tools_used: list[str]
+    ) -> int:
+        """Distil at most one "avoid" lesson from a failure. Returns 0 or 1."""
+        if not self._enabled:
+            return 0
+        try:
+            response = await self._router.complete(
+                messages=[
+                    {"role": "system", "content": _FAILURE_LESSON_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Task: {task[:500]}\n"
+                            f"What happened: {what_happened[:1500]}\n"
+                            f"Tools used: {', '.join(tools_used[:12])}"
+                        ),
+                    },
+                ],
+                task_type="simple",
+                temperature=0.2,
+            )
+            from core.goal_manager import _loads_json_lenient
+
+            data = _loads_json_lenient(response.content or "")
+            lessons = data.get("lessons", []) if isinstance(data, dict) else []
+        except Exception as e:
+            logger.debug("Failure lesson extraction failed: %s", e)
+            return 0
+        for lesson in lessons[:1]:
+            if not isinstance(lesson, dict):
+                continue
+            tags = [str(t) for t in lesson.get("tags", []) if t]
+            if "failure" not in tags:
+                tags.append("failure")
+            lesson["tags"] = tags
+            await self._write_lesson(lesson, task)
+            return 1
+        return 0
 
     async def _extract_instincts(
         self, goal: str, summary: str, tools_used: list[str]

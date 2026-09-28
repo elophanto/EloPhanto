@@ -223,6 +223,23 @@ class InstinctStore:
         )
         return instinct
 
+    def confirmed(self, min_observations: int = 3, ttl_seconds: float = 600.0) -> list[Instinct]:
+        """Instincts seen at least ``min_observations`` times, cached.
+
+        Most of the store is single observations at the 0.3 floor — noise
+        until confirmed. Reading every file on each lookup was 9,599 JSON
+        reads; the confirmed subset is small and refreshed every 10 min.
+        """
+        import time as _time
+
+        cache = getattr(self, "_confirmed_cache", None)
+        now = _time.monotonic()
+        if cache is not None and cache[0] == min_observations and now - cache[1] < ttl_seconds:
+            return list(cache[2])
+        items = [i for i in self.list_all() if i.observation_count >= min_observations]
+        self._confirmed_cache = (min_observations, now, items)
+        return list(items)
+
     def count(self, scope: str | None = None) -> int:
         """Count instincts."""
         return len(self.list_all(scope))

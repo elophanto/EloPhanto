@@ -136,9 +136,15 @@ class ZaiAdapter:
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
 
+        details = usage.get("prompt_tokens_details") or {}
+        cached_tokens = int(details.get("cached_tokens") or 0) if isinstance(details, dict) else 0
+        cached_tokens = min(cached_tokens, input_tokens)
+
         costs = ZAI_COSTS.get(model, {"input": 0.002, "output": 0.006})
+        # Cached input is billed at about half (Z.ai context caching docs).
         cost_estimate = (
-            input_tokens * costs["input"] / 1_000_000
+            (input_tokens - cached_tokens) * costs["input"] / 1_000_000
+            + cached_tokens * costs["input"] * 0.5 / 1_000_000
             + output_tokens * costs["output"] / 1_000_000
         )
 
@@ -159,6 +165,7 @@ class ZaiAdapter:
             finish_reason=finish_reason,
             suspected_truncated=truncated,
             reasoning=str(message.get("reasoning_content") or ""),
+            cached_tokens=cached_tokens,
         )
 
     async def health_check(self) -> bool:

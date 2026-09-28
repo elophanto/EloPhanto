@@ -1,6 +1,6 @@
 """A long goal under production disturbances, in seconds (docs/94 §9).
 
-Six checkpoints, each several tool steps. While they run, the operator
+Ten checkpoints, each several tool steps. While they run, the operator
 chats (preempting the lowest-priority goal work) and the runner is killed
 mid-checkpoint and restarted — the three things that made past unattended
 runs stall, redo work, or sit 'active' with nothing running them.
@@ -44,7 +44,7 @@ async def soak(test_config: Config, tmp_path: Path):
     out = tmp_path / "out"
     tool = SoakReportTool(out)
     agent._registry.register(tool)
-    model = ScriptedModel(out_dir=out, n_checkpoints=6, work_steps=3)
+    model = ScriptedModel(out_dir=out, n_checkpoints=10, work_steps=3)
     with patch.object(agent._router, "complete", side_effect=model.complete):
         yield agent, model, tool
     if agent._goal_runner is not None:
@@ -55,7 +55,7 @@ class TestLongGoalUnderDisturbance:
     async def test_the_goal_finishes_with_nothing_lost_or_redone(self, soak) -> None:
         agent, model, tool = soak
         gm = agent._goal_manager
-        goal = await gm.create_goal("Write a six-part report")
+        goal = await gm.create_goal("Write a ten-part report")
         assert await gm.decompose(goal)
         runner: GoalRunner = agent._goal_runner
         assert await runner.start_goal(goal.goal_id)
@@ -108,7 +108,7 @@ class TestLongGoalUnderDisturbance:
 
         # What the work produced is on the record, by code, not paraphrase.
         artifacts = {e.ref for e in entries if e.kind == "artifact"}
-        for order in range(1, 7):
+        for order in range(1, 11):
             assert any(f"cp{order}_part" in a for a in artifacts), (order, artifacts)
 
         # The goal was verified as a whole before it was called complete.
@@ -119,7 +119,7 @@ class TestLongGoalUnderDisturbance:
         )
 
         # Every attempt was planned before it ran, and the plan is on record.
-        assert model.plans >= 6
+        assert model.plans >= 10
         assert len([e for e in entries if e.kind == "plan"]) == model.plans
 
         # Every checkpoint run saw its own goal's plan.

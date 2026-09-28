@@ -12,6 +12,16 @@ Per the verify-before-phase rule, this is a diagnosis and a plan, not a
 contract: each phase in §6 gets its own verified expansion (exact SQL, exact
 edits, test approach) and an explicit go-ahead before any code.
 
+**Implementation status (2026-09-28):** all six phases are built, each
+verified against the code and live DB first (§8–§13). The suite grew from
+3,808 to 3,885 passing tests. The soak run (`tests/test_core/test_soak_long_goal.py`)
+drives a ten-checkpoint goal through operator-chat preemptions and a
+mid-checkpoint kill-and-restart in about 15 seconds: every checkpoint completes
+at one attempt, nothing is redone, every interruption leaves a handoff, and
+the goal is verified as a whole before it completes. What it cannot show is a
+72-hour live run on real providers — that part of the definition of done
+still needs one.
+
 ---
 
 ## 1. Verdict
@@ -564,3 +574,31 @@ start. The capability-review reflex returned "due" unconditionally.
 | Attractor detector | `demote_attractor`: the same pick (dedup key, else action text) in 3 of the mind's last 5 cycles is ranked last and the prompt says why — docs/75 §4.1, unbuilt until now. |
 | Capability-review reflex | Due only 7 days after the mind last picked it (`metadata.mind_last_capability_review`). |
 | Mind ↔ runner | (Phase 0) with a runner present the mind proposes only starting an idle runner, never doing a checkpoint itself. |
+
+---
+
+## 13. Phase 5 — implementation (learning and prompt weight)
+
+**Status: implemented 2026-09-28.** 3,885 tests pass (8 new; the soak run
+now covers ten checkpoints).
+
+Verified before code: `LessonExtractor.extract_and_store` returned early for
+every non-completed run. The live instinct store holds 9,599 instincts, 6,932
+of them single observations at the 0.3 confidence floor; `prune_stale` was
+never called and, as written (`confidence < 0.3`), would remove none. Z.ai
+caches identical prompt prefixes implicitly, reports
+`usage.prompt_tokens_details.cached_tokens`, and bills cached input at about
+half (docs.z.ai, context caching). The system prompt put the identity state,
+runtime state and the clock ahead of 59K characters of static text.
+
+| Piece | What it does |
+| --- | --- |
+| Failures teach | A run that stopped for an instructive reason (loop, stagnation, errors, time, steps — not preemption, STOP or budget) gets one "Avoid:" lesson extracted into `knowledge/learned/lessons`. So do a checkpoint that failed every attempt and a goal that failed its final verification. |
+| Lessons are recalled | `Agent.recall_lessons` searches learned knowledge and matches *confirmed* instincts (seen 3+ times, cached) for the checkpoint planner and for decomposition context. |
+| Instincts | Read path over confirmed instincts only, cached for 10 min instead of re-reading every file. **Nothing is pruned automatically**: deleting 6,932 unconfirmed instincts is the operator's call. |
+| Health digest | `core/autonomy_health.py`: goals by status, active goals with nothing to run, checkpoints failing repeatedly, failures by cause, interruptions by reason, recoveries, goals verified complete, unfinished runs by reason, today's goal spend. As a tool (`autonomy_health`), a command (`elophanto goals health [hours]`), and a daily broadcast at `goals.health_digest_hour_utc` (default 07 UTC) to every channel. |
+| Cacheable prompt | Static sections first; identity and self-perception state, runtime state, user, matched skills, knowledge, goal and mind context after them; the clock and current task last. Background runs pin their title instead of their whole prompt as `CURRENT TASK` (it was sent twice every step). The mind's own cycles and goal checkpoints no longer carry the mind scratchpad in the system prompt. Z.ai cached tokens are read, logged (`cached=N/M`) and billed at half. |
+
+Not done, and why: per-checkpoint tool scoping. The tool list is a stable
+part of the cacheable prefix; scoping it per checkpoint would break the cache
+between checkpoints and risk stranding a tool the plan did not foresee.

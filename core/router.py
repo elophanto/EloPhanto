@@ -72,6 +72,9 @@ class LLMResponse:
     # discarded; now the agent loop can keep it with the turn and use it in
     # handoffs (docs/94 §10).
     reasoning: str = ""
+    # Input tokens served from the provider's prompt cache (Z.ai reports
+    # usage.prompt_tokens_details.cached_tokens; billed at about half).
+    cached_tokens: int = 0
 
 
 @dataclass

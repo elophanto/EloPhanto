@@ -677,6 +677,9 @@ class GoalsConfig:
     # another active goal that has work, instead of finishing one goal
     # before starting the next.
     round_robin: bool = False
+    # UTC hour at which the goal runner broadcasts the daily autonomy health
+    # digest to every channel (core/autonomy_health.py). -1 = off.
+    health_digest_hour_utc: int = 7
 
 
 @dataclass
@@ -2210,6 +2213,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         daily_cost_envelope_usd=float(goals_raw.get("daily_cost_envelope_usd", 0.0) or 0.0),
         daily_time_envelope_seconds=int(goals_raw.get("daily_time_envelope_seconds", 0) or 0),
         round_robin=bool(goals_raw.get("round_robin", False)),
+        health_digest_hour_utc=int(goals_raw.get("health_digest_hour_utc", 7)),
     )
 
     # Parse identity section

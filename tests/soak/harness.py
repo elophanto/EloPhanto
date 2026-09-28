@@ -178,7 +178,7 @@ class ScriptedModel:
         if "You verify, independently" in (system or ""):
             self.final_checks += 1
             return _resp(
-                json.dumps({"met": True, "evidence": "all six parts written", "missing": []})
+                json.dumps({"met": True, "evidence": "every part written", "missing": []})
             )
         if "plan_critique" in (system or ""):
             return _resp("no changes")  # unusable critique → the draft stands

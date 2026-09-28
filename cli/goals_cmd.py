@@ -97,6 +97,20 @@ async def _run(
         await _list(mgr, status=status_filter, limit=limit)
         return
 
+    if action == "health":
+        from core.autonomy_health import collect, render
+
+        # `elophanto goals health [hours]`
+        hours = 24.0
+        if goal_id:
+            try:
+                hours = float(goal_id)
+            except ValueError:
+                console.print("[red]usage:[/red] elophanto goals health [hours]")
+                raise SystemExit(1) from None
+        console.print(render(await collect(db, hours=hours)))
+        return
+
     if action == "show" and goal_id:
         await _show(mgr, goal_id)
         return
@@ -138,7 +152,7 @@ async def _run(
 
     console.print(
         "[yellow]Usage:[/yellow] elophanto goals "
-        "<list|show <id>|cancel <id>|pause <id>|resume <id>|delete <id>|delete-all>\n"
+        "<list|show <id>|health [hours]|cancel <id>|pause <id>|resume <id>|delete <id>|delete-all>\n"
         "[dim]list flags:[/dim] --status <name> --limit <n>"
     )
 

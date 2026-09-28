@@ -88,6 +88,8 @@ From the long-run review ([94-LONG-RUN-AUTONOMY-REVIEW.md](94-LONG-RUN-AUTONOMY-
 | Goal completion | The last checkpoint no longer completes the goal. `verify_goal_met` compares the goal as stated with the results and the ledger: met → completed; not met → `revise_plan` adds the missing work (up to twice), then the goal pauses with the findings. |
 | Self-recovery | A checkpoint that exhausts its attempts triggers one automatic `revise_plan` with its failure history (at most twice per goal) before the goal pauses. |
 | Evaluation | Reads the ledger as evidence; an unparseable answer is `parsed=False` and does not reset the no-progress guard; `suggested_changes` reach the reviser. |
+| Scheduling | Waiters age one priority level per minute (never past SCHEDULED); work time and cost are recorded per goal per day (`goal_usage`); optional daily envelopes and round-robin (see docs/94 §12). |
+| Health | `elophanto goals health [hours]`, the `autonomy_health` tool, and a daily digest broadcast (docs/94 §13). |
 | Pause provenance | `goal_manage pause` / `elophanto goals pause` record "paused by operator" (or "paused by agent"). The mind never resumes operator pauses; system pauses are recoverable. |
 
 ## How Goal Creation is Triggered

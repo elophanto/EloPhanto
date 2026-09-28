@@ -236,8 +236,8 @@ class DiscordAdapter(ChannelAdapter):
                             await dc_ch.send(text)
                         except Exception:
                             pass
-            elif ntype == "watch":
-                title = str(msg.data.get("title") or "Competitive intelligence")
+            elif ntype in ("watch", "autonomy_health"):
+                title = str(msg.data.get("title") or ("Autonomy health" if ntype == "autonomy_health" else "Competitive intelligence"))
                 text = f"\U0001f4e1 **{title}**\n\n{str(msg.data.get('text') or '')[:1800]}"
                 for cid in self._session_channels.values():
                     dc_ch = self._client.get_channel(cid) if self._client else None

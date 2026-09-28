@@ -188,8 +188,8 @@ class SlackAdapter(ChannelAdapter):
                         )
                     except Exception:
                         pass
-            elif ntype == "watch":
-                title = str(msg.data.get("title") or "Competitive intelligence")
+            elif ntype in ("watch", "autonomy_health"):
+                title = str(msg.data.get("title") or ("Autonomy health" if ntype == "autonomy_health" else "Competitive intelligence"))
                 text = f"\U0001f4e1 *{title}*\n\n{str(msg.data.get('text') or '')[:3500]}"
                 for slack_channel, thread_ts in self._session_threads.values():
                     try:

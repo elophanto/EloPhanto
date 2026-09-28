@@ -156,6 +156,7 @@ async def plan_checkpoint(
     attempt: int,
     last_failure: str = "",
     effort: str = "",
+    lessons: str = "",
 ) -> CheckpointPlan | None:
     """Plan one checkpoint attempt before it runs. None if planning failed."""
     retry = ""
@@ -172,6 +173,8 @@ async def plan_checkpoint(
         f"Success criteria: {criteria}\n{retry}\n"
         f"RUN LEDGER:\n{ledger_text or '(empty — first run of this goal)'}"
     )
+    if lessons:
+        user += f"\n\nLEARNED FROM EARLIER RUNS (apply what is relevant):\n{lessons}"
     data, reasoning, cost = await _ask(router, _PLAN_SYSTEM, user, effort=effort)
     if not isinstance(data, dict) or not str(data.get("approach") or "").strip():
         return None

@@ -276,6 +276,7 @@ class ToolRegistry:
         # Goal tools
         from tools.goals.create_tool import GoalCreateTool
         from tools.goals.dream_tool import GoalDreamTool
+        from tools.goals.health_tool import AutonomyHealthTool
         from tools.goals.manage_tool import GoalManageTool
         from tools.goals.note_tool import GoalNoteTool
         from tools.goals.status_tool import GoalStatusTool
@@ -284,6 +285,7 @@ class ToolRegistry:
         self.register(GoalStatusTool())
         self.register(GoalManageTool())
         self.register(GoalNoteTool())
+        self.register(AutonomyHealthTool())
         self.register(GoalDreamTool())
 
         # Mission tools (Phase 2 — docs/75-AUTONOMOUS-MIND-V2.md)

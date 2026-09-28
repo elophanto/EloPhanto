@@ -1508,41 +1508,35 @@ def build_system_prompt(
     # project, not the running agent.
     rendered_identity = _IDENTITY_TEMPLATE.replace("{agent_name}", agent_name)
 
-    # Use dynamic identity if available, otherwise fall back to static
-    if identity_context:
-        identity_section = rendered_identity + "\n\n" + identity_context
-    else:
-        identity_section = rendered_identity
-
     # Kid-self block: when this process is a kid agent (running inside a
     # container spawned by a parent EloPhanto), prepend a self-awareness
     # block so the LLM knows it's a kid and what its purpose is. The
     # registry filters out kid_spawn and payment tools in this mode.
     import os as _os
 
-    if _os.environ.get("ELOPHANTO_KID") == "true":
-        kid_block = _build_kid_self_block()
-        identity_section = kid_block + "\n\n" + identity_section
-
-    # Self-perception (ego): how reality has graded the declared identity.
-    # Sits next to identity so the planner sees both claim and measurement.
+    # Order for prompt caching (docs/94 §13): providers cache an identical
+    # prefix (Z.ai implicitly, at half price). Everything that is the same
+    # on every call comes first; everything that changes per run — identity
+    # and self-perception state, runtime state, the user, skills matched to
+    # this task, knowledge, goal and mind context, and last the clock and the
+    # current task — comes after it. The current task at the very end also
+    # keeps it closest to the conversation.
+    dynamic_identity: list[str] = []
+    if identity_context:
+        dynamic_identity.append(identity_context)
     if self_perception_context:
-        identity_section = identity_section + "\n\n" + self_perception_context
-
-    # Append runtime state (code-enforced self-model) after identity
+        dynamic_identity.append(self_perception_context)
     if runtime_state:
-        identity_section = identity_section + "\n\n" + runtime_state
+        dynamic_identity.append(runtime_state)
+    identity_section = rendered_identity
+    if _os.environ.get("ELOPHANTO_KID") == "true":
+        identity_section = _build_kid_self_block() + "\n\n" + identity_section
 
     sections = [
         identity_section,
     ]
 
-    # User context — what the agent knows about the current user
-    if user_context:
-        sections.append(user_context)
-
     sections += [
-        runtime,
         _BEHAVIOR,
         permission_section,
         _SECURITY_AND_TRUST,
@@ -1600,6 +1594,20 @@ def build_system_prompt(
 
     sections.append(_TOOL_CLOSE)
 
+    # Static skills doctrine stays in the cacheable prefix; the matched
+    # skills list is dynamic and goes below.
+    if available_skills:
+        sections.append(_SKILLS)
+
+    # ── Dynamic tail (changes per run) ──────────────────────────────
+    # Identity state and self-perception sit together so the planner sees
+    # claim and measurement side by side.
+    sections += dynamic_identity
+
+    # User context — what the agent knows about the current user
+    if user_context:
+        sections.append(user_context)
+
     # Dynamic organization context (specialist list with trust scores)
     if organization_context:
         sections.append(organization_context)
@@ -1610,9 +1618,8 @@ def build_system_prompt(
     if role_roster_context:
         sections.append(role_roster_context)
 
-    # Skills system (always included if skills exist)
+    # Skills matched to this task
     if available_skills:
-        sections.append(_SKILLS)
         sections.append(available_skills)
 
     if knowledge_context:
@@ -1647,5 +1654,8 @@ def build_system_prompt(
             + deferred_tools_catalog
             + "\n</deferred_tools>"
         )
+
+    # The clock and the current task change on every call: last.
+    sections.append(runtime)
 
     return "\n\n".join(sections)

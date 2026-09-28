@@ -12,7 +12,7 @@ covers: [tools/**/*.py, channels/*.py, core/router.py, core/registry.py]
 > Full tool inventory. Auto-reference for visibility posts, docs, and self-awareness.
 > Inspired by [Arvid Kahl](https://x.com/arvidkahl/status/2031457304328229184).
 
-**303 tools across 40 groups.** Every count below is the live
+**304 tools across 40 groups.** Every count below is the live
 `ToolRegistry` count for that group and is pinned by
 `tests/test_knowledge/test_capabilities_counts.py` — if a count here
 drifts from the registry, that test fails. Do not hand-edit a number
@@ -469,15 +469,18 @@ Disposable sandboxed agents in Docker: `kid_spawn`, `kid_exec`,
 
 `web_search`, `web_extract`, `session_search`, `llm_call`.
 
-## Goals — `goals` (5)
+## Goals — `goals` (6)
 
-`goal_create`, `goal_manage`, `goal_status`, `goal_dream`, `goal_note`.
+`goal_create`, `goal_manage`, `goal_status`, `goal_dream`, `goal_note`,
+`autonomy_health`.
 Checkpoints cannot complete without a tool-grounded receipt; kill criteria
 cancel zombie goals; an unanswered approval moves the goal to
 `awaiting_approval` rather than denying it. Every goal keeps a run ledger —
 artifacts recorded from the tool trail, facts, decisions, failed attempts,
 open questions and handoffs — that each later checkpoint, retry and restart
-starts from; `goal_note` is how the model adds to it.
+starts from; `goal_note` is how the model adds to it. `autonomy_health`
+reports what unattended work did and where it is stuck — also sent as a daily
+digest and available as `elophanto goals health`.
 
 ## Roles — `roles` (4)
 

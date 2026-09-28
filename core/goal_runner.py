@@ -10,6 +10,7 @@ See docs/10-ROADMAP.md (Phase 13) and the GoalManager for checkpoint state.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from pathlib import Path
@@ -393,8 +394,56 @@ class GoalRunner:
                     await self.start_next_goal()
                 except Exception as e:  # pragma: no cover — never kill the watchdog
                     logger.debug("goal watchdog tick failed: %s", e)
+                try:
+                    await self.maybe_send_health_digest()
+                except Exception as e:  # pragma: no cover
+                    logger.debug("health digest failed: %s", e)
         except asyncio.CancelledError:
             return
+
+    async def maybe_send_health_digest(self) -> bool:
+        """Broadcast the autonomy health digest once per UTC day.
+
+        Sent at ``goals.health_digest_hour_utc``; the day it was last sent is
+        kept in the metadata table so a restart does not send it twice.
+        """
+        hour = int(getattr(self._config, "health_digest_hour_utc", -1))
+        if hour < 0 or self._gateway is None:
+            return False
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC)
+        if now.hour < hour:
+            return False
+        db = self._gm._db
+        today = now.strftime("%Y-%m-%d")
+        rows = await db.execute(
+            "SELECT value FROM metadata WHERE key = 'autonomy_health_last_day'"
+        )
+        if rows and rows[0]["value"] == today:
+            return False
+        from core.autonomy_health import alerts, collect, render
+
+        report = await collect(db, hours=24.0, runner=self)
+        await db.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+            ("autonomy_health_last_day", today),
+        )
+        problems = alerts(report)
+        await self._gateway.broadcast(
+            event_message(
+                "",
+                EventType.NOTIFICATION,
+                {
+                    "notification_type": "autonomy_health",
+                    "title": "Autonomy health"
+                    + (f" — {len(problems)} need you" if problems else ""),
+                    "text": render(report),
+                },
+            ),
+            session_id=None,
+        )
+        return True
 
     async def close(self) -> None:
         """Shut down: stop the running goal and the watchdog."""
@@ -1160,6 +1209,13 @@ class GoalRunner:
             return ""
         from core.deliberation import plan_checkpoint
 
+        lessons = ""
+        recall = getattr(self._agent, "recall_lessons", None)
+        if inspect.iscoroutinefunction(recall):
+            try:
+                lessons = await recall(f"{checkpoint.title}. {checkpoint.description}")
+            except Exception as e:
+                logger.debug("lesson recall failed: %s", e)
         last = str(getattr(checkpoint, "result_summary", "") or "")
         plan = await plan_checkpoint(
             router,
@@ -1174,6 +1230,7 @@ class GoalRunner:
             attempt=attempt_no,
             last_failure=last if attempt_no > 1 or last.startswith(_PREEMPT_PREFIX) else "",
             effort=str(getattr(self._config, "deliberation_effort", "") or ""),
+            lessons=lessons,
         )
         if plan is None:
             return ""
@@ -1264,6 +1321,11 @@ class GoalRunner:
 
         missing = "; ".join(verdict.get("missing") or []) or "not specified"
         await _note("failure", f"Final verification: not met — missing: {missing}")
+        self._learn_from(
+            goal.goal,
+            f"Every checkpoint passed, yet the goal was not met. Missing: {missing}. "
+            "The plan did not cover what the goal asked for.",
+        )
         if prior_misses >= 2:
             await self._pause_goal(
                 goal_id,
@@ -1321,6 +1383,10 @@ class GoalRunner:
         except Exception as e:
             logger.warning("automatic recovery failed for %s: %s", goal.goal_id, e)
             return False
+        self._learn_from(
+            f"{goal.goal} — checkpoint {checkpoint.order}: {checkpoint.title}",
+            f"The checkpoint failed every attempt. {history[:1200]}",
+        )
         if not new:
             return False
         await self._gm._update_status(goal.goal_id, "active", from_statuses=("paused",))
@@ -1355,6 +1421,14 @@ class GoalRunner:
         except Exception:
             return False
         return False
+
+    def _learn_from(self, task: str, what_happened: str) -> None:
+        """Hand a failure to the learner, in the background (docs/94 §13)."""
+        learner = getattr(self._agent, "_learner", None)
+        fn = getattr(learner, "learn_from_failure", None)
+        if not inspect.iscoroutinefunction(fn):
+            return
+        asyncio.get_running_loop().create_task(fn(task, what_happened, []))
 
     def _ledger(self) -> Any:
         """The run ledger over the goal manager's DB (None if unavailable)."""

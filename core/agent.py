@@ -2906,6 +2906,49 @@ class Agent:
 
         return []
 
+    async def recall_lessons(self, query: str, limit: int = 4) -> str:
+        """Lessons (knowledge/learned) and confirmed instincts relevant to
+        ``query`` — what earlier runs learned, including from failures —
+        for a planning step (docs/94 §13). "" when there are none."""
+        parts: list[str] = []
+        search = self._registry.get("knowledge_search")
+        if search is not None and getattr(search, "_db", None) is not None:
+            try:
+                res = await search.execute(
+                    {"query": query[:300], "limit": limit, "scope": "learned", "rewrite": False}
+                )
+                hits = res.data.get("results", []) if res.success else []
+                lines = [
+                    f"- {str(h.get('heading') or h.get('source', ''))[:80]}: "
+                    f"{str(h.get('content', '')).strip()[:300]}"
+                    for h in hits
+                ]
+                if lines:
+                    parts.append("LESSONS:\n" + "\n".join(lines))
+            except Exception as e:
+                logger.debug("lesson recall failed: %s", e)
+        store = getattr(getattr(self, "_learner", None), "_instinct_store", None)
+        if store is not None and hasattr(store, "confirmed"):
+            try:
+                from types import SimpleNamespace
+
+                from core.instinct_match import match_instincts
+
+                # Match against confirmed instincts only (seen 3+ times).
+                matches = match_instincts(
+                    SimpleNamespace(list_all=store.confirmed), query, limit=3
+                )
+                lines = [
+                    f"- when {m.instinct.trigger[:120]}: {m.instinct.action[:200]} "
+                    f"(seen {m.instinct.observation_count}x)"
+                    for m in matches
+                ]
+                if lines:
+                    parts.append("CONFIRMED INSTINCTS:\n" + "\n".join(lines))
+            except Exception as e:
+                logger.debug("instinct recall failed: %s", e)
+        return "\n\n".join(parts)[:2500]
+
     async def _goal_plan_context(self, goal_text: str) -> str:
         """What a planner needs besides the goal text (docs/94 §10): related
         past runs — including the ones that stopped — and the tools that
@@ -2923,6 +2966,12 @@ class Agent:
                     parts.append("RELATED PAST RUNS:\n" + "\n".join(lines))
         except Exception as e:
             logger.debug("plan context: memory search failed: %s", e)
+        try:
+            lessons = await self.recall_lessons(goal_text)
+            if lessons:
+                parts.append(lessons)
+        except Exception as e:
+            logger.debug("plan context: lessons failed: %s", e)
         try:
             groups: dict[str, list[str]] = {}
             for t in self._registry.all_tools():
@@ -2954,6 +3003,10 @@ class Agent:
                 tool._goal_manager = self._goal_manager
             if tool is not None and ledger is not None and hasattr(tool, "_ledger"):
                 tool._ledger = ledger
+        health = self._registry.get("autonomy_health")
+        if health is not None:
+            health._db = self._db
+            health._goal_runner = self._goal_runner
             if (
                 tool
                 and self._goal_runner
@@ -4354,9 +4407,14 @@ class Agent:
             network=self._network_scope(),
         )
 
-        # Autonomous mind context — scratchpad + recent actions for chat awareness
+        # Autonomous mind context — scratchpad + recent actions for chat awareness.
+        # Not for the mind's own cycles (its prompt already carries the
+        # scratchpad — it was sent twice) nor for goal checkpoints (the run
+        # ledger is their memory).
+        from core.execution_context import current_context as _ctx_now
+
         _mind_ctx = ""
-        if self._autonomous_mind:
+        if self._autonomous_mind and str(_ctx_now().source) not in ("mind", "goal"):
             try:
                 status = self._autonomous_mind.get_status()
                 scratchpad = status.get("scratchpad", "")
@@ -4440,7 +4498,15 @@ class Agent:
             identity_context=identity_context,
             self_perception_context=self_perception_context,
             runtime_state=_runtime_state,
-            current_goal=goal,
+            # A long background prompt (goal checkpoint, mind cycle) was
+            # pinned here in full and sent twice on every step. Its title is
+            # enough: the full text is the first user message, which
+            # compression always keeps.
+            current_goal=(
+                goal
+                if not memory_label or len(goal) <= 1500
+                else f"{memory_label} (full instructions: the first user message)"
+            ),
             workspace=self._config.workspace,
             user_context=user_context,
         )
@@ -4825,11 +4891,15 @@ class Agent:
                         stop_reason="error",
                     )
             logger.info(
-                "LLM call step %d: %.1fs (%s/%s)",
+                "LLM call step %d: %.1fs (%s/%s)%s",
                 step,
                 _time.monotonic() - _llm_start,
                 response.provider,
                 response.model_used,
+                # Prompt-cache hits (docs/94 §13): the stable prefix at work.
+                f" cached={response.cached_tokens}/{response.input_tokens}"
+                if getattr(response, "cached_tokens", 0)
+                else "",
             )
             if response.suspected_truncated:
                 logger.warning(
