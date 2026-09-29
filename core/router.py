@@ -761,8 +761,8 @@ class LLMRouter:
         if model_override:
             provider = self._infer_provider(model_override)
             # Strip provider prefix so the adapter receives the bare
-            # model name. ``codex/gpt-6-astra`` → provider="codex",
-            # model="gpt-6-astra". The prefix is purely a routing hint;
+            # model name. ``codex/gpt-6.1-sol`` → provider="codex",
+            # model="gpt-6.1-sol". The prefix is purely a routing hint;
             # the Codex adapter expects the raw OpenAI-style id.
             if provider in ("codex", *_PREFIXED_PROVIDERS) and model_override.startswith(
                 f"{provider}/"
@@ -884,9 +884,9 @@ class LLMRouter:
 
         Provider prefixes (``codex/``, ``ollama/``) take precedence over
         the generic ``org/model`` → openrouter rule. This lets the
-        operator pick the *transport* explicitly — ``codex/gpt-6-astra``
+        operator pick the *transport* explicitly — ``codex/gpt-6.1-sol``
         routes through the Codex ChatGPT-subscription adapter, while a
-        bare ``gpt-6-astra`` routes through the direct OpenAI API. Same
+        bare ``gpt-6.1-sol`` routes through the direct OpenAI API. Same
         model name, two billing paths.
         """
         if model.startswith("codex/"):
@@ -1003,8 +1003,8 @@ class LLMRouter:
                 kwargs["api_key"] = oai_cfg.api_key
                 if oai_cfg.base_url:
                     kwargs["api_base"] = oai_cfg.base_url
-            # GPT-5 models only support temperature=1
-            if model.startswith("gpt-5"):
+            # GPT-5 and GPT-6 models only support temperature=1
+            if model.startswith(("gpt-5", "gpt-6")):
                 kwargs.pop("temperature", None)
             # OpenAI reasoning models use reasoning_effort param directly
             if reasoning_effort:

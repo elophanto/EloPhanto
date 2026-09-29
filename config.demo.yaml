@@ -24,7 +24,7 @@ llm:
     openai:
       api_key: "YOUR_OPENAI_KEY"          # https://platform.openai.com/api-keys
       enabled: false
-      default_model: "gpt-6-astra"        # gpt-6-astra | gpt-6-sol | gpt-6-luna
+      default_model: "gpt-6.1-sol"        # gpt-6.1-sol | gpt-6-astra | gpt-6-luna
       # base_url: "https://api.openai.com/v1"   # only set for proxies / Azure
 
     openrouter:
@@ -62,9 +62,10 @@ llm:
       # auth file is found with auth_mode: chatgpt. See CODEX_INTEGRATION.md.
       enabled: true
       base_url: "https://chatgpt.com/backend-api/codex"
-      # gpt-6-astra (most capable) | gpt-6-sol (agentic/coding) |
-      # gpt-6-luna (efficient). gpt-5.5 retires 2026-10-14.
-      default_model: "gpt-6-astra"
+      # gpt-6.1-sol (near-Astra, a fifth of Astra's price — the default) |
+      # gpt-6-astra (most capable) | gpt-6-luna (efficient).
+      # gpt-5.5 retires 2026-10-14.
+      default_model: "gpt-6.1-sol"
 
   # When messages contain image_url blocks (screenshots), this model is used
   # automatically instead of the normal routing chain.
@@ -72,7 +73,7 @@ llm:
   # Provider routing by prefix (same scheme used by browser.vision_model):
   #   codex/<model>             → ChatGPT Plus/Pro subscription via Codex
   #                               OAuth — no per-call API spend. Example:
-  #                               codex/gpt-6-astra
+  #                               codex/gpt-6.1-sol
   #   openrouter/<org>/<model>  → OpenRouter (any vision model on the
   #                               catalog). Example: openrouter/x-ai/grok-4.3
   #   <org>/<model>             → also OpenRouter when the prefix isn't
@@ -80,13 +81,13 @@ llm:
   #                               google/gemini-3.1-flash-lite,
   #                               perceptron/perceptron-mk1
   #   zai/<model>               → Z.ai. Example: zai/glm-4.6v
-  #   gpt-6-astra               → OpenAI direct API (uses openai.api_key)
+  #   gpt-6.1-sol               → OpenAI direct API (uses openai.api_key)
   #   glm-5.3                   → Z.ai
   #
-  # Same model name on two transports: ``codex/gpt-6-astra`` (subscription)
-  # vs ``gpt-6-astra`` (OpenAI direct API billing). Pick based on whether
+  # Same model name on two transports: ``codex/gpt-6.1-sol`` (subscription)
+  # vs ``gpt-6.1-sol`` (OpenAI direct API billing). Pick based on whether
   # you'd rather burn ChatGPT-subscription quota or OpenAI API credit.
-  vision_model: "codex/gpt-6-astra"   # or openrouter/x-ai/grok-4.3, zai/glm-4.6v
+  vision_model: "codex/gpt-6.1-sol"   # or openrouter/x-ai/grok-4.3, zai/glm-4.6v
 
   # Send earlier turns' reasoning back to providers that support it (Z.ai
   # clear_thinking: false) so a tool loop keeps its train of thought.
@@ -112,14 +113,14 @@ llm:
   routing:
     planning:
       preferred_provider: codex
-      # `low` keeps Codex responsive (~5-15s typical) — medium routinely
-      # took 90-180s on tool-heavy planning prompts in production. Bump
-      # to medium per-call only when you've verified a goal genuinely
-      # needs deeper reasoning; the autonomous mind doesn't.
-      reasoning_effort: low               # minimal | low | medium | high
+      # Planning is the acting loop: every step waits for it, chat included.
+      # gpt-6.1-sol accepts low | medium | high | xhigh | max. Drop to
+      # medium if replies feel slow — the thinking steps (`deliberation`)
+      # carry the depth.
+      reasoning_effort: high
       models:
-        codex: "gpt-6-astra"
-        openai: "gpt-6-astra"
+        codex: "gpt-6.1-sol"
+        openai: "gpt-6.1-sol"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
         zai: "glm-5.3"
@@ -128,10 +129,10 @@ llm:
 
     coding:
       preferred_provider: codex
-      reasoning_effort: low
+      reasoning_effort: xhigh
       models:
-        codex: "gpt-6-astra"
-        openai: "gpt-6-astra"
+        codex: "gpt-6.1-sol"
+        openai: "gpt-6.1-sol"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
         zai: "glm-5.3"
@@ -140,10 +141,10 @@ llm:
 
     analysis:
       preferred_provider: codex
-      reasoning_effort: low
+      reasoning_effort: xhigh
       models:
-        codex: "gpt-6-astra"
-        openai: "gpt-6-astra"
+        codex: "gpt-6.1-sol"
+        openai: "gpt-6.1-sol"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
         zai: "glm-5.3"
@@ -153,7 +154,7 @@ llm:
     simple:
       preferred_provider: codex
       # gpt-6-luna is the efficient model; it only offers high / max effort.
-      # Summaries, classifications and handoffs do not need gpt-6-astra, and
+      # Summaries, classifications and handoffs do not need gpt-6.1-sol, and
       # keeping them off it saves the subscription's usage limit.
       reasoning_effort: high
       models:
@@ -171,10 +172,10 @@ llm:
     # they use `planning`.
     deliberation:
       preferred_provider: codex
-      reasoning_effort: xhigh
+      reasoning_effort: max
       models:
-        codex: "gpt-6-astra"
-        openai: "gpt-6-astra"
+        codex: "gpt-6.1-sol"
+        openai: "gpt-6.1-sol"
         zai: "glm-5.3"
         kimi: "kimi-k2.5"
         openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -309,15 +310,15 @@ browser:
   viewport_height: 720
   # Browser screenshot analysis. Same provider-prefix scheme as
   # llm.vision_model above:
-  #   codex/gpt-6-astra         → ChatGPT subscription (no per-call API spend)
+  #   codex/gpt-6.1-sol         → ChatGPT subscription (no per-call API spend)
   #   openrouter/x-ai/grok-4.3  → OpenRouter Grok
   #   perceptron/perceptron-mk1 → OpenRouter Perceptron MK1
   #   google/gemini-3.1-flash-lite → OpenRouter Gemini Flash
-  # Can be DIFFERENT from llm.vision_model — e.g. use codex/gpt-6-astra for
+  # Can be DIFFERENT from llm.vision_model — e.g. use codex/gpt-6.1-sol for
   # browser screenshots (high volume, want subscription) and
   # openrouter/x-ai/grok-4.3 for user-attached images (lower volume,
   # don't want to mix billing paths).
-  vision_model: "codex/gpt-6-astra"
+  vision_model: "codex/gpt-6.1-sol"
   # Separate model for the Node bridge's own DOM-annotation vision.
   # The bridge hits OpenRouter directly, so when vision_model is
   # codex/<x>, ollama/<x>, or any non-OpenRouter transport, the

@@ -78,9 +78,12 @@ _EFFORT_CLAMP: dict[str, dict[str, str]] = {
     },
     "gpt-5.1": {"xhigh": "high"},
     "gpt-5.1-codex": {"xhigh": "high"},
-    # GPT-6 family (learn.chatgpt.com/docs/models, 2026-09-29): Astra lists
-    # Light / Medium / Extra High / Max; Sol Low…Max; Luna High / Max.
-    "gpt-6-astra": {"minimal": "low", "high": "xhigh"},
+    # GPT-6 family (developers.openai.com/api/docs/guides/reasoning and
+    # learn.chatgpt.com/docs/models, 2026-09-29): Astra accepts every effort
+    # but none; GPT-6.1 Sol accepts low…max (no none / minimal, default
+    # medium); Luna only high / max.
+    "gpt-6-astra": {"none": "minimal"},
+    "gpt-6.1-sol": {"none": "low", "minimal": "low"},
     "gpt-6-sol": {"minimal": "low"},
     "gpt-6-luna": {"minimal": "high", "low": "high", "medium": "high", "xhigh": "high"},
 }
@@ -88,6 +91,7 @@ _EFFORT_CLAMP: dict[str, dict[str, str]] = {
 # The effort each model is retried at if the backend rejects the one sent.
 _DEFAULT_EFFORT: dict[str, str] = {
     "gpt-6-astra": "medium",
+    "gpt-6.1-sol": "medium",
     "gpt-6-sol": "medium",
     "gpt-6-luna": "high",
 }
@@ -96,11 +100,13 @@ _DEFAULT_EFFORT: dict[str, str] = {
 # but we still track token usage for observability. Values from platform
 # API pricing as a proxy.
 _COSTS = {
-    # GPT-6: the subscription is flat-rate; these proxy the gpt-5.5 rates so
-    # usage stays comparable in reports. Not a bill.
-    "gpt-6-astra": {"input": 0.003, "output": 0.015},
+    # GPT-6: the subscription is flat-rate; these are the API list prices per
+    # 1K tokens (developers.openai.com/api/docs/pricing, 2026-09-29), so usage
+    # stays comparable in reports. Not a bill.
+    "gpt-6-astra": {"input": 0.010, "output": 0.050},
+    "gpt-6.1-sol": {"input": 0.002, "output": 0.010},
     "gpt-6-sol": {"input": 0.002, "output": 0.010},
-    "gpt-6-luna": {"input": 0.0008, "output": 0.004},
+    "gpt-6-luna": {"input": 0.0001, "output": 0.0005},
     # gpt-5.5 pricing approximate — ChatGPT subscription is flat-rate but
     # we track token usage for observability.
     "gpt-5.5": {"input": 0.003, "output": 0.015},
@@ -177,7 +183,7 @@ class CodexAdapter:
         else:
             self._auth_path = Path.home() / ".codex" / "auth.json"
 
-        self._default_model = codex_cfg.default_model or "gpt-6-astra"
+        self._default_model = codex_cfg.default_model or "gpt-6.1-sol"
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0))
         self._auth: dict[str, Any] = {}
         # Optional callback fired per completed reasoning chunk. Wired

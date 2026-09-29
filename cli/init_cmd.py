@@ -191,7 +191,7 @@ def _edit_providers(config: dict) -> None:
         config["llm"]["providers"]["codex"].setdefault(
             "base_url", "https://chatgpt.com/backend-api/codex"
         )
-        config["llm"]["providers"]["codex"].setdefault("default_model", "gpt-6-astra")
+        config["llm"]["providers"]["codex"].setdefault("default_model", "gpt-6.1-sol")
         active_providers["codex"] = True
         console.print(
             "[bold]Codex[/bold] [green](detected ChatGPT subscription)[/green]"
@@ -209,7 +209,7 @@ def _edit_providers(config: dict) -> None:
             "(screenshots) — no per-call API spend.[/green]"
         )
         console.print(
-            "  [dim]Default models: gpt-6-astra for planning, coding, analysis "
+            "  [dim]Default models: gpt-6.1-sol for planning, coding, analysis "
             "and the thinking steps; gpt-6-luna for simple tasks. "
             "OpenRouter is offered next as a fallback when Codex "
             "hits rate limits or is unavailable.[/dim]"
@@ -435,7 +435,7 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
 
     # --- OpenAI ---
     console.print("[bold]OpenAI[/bold] (GPT-6 — direct from OpenAI, per-token billing)")
-    console.print("  [dim]Models: gpt-6-astra, gpt-6-sol, gpt-6-luna[/dim]")
+    console.print("  [dim]Models: gpt-6.1-sol, gpt-6-astra, gpt-6-luna[/dim]")
     current_oai_key = (
         config.get("llm", {}).get("providers", {}).get("openai", {}).get("api_key", "")
     )
@@ -458,7 +458,7 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
             config.get("llm", {})
             .get("providers", {})
             .get("openai", {})
-            .get("default_model", "gpt-6-astra")
+            .get("default_model", "gpt-6.1-sol")
         )
         oai_default = Prompt.ask(
             "  Default OpenAI model",
@@ -473,6 +473,18 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
         console.print("  [dim]Disabled.[/dim]")
 
     console.print()
+
+
+# Reasoning effort for new Codex routes. gpt-6.1-sol accepts low…max
+# (developers.openai.com/api/docs/guides/reasoning, 2026-09-29); gpt-6-luna,
+# the simple route, only high / max.
+_CODEX_EFFORTS: dict[str, str] = {
+    "planning": "high",
+    "coding": "xhigh",
+    "analysis": "xhigh",
+    "simple": "high",
+    "deliberation": "max",
+}
 
 
 def _edit_models(config: dict) -> None:
@@ -507,9 +519,10 @@ def _edit_models(config: dict) -> None:
     # Cloud providers that need interactive model selection. Codex is
     # listed FIRST so when the user has a ChatGPT subscription (auto-
     # detected via ~/.codex/auth.json) it shows up as the headline
-    # routing option on every task type — gpt-6-astra for the real work
-    # and the thinking steps, gpt-6-luna for simple tasks, no per-call API
-    # spend (the subscription's usage limit is the budget).
+    # routing option on every task type — gpt-6.1-sol for the real work
+    # and the thinking steps (near-Astra, a fifth of Astra's price), gpt-6-luna
+    # for simple tasks, no per-call API spend (the subscription's usage limit
+    # is the budget).
     cloud_providers = ["codex", "openrouter", "zai", "kimi"]
 
     # Default models per (provider, task), mirroring config.demo.yaml
@@ -518,11 +531,11 @@ def _edit_models(config: dict) -> None:
     # checkpoint plans, critiques, final checks, judges (docs/95).
     defaults: dict[str, dict[str, str]] = {
         "codex": {
-            "planning": "gpt-6-astra",
-            "coding": "gpt-6-astra",
-            "analysis": "gpt-6-astra",
+            "planning": "gpt-6.1-sol",
+            "coding": "gpt-6.1-sol",
+            "analysis": "gpt-6.1-sol",
             "simple": "gpt-6-luna",
-            "deliberation": "gpt-6-astra",
+            "deliberation": "gpt-6.1-sol",
         },
         "openrouter": {
             "planning": "anthropic/claude-sonnet-5.5",
@@ -611,9 +624,13 @@ def _edit_models(config: dict) -> None:
             "models": models_map,
         }
         # Keep the operator's reasoning effort — rewriting the route used to
-        # drop it. The thinking steps default to the top effort.
+        # drop it. On Codex, new routes reason hard (gpt-6.1-sol accepts
+        # low…max; Luna only high/max); elsewhere only the thinking steps
+        # get a raised default, since not every provider takes xhigh/max.
         effort = existing.get("reasoning_effort") or (
-            "xhigh" if task_key == "deliberation" else ""
+            _CODEX_EFFORTS.get(task_key, "")
+            if preferred == "codex"
+            else ("xhigh" if task_key == "deliberation" else "")
         )
         if effort:
             entry["reasoning_effort"] = effort
@@ -878,7 +895,7 @@ def _edit_browser(config: dict) -> None:
 
         # Vision model for screenshot analysis. Default depends on which
         # providers the user enabled earlier in the wizard:
-        #  - Codex (ChatGPT subscription) → codex/gpt-6-astra: no per-call
+        #  - Codex (ChatGPT subscription) → codex/gpt-6.1-sol: no per-call
         #    API spend, uses existing subscription. Best default when
         #    available.
         #  - Otherwise → openrouter/x-ai/grok-4.3: current, capable
@@ -890,15 +907,17 @@ def _edit_browser(config: dict) -> None:
             .get("enabled", False)
         )
         smart_default = (
-            "codex/gpt-6-astra" if codex_on else "openrouter/x-ai/grok-4.3"
+            "codex/gpt-6.1-sol" if codex_on else "openrouter/x-ai/grok-4.3"
         )
         current_vision = browser_cfg.get("vision_model", smart_default)
         # Stale defaults upgrade transparently: gemini-2 is old, Codex's
-        # gpt-5.5 retires 2026-10-14, and a bare ``zai/…`` value used to be
-        # sent to OpenRouter as an invalid model.
+        # gpt-5.5 retires 2026-10-14, codex/gpt-6-astra was the default for
+        # a day before gpt-6.1-sol (near-Astra at a fifth of the price), and
+        # a bare ``zai/…`` value used to be sent to OpenRouter as an invalid
+        # model.
         if (
             "gemini-2.0-flash" in current_vision
-            or current_vision == "codex/gpt-5.5"
+            or current_vision in ("codex/gpt-5.5", "codex/gpt-6-astra")
             or current_vision.lower().startswith("zai/glm-5.3-flash")
         ):
             current_vision = smart_default
@@ -925,7 +944,7 @@ def _edit_browser(config: dict) -> None:
         )
         browser_cfg.setdefault(
             "vision_model",
-            "codex/gpt-6-astra" if codex_on else "openrouter/x-ai/grok-4.3",
+            "codex/gpt-6.1-sol" if codex_on else "openrouter/x-ai/grok-4.3",
         )
         console.print("  [dim]Disabled.[/dim]")
 
@@ -2235,12 +2254,12 @@ def _default_config() -> dict:
             },
             "viewport_width": 1280,
             "viewport_height": 720,
-            # Default to codex/gpt-6-astra — operators with a ChatGPT
+            # Default to codex/gpt-6.1-sol — operators with a ChatGPT
             # subscription get vision routed through the same
             # subscription as everything else (no per-call API spend).
             # The wizard's _edit_browser path picks an OpenRouter
             # fallback when Codex isn't detected.
-            "vision_model": "codex/gpt-6-astra",
+            "vision_model": "codex/gpt-6.1-sol",
         },
         "scheduler": {
             "enabled": False,

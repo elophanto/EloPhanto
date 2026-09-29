@@ -30,6 +30,15 @@ against the code before being specced.
 | Z.ai model list and prices are stale in the wizard and adapter | docs.z.ai pricing: `glm-5.3` $1.40/$4.40, `glm-5.3-flash` $0.15/$0.50, free `glm-4.7-flash`, vision `glm-4.6v` | Wizard choices, demo config and `ZAI_COSTS` updated. |
 | New settings from docs/94 are not in the demo config or migrations | — | Added to `config.demo.yaml`, the wizard's written config, and additive migrations. |
 
+**Update, same day:** GPT-6.1 Sol (`gpt-6.1-sol`) was released — near-Astra
+performance at a fifth of Astra's API price ($2 / $10 per 1M tokens against
+$10 / $50), accepting `low` … `max` effort (no `none` / `minimal`). It is now
+the Codex default in place of `gpt-6-astra`, and Codex routes reason harder:
+planning `high`, coding and analysis `xhigh`, deliberation `max`; `simple`
+stays on `gpt-6-luna`. The retired-`gpt-5.5` rewrite now lands on
+`gpt-6.1-sol`. Existing `gpt-6-astra` settings are not rewritten — Astra is
+not retiring.
+
 Operator config (gitignored, edited in place, secrets untouched):
 `browser.vision_model → codex/gpt-6-astra`, a `deliberation` route on
 `gpt-6-astra` at `xhigh`, and `simple` on `gpt-6-luna` — the Pro plan hit its

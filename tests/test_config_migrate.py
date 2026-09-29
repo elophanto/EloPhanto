@@ -60,16 +60,16 @@ def test_rewrite_replaces_codex_gpt55_only() -> None:
     out = _codex_retired_apply(_OLD)
     cfg = yaml.safe_load(out)
     llm = cfg["llm"]
-    assert llm["providers"]["codex"]["default_model"] == "gpt-6-astra"
+    assert llm["providers"]["codex"]["default_model"] == "gpt-6.1-sol"
     # The direct OpenAI API is a different transport — left alone.
     assert llm["providers"]["openai"]["default_model"] == "gpt-5.5"
     assert llm["routing"]["planning"]["models"] == {
-        "codex": "gpt-6-astra",
+        "codex": "gpt-6.1-sol",
         "openai": "gpt-5.5",
     }
     assert llm["routing"]["simple"]["models"]["codex"] == "gpt-5.5-mini"
-    assert llm["vision_model"] == "codex/gpt-6-astra"
-    assert cfg["browser"]["vision_model"] == "codex/gpt-6-astra"
+    assert llm["vision_model"] == "codex/gpt-6.1-sol"
+    assert cfg["browser"]["vision_model"] == "codex/gpt-6.1-sol"
     assert "# subscription" in out
     assert not _codex_retired_pending(cfg)
     # Idempotent.
@@ -81,8 +81,8 @@ def test_nested_migration_goes_into_existing_routing() -> None:
     assert out.count("  routing:") == 1
     cfg = yaml.safe_load(out)
     route = cfg["llm"]["routing"]["deliberation"]
-    assert route["reasoning_effort"] == "xhigh"
-    assert route["models"]["codex"] == "gpt-6-astra"
+    assert route["reasoning_effort"] == "max"
+    assert route["models"]["codex"] == "gpt-6.1-sol"
     # Siblings are intact, and it lands inside routing, before budget.
     assert set(cfg["llm"]["routing"]) == {"planning", "simple", "deliberation"}
     assert cfg["llm"]["budget"] == {"daily_limit_usd": 10}
@@ -133,6 +133,6 @@ def test_cli_applies_and_backs_up(tmp_path: Path) -> None:
     assert "codex-gpt-6-2026-09" in result.output
     assert (tmp_path / "config.yaml.bak").read_text(encoding="utf-8") == _OLD
     cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert cfg["llm"]["providers"]["codex"]["default_model"] == "gpt-6-astra"
+    assert cfg["llm"]["providers"]["codex"]["default_model"] == "gpt-6.1-sol"
     again = CliRunner().invoke(config_cmd, ["migrate", "--config", str(path), "-y"])
     assert "Up to date" in again.output

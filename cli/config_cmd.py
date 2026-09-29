@@ -277,10 +277,10 @@ cases_dir: data/bench/cases
         ),
         inner_yaml="""deliberation:
   preferred_provider: codex
-  reasoning_effort: xhigh
+  reasoning_effort: max
   models:
-    codex: "gpt-6-astra"
-    openai: "gpt-6-astra"
+    codex: "gpt-6.1-sol"
+    openai: "gpt-6.1-sol"
     zai: "glm-5.3"
     kimi: "kimi-k2.5"
     openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -312,7 +312,7 @@ class Rewrite:
 
 
 _RETIRED_CODEX = "gpt-5.5"
-_CURRENT_CODEX = "gpt-6-astra"
+_CURRENT_CODEX = "gpt-6.1-sol"
 # ``gpt-5.5`` exactly — not ``gpt-5.5-mini`` or ``gpt-5.55``.
 _RETIRED_RE = re.compile(r"gpt-5\.5(?![\w.-])")
 
@@ -363,7 +363,7 @@ _REWRITES: list[Rewrite] = [
         banner=(
             "Codex retires gpt-5.5 on 2026-10-14. Codex model references "
             "(providers.codex.default_model, routing `codex:` entries, "
-            "codex/gpt-5.5 vision) move to gpt-6-astra. Direct-API "
+            "codex/gpt-5.5 vision) move to gpt-6.1-sol. Direct-API "
             "`openai:` entries are left as they are."
         ),
         pending=_codex_retired_pending,

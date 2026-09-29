@@ -223,11 +223,11 @@ class BrowserConfig:
     # ── Shared (apply to both backends) ─────────────────────────────
     viewport_width: int = 1280
     viewport_height: int = 720
-    # Python-side screenshot describer. codex/gpt-6-astra routes through
+    # Python-side screenshot describer. codex/gpt-6.1-sol routes through
     # an existing ChatGPT subscription (no per-call API spend).
     # OpenRouter alternatives: x-ai/grok-4.3,
     # google/gemini-3.1-flash-lite, perceptron/perceptron-mk1.
-    vision_model: str = "codex/gpt-6-astra"
+    vision_model: str = "codex/gpt-6.1-sol"
     # Override for the Node bridge's own DOM-annotation vision. The
     # bridge hits OpenRouter directly (no Codex auth), so when
     # ``vision_model`` is codex/<x> the bridge can't use it. Leave
@@ -1755,7 +1755,7 @@ def _apply_env_overrides(config: Config) -> None:
                     config.llm.providers["codex"] = ProviderConfig(
                         enabled=True,
                         base_url=_PROVIDER_DEFAULTS["codex"]["base_url"],
-                        default_model="gpt-6-astra",
+                        default_model="gpt-6.1-sol",
                     )
                 else:
                     config.llm.providers["codex"].enabled = True
@@ -2042,7 +2042,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         cloud=cloud_config,
         viewport_width=browser_raw.get("viewport_width", 1280),
         viewport_height=browser_raw.get("viewport_height", 720),
-        vision_model=browser_raw.get("vision_model", "codex/gpt-6-astra"),
+        vision_model=browser_raw.get("vision_model", "codex/gpt-6.1-sol"),
         bridge_vision_model=browser_raw.get("bridge_vision_model", ""),
     )
 

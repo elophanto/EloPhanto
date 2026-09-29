@@ -217,7 +217,8 @@ extracted from a third-party TypeScript client). Apply client-side before sendin
 
 | Model | Clamping rule |
 |---|---|
-| `gpt-6-astra` | Light / Medium / Extra High / Max: `minimal` → `low`, `high` → `xhigh` |
+| `gpt-6-astra` | every value but `none` (→ `minimal`); also `max` |
+| `gpt-6.1-sol` | `low` … `max`; `none` / `minimal` → `low`; default `medium` |
 | `gpt-6-sol` | Low … Max: `minimal` → `low` |
 | `gpt-6-luna` | High / Max only: anything below → `high` |
 | `gpt-5.5`, `gpt-5.5-mini` | accepts all; `minimal` → `low` |
@@ -226,9 +227,10 @@ extracted from a third-party TypeScript client). Apply client-side before sendin
 | `gpt-5.1`, `gpt-5.1-codex` | `xhigh` → `high` |
 | Older models | `xhigh` → `high` |
 
-The GPT-6 effort strings are taken from the model picker's labels and could
-not be confirmed against the API without spending quota, so the adapter
-retries once at the model's default effort if Codex rejects the value.
+GPT-6 effort support is from OpenAI's reasoning guide
+(developers.openai.com/api/docs/guides/reasoning, 2026-09-29): `max` is an
+accepted value. If Codex still rejects a value,
+the adapter retries once at the model's default effort.
 
 `reasoning.summary` controls reasoning trace visibility: `auto` / `concise` /
 `detailed` / `none`.
@@ -262,15 +264,17 @@ items and pull `output_text` content parts.
 From the Codex CLI's bundled `models.json`. The server has the final say on
 what's actually allowed for your subscription — try and see.
 
-Current models (September 2026): `gpt-6-astra` (most capable — the default),
-`gpt-6-sol` (agentic and coding), `gpt-6-luna` (efficient). `gpt-5.5` is
-legacy and retires on 2026-10-14; `elophanto config migrate` moves Codex
-references to `gpt-6-astra`.
+Current models (29 September 2026): `gpt-6.1-sol` (near-Astra performance at
+a fifth of Astra's API price — the default), `gpt-6-astra` (most capable),
+`gpt-6-luna` (efficient). GPT-6.1 Sol replaces GPT-6 Sol. `gpt-5.5` is legacy
+and retires on 2026-10-14; `elophanto config migrate` moves Codex references
+to `gpt-6.1-sol`.
 
 | Slug | Notes |
 |---|---|
-| `gpt-6-astra` | Most capable; default since 2026-09-29 |
-| `gpt-6-sol` | Agentic / coding |
+| `gpt-6.1-sol` | Near-Astra; API $2 / $10 per 1M in / out; default |
+| `gpt-6-astra` | Most capable; API $10 / $50 per 1M in / out |
+| `gpt-6-sol` | Replaced by GPT-6.1 Sol |
 | `gpt-6-luna` | Efficient; High / Max effort only |
 | `gpt-5.5` | Legacy — retires 2026-10-14 |
 | `gpt-5.5-mini` | Cheaper variant, ~272K context |

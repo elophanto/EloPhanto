@@ -127,6 +127,22 @@ class TestEffortClamp:
     def test_empty_effort_passthrough(self) -> None:
         assert _clamp_effort("gpt-5.5", "") == ""
 
+    def test_gpt61_sol_takes_low_to_max(self) -> None:
+        # developers.openai.com/api/docs/guides/reasoning (2026-09-29): no
+        # none / minimal; max is accepted.
+        for effort in ("low", "medium", "high", "xhigh", "max"):
+            assert _clamp_effort("gpt-6.1-sol", effort) == effort
+        assert _clamp_effort("gpt-6.1-sol", "minimal") == "low"
+        assert _clamp_effort("gpt-6.1-sol", "none") == "low"
+
+    def test_gpt6_astra_takes_high(self) -> None:
+        assert _clamp_effort("gpt-6-astra", "high") == "high"
+        assert _clamp_effort("gpt-6-astra", "none") == "minimal"
+
+    def test_gpt6_luna_only_high_or_max(self) -> None:
+        assert _clamp_effort("gpt-6-luna", "medium") == "high"
+        assert _clamp_effort("gpt-6-luna", "max") == "max"
+
 
 class TestCodexAdapterInit:
     def test_missing_auth_file(
