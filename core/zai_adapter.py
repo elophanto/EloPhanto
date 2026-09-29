@@ -23,11 +23,20 @@ from core.config import Config
 logger = logging.getLogger(__name__)
 
 # Approximate cost per 1M tokens for Z.ai models
+# USD per 1M tokens, docs.z.ai pricing (verified 2026-09-29).
 ZAI_COSTS = {
-    "glm-5": {"input": 0.005, "output": 0.015},
-    "glm-4.7": {"input": 0.002, "output": 0.006},
-    "glm-4.7-flash": {"input": 0.0005, "output": 0.0015},
-    "glm-4-plus": {"input": 0.003, "output": 0.009},
+    "glm-5.3": {"input": 1.4, "output": 4.4},
+    "glm-5.3-flashx": {"input": 0.37, "output": 1.25},
+    "glm-5.3-flash": {"input": 0.15, "output": 0.5},
+    "glm-5.2": {"input": 1.4, "output": 4.4},
+    "glm-5.1": {"input": 1.4, "output": 4.4},
+    "glm-5": {"input": 1.0, "output": 3.2},
+    "glm-4.7": {"input": 0.6, "output": 2.2},
+    "glm-4.7-flashx": {"input": 0.07, "output": 0.4},
+    "glm-4.7-flash": {"input": 0.0, "output": 0.0},
+    "glm-4.6": {"input": 0.6, "output": 2.2},
+    "glm-4.5-air": {"input": 0.2, "output": 1.1},
+    "glm-4.6v": {"input": 0.3, "output": 0.9},
 }
 
 
@@ -140,7 +149,7 @@ class ZaiAdapter:
         cached_tokens = int(details.get("cached_tokens") or 0) if isinstance(details, dict) else 0
         cached_tokens = min(cached_tokens, input_tokens)
 
-        costs = ZAI_COSTS.get(model, {"input": 0.002, "output": 0.006})
+        costs = ZAI_COSTS.get(model.lower(), {"input": 0.6, "output": 2.2})
         # Cached input is billed at about half (Z.ai context caching docs).
         cost_estimate = (
             (input_tokens - cached_tokens) * costs["input"] / 1_000_000

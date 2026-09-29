@@ -3241,8 +3241,8 @@ class Gateway:
                 # Auto-set default_model if not already set
                 _PROVIDER_DEFAULT_MODELS = {
                     "openrouter": "openrouter/hunter-alpha",
-                    "openai": "gpt-5.5",
-                    "zai": "glm-4.7",
+                    "openai": "gpt-6-astra",
+                    "zai": "glm-5.3",
                     "kimi": "kimi-k2.5",
                 }
                 pcfg = config.llm.providers[provider_name]
@@ -3330,8 +3330,8 @@ class Gateway:
 
             _AUTO_DEFAULT_MODELS = {
                 "openrouter": "openrouter/hunter-alpha",
-                "openai": "gpt-5.5",
-                "zai": "glm-4.7",
+                "openai": "gpt-6-astra",
+                "zai": "glm-5.3",
                 "kimi": "kimi-k2.5",
             }
 

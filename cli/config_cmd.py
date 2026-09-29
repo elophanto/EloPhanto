@@ -24,12 +24,17 @@ way the loader sees one coherent ``autonomous_mind:`` mapping — no
 PyYAML duplicate-key clobbering.
 
 See ``docs/75-AUTONOMOUS-MIND-V2.md`` for the arbiter example.
+
+Rewrites (``_REWRITES``) are the exception: they replace a value that has
+stopped working — a retired model id — line by line, keeping the rest of
+the file as it is.
 """
 
 from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -187,6 +192,154 @@ port: 18790
 open_browser: true    # false = serve, but open no window
 """,
     ),
+    # Long-run autonomy settings, added 2026-09-29 (docs/94, docs/95). The
+    # code defaults apply without them; these make them visible. Keys the
+    # operator already set are skipped (``_drop_present_keys``).
+    Migration(
+        id="long-run-goals-2026-09",
+        key_path="goals.round_robin",
+        banner=(
+            "Long-run autonomy: plan and critique before acting, daily "
+            "envelopes that pause a goal and resume it the next day, "
+            "round-robin between active goals, and a daily health digest. "
+            "See docs/94-LONG-RUN-AUTONOMY-REVIEW.md."
+        ),
+        inner_yaml="""deliberate: true              # plan each checkpoint attempt before acting
+plan_critique: true           # critique and correct a plan before it is used
+deliberation_effort: ""       # override the deliberation route's effort; "" = route's
+daily_cost_envelope_usd: 0    # >0: a goal pauses for the day at this spend, resumes tomorrow
+daily_time_envelope_seconds: 0
+round_robin: false            # true: active goals take turns at checkpoint boundaries
+health_digest_hour_utc: 7     # daily autonomy-health digest to every channel; -1 = off
+""",
+    ),
+    Migration(
+        id="pre-action-review-2026-09",
+        key_path="agent.pre_action_review",
+        banner=(
+            "Before a CRITICAL tool (money, credentials, self-modification) "
+            "runs unattended, a short review states the expected outcome "
+            "and whether it is warranted. Chat is never reviewed."
+        ),
+        inner_yaml="""context_window_tokens: 200000  # planning model's window; compression starts at 70%
+pre_action_review: true
+""",
+    ),
+    Migration(
+        id="mind-deliberate-2026-09",
+        key_path="autonomous_mind.deliberate",
+        banner=(
+            "The mind weighs the arbiter's top candidates in a separate "
+            "thinking call and commits to one before acting."
+        ),
+        inner_yaml="""deliberate: true
+""",
+    ),
+    # A route for the thinking steps (docs/95 Phase B). Without it they use
+    # `planning`, which operators often run at low effort for latency.
+    Migration(
+        id="deliberation-route-2026-09",
+        key_path="llm.routing.deliberation",
+        banner=(
+            "Thinking steps — checkpoint plans, the mind's decision, "
+            "critiques, the final goal check, judges — on the strongest "
+            "model at the highest effort. Few calls, expensive when wrong. "
+            "See docs/95-LEARNING-LOOP.md."
+        ),
+        inner_yaml="""deliberation:
+  preferred_provider: codex
+  reasoning_effort: xhigh
+  models:
+    codex: "gpt-6-astra"
+    openai: "gpt-6-astra"
+    zai: "glm-5.3"
+    kimi: "kimi-k2.5"
+    openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free"
+    ollama: "llama3.1:8b"
+""",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Rewrites — values that must change, not keys that must be added
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Rewrite:
+    """One value-replacing config migration.
+
+    Additive migrations never touch what the operator wrote. A rewrite
+    does, so it is kept to values that stop working: a retired model id.
+    ``pending`` inspects the parsed config; ``apply`` edits the text line
+    by line so comments and key order survive.
+    """
+
+    id: str
+    banner: str
+    pending: Callable[[dict[str, Any]], bool]
+    apply: Callable[[str], str]
+
+
+_RETIRED_CODEX = "gpt-5.5"
+_CURRENT_CODEX = "gpt-6-astra"
+# ``gpt-5.5`` exactly — not ``gpt-5.5-mini`` or ``gpt-5.55``.
+_RETIRED_RE = re.compile(r"gpt-5\.5(?![\w.-])")
+
+
+def _codex_retired_pending(cfg: dict[str, Any]) -> bool:
+    llm = cfg.get("llm") or {}
+    codex = (llm.get("providers") or {}).get("codex") or {}
+    if str(codex.get("default_model") or "") == _RETIRED_CODEX:
+        return True
+    for route in (llm.get("routing") or {}).values():
+        models = (route or {}).get("models") if isinstance(route, dict) else None
+        if isinstance(models, dict) and str(models.get("codex") or "") == _RETIRED_CODEX:
+            return True
+    for section, key in (("llm", "vision_model"), ("browser", "vision_model")):
+        if str((cfg.get(section) or {}).get(key) or "") == f"codex/{_RETIRED_CODEX}":
+            return True
+    return False
+
+
+def _codex_retired_apply(text: str) -> str:
+    """Replace gpt-5.5 where it names a Codex model: ``codex/gpt-5.5``
+    anywhere, a routing ``codex: gpt-5.5`` entry, and ``default_model``
+    inside the ``providers.codex`` block. ``openai: gpt-5.5`` (the direct
+    API) is left alone."""
+    out: list[str] = []
+    codex_indent: int | None = None
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        if codex_indent is not None and stripped.strip() and indent <= codex_indent:
+            codex_indent = None
+        if re.match(r"codex:\s*(#.*)?$", stripped.rstrip("\n")):
+            codex_indent = indent  # entering the providers.codex block
+        elif re.match(r"codex:\s*[\"']?gpt-5\.5[\"']?\s*(#.*)?$", stripped.rstrip("\n")):
+            line = _RETIRED_RE.sub(_CURRENT_CODEX, line, count=1)
+        elif codex_indent is not None and stripped.startswith("default_model:"):
+            line = _RETIRED_RE.sub(_CURRENT_CODEX, line, count=1)
+        line = re.sub(
+            rf"codex/{re.escape(_RETIRED_CODEX)}(?![\w.-])", f"codex/{_CURRENT_CODEX}", line
+        )
+        out.append(line)
+    return "".join(out)
+
+
+_REWRITES: list[Rewrite] = [
+    Rewrite(
+        id="codex-gpt-6-2026-09",
+        banner=(
+            "Codex retires gpt-5.5 on 2026-10-14. Codex model references "
+            "(providers.codex.default_model, routing `codex:` entries, "
+            "codex/gpt-5.5 vision) move to gpt-6-astra. Direct-API "
+            "`openai:` entries are left as they are."
+        ),
+        pending=_codex_retired_pending,
+        apply=_codex_retired_apply,
+    ),
 ]
 
 
@@ -277,6 +430,10 @@ def _apply_migration(text: str, migration: Migration) -> str:
     """
     parts = migration.key_path.split(".")
     parent = parts[0]
+    inner = _drop_present_keys(migration.inner_yaml, text, parts[:-1])
+    if not inner.strip():
+        return text
+    migration = Migration(migration.id, migration.key_path, migration.banner, inner)
     ts = datetime.now(UTC).strftime("%Y-%m-%d")
     banner = (
         f"# ── Added by `elophanto config migrate` on {ts} "
@@ -285,22 +442,18 @@ def _apply_migration(text: str, migration: Migration) -> str:
     )
 
     lines = text.splitlines(keepends=True)
-    end_idx = _find_top_level_block_end(lines, parent)
-
-    if end_idx is None:
+    if _find_top_level_block_end(lines, parent) is None:
         # Parent doesn't exist — append the full chain at EOF.
         full_chain = _wrap_in_parents(migration.inner_yaml, parts[:-1])
         suffix = text if text.endswith("\n") else text + "\n"
         return suffix + "\n" + banner + full_chain
 
-    # Parent exists. The sub-key path between parent and leaf may be
-    # multiple levels (rare today; arbiter is one level), so we wrap
-    # in any intermediate keys. Indent by 2 because we're going one
-    # level deep into ``parent``.
-    nested = _wrap_in_parents(migration.inner_yaml, parts[1:-1])
-    indented_content = _indent_block(nested, 2)
-    indented_banner = _indent_block(banner, 2)
-    insertion = indented_banner + indented_content
+    # Insert into the deepest ancestor that exists (``llm.routing`` for
+    # ``llm.routing.deliberation``), wrapping the leaf in any missing
+    # intermediate keys, at that block's own child indent.
+    depth, end_idx, indent = _deepest_block(lines, parts[:-1])
+    nested = _wrap_in_parents(migration.inner_yaml, parts[depth:-1])
+    insertion = _indent_block(banner, indent) + _indent_block(nested, indent)
     if not insertion.endswith("\n"):
         insertion += "\n"
 
@@ -311,6 +464,72 @@ def _apply_migration(text: str, migration: Migration) -> str:
     if head and not head.endswith("\n"):
         head += "\n"
     return head + insertion + tail
+
+
+def _indent_of(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _deepest_block(lines: list[str], path: list[str]) -> tuple[int, int, int]:
+    """Walk ``path`` through nested mappings in ``lines``. Returns (how
+    many segments exist, the index after the deepest existing block, the
+    indent of that block's children). The first segment must exist."""
+    lo, hi, key_indent = 0, len(lines), 0
+    depth, end, child_indent = 0, len(lines), 2
+    for key in path:
+        key_re = re.compile(rf"^{' ' * key_indent}{re.escape(key)}\s*:\s*(#.*)?$")
+        start = next(
+            (i for i in range(lo, hi) if key_re.match(lines[i].rstrip("\n"))), None
+        )
+        if start is None:
+            break
+        block_end = hi
+        for j in range(start + 1, hi):
+            if lines[j].strip() and _indent_of(lines[j]) <= key_indent:
+                block_end = j
+                break
+        child = key_indent + 2
+        for j in range(start + 1, block_end):
+            stripped = lines[j].strip()
+            if stripped and not stripped.startswith("#"):
+                child = _indent_of(lines[j])
+                break
+        depth, end, child_indent = depth + 1, block_end, child
+        lo, hi, key_indent = start + 1, block_end, child
+    return depth, end, child_indent
+
+
+def _drop_present_keys(inner: str, text: str, parents: list[str]) -> str:
+    """Remove from ``inner`` the top-level keys the operator already set
+    under ``parents``, with the comment lines directly above them. A
+    migration that adds several keys is pending when one is missing; the
+    others must not be written twice (PyYAML keeps the last duplicate
+    silently)."""
+    try:
+        cfg = yaml.safe_load(text) or {}
+    except yaml.YAMLError:
+        return inner
+    existing: Any = cfg
+    for part in parents:
+        existing = existing.get(part) if isinstance(existing, dict) else None
+    if not isinstance(existing, dict) or not existing:
+        return inner
+    kept: list[str] = []
+    pending_comments: list[str] = []
+    skipping = False
+    for line in inner.splitlines(keepends=True):
+        if line.startswith("#"):
+            pending_comments.append(line)
+            continue
+        if line and not line.startswith((" ", "\t")) and ":" in line:
+            key = line.split(":", 1)[0].strip()
+            skipping = key in existing
+            if not skipping:
+                kept.extend(pending_comments)
+            pending_comments = []
+        if not skipping:
+            kept.append(line)
+    return "".join(kept + pending_comments)
 
 
 def _wrap_in_parents(inner: str, parents: list[str]) -> str:
@@ -371,14 +590,19 @@ def migrate_cmd(config_path: str | None, check: bool, yes: bool) -> None:
         sys.exit(1)
 
     pending = _pending_migrations(cfg)
-    if not pending:
+    rewrites = [r for r in _REWRITES if r.pending(cfg)]
+    if not pending and not rewrites:
         console.print("[green]Up to date — no pending config migrations.[/green]")
         return
 
-    console.print(f"[yellow]Found {len(pending)} pending migration(s):[/yellow]")
+    total = len(pending) + len(rewrites)
+    console.print(f"[yellow]Found {total} pending migration(s):[/yellow]")
     for m in pending:
         console.print(f"  • [bold]{m.id}[/bold]  — adds [cyan]{m.key_path}[/cyan]")
         console.print(f"    [dim]{m.banner}[/dim]")
+    for r in rewrites:
+        console.print(f"  • [bold]{r.id}[/bold]  — [cyan]rewrites values[/cyan]")
+        console.print(f"    [dim]{r.banner}[/dim]")
 
     if check:
         console.print("[dim]Re-run without --check to apply.[/dim]")
@@ -386,7 +610,7 @@ def migrate_cmd(config_path: str | None, check: bool, yes: bool) -> None:
 
     if not yes:
         if not click.confirm(
-            f"Patch {path} with these {len(pending)} block(s)?", default=True
+            f"Patch {path} with these {total} change(s)?", default=True
         ):
             console.print("[dim]Aborted.[/dim]")
             return
@@ -401,6 +625,9 @@ def migrate_cmd(config_path: str | None, check: bool, yes: bool) -> None:
     for m in pending:
         text = _apply_migration(text, m)
         console.print(f"  [green]✓[/green] applied {m.id}")
+    for r in rewrites:
+        text = r.apply(text)
+        console.print(f"  [green]✓[/green] applied {r.id}")
 
     path.write_text(text, encoding="utf-8")
 
@@ -415,9 +642,10 @@ def migrate_cmd(config_path: str | None, check: bool, yes: bool) -> None:
         )
         sys.exit(2)
 
-    still_missing = [m for m in pending if _get_nested(new_cfg, m.key_path) is None]
+    still_missing = [m.id for m in pending if _get_nested(new_cfg, m.key_path) is None]
+    still_missing += [r.id for r in rewrites if r.pending(new_cfg)]
     if still_missing:
-        ids = ", ".join(m.id for m in still_missing)
+        ids = ", ".join(still_missing)
         console.print(
             f"[red]Patched the file but these migrations did NOT take effect: "
             f"{ids}. Restore from {backup.name} and report this.[/red]"

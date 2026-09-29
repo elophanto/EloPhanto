@@ -230,6 +230,29 @@ class CostTracker:
         self._pending_records.clear()
 
 
+# Providers addressable as ``<provider>/<model>`` in a model override.
+_PREFIXED_PROVIDERS: tuple[str, ...] = ("zai", "kimi")
+
+
+def _usage_limit_cooldown(error_text: str) -> float | None:
+    """Seconds until a subscription quota resets, or None if this is not one.
+
+    Codex answers an exhausted ChatGPT-plan quota with a 429 whose body
+    carries ``"type":"usage_limit_reached"`` and ``resets_at`` (epoch s).
+    Retrying it every 60 s, as a rate limit, only adds failures.
+    """
+    if "usage_limit_reached" not in error_text:
+        return None
+    m = re.search(r'"resets_at"\s*:\s*(\d+)', error_text)
+    if not m:
+        return 3600.0
+    try:
+        remaining = float(m.group(1)) - time.time()
+    except ValueError:
+        return 3600.0
+    return min(max(remaining, 60.0), 6 * 3600.0)
+
+
 def _strip_private_keys(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop underscore-prefixed keys the agent keeps on messages for itself
     (``_reasoning``) before they reach a provider that would reject them."""
@@ -383,6 +406,15 @@ class LLMRouter:
                 ) or bool(
                     re.search(r"\b(?:status(?:_code)?|error|http)\s*[:=]?\s*402\b", _billing_text)
                 )
+
+                quota_wait = _usage_limit_cooldown(str(e))
+                if quota_wait is not None:
+                    logger.error(
+                        f"[TIMING] {provider}/{model} subscription usage limit reached "
+                        f"— provider parked for {int(quota_wait)}s (until the quota resets)"
+                    )
+                    self._mark_unhealthy(provider, cooldown=quota_wait)
+                    raise
 
                 if is_billing:
                     logger.error(
@@ -726,11 +758,13 @@ class LLMRouter:
         if model_override:
             provider = self._infer_provider(model_override)
             # Strip provider prefix so the adapter receives the bare
-            # model name. ``codex/gpt-5.5`` → provider="codex",
-            # model="gpt-5.5". The prefix is purely a routing hint;
+            # model name. ``codex/gpt-6-astra`` → provider="codex",
+            # model="gpt-6-astra". The prefix is purely a routing hint;
             # the Codex adapter expects the raw OpenAI-style id.
-            if provider == "codex" and model_override.startswith("codex/"):
-                return provider, model_override[len("codex/") :]
+            if provider in ("codex", *_PREFIXED_PROVIDERS) and model_override.startswith(
+                f"{provider}/"
+            ):
+                return provider, model_override[len(provider) + 1 :]
             return provider, model_override
 
         # 2. Preferred provider from per-task routing
@@ -837,13 +871,19 @@ class LLMRouter:
 
         Provider prefixes (``codex/``, ``ollama/``) take precedence over
         the generic ``org/model`` → openrouter rule. This lets the
-        operator pick the *transport* explicitly — ``codex/gpt-5.5``
+        operator pick the *transport* explicitly — ``codex/gpt-6-astra``
         routes through the Codex ChatGPT-subscription adapter, while a
-        bare ``gpt-5.5`` routes through the direct OpenAI API. Same
+        bare ``gpt-6-astra`` routes through the direct OpenAI API. Same
         model name, two billing paths.
         """
         if model.startswith("codex/"):
             return "codex"
+        # Explicit transport prefixes, like ``codex/``: ``zai/glm-5.3`` must
+        # reach Z.ai. Without this, any ``a/b`` went to OpenRouter as an
+        # invalid model (40 BadRequests from ``zai/GLM-5.3-Flash``).
+        for prefix in _PREFIXED_PROVIDERS:
+            if model.startswith(f"{prefix}/"):
+                return prefix
         # HuggingFace models use org/model format (e.g. Qwen/Qwen3.5-397B-A17B)
         # Check if huggingface is configured and the model looks like an HF repo
         if "/" in model and not model.startswith("ollama/"):
@@ -854,7 +894,7 @@ class LLMRouter:
                     if rt.models.get("huggingface") == model:
                         return "huggingface"
             return "openrouter"
-        if model.startswith("glm-"):
+        if model.lower().startswith("glm-"):
             return "zai"
         if model.startswith("kimi-"):
             return "kimi"

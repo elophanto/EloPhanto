@@ -217,11 +217,18 @@ extracted from a third-party TypeScript client). Apply client-side before sendin
 
 | Model | Clamping rule |
 |---|---|
+| `gpt-6-astra` | Light / Medium / Extra High / Max: `minimal` → `low`, `high` → `xhigh` |
+| `gpt-6-sol` | Low … Max: `minimal` → `low` |
+| `gpt-6-luna` | High / Max only: anything below → `high` |
 | `gpt-5.5`, `gpt-5.5-mini` | accepts all; `minimal` → `low` |
 | `gpt-5.3-codex`, `gpt-5.2-codex` | accepts all; `minimal` → `low` |
 | `gpt-5.1-codex-mini` | high/xhigh → `high`, others → `medium` |
 | `gpt-5.1`, `gpt-5.1-codex` | `xhigh` → `high` |
 | Older models | `xhigh` → `high` |
+
+The GPT-6 effort strings are taken from the model picker's labels and could
+not be confirmed against the API without spending quota, so the adapter
+retries once at the model's default effort if Codex rejects the value.
 
 `reasoning.summary` controls reasoning trace visibility: `auto` / `concise` /
 `detailed` / `none`.
@@ -255,9 +262,17 @@ items and pull `output_text` content parts.
 From the Codex CLI's bundled `models.json`. The server has the final say on
 what's actually allowed for your subscription — try and see.
 
+Current models (September 2026): `gpt-6-astra` (most capable — the default),
+`gpt-6-sol` (agentic and coding), `gpt-6-luna` (efficient). `gpt-5.5` is
+legacy and retires on 2026-10-14; `elophanto config migrate` moves Codex
+references to `gpt-6-astra`.
+
 | Slug | Notes |
 |---|---|
-| `gpt-5.5` | Top model, ~1M context, multimodal |
+| `gpt-6-astra` | Most capable; default since 2026-09-29 |
+| `gpt-6-sol` | Agentic / coding |
+| `gpt-6-luna` | Efficient; High / Max effort only |
+| `gpt-5.5` | Legacy — retires 2026-10-14 |
 | `gpt-5.5-mini` | Cheaper variant, ~272K context |
 | `gpt-5.3-codex` | Previous Codex default |
 | `gpt-5.3-codex-spark` | Reasoning-only, free tier |

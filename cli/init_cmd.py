@@ -191,7 +191,7 @@ def _edit_providers(config: dict) -> None:
         config["llm"]["providers"]["codex"].setdefault(
             "base_url", "https://chatgpt.com/backend-api/codex"
         )
-        config["llm"]["providers"]["codex"].setdefault("default_model", "gpt-5.5")
+        config["llm"]["providers"]["codex"].setdefault("default_model", "gpt-6-astra")
         active_providers["codex"] = True
         console.print(
             "[bold]Codex[/bold] [green](detected ChatGPT subscription)[/green]"
@@ -209,7 +209,8 @@ def _edit_providers(config: dict) -> None:
             "(screenshots) — no per-call API spend.[/green]"
         )
         console.print(
-            "  [dim]Default model across all task types: gpt-5.5. "
+            "  [dim]Default models: gpt-6-astra for planning, coding, analysis "
+            "and the thinking steps; gpt-6-luna for simple tasks. "
             "OpenRouter is offered next as a fallback when Codex "
             "hits rate limits or is unavailable.[/dim]"
         )
@@ -313,7 +314,10 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
     """Walk the optional provider list — zai, kimi, openai. Each is skip-by-default."""
     # --- Z.ai ---
     console.print("[bold]Z.ai / GLM[/bold] (cost-effective coding models)")
-    console.print("  [dim]Models: glm-5, glm-4.7, glm-4.7-flash, glm-4-plus[/dim]")
+    console.print(
+        "  [dim]Models: glm-5.3, glm-5.3-flash, glm-5.3-flashx, glm-5, "
+        "glm-4.7-flash (free)[/dim]"
+    )
     current_zai_key = (
         config.get("llm", {}).get("providers", {}).get("zai", {}).get("api_key", "")
     )
@@ -353,12 +357,15 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
             config.get("llm", {})
             .get("providers", {})
             .get("zai", {})
-            .get("default_model", "glm-4.7")
+            .get("default_model", "glm-5.3")
         )
+        zai_choices = ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5", "glm-4.7-flash"]
+        if current_default.lower() not in zai_choices:
+            current_default = "glm-5.3"
         zai_default = Prompt.ask(
             "  Default Z.ai model",
-            choices=["glm-5", "glm-4.7", "glm-4.7-flash", "glm-4-plus"],
-            default=current_default,
+            choices=zai_choices,
+            default=current_default.lower(),
         )
         config["llm"]["providers"]["zai"]["default_model"] = zai_default
 
@@ -427,8 +434,8 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
     console.print()
 
     # --- OpenAI ---
-    console.print("[bold]OpenAI[/bold] (GPT-5.5, o3, o1 — direct from OpenAI)")
-    console.print("  [dim]Models: gpt-5.5, gpt-4.1, o3, o1[/dim]")
+    console.print("[bold]OpenAI[/bold] (GPT-6 — direct from OpenAI, per-token billing)")
+    console.print("  [dim]Models: gpt-6-astra, gpt-6-sol, gpt-6-luna[/dim]")
     current_oai_key = (
         config.get("llm", {}).get("providers", {}).get("openai", {}).get("api_key", "")
     )
@@ -451,7 +458,7 @@ def _edit_providers_optional(config: dict, active_providers: dict[str, bool]) ->
             config.get("llm", {})
             .get("providers", {})
             .get("openai", {})
-            .get("default_model", "gpt-5.5")
+            .get("default_model", "gpt-6-astra")
         )
         oai_default = Prompt.ask(
             "  Default OpenAI model",
@@ -478,7 +485,7 @@ def _edit_models(config: dict) -> None:
     console.print(
         "  [dim]Choose which model to use for each task type.\n"
         "  Enter the full model name (e.g. anthropic/claude-sonnet-4.6, "
-        "glm-4.7, qwen2.5:7b).[/dim]"
+        "glm-5.3, qwen2.5:7b).[/dim]"
     )
 
     # Detect active providers from config
@@ -500,38 +507,43 @@ def _edit_models(config: dict) -> None:
     # Cloud providers that need interactive model selection. Codex is
     # listed FIRST so when the user has a ChatGPT subscription (auto-
     # detected via ~/.codex/auth.json) it shows up as the headline
-    # routing option on every task type — same gpt-5.5 model across
-    # planning / coding / analysis / simple, no per-call API spend.
+    # routing option on every task type — gpt-6-astra for the real work
+    # and the thinking steps, gpt-6-luna for simple tasks, no per-call API
+    # spend (the subscription's usage limit is the budget).
     cloud_providers = ["codex", "openrouter", "zai", "kimi"]
 
-    # Default models per (provider, task). Codex maps every task to
-    # gpt-5.5 — single capable model handles the whole routing matrix
-    # when the operator has a ChatGPT subscription. This mirrors the
-    # reference config.demo.yaml.
+    # Default models per (provider, task), mirroring config.demo.yaml
+    # (verified against the providers' model lists 2026-09-29; Codex's
+    # gpt-5.5 retires 2026-10-14). "deliberation" is the thinking steps —
+    # checkpoint plans, critiques, final checks, judges (docs/95).
     defaults: dict[str, dict[str, str]] = {
         "codex": {
-            "planning": "gpt-5.5",
-            "coding": "gpt-5.5",
-            "analysis": "gpt-5.5",
-            "simple": "gpt-5.5",
+            "planning": "gpt-6-astra",
+            "coding": "gpt-6-astra",
+            "analysis": "gpt-6-astra",
+            "simple": "gpt-6-luna",
+            "deliberation": "gpt-6-astra",
         },
         "openrouter": {
-            "planning": "anthropic/claude-sonnet-4.6",
-            "coding": "qwen/qwen3.5-plus-02-15",
+            "planning": "anthropic/claude-sonnet-5.5",
+            "coding": "qwen/qwen3.6-plus",
             "analysis": "google/gemini-3.1-pro-preview",
-            "simple": "minimax/minimax-m2.5",
+            "simple": "minimax/minimax-m3",
+            "deliberation": "anthropic/claude-sonnet-5.5",
         },
         "zai": {
-            "planning": "glm-5",
-            "coding": "glm-4.7",
-            "analysis": "glm-4.7",
-            "simple": "glm-4.7",
+            "planning": "glm-5.3",
+            "coding": "glm-5.3",
+            "analysis": "glm-5.3",
+            "simple": "glm-5.3-flash",
+            "deliberation": "glm-5.3",
         },
         "kimi": {
             "planning": "kimi-k2.5",
             "coding": "kimi-k2.5",
             "analysis": "kimi-k2.5",
             "simple": "kimi-k2-thinking-turbo",
+            "deliberation": "kimi-k2.5",
         },
     }
 
@@ -540,6 +552,11 @@ def _edit_models(config: dict) -> None:
         ("coding", "Coding", "writing code, plugins — strong coding model"),
         ("analysis", "Analysis", "summarization, text processing — balanced"),
         ("simple", "Simple", "formatting, classification — cheapest/fastest"),
+        (
+            "deliberation",
+            "Deliberation",
+            "plans, critiques, final checks, judges — the strongest model",
+        ),
     ]
 
     for task_key, label, desc in task_types:
@@ -589,10 +606,18 @@ def _edit_models(config: dict) -> None:
         if not preferred:
             preferred = next(iter(models_map))
 
-        routing[task_key] = {
+        entry: dict[str, Any] = {
             "preferred_provider": preferred,
             "models": models_map,
         }
+        # Keep the operator's reasoning effort — rewriting the route used to
+        # drop it. The thinking steps default to the top effort.
+        effort = existing.get("reasoning_effort") or (
+            "xhigh" if task_key == "deliberation" else ""
+        )
+        if effort:
+            entry["reasoning_effort"] = effort
+        routing[task_key] = entry
 
         console.print(
             f"    [dim]→ preferred: {models_map[preferred]} via {preferred}[/dim]"
@@ -853,7 +878,7 @@ def _edit_browser(config: dict) -> None:
 
         # Vision model for screenshot analysis. Default depends on which
         # providers the user enabled earlier in the wizard:
-        #  - Codex (ChatGPT subscription) → codex/gpt-5.5: no per-call
+        #  - Codex (ChatGPT subscription) → codex/gpt-6-astra: no per-call
         #    API spend, uses existing subscription. Best default when
         #    available.
         #  - Otherwise → openrouter/x-ai/grok-4.3: current, capable
@@ -864,12 +889,18 @@ def _edit_browser(config: dict) -> None:
             .get("codex", {})
             .get("enabled", False)
         )
-        smart_default = "codex/gpt-5.5" if codex_on else "openrouter/x-ai/grok-4.3"
+        smart_default = (
+            "codex/gpt-6-astra" if codex_on else "openrouter/x-ai/grok-4.3"
+        )
         current_vision = browser_cfg.get("vision_model", smart_default)
-        # If the existing config still has the stale gemini-2 default,
-        # upgrade it transparently — operator gets the current default
-        # without having to know what changed.
-        if "gemini-2.0-flash" in current_vision:
+        # Stale defaults upgrade transparently: gemini-2 is old, Codex's
+        # gpt-5.5 retires 2026-10-14, and a bare ``zai/…`` value used to be
+        # sent to OpenRouter as an invalid model.
+        if (
+            "gemini-2.0-flash" in current_vision
+            or current_vision == "codex/gpt-5.5"
+            or current_vision.lower().startswith("zai/glm-5.3-flash")
+        ):
             current_vision = smart_default
         provider_hint = "Codex/ChatGPT" if codex_on else "OpenRouter"
         vision_model = Prompt.ask(
@@ -894,7 +925,7 @@ def _edit_browser(config: dict) -> None:
         )
         browser_cfg.setdefault(
             "vision_model",
-            "codex/gpt-5.5" if codex_on else "openrouter/x-ai/grok-4.3",
+            "codex/gpt-6-astra" if codex_on else "openrouter/x-ai/grok-4.3",
         )
         console.print("  [dim]Disabled.[/dim]")
 
@@ -2012,7 +2043,8 @@ def _print_model_summary(
 
     if active.get("zai"):
         console.print(
-            "  [bold]Z.ai models:[/bold] glm-5, glm-4.7, glm-4.7-flash, glm-4-plus"
+            "  [bold]Z.ai models:[/bold] glm-5.3, glm-5.3-flash, glm-5.3-flashx, "
+            "glm-5, glm-4.7-flash (free)"
         )
 
     if active.get("ollama") and ollama_models:
@@ -2066,7 +2098,7 @@ def _infer_provider(
     """Infer which provider a model belongs to."""
     if model in ollama_models:
         return "ollama"
-    if model.startswith("glm-"):
+    if model.lower().startswith("glm-"):
         return "zai"
     if "/" in model:
         return "openrouter"
@@ -2158,7 +2190,7 @@ def _default_config() -> dict:
                     "coding_plan": False,
                     "base_url_coding": "https://api.z.ai/api/coding/paas/v4",
                     "base_url_paygo": "https://api.z.ai/api/paas/v4",
-                    "default_model": "glm-4.7",
+                    "default_model": "glm-5.3",
                 },
                 "ollama": {
                     "base_url": "http://localhost:11434",
@@ -2203,12 +2235,12 @@ def _default_config() -> dict:
             },
             "viewport_width": 1280,
             "viewport_height": 720,
-            # Default to codex/gpt-5.5 — operators with a ChatGPT
+            # Default to codex/gpt-6-astra — operators with a ChatGPT
             # subscription get vision routed through the same
             # subscription as everything else (no per-call API spend).
             # The wizard's _edit_browser path picks an OpenRouter
             # fallback when Codex isn't detected.
-            "vision_model": "codex/gpt-5.5",
+            "vision_model": "codex/gpt-6-astra",
         },
         "scheduler": {
             "enabled": False,

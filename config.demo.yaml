@@ -10,13 +10,21 @@ agent:
   name: EloPhanto
   permission_mode: full_auto              # ask_always | smart_auto | full_auto | nuclear
   workspace: ~/agents/elophanto           # ← change to where you want artifacts saved
+  # Context window of the planning model (tokens). Compression starts at
+  # 70/85/95% of it.
+  context_window_tokens: 200000
+  # Before a CRITICAL tool (money, credentials, self-modification) runs in
+  # an unattended run, a short review states the expected outcome and
+  # whether it is warranted. A declined call goes back to the model; the
+  # identical call repeated proceeds. Chat is never reviewed.
+  pre_action_review: true
 
 llm:
   providers:
     openai:
       api_key: "YOUR_OPENAI_KEY"          # https://platform.openai.com/api-keys
       enabled: false
-      default_model: "gpt-5.5"
+      default_model: "gpt-6-astra"        # gpt-6-astra | gpt-6-sol | gpt-6-luna
       # base_url: "https://api.openai.com/v1"   # only set for proxies / Azure
 
     openrouter:
@@ -30,7 +38,7 @@ llm:
       coding_plan: true                   # use Z.ai's coding subscription endpoint
       base_url_coding: "https://api.z.ai/api/coding/paas/v4"
       base_url_paygo: "https://api.z.ai/api/paas/v4"
-      default_model: "GLM-4.7"
+      default_model: "glm-5.3"            # glm-5.3 | glm-5.3-flash | glm-4.7-flash (free)
 
     kimi:
       api_key: "YOUR_KILO_API_KEY"        # https://app.kilo.ai — Kilo Code Gateway
@@ -54,7 +62,9 @@ llm:
       # auth file is found with auth_mode: chatgpt. See CODEX_INTEGRATION.md.
       enabled: true
       base_url: "https://chatgpt.com/backend-api/codex"
-      default_model: "gpt-5.5"
+      # gpt-6-astra (most capable) | gpt-6-sol (agentic/coding) |
+      # gpt-6-luna (efficient). gpt-5.5 retires 2026-10-14.
+      default_model: "gpt-6-astra"
 
   # When messages contain image_url blocks (screenshots), this model is used
   # automatically instead of the normal routing chain.
@@ -62,20 +72,31 @@ llm:
   # Provider routing by prefix (same scheme used by browser.vision_model):
   #   codex/<model>             → ChatGPT Plus/Pro subscription via Codex
   #                               OAuth — no per-call API spend. Example:
-  #                               codex/gpt-5.5
+  #                               codex/gpt-6-astra
   #   openrouter/<org>/<model>  → OpenRouter (any vision model on the
   #                               catalog). Example: openrouter/x-ai/grok-4.3
   #   <org>/<model>             → also OpenRouter when the prefix isn't
   #                               codex/ or ollama/. Example:
   #                               google/gemini-3.1-flash-lite,
   #                               perceptron/perceptron-mk1
-  #   gpt-5.5                   → OpenAI direct API (uses openai.api_key)
-  #   glm-4.7-flash             → Z.ai
+  #   zai/<model>               → Z.ai. Example: zai/glm-4.6v
+  #   gpt-6-astra               → OpenAI direct API (uses openai.api_key)
+  #   glm-5.3                   → Z.ai
   #
-  # Same model name on two transports: ``codex/gpt-5.5`` (subscription)
-  # vs ``gpt-5.5`` (OpenAI direct API billing). Pick based on whether
+  # Same model name on two transports: ``codex/gpt-6-astra`` (subscription)
+  # vs ``gpt-6-astra`` (OpenAI direct API billing). Pick based on whether
   # you'd rather burn ChatGPT-subscription quota or OpenAI API credit.
-  vision_model: "codex/gpt-5.5"   # or openrouter/x-ai/grok-4.3, google/gemini-3.1-flash-lite, perceptron/perceptron-mk1
+  vision_model: "codex/gpt-6-astra"   # or openrouter/x-ai/grok-4.3, zai/glm-4.6v
+
+  # Send earlier turns' reasoning back to providers that support it (Z.ai
+  # clear_thinking: false) so a tool loop keeps its train of thought.
+  # Grows input tokens; off by default.
+  preserve_reasoning: false
+
+  # Optional: a different model family for independent judges and the final
+  # goal check (e.g. "zai/glm-5.3"), so the model that did the work does not
+  # grade it. Empty = the deliberation route.
+  judge_model: ""
 
   provider_priority:
     - codex
@@ -97,48 +118,67 @@ llm:
       # needs deeper reasoning; the autonomous mind doesn't.
       reasoning_effort: low               # minimal | low | medium | high
       models:
-        codex: "gpt-5.5"
-        openai: "gpt-5.5"
+        codex: "gpt-6-astra"
+        openai: "gpt-6-astra"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
-        zai: "GLM-5.1"
-        openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
+        zai: "glm-5.3"
+        openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free"
         ollama: "llama3.1:8b"  # chat model — NOT an embedding model
 
     coding:
       preferred_provider: codex
       reasoning_effort: low
       models:
-        codex: "gpt-5.5"
-        openai: "gpt-5.5"
+        codex: "gpt-6-astra"
+        openai: "gpt-6-astra"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
-        zai: "GLM-5.1"
-        openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
+        zai: "glm-5.3"
+        openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free"
         ollama: "llama3.1:8b"  # chat model — NOT an embedding model
 
     analysis:
       preferred_provider: codex
       reasoning_effort: low
       models:
-        codex: "gpt-5.5"
-        openai: "gpt-5.5"
+        codex: "gpt-6-astra"
+        openai: "gpt-6-astra"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
         kimi: "kimi-k2.5"
-        zai: "GLM-5.1"
-        openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
+        zai: "glm-5.3"
+        openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free"
         ollama: "llama3.1:8b"  # chat model — NOT an embedding model
 
     simple:
       preferred_provider: codex
-      reasoning_effort: low               # or "minimal" / "none" to disable reasoning entirely
+      # gpt-6-luna is the efficient model; it only offers high / max effort.
+      # Summaries, classifications and handoffs do not need gpt-6-astra, and
+      # keeping them off it saves the subscription's usage limit.
+      reasoning_effort: high
       models:
-        codex: "gpt-5.5"
+        codex: "gpt-6-luna"
         kimi: "kimi-k2-thinking-turbo"
         huggingface: "Qwen/Qwen3.5-397B-A17B"
-        zai: "GLM-5-turbo"
-        openrouter: "nvidia/nemotron-3-super-120b-a12b:free"
+        zai: "glm-5.3-flash"
+        openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free"
         ollama: "llama3.1:8b"  # chat model — NOT an embedding model
+
+    # The thinking steps: checkpoint plans, the mind's decision, plan
+    # critique, progress evaluation, the final goal check, panel judges and
+    # pre-action reviews (docs/95). Few calls, where a wrong call costs
+    # hours — the strongest model at the highest effort. Without this route
+    # they use `planning`.
+    deliberation:
+      preferred_provider: codex
+      reasoning_effort: xhigh
+      models:
+        codex: "gpt-6-astra"
+        openai: "gpt-6-astra"
+        zai: "glm-5.3"
+        kimi: "kimi-k2.5"
+        openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free"
+        ollama: "llama3.1:8b"
 
   budget:
     daily_limit_usd: 100.0
@@ -269,15 +309,15 @@ browser:
   viewport_height: 720
   # Browser screenshot analysis. Same provider-prefix scheme as
   # llm.vision_model above:
-  #   codex/gpt-5.5             → ChatGPT subscription (no per-call API spend)
+  #   codex/gpt-6-astra         → ChatGPT subscription (no per-call API spend)
   #   openrouter/x-ai/grok-4.3  → OpenRouter Grok
   #   perceptron/perceptron-mk1 → OpenRouter Perceptron MK1
   #   google/gemini-3.1-flash-lite → OpenRouter Gemini Flash
-  # Can be DIFFERENT from llm.vision_model — e.g. use codex/gpt-5.5 for
+  # Can be DIFFERENT from llm.vision_model — e.g. use codex/gpt-6-astra for
   # browser screenshots (high volume, want subscription) and
   # openrouter/x-ai/grok-4.3 for user-attached images (lower volume,
   # don't want to mix billing paths).
-  vision_model: "codex/gpt-5.5"
+  vision_model: "codex/gpt-6-astra"
   # Separate model for the Node bridge's own DOM-annotation vision.
   # The bridge hits OpenRouter directly, so when vision_model is
   # codex/<x>, ollama/<x>, or any non-OpenRouter transport, the
@@ -383,6 +423,14 @@ goals:
   max_time_per_checkpoint_seconds: 600
   context_summary_max_tokens: 1500
   auto_continue: true
+  # ── Long-run autonomy (docs/94, docs/95) ──
+  deliberate: true              # plan each checkpoint attempt before acting
+  plan_critique: true           # critique and correct a plan before it is used
+  deliberation_effort: ""       # override the deliberation route's effort; "" = route's
+  daily_cost_envelope_usd: 0    # >0: a goal pauses for the day at this spend, resumes tomorrow
+  daily_time_envelope_seconds: 0
+  round_robin: false            # true: active goals take turns at checkpoint boundaries
+  health_digest_hour_utc: 7     # daily autonomy-health digest to every channel; -1 = off
 
 # --- MCP (Model Context Protocol) ---
 # Outbound update notifications. The only network call is an
@@ -697,6 +745,19 @@ payments:
     chains:
       - solana
       - base
+  # Fiat rail (Stripe). mode=test is the full API with no real money and no
+  # KYC. Live mode is a separate, KYC-gated operator step.
+  fiat:
+    enabled: false
+    provider: stripe
+    mode: test                            # test | live
+    base_currency: USD
+    account_id: ""
+    secret_key_ref: stripe_secret_key     # vault refs — never keys in this file
+    publishable_key_ref: stripe_publishable_key
+    webhook_secret_ref: stripe_webhook_secret
+    issuing_enabled: false
+    cardholder_id: ""
 
 # --- Email ---
 
@@ -741,6 +802,9 @@ autonomous_mind:
   budget_pct: 100.0                       # % of daily LLM budget for mind
   max_rounds_per_wakeup: 100
   verbosity: normal                       # minimal | normal | verbose
+  # Weigh the arbiter's top candidates in a separate thinking call and
+  # commit to one before acting (docs/94 §10).
+  deliberate: true
   # Phase 3 scored-candidate arbiter (docs/75-AUTONOMOUS-MIND-V2.md).
   # When enabled (default), every wakeup builds a ranked menu from
   # typed sources (workable_checkpoints, mission_momentum, dream,

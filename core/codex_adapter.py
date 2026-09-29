@@ -78,12 +78,29 @@ _EFFORT_CLAMP: dict[str, dict[str, str]] = {
     },
     "gpt-5.1": {"xhigh": "high"},
     "gpt-5.1-codex": {"xhigh": "high"},
+    # GPT-6 family (learn.chatgpt.com/docs/models, 2026-09-29): Astra lists
+    # Light / Medium / Extra High / Max; Sol Low…Max; Luna High / Max.
+    "gpt-6-astra": {"minimal": "low", "high": "xhigh"},
+    "gpt-6-sol": {"minimal": "low"},
+    "gpt-6-luna": {"minimal": "high", "low": "high", "medium": "high", "xhigh": "high"},
+}
+
+# The effort each model is retried at if the backend rejects the one sent.
+_DEFAULT_EFFORT: dict[str, str] = {
+    "gpt-6-astra": "medium",
+    "gpt-6-sol": "medium",
+    "gpt-6-luna": "high",
 }
 
 # Approximate costs for reporting only — ChatGPT subscription is flat-rate,
 # but we still track token usage for observability. Values from platform
 # API pricing as a proxy.
 _COSTS = {
+    # GPT-6: the subscription is flat-rate; these proxy the gpt-5.5 rates so
+    # usage stays comparable in reports. Not a bill.
+    "gpt-6-astra": {"input": 0.003, "output": 0.015},
+    "gpt-6-sol": {"input": 0.002, "output": 0.010},
+    "gpt-6-luna": {"input": 0.0008, "output": 0.004},
     # gpt-5.5 pricing approximate — ChatGPT subscription is flat-rate but
     # we track token usage for observability.
     "gpt-5.5": {"input": 0.003, "output": 0.015},
@@ -160,7 +177,7 @@ class CodexAdapter:
         else:
             self._auth_path = Path.home() / ".codex" / "auth.json"
 
-        self._default_model = codex_cfg.default_model or "gpt-5.5"
+        self._default_model = codex_cfg.default_model or "gpt-6-astra"
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0))
         self._auth: dict[str, Any] = {}
         # Optional callback fired per completed reasoning chunk. Wired
@@ -385,6 +402,7 @@ class CodexAdapter:
             int | None
         ) = None,  # noqa: ARG002 — accepted for API parity, not sent
         reasoning_effort: str = "medium",
+        _effort_retry: bool = False,
     ) -> Any:
         """Make a Responses API streaming call, return aggregated text."""
         from core.router import LLMResponse
@@ -481,6 +499,23 @@ class CodexAdapter:
                 )
             if response.status_code >= 400:
                 body = (await response.aread()).decode("utf-8", "ignore")
+                fallback = _DEFAULT_EFFORT.get(model, "medium")
+                if (
+                    response.status_code == 400
+                    and ("effort" in body.lower() or "reasoning" in body.lower())
+                    and effort
+                    and effort != fallback
+                    and not _effort_retry
+                ):
+                    # The effort ladder differs per model and cannot be
+                    # confirmed without spending quota: retry once at the
+                    # model's default instead of failing the call.
+                    logger.warning(
+                        "Codex rejected effort %r for %s — retrying at %r", effort, model, fallback
+                    )
+                    return await self.complete(
+                        messages, model, tools, 0.0, None, fallback, _effort_retry=True
+                    )
                 raise RuntimeError(f"Codex {response.status_code}: {body[:500]}")
 
             async for line in response.aiter_lines():
