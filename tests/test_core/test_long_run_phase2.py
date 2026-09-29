@@ -159,7 +159,7 @@ class TestDeliberationCalls:
         assert text.startswith("DIAGNOSIS OF THE LAST ATTEMPT")
         assert "VERIFY BY: watch_list output shows 14" in text
         kw = router.complete.call_args.kwargs
-        assert kw["task_type"] == "planning" and kw["reasoning_effort"] == "high"
+        assert kw["task_type"] == "deliberation" and kw["reasoning_effort"] == "high"
         assert "THIS IS ATTEMPT 2" in kw["messages"][1]["content"]
 
     async def test_planning_failure_is_not_fatal(self) -> None:

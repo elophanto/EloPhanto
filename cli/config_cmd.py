@@ -235,6 +235,19 @@ pre_action_review: true
         inner_yaml="""deliberate: true
 """,
     ),
+    Migration(
+        id="judge-model-2026-09",
+        key_path="llm.judge_model",
+        banner=(
+            "Optional independent judge: the checkpoint panel and the final "
+            "goal check on a different model family from the one that did "
+            "the work (e.g. zai/glm-5.3). Empty = the deliberation route."
+        ),
+        inner_yaml="""# Send earlier turns' reasoning back to providers that support it (Z.ai).
+preserve_reasoning: false
+judge_model: ""
+""",
+    ),
     # A route for the thinking steps (docs/95 Phase B). Without it they use
     # `planning`, which operators often run at low effort for latency.
     Migration(

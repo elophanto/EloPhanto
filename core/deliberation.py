@@ -16,7 +16,9 @@ wrong call is expensive:
     whether it is warranted.
 
 Each returns structured data or None. None means "carry on without it":
-thinking must never be the reason work does not happen. See
+thinking must never be the reason work does not happen. They route as
+``deliberation`` — the strongest model at the highest effort, or the
+``planning`` route when none is configured (docs/95 Phase B). See
 docs/94-LONG-RUN-AUTONOMY-REVIEW.md §10.
 """
 
@@ -56,7 +58,7 @@ async def _ask(
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                task_type="planning",
+                task_type="deliberation",
                 temperature=0.3,
                 max_tokens=max_tokens,
                 reasoning_effort=effort or None,
@@ -71,6 +73,26 @@ async def _ask(
         str(getattr(resp, "reasoning", "") or ""),
         float(getattr(resp, "cost_estimate", 0.0) or 0.0),
     )
+
+
+async def judge_complete(router: Any, messages: list[dict[str, Any]], **kwargs: Any) -> Any:
+    """A judging call — a verdict on work the agent did. It runs on
+    ``llm.judge_model`` when one is set, so the model that did the work does
+    not grade it, and on the ``deliberation`` route otherwise or when the
+    judge model fails."""
+    llm = getattr(getattr(router, "_config", None), "llm", None)
+    judge = getattr(llm, "judge_model", "")
+    if isinstance(judge, str) and judge.strip():
+        try:
+            return await router.complete(
+                messages=messages,
+                task_type="deliberation",
+                model_override=judge.strip(),
+                **kwargs,
+            )
+        except Exception as e:
+            logger.warning("judge model %s failed, using the deliberation route: %s", judge, e)
+    return await router.complete(messages=messages, task_type="deliberation", **kwargs)
 
 
 def _str_list(value: Any, limit: int = 8) -> list[str]:
@@ -325,8 +347,15 @@ async def review_action(
         f"TASK: {task[:1500]}\n\nRECENT STEPS:\n{recent[:2500]}\n\n"
         f"CALL ABOUT TO RUN: {tool_name}({args_text})"
     )
+    # A sanity check with a 60 s budget, not a plan: the route's highest
+    # effort would often time out, and a timeout is no verdict.
     data, _reasoning, cost = await _ask(
-        router, _REVIEW_SYSTEM, user, effort=effort, max_tokens=500, timeout=60.0
+        router,
+        _REVIEW_SYSTEM,
+        user,
+        effort=effort or "medium",
+        max_tokens=500,
+        timeout=60.0,
     )
     if not isinstance(data, dict) or "proceed" not in data:
         return None

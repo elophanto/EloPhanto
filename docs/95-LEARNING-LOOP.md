@@ -36,16 +36,23 @@ Operator config (gitignored, edited in place, secrets untouched):
 Codex usage limit on 2026-09-11, and summaries, classifications and handoffs
 do not need the most capable model.
 
-## Phase B — intelligence where the thinking is (doc 94 #1)
+## Phase B — intelligence where the thinking is (doc 94 #1) — **built**
 
 A `deliberation` task type. Every thinking call routes through it: the
 checkpoint plan, the mind's decision, the pre-action review, decomposition and
 its critique, progress evaluation, the final goal check, and panel judges.
 The router falls back to the `planning` route when no `deliberation` route is
-configured, so nothing breaks for existing installs. `goals.deliberation_effort`
-(now empty by default) overrides the route's effort when set. Optional
-`llm.judge_model` (e.g. `zai/glm-5.3`) runs panel judges and the final check
-on a different model family from the one that did the work.
+configured, so nothing breaks for existing installs — borrowing planning's
+models but thinking at `high`, not planning's effort, which operators often
+run low for latency. `goals.deliberation_effort` (now empty by default)
+overrides the route's effort when set. Optional `llm.judge_model` (e.g.
+`zai/glm-5.3`) runs the checkpoint panel's judges and the final goal check on
+a different model family from the one that did the work, and falls back to the
+route if that model fails. Plan revision and progress evaluation, which ran
+on `simple`, now route here too. The pre-action review asks for `medium`
+effort: it has a 60-second budget, and a timeout is no verdict. The
+`panel_review` tool's judges are full agent runs with tools and keep the
+acting route.
 
 ## Phase C — every plan is a prediction (doc 94 #2)
 

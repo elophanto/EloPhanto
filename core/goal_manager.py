@@ -849,6 +849,11 @@ class GoalManager:
 
     # --- Decomposition ---
 
+    def _deliberation_effort(self) -> str | None:
+        """``goals.deliberation_effort`` when set; None = the route's."""
+        effort = getattr(self._config, "deliberation_effort", "")
+        return effort.strip() or None if isinstance(effort, str) else None
+
     async def decompose(self, goal: Goal) -> list[Checkpoint]:
         """Decompose a goal into ordered checkpoints: draft, critique, revise.
 
@@ -872,8 +877,9 @@ class GoalManager:
                 {"role": "system", "content": _DECOMPOSE_SYSTEM},
                 {"role": "user", "content": user},
             ],
-            task_type="planning",
+            task_type="deliberation",
             temperature=0.3,
+            reasoning_effort=self._deliberation_effort(),
         )
         goal.llm_calls_used += 1
 
@@ -951,8 +957,9 @@ class GoalManager:
                     {"role": "system", "content": _CRITIQUE_SYSTEM},
                     {"role": "user", "content": user},
                 ],
-                task_type="planning",
+                task_type="deliberation",
                 temperature=0.2,
+                reasoning_effort=self._deliberation_effort(),
             )
             goal.llm_calls_used += 1
         except Exception as e:
@@ -1003,8 +1010,9 @@ class GoalManager:
                 {"role": "system", "content": _REVISE_SYSTEM},
                 {"role": "user", "content": prompt},
             ],
-            task_type="simple",
+            task_type="deliberation",
             temperature=0.3,
+            reasoning_effort=self._deliberation_effort(),
         )
         goal.llm_calls_used += 1
 
@@ -1430,8 +1438,9 @@ class GoalManager:
 
         Every checkpoint passing is not the same as the goal being met: a
         plan can be completed while missing what the goal asked for. One
-        planning-tier call compares the original goal with the checkpoint
-        results and the run ledger. Returns ``{"met", "evidence",
+        judging call (``llm.judge_model``, else the deliberation route)
+        compares the original goal with the checkpoint results and the run
+        ledger. Returns ``{"met", "evidence",
         "missing"}`` or None when the verifier is unavailable.
         """
         cps = await self.get_checkpoints(goal.goal_id)
@@ -1460,14 +1469,16 @@ class GoalManager:
             + f"\nCHECKPOINT RESULTS:\n{results}\n\nRUN LEDGER:\n{ledger or '(empty)'}"
         )
         try:
-            response = await self._router.complete(
-                messages=[
+            from core.deliberation import judge_complete
+
+            response = await judge_complete(
+                self._router,
+                [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                task_type="planning",
                 temperature=0.1,
-                reasoning_effort=effort or None,
+                reasoning_effort=effort or self._deliberation_effort(),
             )
             goal.llm_calls_used += 1
         except Exception as e:
@@ -1670,8 +1681,9 @@ class GoalManager:
                 {"role": "system", "content": _EVALUATE_SYSTEM},
                 {"role": "user", "content": prompt},
             ],
-            task_type="simple",
+            task_type="deliberation",
             temperature=0.2,
+            reasoning_effort=self._deliberation_effort(),
         )
         goal.llm_calls_used += 1
 

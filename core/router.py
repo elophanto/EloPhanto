@@ -678,12 +678,15 @@ class LLMRouter:
 
             # Pick up reasoning_effort from per-task routing config, unless
             # the caller asked for a specific effort.
-            _routing = self._config.llm.routing.get(task_type)
-            _reasoning_effort = (
-                reasoning_effort
-                if reasoning_effort is not None
-                else (_routing.reasoning_effort if _routing else "")
-            )
+            _routing = self._route(task_type)
+            if reasoning_effort is not None:
+                _reasoning_effort = reasoning_effort
+            elif task_type == "deliberation" and "deliberation" not in self._config.llm.routing:
+                # Borrowing `planning`'s models, not its effort: operators run
+                # planning low for latency, and thinking is where effort pays.
+                _reasoning_effort = "high"
+            else:
+                _reasoning_effort = _routing.reasoning_effort if _routing else ""
 
             try:
                 result = await self._call_with_retries(
@@ -768,7 +771,7 @@ class LLMRouter:
             return provider, model_override
 
         # 2. Preferred provider from per-task routing
-        routing = self._config.llm.routing.get(task_type)
+        routing = self._route(task_type)
         if routing and routing.preferred_provider:
             provider_name = routing.preferred_provider
             provider_cfg = self._config.llm.providers.get(provider_name)
@@ -844,7 +847,7 @@ class LLMRouter:
         profiles = resolve_profiles(self._config.llm.tool_profiles or None)
 
         # Determine profile from routing config or task type
-        routing = self._config.llm.routing.get(task_type)
+        routing = self._route(task_type)
         routing_profile = routing.tool_profile if routing else ""
         profile_name = select_profile(task_type, routing_profile or None)
 
@@ -865,6 +868,16 @@ class LLMRouter:
             len(filtered),
         )
         return filtered
+
+    def _route(self, task_type: str) -> Any:
+        """The routing entry for ``task_type``. ``deliberation`` — the
+        thinking steps (docs/95) — uses ``planning`` until an operator
+        configures its own route, so existing installs keep working."""
+        routing = self._config.llm.routing
+        entry = routing.get(task_type)
+        if entry is None and task_type == "deliberation":
+            return routing.get("planning")
+        return entry
 
     def _infer_provider(self, model: str) -> str:
         """Infer provider from model name.
@@ -910,7 +923,7 @@ class LLMRouter:
         2. Legacy routing fields (preferred_model, fallback_model, local_fallback)
         3. Provider-level defaults (e.g. zai.default_model)
         """
-        routing = self._config.llm.routing.get(task_type)
+        routing = self._route(task_type)
 
         # 1. Per-provider models map (new format)
         if routing and routing.models.get(provider):

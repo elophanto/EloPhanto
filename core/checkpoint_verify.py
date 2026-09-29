@@ -166,10 +166,12 @@ async def _check_judgment(
     )
     artifact = f"{result_text[:6000]}\n\nEVIDENCE FROM THE WORK:\n{evidence[:6000]}"
 
+    from core.deliberation import judge_complete
+
     async def judge(prompt: str, _lens: Any) -> str:
-        resp = await router.complete(
-            messages=[{"role": "user", "content": prompt}],
-            task_type="planning",
+        resp = await judge_complete(
+            router,
+            [{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=900,
         )

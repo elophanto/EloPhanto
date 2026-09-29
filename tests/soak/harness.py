@@ -107,7 +107,7 @@ class ScriptedModel:
         )
         first_user = first_user if isinstance(first_user, str) else ""
 
-        if task_type != "planning" or any(
+        if task_type not in ("planning", "deliberation") or any(
             marker in (system or "")
             for marker in ("goal_decomposition", "plan_critique", "You verify, independently")
         ):

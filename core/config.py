@@ -97,6 +97,10 @@ class LLMConfig:
     # ``clear_thinking: false``), so a multi-step tool loop keeps its train
     # of thought. Off by default: it grows input tokens (docs/94 §10).
     preserve_reasoning: bool = False
+    # Model for independent judgement — the checkpoint panel and the final
+    # goal check — e.g. ``zai/glm-5.3``: a different family from the one that
+    # did the work. Empty = the ``deliberation`` route (docs/95 Phase B).
+    judge_model: str = ""
 
 
 @dataclass
@@ -664,9 +668,11 @@ class GoalsConfig:
     # the plan rules, and revises it.
     deliberate: bool = True
     plan_critique: bool = True
-    # Reasoning effort for those thinking calls (provider-dependent; Z.ai:
-    # minimal|low|medium|high|xhigh|max). Empty = the task type's setting.
-    deliberation_effort: str = "high"
+    # Reasoning effort for those thinking calls, overriding the
+    # ``deliberation`` route's (provider-dependent; Z.ai:
+    # minimal|low|medium|high|xhigh|max). Empty = the route's; with no
+    # deliberation route, ``high``.
+    deliberation_effort: str = ""
     # Scheduling (docs/94 §12). Daily envelopes: when a goal spends this much
     # in one UTC day it pauses and resumes by itself the next day, so a
     # multi-day goal keeps going inside a limit instead of stopping at a
@@ -1905,6 +1911,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         vision_model=llm_raw.get("vision_model", ""),
         metered_providers=metered_providers,
         preserve_reasoning=bool(llm_raw.get("preserve_reasoning", False)),
+        judge_model=str(llm_raw.get("judge_model", "") or ""),
         allow_metered_fallback_in_chat=bool(
             llm_raw.get("allow_metered_fallback_in_chat", False)
         ),
@@ -2209,7 +2216,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         ),
         deliberate=bool(goals_raw.get("deliberate", True)),
         plan_critique=bool(goals_raw.get("plan_critique", True)),
-        deliberation_effort=str(goals_raw.get("deliberation_effort", "high") or ""),
+        deliberation_effort=str(goals_raw.get("deliberation_effort", "") or ""),
         daily_cost_envelope_usd=float(goals_raw.get("daily_cost_envelope_usd", 0.0) or 0.0),
         daily_time_envelope_seconds=int(goals_raw.get("daily_time_envelope_seconds", 0) or 0),
         round_robin=bool(goals_raw.get("round_robin", False)),
