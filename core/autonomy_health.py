@@ -164,6 +164,18 @@ async def collect(
         float((usage[0]["c"] if usage else 0) or 0), 4
     )
     report["goal_work_seconds_today"] = int(float((usage[0]["s"] if usage else 0) or 0))
+
+    # Plans as predictions, and the lessons' record (docs/95 Phases C, D).
+    outcomes = await rows(
+        "SELECT attempt, passed, surprise FROM plan_outcomes WHERE created_at >= ?", (since,)
+    )
+    first = [o for o in outcomes if int(o["attempt"]) == 1]
+    report["plans_scored"] = len(outcomes)
+    report["first_attempt_passed"] = sum(int(o["passed"]) for o in first)
+    report["first_attempts"] = len(first)
+    report["surprises"] = sum(int(o["surprise"]) for o in outcomes)
+    lessons = await rows("SELECT status, COUNT(*) AS n FROM lesson_stats GROUP BY status")
+    report["lessons_by_status"] = {str(r["status"]): int(r["n"]) for r in lessons}
     return report
 
 
@@ -220,6 +232,23 @@ def render(report: dict[str, Any]) -> str:
         lines.append(
             "Unfinished runs by reason: "
             + ", ".join(f"{k} {v}" for k, v in report["stops_by_reason"].items())
+        )
+    if report.get("plans_scored"):
+        first = int(report.get("first_attempts", 0))
+        rate = (
+            f"{report.get('first_attempt_passed', 0)}/{first} first attempts passed"
+            if first
+            else "no first attempts"
+        )
+        lines.append(
+            f"Plans scored: {report['plans_scored']} · {rate} · surprises "
+            f"(failures no plan foresaw): {report.get('surprises', 0)}"
+        )
+    lessons = report.get("lessons_by_status") or {}
+    if lessons:
+        lines.append(
+            "Lessons with a record: "
+            + ", ".join(f"{k} {v}" for k, v in sorted(lessons.items()))
         )
     lines.append(
         f"Goal spend today: ${report.get('goal_spend_today_usd', 0):.2f} · work time: "

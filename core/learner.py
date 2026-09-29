@@ -213,6 +213,20 @@ class LessonExtractor:
         for lesson in lessons[:2]:  # Cap at 2 per task
             await self._write_lesson(lesson, goal)
 
+    async def record_lesson(self, lesson: dict[str, Any], source_task: str) -> bool:
+        """Write a lesson someone else distilled — the post-mortem of a plan
+        whose failure it did not foresee (docs/95 Phase C). Same guards as
+        every lesson: injection scan, PII redaction, merge into an existing
+        file of the same title."""
+        if not self._enabled or not isinstance(lesson, dict):
+            return False
+        tags = [str(t) for t in lesson.get("tags", []) if t]
+        for tag in ("failure", "surprise"):
+            if tag not in tags:
+                tags.append(tag)
+        await self._write_lesson({**lesson, "tags": tags}, source_task)
+        return True
+
     async def learn_from_failure(
         self, task: str, what_happened: str, tools_used: list[str]
     ) -> int:

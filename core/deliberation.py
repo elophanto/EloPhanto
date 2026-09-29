@@ -13,7 +13,9 @@ wrong call is expensive:
   * before the mind acts — weigh the arbiter's top candidates and commit to
     one, with why, the expected outcome, and when it is done;
   * before a CRITICAL tool runs unattended — state what it should do, and
-    whether it is warranted.
+    whether it is warranted;
+  * after a failed attempt — was the failure foreseen by the plan, and if
+    not, which assumption broke (docs/95 Phase C).
 
 Each returns structured data or None. None means "carry on without it":
 thinking must never be the reason work does not happen. They route as
@@ -120,7 +122,8 @@ Return ONLY a JSON object:
   "assumptions": ["<what must be true for this to work>"],
   "risks": ["<what could go wrong — and the fallback>"],
   "verification": "<how the success criteria will be shown by what tools RETURN; the completion gate accepts tool outputs, never prose>",
-  "reuse": ["<artifacts or facts from the ledger this attempt builds on>"]
+  "reuse": ["<artifacts or facts from the ledger this attempt builds on>"],
+  "lessons_used": ["<labels of the learned lessons this plan applies, e.g. L2; [] if none>"]
 }
 
 Rules:
@@ -141,6 +144,7 @@ class CheckpointPlan:
     verification: str = ""
     reuse: list[str] = field(default_factory=list)
     diagnosis: str = ""
+    lessons_used: list[str] = field(default_factory=list)  # labels, e.g. "L2"
     reasoning: str = ""
     cost: float = 0.0
 
@@ -196,7 +200,10 @@ async def plan_checkpoint(
         f"RUN LEDGER:\n{ledger_text or '(empty — first run of this goal)'}"
     )
     if lessons:
-        user += f"\n\nLEARNED FROM EARLIER RUNS (apply what is relevant):\n{lessons}"
+        user += (
+            "\n\nLEARNED FROM EARLIER RUNS (apply what is relevant; list the "
+            f"labels you apply in lessons_used):\n{lessons}"
+        )
     data, reasoning, cost = await _ask(router, _PLAN_SYSTEM, user, effort=effort)
     if not isinstance(data, dict) or not str(data.get("approach") or "").strip():
         return None
@@ -208,7 +215,69 @@ async def plan_checkpoint(
         verification=str(data.get("verification") or "").strip()[:600],
         reuse=_str_list(data.get("reuse"), 8),
         diagnosis=str(data.get("diagnosis") or "").strip()[:800],
+        lessons_used=_str_list(data.get("lessons_used"), 8),
         reasoning=reasoning[:2000],
+        cost=cost,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Post-mortem of a failed attempt
+# ---------------------------------------------------------------------------
+
+_POSTMORTEM_SYSTEM = """\
+You compare a plan with how its attempt failed. The plan was written BEFORE
+acting and stated its assumptions and the risks it foresaw.
+
+Decide whether this failure is one the plan foresaw (it is among the risks,
+or follows directly from one). If it did not, it is a surprise: name the one
+belief — stated among the assumptions or left unstated — that turned out to
+be false, and the rule that would have avoided the failure.
+
+Return ONLY a JSON object:
+{
+  "foreseen": true | false,
+  "broken_assumption": "<the belief that was false; empty if foreseen>",
+  "lesson": {"title": "Avoid: <5-8 words>", "when": "<the situation>",
+             "lesson": "<what was assumed, what was actually true, the rule; 2-3 sentences>"}
+}
+Set "lesson" to null when the failure was bad luck (an outage, a slow site)
+or too specific to this one task to generalize."""
+
+
+@dataclass
+class PostMortem:
+    foreseen: bool
+    broken_assumption: str = ""
+    lesson: dict[str, Any] | None = None
+    cost: float = 0.0
+
+
+async def postmortem(
+    router: Any,
+    *,
+    checkpoint: str,
+    plan: CheckpointPlan,
+    failure: str,
+    effort: str = "",
+) -> PostMortem | None:
+    """Was this failure foreseen by the plan? If not, which assumption broke?"""
+    user = (
+        f"CHECKPOINT: {checkpoint[:600]}\n\nTHE PLAN:\n{plan.render()[:3000]}\n\n"
+        f"HOW THE ATTEMPT FAILED:\n{failure[:1500]}"
+    )
+    data, _reasoning, cost = await _ask(
+        router, _POSTMORTEM_SYSTEM, user, effort=effort, max_tokens=700
+    )
+    if not isinstance(data, dict) or "foreseen" not in data:
+        return None
+    lesson = data.get("lesson")
+    if not (isinstance(lesson, dict) and str(lesson.get("lesson") or "").strip()):
+        lesson = None
+    return PostMortem(
+        foreseen=bool(data.get("foreseen")),
+        broken_assumption=str(data.get("broken_assumption") or "").strip()[:500],
+        lesson=lesson,
         cost=cost,
     )
 

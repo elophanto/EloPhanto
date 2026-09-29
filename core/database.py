@@ -241,6 +241,64 @@ _SCHEMA = [
         PRIMARY KEY (goal_id, day)
     )
     """,
+    # Every checkpoint plan is a prediction; this is how each one turned out
+    # — which gate failed, whether the failure was foreseen, the assumption
+    # that broke, and which recalled lessons the plan used. See
+    # core/plan_outcomes.py, docs/95 Phase C.
+    """
+    CREATE TABLE IF NOT EXISTS plan_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goal_id TEXT NOT NULL,
+        checkpoint_order INTEGER NOT NULL,
+        attempt INTEGER NOT NULL,
+        passed INTEGER NOT NULL,
+        gate TEXT NOT NULL DEFAULT '',
+        steps_planned INTEGER NOT NULL DEFAULT 0,
+        steps_used INTEGER NOT NULL DEFAULT 0,
+        stop_reason TEXT NOT NULL DEFAULT '',
+        surprise INTEGER NOT NULL DEFAULT 0,
+        broken_assumption TEXT NOT NULL DEFAULT '',
+        lessons_used TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_plan_outcomes_goal
+        ON plan_outcomes(goal_id, checkpoint_order, attempt)
+    """,
+    # A recalled lesson's record in the plans that used it. Lessons that
+    # beat the baseline are promoted to skills; lessons that trail it are
+    # retired from recall. docs/95 Phase D.
+    """
+    CREATE TABLE IF NOT EXISTS lesson_stats (
+        lesson_ref TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        uses INTEGER NOT NULL DEFAULT 0,
+        passes INTEGER NOT NULL DEFAULT 0,
+        fails INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active',
+        status_note TEXT NOT NULL DEFAULT '',
+        last_used TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    # What each mind cycle decided and what came of it — no LLM call, just
+    # the record, for calibration: does deliberating change the pick, and
+    # do deliberated cycles do more? docs/95 Phase C.
+    """
+    CREATE TABLE IF NOT EXISTS mind_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL DEFAULT '',
+        action_spec TEXT NOT NULL DEFAULT '',
+        deliberated INTEGER NOT NULL DEFAULT 0,
+        pick INTEGER NOT NULL DEFAULT 1,
+        tool_count INTEGER NOT NULL DEFAULT 0,
+        tool_errors INTEGER NOT NULL DEFAULT 0,
+        stop_reason TEXT NOT NULL DEFAULT '',
+        cost_usd REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    )
+    """,
     # Missions — durable drives the autonomous mind works toward
     # across many goals. See docs/75-AUTONOMOUS-MIND-V2.md §Phase 2.
     # Missions are NEVER "completed" — they're paused or retired by

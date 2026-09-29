@@ -54,7 +54,7 @@ effort: it has a 60-second budget, and a timeout is no verdict. The
 `panel_review` tool's judges are full agent runs with tools and keep the
 acting route.
 
-## Phase C — every plan is a prediction (doc 94 #2)
+## Phase C — every plan is a prediction (doc 94 #2) — **built**
 
 A checkpoint plan states its steps and how success will be shown. After the
 attempt, the runner records a **plan outcome**: first-attempt pass, which
@@ -76,20 +76,39 @@ CREATE TABLE IF NOT EXISTS plan_outcomes (
 );
 ```
 
-Mind decisions get the same record without an LLM call: decision, pick,
-stop reason, tools used — enough for calibration statistics.
+Mind decisions get the same record without an LLM call (`mind_outcomes`:
+source, action, whether it was deliberated, the pick, tool calls and tool
+errors, stop reason, cost) — enough for calibration statistics.
 
-## Phase D — lessons earn their place (doc 94 #3)
+As built (`core/plan_outcomes.py`, `GoalRunner._record_outcome`): an outcome
+is recorded for every attempt that had a plan — pass, receipt-gate failure,
+verification failure, timeout, error. Interruptions (preemption, STOP, the
+day's budget) refund the attempt and record nothing; the plan is dropped at
+the start of the next attempt so a stale plan is never scored. The broken
+assumption is also written to the run ledger as a fact, so the next attempt's
+plan reads it. The post-mortem's lesson goes through the learner's usual
+guards (injection scan, PII redaction, merge by title) with the tags
+`failure` and `surprise`. The daily health digest reports plans scored,
+first-attempt passes, surprises, and lessons by status.
 
-`recall_lessons` returns the identity of each lesson it offers (file path or
-instinct id); the plan records which it used (`lessons_used`). Each plan
-outcome credits or debits them in `lesson_stats (lesson_ref, uses, passes,
-fails, status, last_used)`. A lesson used at least 5 times whose pass rate
-beats the overall first-attempt rate by 15 points is **promoted**: written as
-a skill under `skills/learned-<slug>/SKILL.md`, which the skill system
-already matches and loads. A lesson used at least 5 times that trails the
-baseline by 20 points is **retired**: recall stops offering it. Files are
-never deleted. Recall ranks the rest by their record.
+## Phase D — lessons earn their place (doc 94 #3) — **built**
+
+`recall_lesson_items` returns each lesson it offers with its identity
+(`knowledge:<path>` or `instinct:<id>`); the planner sees them numbered
+(`[L1]`, `[L2]`…) and names the ones it applies in `lessons_used`. Each plan
+outcome credits or debits them in `lesson_stats (lesson_ref, title, body,
+uses, passes, fails, status, status_note, last_used)`. The baseline is the
+pass rate of the last 500 plan outcomes — all attempts, because lessons are
+applied on retries too. A lesson used at least 5 times whose pass rate beats
+the baseline by 15 points is **promoted**: written as a skill under
+`skills/learned-<slug>/SKILL.md` — the full lesson as its instructions, its
+measured record in the description, and as triggers its subject plus the
+titles of checkpoints where plans that used it passed — and the skill list is
+reloaded. An existing skill is never overwritten. A lesson used at least 5
+times that trails the baseline by 20 points is **retired**: recall stops
+offering it. Files are never deleted. Recall ranks the rest by their record,
+smoothed toward the baseline so two lucky uses prove little; a lesson with
+no record keeps its relevance order.
 
 ## Phase E — a benchmark from its own history (doc 94 #4)
 

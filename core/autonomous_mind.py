@@ -1521,6 +1521,22 @@ class AutonomousMind:
                     except Exception as e:
                         logger.debug("capability review timestamp not saved: %s", e)
 
+            # What was decided and what came of it (docs/95 Phase C).
+            if picked is not None and getattr(self._agent, "_db", None) is not None:
+                from core.plan_outcomes import record_mind_outcome
+
+                decision = getattr(self, "_last_decision", None)
+                await record_mind_outcome(
+                    self._agent._db,
+                    source=str(getattr(picked, "source", "") or ""),
+                    action_spec=str(getattr(picked, "action_spec", "") or ""),
+                    deliberated=decision is not None,
+                    pick=int(getattr(decision, "pick", 1) or 1),
+                    tool_uses=_tool_uses,
+                    stop_reason=str(getattr(response, "stop_reason", "") or ""),
+                    cost_usd=float(cost or 0.0),
+                )
+
             # Log action
             ts = datetime.now(UTC).strftime("%H:%M")
             self._recent_actions.append({"ts": ts, "summary": action_summary})

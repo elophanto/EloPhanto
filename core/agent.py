@@ -2906,25 +2906,29 @@ class Agent:
 
         return []
 
-    async def recall_lessons(self, query: str, limit: int = 4) -> str:
+    async def recall_lesson_items(self, query: str, limit: int = 4) -> list[Any]:
         """Lessons (knowledge/learned) and confirmed instincts relevant to
-        ``query`` — what earlier runs learned, including from failures —
-        for a planning step (docs/94 §13). "" when there are none."""
-        parts: list[str] = []
+        ``query``, each with its identity, ranked by its record in earlier
+        plans and without retired ones (docs/94 §13, docs/95 Phase D)."""
+        from core.plan_outcomes import OfferedLesson, PlanOutcomes
+
+        offered: list[OfferedLesson] = []
         search = self._registry.get("knowledge_search")
         if search is not None and getattr(search, "_db", None) is not None:
             try:
+                # Over-fetch: retired lessons are dropped below.
                 res = await search.execute(
-                    {"query": query[:300], "limit": limit, "scope": "learned", "rewrite": False}
+                    {"query": query[:300], "limit": limit * 2, "scope": "learned", "rewrite": False}
                 )
-                hits = res.data.get("results", []) if res.success else []
-                lines = [
-                    f"- {str(h.get('heading') or h.get('source', ''))[:80]}: "
-                    f"{str(h.get('content', '')).strip()[:300]}"
-                    for h in hits
-                ]
-                if lines:
-                    parts.append("LESSONS:\n" + "\n".join(lines))
+                for h in res.data.get("results", []) if res.success else []:
+                    source = str(h.get("source") or "")
+                    offered.append(
+                        OfferedLesson(
+                            ref=f"knowledge:{source}",
+                            title=str(h.get("heading") or source)[:80],
+                            body=str(h.get("content", "")).strip()[:300],
+                        )
+                    )
             except Exception as e:
                 logger.debug("lesson recall failed: %s", e)
         store = getattr(getattr(self, "_learner", None), "_instinct_store", None)
@@ -2935,19 +2939,34 @@ class Agent:
                 from core.instinct_match import match_instincts
 
                 # Match against confirmed instincts only (seen 3+ times).
-                matches = match_instincts(
-                    SimpleNamespace(list_all=store.confirmed), query, limit=3
-                )
-                lines = [
-                    f"- when {m.instinct.trigger[:120]}: {m.instinct.action[:200]} "
-                    f"(seen {m.instinct.observation_count}x)"
-                    for m in matches
-                ]
-                if lines:
-                    parts.append("CONFIRMED INSTINCTS:\n" + "\n".join(lines))
+                for m in match_instincts(SimpleNamespace(list_all=store.confirmed), query, limit=3):
+                    offered.append(
+                        OfferedLesson(
+                            ref=f"instinct:{m.instinct.id}",
+                            title=f"when {m.instinct.trigger[:120]}",
+                            body=f"{m.instinct.action[:200]} (seen {m.instinct.observation_count}x)",
+                        )
+                    )
             except Exception as e:
                 logger.debug("instinct recall failed: %s", e)
-        return "\n\n".join(parts)[:2500]
+        # Knowledge chunks of one lesson file are one lesson.
+        unique: dict[str, OfferedLesson] = {}
+        for lesson in offered:
+            unique.setdefault(lesson.ref, lesson)
+        offered = list(unique.values())
+        if self._db is not None and offered:
+            try:
+                return await PlanOutcomes(self._db).rank(offered, limit + 3)
+            except Exception as e:
+                logger.debug("lesson ranking failed: %s", e)
+        return offered[: limit + 3]
+
+    async def recall_lessons(self, query: str, limit: int = 4) -> str:
+        """``recall_lesson_items`` as text, for a planning prompt. "" when
+        there are none."""
+        items = await self.recall_lesson_items(query, limit)
+        lines = [f"- {lesson.title}: {lesson.body}" for lesson in items]
+        return ("LESSONS:\n" + "\n".join(lines))[:2500] if lines else ""
 
     async def _goal_plan_context(self, goal_text: str) -> str:
         """What a planner needs besides the goal text (docs/94 §10): related

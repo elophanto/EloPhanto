@@ -162,6 +162,9 @@ class GoalRunner:
         self._cooldown_until: dict[str, float] = {}
         self._watchdog_task: asyncio.Task[None] | None = None
         self._closed: bool = False
+        # (goal_id, checkpoint order) → the current attempt's plan and the
+        # recalled lessons it applied; scored when the attempt ends.
+        self._attempt_plans: dict[tuple[str, int], tuple[Any, list[Any]]] = {}
 
     # ------------------------------------------------------------------
     # Properties
@@ -827,8 +830,9 @@ class GoalRunner:
 
     async def _execute_checkpoint(self, goal: Goal, checkpoint: Any) -> bool:
         """Execute a single checkpoint via agent.run(). Returns True on success."""
+        tool_trace: list[dict[str, Any]] = []
+        attempt_no = int(getattr(checkpoint, "attempts", 0) or 0) + 1
         try:
-            attempt_no = int(getattr(checkpoint, "attempts", 0) or 0) + 1
             timeout_s = self._checkpoint_timeout(attempt_no)
             await self._gm.mark_checkpoint_active(goal.goal_id, checkpoint.order)
             ledger = self._ledger()
@@ -878,8 +882,6 @@ class GoalRunner:
             from core.execution_context import TaskSource
             from core.mind_tool_summary import summarize_call
             from core.run_hooks import run_hooks
-
-            tool_trace: list[dict[str, Any]] = []
 
             def _on_tool(name: str, params: dict[str, Any], error: str | None) -> None:
                 tool_trace.append(
@@ -1046,6 +1048,16 @@ class GoalRunner:
                     f"receipt gate refused: {verdict.reason}",
                     tool_trace,
                 )
+                await self._record_outcome(
+                    goal,
+                    checkpoint,
+                    attempt_no,
+                    passed=False,
+                    gate="receipt",
+                    failure=f"receipt gate refused: {verdict.reason}",
+                    stop_reason=stop_reason,
+                    steps_used=len(tool_trace),
+                )
                 await self._broadcast_checkpoint_failed(
                     goal, checkpoint, f"receipt gate: {verdict.reason}"
                 )
@@ -1066,6 +1078,16 @@ class GoalRunner:
                 await self._ledger_failure(
                     goal.goal_id, checkpoint.order, attempt_no, reason, tool_trace
                 )
+                await self._record_outcome(
+                    goal,
+                    checkpoint,
+                    attempt_no,
+                    passed=False,
+                    gate="verification",
+                    failure=reason,
+                    stop_reason=stop_reason,
+                    steps_used=len(tool_trace),
+                )
                 await self._broadcast_checkpoint_failed(goal, checkpoint, reason[:300])
                 return False
 
@@ -1076,6 +1098,14 @@ class GoalRunner:
                 # The goal is completed by _finish_goal after it is verified
                 # as a whole, not by the last checkpoint passing.
                 defer_completion=True,
+            )
+            await self._record_outcome(
+                goal,
+                checkpoint,
+                attempt_no,
+                passed=True,
+                stop_reason=stop_reason,
+                steps_used=len(tool_trace),
             )
 
             # Optional instinct extraction from verified completions (P2).
@@ -1165,6 +1195,19 @@ class GoalRunner:
                     f"ran out of its {int(timeout_s)}s budget",
                     [],
                 )
+                await self._record_outcome(
+                    goal,
+                    checkpoint,
+                    attempt_no,
+                    passed=False,
+                    gate="timeout",
+                    failure=(
+                        f"ran out of its {int(timeout_s)}s time budget after "
+                        f"{len(tool_trace)} tool calls"
+                    ),
+                    stop_reason="time_limit",
+                    steps_used=len(tool_trace),
+                )
                 await self._broadcast_checkpoint_failed(
                     goal,
                     checkpoint,
@@ -1181,6 +1224,15 @@ class GoalRunner:
             await self._gm.mark_checkpoint_failed(goal.goal_id, checkpoint.order, str(e))
             await self._ledger_failure(
                 goal.goal_id, checkpoint.order, attempt_no, f"error: {str(e)[:300]}", []
+            )
+            await self._record_outcome(
+                goal,
+                checkpoint,
+                attempt_no,
+                passed=False,
+                gate="error",
+                failure=f"error: {str(e)[:300]}",
+                steps_used=len(tool_trace),
             )
             return False
 
@@ -1202,18 +1254,23 @@ class GoalRunner:
         tried and why) and returns it for the checkpoint prompt. Returns ""
         when disabled or when planning fails — it never blocks the work.
         """
+        # A plan belongs to one attempt; never score a stale one.
+        self._attempt_plans.pop((goal.goal_id, checkpoint.order), None)
         if not getattr(self._config, "deliberate", False):
             return ""
         router = getattr(self._agent, "_router", None)
         if router is None:
             return ""
         from core.deliberation import plan_checkpoint
+        from core.plan_outcomes import lessons_by_label, render_offered
 
         lessons = ""
-        recall = getattr(self._agent, "recall_lessons", None)
+        offered: list[Any] = []
+        recall = getattr(self._agent, "recall_lesson_items", None)
         if inspect.iscoroutinefunction(recall):
             try:
-                lessons = await recall(f"{checkpoint.title}. {checkpoint.description}")
+                offered = list(await recall(f"{checkpoint.title}. {checkpoint.description}"))
+                lessons = render_offered(offered)
             except Exception as e:
                 logger.debug("lesson recall failed: %s", e)
         last = str(getattr(checkpoint, "result_summary", "") or "")
@@ -1234,6 +1291,10 @@ class GoalRunner:
         )
         if plan is None:
             return ""
+        self._attempt_plans[(goal.goal_id, checkpoint.order)] = (
+            plan,
+            lessons_by_label(offered, plan.lessons_used),
+        )
         text = plan.render()
         if ledger is not None:
             record = text
@@ -1252,6 +1313,88 @@ class GoalRunner:
         except Exception:
             pass
         return text
+
+    async def _record_outcome(
+        self,
+        goal: Goal,
+        checkpoint: Any,
+        attempt_no: int,
+        *,
+        passed: bool,
+        gate: str = "",
+        failure: str = "",
+        stop_reason: str = "",
+        steps_used: int = 0,
+    ) -> None:
+        """Score this attempt's plan (docs/95 Phases C, D).
+
+        A failure the plan did not foresee is a surprise: one post-mortem
+        call names the assumption that broke, which goes into the ledger for
+        the next attempt and, generalised, becomes a lesson. The lessons the
+        plan applied are credited or debited. Without a plan there was no
+        prediction, so nothing is recorded. Never raises.
+        """
+        entry = self._attempt_plans.pop((goal.goal_id, checkpoint.order), None)
+        db = getattr(self._gm, "_db", None)
+        if entry is None or db is None:
+            return
+        plan, used = entry
+        surprise, broken = False, ""
+        try:
+            router = getattr(self._agent, "_router", None)
+            if not passed and failure and router is not None:
+                from core.deliberation import postmortem
+
+                pm = await postmortem(
+                    router,
+                    checkpoint=f"{checkpoint.title}: {checkpoint.description}",
+                    plan=plan,
+                    failure=failure,
+                    effort=str(getattr(self._config, "deliberation_effort", "") or ""),
+                )
+                if pm is not None:
+                    await self._gm.add_cost(goal.goal_id, pm.cost)
+                    surprise, broken = not pm.foreseen, pm.broken_assumption
+                if pm is not None and surprise:
+                    ledger = self._ledger()
+                    if ledger is not None and broken:
+                        await ledger.add(
+                            goal.goal_id,
+                            "fact",
+                            f"Assumption that broke on attempt {attempt_no}: {broken}",
+                            checkpoint_order=checkpoint.order,
+                            attempt=attempt_no,
+                            source="model",
+                        )
+                    learner = getattr(self._agent, "_learner", None)
+                    write = getattr(learner, "record_lesson", None)
+                    if pm.lesson and inspect.iscoroutinefunction(write):
+                        await write(pm.lesson, f"{goal.goal[:200]} — {checkpoint.title}")
+        except Exception as e:
+            logger.debug("post-mortem skipped: %s", e)
+        try:
+            from core.plan_outcomes import PlanOutcomes
+
+            skills = getattr(self._agent, "_skill_manager", None)
+            await PlanOutcomes(
+                db,
+                project_root=getattr(getattr(self._agent, "_config", None), "project_root", None),
+                on_promote=(lambda _p: skills.discover()) if skills is not None else None,
+            ).record(
+                goal_id=goal.goal_id,
+                checkpoint_order=checkpoint.order,
+                attempt=attempt_no,
+                passed=passed,
+                gate=gate,
+                steps_planned=len(plan.steps),
+                steps_used=steps_used,
+                stop_reason=stop_reason,
+                surprise=surprise,
+                broken_assumption=broken,
+                lessons_used=used,
+            )
+        except Exception as e:
+            logger.debug("plan outcome not recorded: %s", e)
 
     async def _verify(
         self, goal: Goal, checkpoint: Any, tool_trace: list[dict[str, Any]], response: Any, ledger: Any
