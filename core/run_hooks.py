@@ -20,7 +20,7 @@ tests).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -29,6 +29,8 @@ from typing import Any
 ApprovalCallback = Callable[[str, str, dict[str, Any]], Any]
 ToolExecutedHook = Callable[[str, dict[str, Any], str | None], None]
 ToolResultHook = Callable[[str, dict[str, Any], Any], None]
+# Answers a tool call instead of running it; None = run it normally.
+ToolInterceptor = Callable[[str, dict[str, Any]], Awaitable[Any]]
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,12 @@ class RunHooks:
     approval_callback: ApprovalCallback | None = None
     on_tool_executed: ToolExecutedHook | None = None
     on_tool_result: ToolResultHook | None = None
+    # A benchmark replay (docs/95 Phase E): every call is answered from a
+    # recording before anything with a side effect — permission prompts
+    # included — can run.
+    tool_interceptor: ToolInterceptor | None = None
+    # False: the run leaves no long-term memory and teaches no lessons.
+    record_memory: bool = True
 
 
 _run_hooks: ContextVar[RunHooks | None] = ContextVar(
@@ -56,6 +64,8 @@ def run_hooks(
     approval_callback: ApprovalCallback | None = None,
     on_tool_executed: ToolExecutedHook | None = None,
     on_tool_result: ToolResultHook | None = None,
+    tool_interceptor: ToolInterceptor | None = None,
+    record_memory: bool = True,
 ) -> Iterator[RunHooks]:
     """Set the hooks for the body of a ``with`` block.
 
@@ -68,6 +78,8 @@ def run_hooks(
         approval_callback=approval_callback,
         on_tool_executed=on_tool_executed,
         on_tool_result=on_tool_result,
+        tool_interceptor=tool_interceptor,
+        record_memory=record_memory,
     )
     token = _run_hooks.set(hooks)
     try:

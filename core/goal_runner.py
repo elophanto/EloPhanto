@@ -75,6 +75,33 @@ INSTRUCTIONS:
 """
 
 
+def build_checkpoint_prompt(
+    *,
+    goal: str,
+    order: int,
+    total: int,
+    title: str,
+    stage: str,
+    description: str,
+    criteria: str,
+    context: str,
+    ledger: str,
+) -> str:
+    """The acting prompt for one checkpoint — shared with the benchmark
+    (core/bench.py), so a replay measures the prompt production uses."""
+    return _CHECKPOINT_PROMPT.format(
+        goal=goal,
+        order=order,
+        total=total,
+        title=title,
+        stage=stage or "unknown",
+        description=description,
+        criteria=criteria,
+        context=context or "(no prior context)",
+        ledger=ledger or "(empty — this is the first run of this goal)",
+    )
+
+
 def _attach_tool_output(tool_trace: list[dict[str, Any]], name: str, result: Any) -> None:
     """Attach what a tool ANSWERED to its trace row, so the receipt gate can
     ground counts in outputs, not only in the parameters it was called with
@@ -89,6 +116,9 @@ def _attach_tool_output(tool_trace: list[dict[str, Any]], name: str, result: Any
     for row in reversed(tool_trace):
         if row.get("tool") == name and "output" not in row:
             row["output"] = text[:2000]
+            from core.tool_traces import output_json
+
+            row["output_json"] = output_json(result)
             if isinstance(data, dict):
                 # Top-level scalars only: enough for the run ledger to find
                 # the path / url / id a tool returned.
@@ -165,6 +195,7 @@ class GoalRunner:
         # (goal_id, checkpoint order) → the current attempt's plan and the
         # recalled lessons it applied; scored when the attempt ends.
         self._attempt_plans: dict[tuple[str, int], tuple[Any, list[Any]]] = {}
+        self._bench_task: asyncio.Task[Any] | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -401,8 +432,62 @@ class GoalRunner:
                     await self.maybe_send_health_digest()
                 except Exception as e:  # pragma: no cover
                     logger.debug("health digest failed: %s", e)
+                try:
+                    await self.daily_upkeep()
+                except Exception as e:  # pragma: no cover
+                    logger.debug("daily upkeep failed: %s", e)
         except asyncio.CancelledError:
             return
+
+    async def _once_today(self, key: str) -> bool:
+        """True the first time it is asked for ``key`` on a UTC day."""
+        db = self._gm._db
+        today = _utc_day()
+        rows = await db.execute("SELECT value FROM metadata WHERE key = ?", (key,))
+        if rows and rows[0]["value"] == today:
+            return False
+        await db.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", (key, today)
+        )
+        return True
+
+    async def daily_upkeep(self) -> bool:
+        """Prune old failed tool traces, and — when ``bench.enabled`` — capture
+        new benchmark cases and replay them at ``bench.hour_utc`` while no
+        goal is running (docs/95 Phase E). Returns True if a run started."""
+        from datetime import UTC, datetime
+
+        if await self._once_today("tool_traces_pruned_day"):
+            from core.tool_traces import prune
+
+            await prune(self._gm._db)
+        cfg = getattr(getattr(self._agent, "_config", None), "bench", None)
+        if getattr(cfg, "enabled", False) is not True:
+            return False
+        if self.is_running or (self._bench_task is not None and not self._bench_task.done()):
+            return False
+        if datetime.now(UTC).hour < int(cfg.hour_utc):
+            return False
+        if not await self._once_today("bench_last_day"):
+            return False
+        from core.bench import capture, cases_dir, load_cases, run_bench
+
+        directory = cases_dir(self._agent._config)
+        await capture(self._gm._db, directory, limit=int(cfg.max_cases))
+        cases = load_cases(directory, int(cfg.max_cases))
+        if not cases:
+            return False
+        logger.info("[bench] nightly run: %d case(s)", len(cases))
+        self._bench_task = asyncio.get_running_loop().create_task(
+            run_bench(
+                self._agent,
+                cases,
+                db=self._gm._db,
+                time_budget=float(cfg.time_budget_seconds),
+            ),
+            name="bench-nightly",
+        )
+        return True
 
     async def maybe_send_health_digest(self) -> bool:
         """Broadcast the autonomy health digest once per UTC day.
@@ -832,6 +917,9 @@ class GoalRunner:
         """Execute a single checkpoint via agent.run(). Returns True on success."""
         tool_trace: list[dict[str, Any]] = []
         attempt_no = int(getattr(checkpoint, "attempts", 0) or 0) + 1
+        from datetime import UTC, datetime
+
+        started_at = datetime.now(UTC).isoformat()
         try:
             timeout_s = self._checkpoint_timeout(attempt_no)
             await self._gm.mark_checkpoint_active(goal.goal_id, checkpoint.order)
@@ -843,16 +931,16 @@ class GoalRunner:
                 )
 
             # Build focused prompt
-            prompt = _CHECKPOINT_PROMPT.format(
+            prompt = build_checkpoint_prompt(
                 goal=goal.goal,
                 order=checkpoint.order,
                 total=goal.total_checkpoints,
                 title=checkpoint.title,
-                stage=checkpoint.stage or "unknown",
+                stage=checkpoint.stage or "",
                 description=checkpoint.description,
                 criteria=checkpoint.success_criteria,
-                context=goal.context_summary or "(no prior context)",
-                ledger=ledger_text or "(empty — this is the first run of this goal)",
+                context=goal.context_summary or "",
+                ledger=ledger_text,
             )
             prompt += self._retry_note(
                 attempt_no, str(getattr(checkpoint, "result_summary", "") or "")
@@ -882,6 +970,7 @@ class GoalRunner:
             from core.execution_context import TaskSource
             from core.mind_tool_summary import summarize_call
             from core.run_hooks import run_hooks
+            from core.tool_traces import redact_params
 
             def _on_tool(name: str, params: dict[str, Any], error: str | None) -> None:
                 tool_trace.append(
@@ -891,6 +980,7 @@ class GoalRunner:
                         "error": error,
                         "summary": summarize_call(name, params or {}),
                         "data": {k: str(v)[:200] for k, v in list((params or {}).items())[:8]},
+                        "call_params": redact_params(name, params),
                     }
                 )
 
@@ -934,6 +1024,18 @@ class GoalRunner:
                 logger.debug("goal usage accounting failed: %s", ce)
 
             stop_reason = str(getattr(response, "stop_reason", "") or "")
+            db = getattr(self._gm, "_db", None)
+            if db is not None:
+                from core.tool_traces import persist
+
+                await persist(
+                    db,
+                    goal_id=goal.goal_id,
+                    checkpoint_order=checkpoint.order,
+                    attempt=attempt_no,
+                    trace=tool_trace,
+                    started_at=started_at,
+                )
 
             # What the attempt produced exists whether or not it passes.
             if ledger is not None:
@@ -1107,6 +1209,12 @@ class GoalRunner:
                 stop_reason=stop_reason,
                 steps_used=len(tool_trace),
             )
+            if db is not None:
+                from core.tool_traces import mark_passed
+
+                await mark_passed(
+                    db, goal_id=goal.goal_id, checkpoint_order=checkpoint.order, attempt=attempt_no
+                )
 
             # Optional instinct extraction from verified completions (P2).
             try:

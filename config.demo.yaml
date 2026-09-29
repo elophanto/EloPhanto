@@ -432,6 +432,18 @@ goals:
   round_robin: false            # true: active goals take turns at checkpoint boundaries
   health_digest_hour_utc: 7     # daily autonomy-health digest to every channel; -1 = off
 
+# ── Benchmark from the agent's own history (docs/95 Phase E) ──
+# `elophanto bench capture` turns checkpoints that passed every gate into
+# cases; `elophanto bench run` replays them — the model runs live, every tool
+# call is answered from the recording, nothing real runs. enabled: also run it
+# nightly while no goal is running. Off by default: it spends model quota.
+bench:
+  enabled: false
+  hour_utc: 3
+  max_cases: 20
+  time_budget_seconds: 600
+  cases_dir: data/bench/cases
+
 # --- MCP (Model Context Protocol) ---
 # Outbound update notifications. The only network call is an
 # unauthenticated GET to api.github.com/repos/elophanto/EloPhanto/releases/latest,

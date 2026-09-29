@@ -282,6 +282,46 @@ _SCHEMA = [
         last_used TEXT NOT NULL DEFAULT ''
     )
     """,
+    # Each goal attempt's tool calls and (capped, redacted) outputs — the
+    # benchmark's recordings and, for passed attempts, training data.
+    # core/tool_traces.py, docs/95 Phases E and G.
+    """
+    CREATE TABLE IF NOT EXISTS tool_traces (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goal_id TEXT NOT NULL,
+        checkpoint_order INTEGER NOT NULL,
+        attempt INTEGER NOT NULL,
+        seq INTEGER NOT NULL,
+        tool TEXT NOT NULL,
+        params TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT '',
+        output TEXT NOT NULL DEFAULT '',
+        passed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tool_traces_attempt
+        ON tool_traces(goal_id, checkpoint_order, attempt, seq)
+    """,
+    # One benchmark run: the score and the fingerprint of what produced it
+    # (model routing, code revision, lesson and skill set). core/bench.py.
+    """
+    CREATE TABLE IF NOT EXISTS bench_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fingerprint TEXT NOT NULL,
+        fingerprint_detail TEXT NOT NULL DEFAULT '{}',
+        cases INTEGER NOT NULL,
+        passed INTEGER NOT NULL,
+        score REAL NOT NULL,
+        mean_steps REAL NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        seconds REAL NOT NULL DEFAULT 0,
+        results TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL
+    )
+    """,
     # What each mind cycle decided and what came of it — no LLM call, just
     # the record, for calibration: does deliberating change the pick, and
     # do deliberated cycles do more? docs/95 Phase C.

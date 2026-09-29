@@ -246,6 +246,25 @@ class Executor:
                 error=f"Invalid tool arguments: {e}",
             )
 
+        # A benchmark replay answers every call from its recording, before
+        # any check that could prompt or any code with a side effect.
+        from core.run_hooks import current_run_hooks
+
+        _replay = current_run_hooks()
+        if _replay is not None and _replay.tool_interceptor is not None:
+            replayed = await _replay.tool_interceptor(tool_name, params)
+            if replayed is not None:
+                failed = getattr(replayed, "success", True) is False
+                self._fire_tool_executed(
+                    tool_name,
+                    params,
+                    str(getattr(replayed, "error", "") or "tool reported failure") if failed else None,
+                )
+                self._fire_tool_result(tool_name, params, replayed)
+                return ExecutionResult(
+                    tool_name=tool_name, tool_call_id=tool_call_id, result=replayed
+                )
+
         # Check if tool is disabled via permissions.yaml
         if tool_name in self._disabled_tools:
             return ExecutionResult(

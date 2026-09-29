@@ -645,6 +645,24 @@ class DocumentConfig:
 
 
 @dataclass
+class BenchConfig:
+    """The benchmark built from the agent's own history (docs/95 Phase E).
+
+    ``elophanto bench capture`` turns checkpoints that passed every gate
+    into cases; ``bench run`` replays them — the model runs live, every
+    tool call is answered from the recording. ``enabled`` also runs it
+    nightly from the goal runner's watchdog when no goal is running. Off
+    by default: a run spends model quota on every case.
+    """
+
+    enabled: bool = False
+    hour_utc: int = 3
+    max_cases: int = 20
+    time_budget_seconds: int = 600
+    cases_dir: str = "data/bench/cases"
+
+
+@dataclass
 class GoalsConfig:
     """Autonomous goal loop configuration."""
 
@@ -1548,6 +1566,7 @@ class Config:
     storage: StorageConfig = field(default_factory=StorageConfig)
     documents: DocumentConfig = field(default_factory=DocumentConfig)
     goals: GoalsConfig = field(default_factory=GoalsConfig)
+    bench: BenchConfig = field(default_factory=BenchConfig)
     identity: IdentityConfig = field(default_factory=IdentityConfig)
     ego: EgoConfig = field(default_factory=EgoConfig)
     learner: LearnerConfig = field(default_factory=LearnerConfig)
@@ -2194,6 +2213,15 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         max_collection_files=docs_raw.get("max_collection_files", 50),
     )
 
+    bench_raw = raw.get("bench", {}) or {}
+    bench_config = BenchConfig(
+        enabled=bool(bench_raw.get("enabled", False)),
+        hour_utc=int(bench_raw.get("hour_utc", 3)),
+        max_cases=int(bench_raw.get("max_cases", 20) or 20),
+        time_budget_seconds=int(bench_raw.get("time_budget_seconds", 600) or 600),
+        cases_dir=str(bench_raw.get("cases_dir", "data/bench/cases") or "data/bench/cases"),
+    )
+
     # Parse goals section
     goals_raw = raw.get("goals", {})
     goals_config = GoalsConfig(
@@ -2780,6 +2808,7 @@ def load_config(config_path: Path | str | None = None, profile: str = "") -> Con
         storage=storage_config,
         documents=documents_config,
         goals=goals_config,
+        bench=bench_config,
         identity=identity_config,
         ego=ego_config,
         learner=learner_config,

@@ -6281,6 +6281,11 @@ class Agent:
         tools_used: list[str],
     ) -> None:
         """Store task completion in long-term memory and extract lessons."""
+        from core.run_hooks import current_run_hooks
+
+        hooks = current_run_hooks()
+        if hooks is not None and not hooks.record_memory:
+            return  # a benchmark replay is not experience
         unique_tools = list(set(tools_used))
         try:
             await self._memory_manager.store_task_memory(

@@ -176,6 +176,15 @@ async def collect(
     report["surprises"] = sum(int(o["surprise"]) for o in outcomes)
     lessons = await rows("SELECT status, COUNT(*) AS n FROM lesson_stats GROUP BY status")
     report["lessons_by_status"] = {str(r["status"]): int(r["n"]) for r in lessons}
+
+    # The benchmark (docs/95 Phase E): the latest score and the one before.
+    report["bench"] = [
+        {k: r[k] for k in ("score", "passed", "cases", "fingerprint", "created_at")}
+        for r in await rows(
+            "SELECT score, passed, cases, fingerprint, created_at FROM bench_runs "
+            "ORDER BY id DESC LIMIT 2"
+        )
+    ]
     return report
 
 
@@ -250,6 +259,19 @@ def render(report: dict[str, Any]) -> str:
             "Lessons with a record: "
             + ", ".join(f"{k} {v}" for k, v in sorted(lessons.items()))
         )
+    bench = report.get("bench") or []
+    if bench:
+        latest = bench[0]
+        line = (
+            f"Benchmark: {latest['passed']}/{latest['cases']} "
+            f"({float(latest['score']):.0%}, {latest['fingerprint']})"
+        )
+        if len(bench) > 1:
+            delta = float(latest["score"]) - float(bench[1]["score"])
+            line += f" · {delta:+.0%} vs previous"
+            if bench[1]["fingerprint"] != latest["fingerprint"]:
+                line += " (setup changed)"
+        lines.append(line)
     lines.append(
         f"Goal spend today: ${report.get('goal_spend_today_usd', 0):.2f} · work time: "
         f"{report.get('goal_work_seconds_today', 0) // 60} min"

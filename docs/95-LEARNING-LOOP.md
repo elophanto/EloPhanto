@@ -110,7 +110,7 @@ offering it. Files are never deleted. Recall ranks the rest by their record,
 smoothed toward the baseline so two lucky uses prove little; a lesson with
 no record keeps its relevance order.
 
-## Phase E — a benchmark from its own history (doc 94 #4)
+## Phase E — a benchmark from its own history (doc 94 #4) — **built**
 
 Without a number, "smarter" is a feeling. The goal runner now keeps each
 checkpoint attempt's tool calls and outputs (`tool_traces`, outputs capped at
@@ -124,6 +124,40 @@ Results go to `bench_runs` with a fingerprint of the model routing and
 prompt, so a change — a model, a prompt, the lesson set — shows up as a
 number. `bench.enabled` (off by default: it spends model quota) runs it
 nightly from the goal runner's watchdog.
+
+As built (`core/tool_traces.py`, `core/bench.py`, `cli/bench_cmd.py`):
+
+- **Recording.** Every attempt's calls are stored with the attempt's start
+  time; parameters are redacted first (any key naming a secret; every value
+  passed to a `vault_` tool); outputs are JSON, capped at 4 KB. The attempt
+  that passes is marked. Failed attempts' traces are pruned after 14 days;
+  passed ones are kept — they are the cases.
+- **A case** holds the goal, the checkpoint and its criteria and declared
+  checks, the run ledger *as it stood when the attempt started* (so it does
+  not contain the answer), and the recording.
+- **Replay.** `RunHooks.tool_interceptor` is consulted by the executor right
+  after the arguments are parsed — before permission prompts, guards or any
+  side effect. A call is answered by the unused recorded call of the same
+  tool whose parameters match best; the same call made again gets the same
+  answer; a call with no recorded answer gets an error naming what the case
+  recorded, and counts as a miss. Screenshot paths are stripped from
+  replayed outputs. `RunHooks.record_memory=False` keeps the replay out of
+  long-term memory and the learner.
+- **The run** uses the production prompt (`build_checkpoint_prompt`) and, when
+  `goals.deliberate` is on, the production planning step with recalled
+  lessons — the lesson set is part of what is measured — but records no plan
+  outcome and credits no lesson.
+- **Scoring**: the receipt gate, then the declared `tool_output` and
+  `artifact` checks. `file_exists`, `url_ok` and `judgment` need the world or
+  a panel and are skipped.
+- **Fingerprint**: planning and deliberation routes (provider, model,
+  effort), `judge_model`, the git revision, and digests of the learned skills,
+  the lessons and `AGENT_PROGRAM.md`.
+- The daily digest shows the latest score and the change from the previous
+  run, flagged when the setup changed.
+
+Cases accumulate from goal runs after this change; `bench capture` on an
+older database finds none.
 
 ## Phase F — improving its own playbooks (doc 94 #5)
 

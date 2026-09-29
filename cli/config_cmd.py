@@ -248,6 +248,22 @@ preserve_reasoning: false
 judge_model: ""
 """,
     ),
+    Migration(
+        id="bench-2026-09",
+        key_path="bench.enabled",
+        banner=(
+            "Benchmark from the agent's own history: `elophanto bench "
+            "capture` / `bench run` replay verified checkpoints with every "
+            "tool answered from the recording. enabled: also nightly. Off by "
+            "default — it spends model quota. See docs/95-LEARNING-LOOP.md."
+        ),
+        inner_yaml="""enabled: false
+hour_utc: 3
+max_cases: 20
+time_budget_seconds: 600
+cases_dir: data/bench/cases
+""",
+    ),
     # A route for the thinking steps (docs/95 Phase B). Without it they use
     # `planning`, which operators often run at low effort for latency.
     Migration(

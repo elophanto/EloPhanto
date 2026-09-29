@@ -8,6 +8,7 @@ from __future__ import annotations
 import click
 
 from cli.affect_cmd import affect_cmd
+from cli.bench_cmd import bench_cmd
 from cli.bootstrap_cmd import bootstrap_cmd
 from cli.chat_cmd import chat_cmd
 from cli.company_cmd import company_cmd
@@ -100,6 +101,7 @@ cli.add_command(affect_cmd, "affect")
 cli.add_command(polymarket_cmd, "polymarket")
 cli.add_command(mission_cmd, "mission")
 cli.add_command(goals_cmd, "goals")
+cli.add_command(bench_cmd, "bench")
 cli.add_command(config_cmd, "config")
 cli.add_command(stop_cmd, "stop")
 cli.add_command(resume_cmd, "resume")

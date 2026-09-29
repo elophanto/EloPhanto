@@ -290,14 +290,20 @@ class RunLedger:
         *,
         checkpoint_order: int | None = None,
         max_chars: int = 4000,
+        before: str | None = None,
     ) -> str:
         """The ledger as a prompt block. Empty string when there is nothing.
+
+        ``before`` (an ISO timestamp) renders the ledger as it stood then —
+        the benchmark rebuilds what an attempt saw when it started.
 
         Sections are ordered by how much a resuming run needs them: the
         handoff and failures for the current checkpoint first, then what
         exists (artifacts), what is known (facts, decisions), what is open.
         """
         all_rows = await self.entries(thread_id)
+        if before is not None:
+            all_rows = [e for e in all_rows if e.created_at < before]
         if not all_rows:
             return ""
 
