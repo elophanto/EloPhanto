@@ -131,6 +131,23 @@ class ExperimentSetupTool(BaseTool):
         max_hours: float = params.get("max_hours", 8.0)
         target_metric: float | None = params.get("target_metric")
 
+        # Optimising the benchmark may change the agent's playbooks, never
+        # its code or its safety rails (docs/95 Phase F).
+        from core.bench import bench_editable, is_bench_metric
+
+        restrict = is_bench_metric(metric_command)
+        if restrict:
+            outside = [f for f in target_files if not bench_editable(f)]
+            if outside:
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "A benchmark experiment may only change files under skills/ "
+                        "or knowledge/, or AGENT_PROGRAM.md. Not allowed: "
+                        + ", ".join(outside)
+                    ),
+                )
+
         branch = f"experiment/{tag}"
         journal = self._project_root / "experiments.tsv"
 
@@ -187,6 +204,8 @@ class ExperimentSetupTool(BaseTool):
             "target_files": target_files,
             "timeout": timeout,
             "baseline": baseline_value,
+            # experiment_run refuses a change outside target_files.
+            "restrict_to_targets": restrict,
         }
         if budget_seconds:
             config_data["budget_seconds"] = budget_seconds

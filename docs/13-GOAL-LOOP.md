@@ -90,6 +90,9 @@ From the long-run review ([94-LONG-RUN-AUTONOMY-REVIEW.md](94-LONG-RUN-AUTONOMY-
 | Evaluation | Reads the ledger as evidence; an unparseable answer is `parsed=False` and does not reset the no-progress guard; `suggested_changes` reach the reviser. |
 | Scheduling | Waiters age one priority level per minute (never past SCHEDULED); work time and cost are recorded per goal per day (`goal_usage`); optional daily envelopes and round-robin (see docs/94 §12). |
 | Health | `elophanto goals health [hours]`, the `autonomy_health` tool, and a daily digest broadcast (docs/94 §13). |
+| Thinking | Plans, critiques, revision, evaluation, the final check and judges route as `deliberation` (docs/95 Phase B). |
+| Plan outcomes | Each attempt's plan is scored (`plan_outcomes`); an unforeseen failure gets a post-mortem naming the broken assumption, recorded in the ledger and learned; lessons are credited, promoted to skills or retired by their record (docs/95 Phases C, D). |
+| Tool traces and the benchmark | Each attempt's tool calls are kept (`tool_traces`, redacted); `elophanto bench capture / run / history / export-training` replays verified checkpoints with no real tool running, scores them, and exports training data (docs/95 Phases E–G). |
 | Pause provenance | `goal_manage pause` / `elophanto goals pause` record "paused by operator" (or "paused by agent"). The mind never resumes operator pauses; system pauses are recoverable. |
 
 ## How Goal Creation is Triggered

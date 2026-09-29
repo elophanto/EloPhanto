@@ -1,6 +1,6 @@
 # 95 — Smarter where it counts, and learning that is measured
 
-**Status**: Plan + verified spec · **Date**: 2026-09-29 · **Follows**: [94](94-LONG-RUN-AUTONOMY-REVIEW.md)
+**Status**: Built (Phases A–G) · **Date**: 2026-09-29 · **Follows**: [94](94-LONG-RUN-AUTONOMY-REVIEW.md)
 
 docs/94 gave long runs a spine: a run ledger, resumable stops, deliberation,
 verification, scheduling. It did not make the agent smarter or make it
@@ -159,7 +159,7 @@ As built (`core/tool_traces.py`, `core/bench.py`, `cli/bench_cmd.py`):
 Cases accumulate from goal runs after this change; `bench capture` on an
 older database finds none.
 
-## Phase F — improving its own playbooks (doc 94 #5)
+## Phase F — improving its own playbooks (doc 94 #5) — **built**
 
 `elophanto bench run --metric` prints `bench_score: <x>`, which the existing
 AutoLoop (`experiment_setup` / `experiment_run`, keep-or-discard against a
@@ -168,7 +168,15 @@ metric) can optimise. `experiment_setup` refuses target files outside
 benchmark — the agent may rewrite its playbooks, never its code or safety
 rails. A skill (`skills/self-improvement/SKILL.md`) gives the recipe.
 
-## Phase G — training data from verified runs (doc 94 #6)
+As built: the benchmark is recognised by `bench run` in the metric command.
+Because `experiment_run` stages with `git add -A`, the boundary is enforced
+there too: setup records `restrict_to_targets`, and a run whose staged
+changes reach outside the declared targets is refused and unstaged — the
+edits stay in the working tree for the agent to revert. The skill tells the
+agent to read the failing cases first, change one playbook per experiment,
+and treat a one-case gain as noise until a second run confirms it.
+
+## Phase G — training data from verified runs (doc 94 #6) — **built**
 
 `elophanto bench export-training` writes, from the recorded traces and plan
 outcomes: `sft.jsonl` — checkpoint trajectories that passed every gate, in
@@ -177,6 +185,16 @@ checkpoint failed and then passed (rejected, chosen). Fine-tuning itself is
 not built here: it needs GPU infrastructure and a model that can be trained
 (the configured Qwen on Hugging Face qualifies). The export is the part that
 did not exist.
+
+As built (`core/training_export.py`): files land under
+`<agent.workspace>/training/<date>/` unless `--out` says otherwise. Each
+trajectory starts from the checkpoint prompt with the ledger as it stood when
+that attempt began, then one assistant tool call and one tool result per
+recorded call, then the checkpoint's result. A preference pair's prompt is
+the failed attempt's starting point. Parameters were redacted when stored;
+all text is also passed through the PII redactor. Only checkpoints that
+eventually passed are exported; failed traces are pruned after 14 days, so
+pairs come from recent history.
 
 ---
 

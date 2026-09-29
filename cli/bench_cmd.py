@@ -4,8 +4,10 @@
   run       replay the cases: the model runs live, every tool call is
             answered from the recording, nothing real runs
   history   the recorded runs and what produced each score
+  export-training
+            sft.jsonl and preference.jsonl from verified runs (Phase G)
 
-See docs/95-LEARNING-LOOP.md, Phase E.
+See docs/95-LEARNING-LOOP.md, Phases E–G.
 """
 
 from __future__ import annotations
@@ -160,5 +162,44 @@ def history_cmd(config_path: str | None, limit: int) -> None:
                 str(r["fingerprint"]),
             )
         console.print(table)
+
+    asyncio.run(_run())
+
+
+@bench_cmd.command("export-training")
+@click.option("--config", "config_path", default=None, type=click.Path())
+@click.option(
+    "--out",
+    "out_dir",
+    default=None,
+    type=click.Path(),
+    help="Output directory (default: <agent.workspace>/training/<date>)",
+)
+@click.option("--limit", default=1000, show_default=True, help="Most recent attempts to read")
+def export_training_cmd(config_path: str | None, out_dir: str | None, limit: int) -> None:
+    """Write sft.jsonl and preference.jsonl from verified runs (docs/95 Phase G)."""
+
+    async def _run() -> None:
+        from datetime import UTC, datetime
+
+        from core.training_export import export
+
+        config = load_config(config_path)
+        target = (
+            Path(out_dir).expanduser()
+            if out_dir
+            else Path(config.workspace or config.project_root / "data").expanduser()
+            / "training"
+            / datetime.now(UTC).strftime("%Y-%m-%d")
+        )
+        db = await _db(config)
+        try:
+            result = await export(db, target, limit=limit)
+        finally:
+            await db.close()
+        console.print(
+            f"{result['sft']} verified trajectories → {result['sft_path']}\n"
+            f"{result['preference']} failed-then-passed pairs → {result['preference_path']}"
+        )
 
     asyncio.run(_run())

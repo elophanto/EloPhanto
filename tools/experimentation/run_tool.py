@@ -88,6 +88,29 @@ class ExperimentRunTool(BaseTool):
                 success=False,
                 error="No changes to experiment with. Modify target files first.",
             )
+        if config.get("restrict_to_targets"):
+            # `git add -A` stages everything; a benchmark experiment may keep
+            # only changes to its declared playbook files (docs/95 Phase F).
+            _, names = await self._git(["diff", "--cached", "--name-only"])
+            targets = [str(t).rstrip("/") for t in config.get("target_files", [])]
+            bookkeeping = {"experiments.tsv", ".experiment.json"}
+            outside = [
+                n
+                for n in names.split()
+                if n not in bookkeeping
+                and not any(n == t or n.startswith(t + "/") for t in targets)
+            ]
+            if outside:
+                await self._git(["reset", "-q"])
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "Changes outside this experiment's target files: "
+                        + ", ".join(outside[:10])
+                        + ". Revert them; a benchmark experiment may only change "
+                        "its declared playbooks."
+                    ),
+                )
 
         commit_msg = f"[experiment] {description}"
         await self._git(["commit", "-m", commit_msg])

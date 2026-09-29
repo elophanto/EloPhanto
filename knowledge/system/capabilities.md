@@ -506,8 +506,9 @@ Read-only chain queries: `solana_balance`, `solana_token_info`,
 
 ## Skills — `skills` (3)
 
-`skill_list`, `skill_read`, `skill_promote`. **182 skills load** from
-`skills/`; see the Skills section below.
+`skill_list`, `skill_read`, `skill_promote`. **183 skills load** from
+`skills/` (plus any `skills/learned-*` the learning loop promotes); see the
+Skills section below.
 
 ## Documents — `documents` (3)
 
@@ -586,7 +587,7 @@ All channels connect through the WebSocket gateway
 Smart tool profiles route the right tool subset per task type.
 Provider-level `tool_deny` and `max_tools` handle compatibility.
 
-## Skills (182)
+## Skills (183)
 
 Solana ecosystem (DeFi, NFTs, infra, dev, security), agency-agents
 (engineering, design, marketing, product, PM, support, testing,
@@ -594,7 +595,8 @@ spatial computing), NEXUS strategy, ABE workflow skills
 (`drive-business`, `trust-ladder-workflow`, `voice-extraction-workflow`,
 `strategy-pipeline`, `strategy-foundations`), plus core skills (Python,
 TypeScript, Next.js, Supabase, Remotion, browser automation, business
-launcher, autonomous experimentation, MCP, and more).
+launcher, autonomous experimentation, self-improvement against the
+benchmark, MCP, and more).
 
 75 organization role templates for specialist spawning.
 

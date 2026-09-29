@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
@@ -42,6 +43,28 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 REPLAYABLE_CHECKS = ("tool_output", "artifact")
+
+# What an experiment optimising the benchmark may change (docs/95 Phase F):
+# the agent's playbooks — never its code or its safety rails.
+BENCH_EDITABLE_PREFIXES = ("skills/", "knowledge/")
+BENCH_EDITABLE_FILES = ("AGENT_PROGRAM.md",)
+_BENCH_METRIC = re.compile(r"\bbench\s+run\b")
+
+
+def is_bench_metric(command: str) -> bool:
+    """Does this experiment measure itself with ``elophanto bench run``?"""
+    return bool(_BENCH_METRIC.search(command or ""))
+
+
+def bench_editable(path: str) -> bool:
+    """May a benchmark experiment change ``path`` (relative to the project)?"""
+    p = str(path or "").strip().replace("\\", "/")
+    if not p or p.startswith("/") or ".." in p.split("/"):
+        return False
+    if p in BENCH_EDITABLE_FILES:
+        return True
+    # A playbook directory itself ("skills/") or anything inside one.
+    return any(p.rstrip("/") + "/" == prefix or p.startswith(prefix) for prefix in BENCH_EDITABLE_PREFIXES)
 
 
 @dataclass
