@@ -462,7 +462,7 @@ class GoalRunner:
 
             await prune(self._gm._db)
         cfg = getattr(getattr(self._agent, "_config", None), "bench", None)
-        if getattr(cfg, "enabled", False) is not True:
+        if cfg is None or getattr(cfg, "enabled", False) is not True:
             return False
         if self.is_running or (self._bench_task is not None and not self._bench_task.done()):
             return False

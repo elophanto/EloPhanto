@@ -27,7 +27,7 @@ For ToS-clean programmatic access, get a separate API key at
 ## What you get
 
 A **multimodal** chat backend that accepts text and images, runs reasoning
-models (`gpt-5.5`, `gpt-5.5-mini`, `gpt-5.3-codex`, etc.) with configurable
+models (`gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna`, etc.) with configurable
 thinking effort, and is billed against your existing ChatGPT subscription
 rather than the platform API.
 
@@ -153,7 +153,7 @@ This is **NOT** the chat/completions schema. Critical differences:
 
 ```json
 {
-  "model": "gpt-5.5",
+  "model": "gpt-6.1-sol",
   "instructions": "You are a helpful assistant.",
   "input": [
     {
@@ -221,7 +221,6 @@ extracted from a third-party TypeScript client). Apply client-side before sendin
 | `gpt-6.1-sol` | `low` … `max`; `none` / `minimal` → `low`; default `medium` |
 | `gpt-6-sol` | Low … Max: `minimal` → `low` |
 | `gpt-6-luna` | High / Max only: anything below → `high` |
-| `gpt-5.5`, `gpt-5.5-mini` | accepts all; `minimal` → `low` |
 | `gpt-5.3-codex`, `gpt-5.2-codex` | accepts all; `minimal` → `low` |
 | `gpt-5.1-codex-mini` | high/xhigh → `high`, others → `medium` |
 | `gpt-5.1`, `gpt-5.1-codex` | `xhigh` → `high` |
@@ -266,9 +265,10 @@ what's actually allowed for your subscription — try and see.
 
 Current models (29 September 2026): `gpt-6.1-sol` (near-Astra performance at
 a fifth of Astra's API price — the default), `gpt-6-astra` (most capable),
-`gpt-6-luna` (efficient). GPT-6.1 Sol replaces GPT-6 Sol. `gpt-5.5` is legacy
-and retires on 2026-10-14; `elophanto config migrate` moves Codex references
-to `gpt-6.1-sol`.
+`gpt-6-luna` (efficient). GPT-6.1 Sol replaces GPT-6 Sol. `gpt-5.5` and
+`gpt-5.5-mini` are retired: EloPhanto maps them to `gpt-6.1-sol` and
+`gpt-6-luna` at call time (`core/model_aliases.py`), and
+`elophanto config migrate` rewrites them.
 
 | Slug | Notes |
 |---|---|
@@ -276,8 +276,6 @@ to `gpt-6.1-sol`.
 | `gpt-6-astra` | Most capable; API $10 / $50 per 1M in / out |
 | `gpt-6-sol` | Replaced by GPT-6.1 Sol |
 | `gpt-6-luna` | Efficient; High / Max effort only |
-| `gpt-5.5` | Legacy — retires 2026-10-14 |
-| `gpt-5.5-mini` | Cheaper variant, ~272K context |
 | `gpt-5.3-codex` | Previous Codex default |
 | `gpt-5.3-codex-spark` | Reasoning-only, free tier |
 | `gpt-5.2-codex` | |
@@ -295,7 +293,7 @@ to `gpt-6.1-sol`.
 | `400 Unsupported parameter: max_tokens` | `max_tokens` in payload | Remove it |
 | `401 Unauthorized` | Expired / rotated access token | Refresh and retry once |
 | `403 Forbidden` | `chatgpt-account-id` missing or wrong | Re-extract from JWT |
-| `404` on the model | Model not enabled for your plan tier | Try `gpt-5.3-codex` instead of `gpt-5.5` |
+| `404` on the model | Model not enabled for your plan tier | Try `gpt-6-luna` instead of `gpt-6.1-sol` |
 | Stream never produces deltas | Often a model that returned only via `response.output[]` | Use the safety-net extractor |
 
 ---
@@ -340,7 +338,7 @@ def _account_id_from_jwt(token: str) -> str:
 
 
 class CodexClient:
-    def __init__(self, model: str = "gpt-5.5", reasoning_effort: str = "medium"):
+    def __init__(self, model: str = "gpt-6.1-sol", reasoning_effort: str = "medium"):
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.auth_path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "auth.json"
@@ -509,7 +507,7 @@ class CodexClient:
 
 # Usage
 async def main():
-    client = CodexClient(model="gpt-5.5", reasoning_effort="medium")
+    client = CodexClient(model="gpt-6.1-sol", reasoning_effort="medium")
     try:
         out = await client.chat([
             {"role": "system", "content": "You are concise."},
@@ -539,7 +537,7 @@ if __name__ == "__main__":
    the official CLI sends). Other values may or may not work.
 6. **Image input works** via `input_image` content parts on user messages,
    even though the third-party reference client (where we pulled the wire
-   format from) only documented text. Tested working on `gpt-5.5`.
+   format from) only documented text. Tested working on `gpt-6.1-sol`.
 7. **Token rotation**: refresh responses sometimes include a new
    `refresh_token`. Persist it back to `auth.json` or you'll lose the chain.
 8. **5-min cache miss**: the access token's JWT exp is short. Check `exp`

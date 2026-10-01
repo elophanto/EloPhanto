@@ -5003,12 +5003,12 @@ class WatchLoginTool(_WatchToolBase):
                     "vault keyed by domain (vault_set <domain>)"
                 ),
             )
-        ok = [r for r in rows if r["verdict"] in ("logged_in", "already_logged_in")]
+        logged_in_rows = [r for r in rows if r["verdict"] in ("logged_in", "already_logged_in")]
         return ToolResult(
             success=True,
             data={
                 "company_id": cid,
-                "logged_in": len(ok),
+                "logged_in": len(logged_in_rows),
                 "attempted": len(rows),
                 "results": rows,
                 "note": (

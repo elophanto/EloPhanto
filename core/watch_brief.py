@@ -414,17 +414,17 @@ def brief_facts(brief: dict[str, Any]) -> dict[str, list[str]]:
             decisions.append(f"{i['jurisdiction']} {i['kind'].replace('_', ' ')} on {i['date']}: decide the plan now.")
     c = brief.get("comms")
     if c and c.get("emails"):
-        top = sorted(c["brands"], key=lambda b: -b["n"])[:2]
+        top_brands = sorted(c["brands"], key=lambda b: -b["n"])[:2]
         market.append(
             f"Player e-mail this week: {c['emails']} received; "
             + ", ".join(
                 f"{b['brand']} {b['n']}"
                 + (f" ({b['top_category'].replace('_', ' ')})" if b.get("top_category") else "")
-                for b in top
+                for b in top_brands
             )
             + (
-                f". Latest offer — {top[0]['brand']}: {_clean(top[0]['latest_offer'], 80)}"
-                if top and top[0].get("latest_offer")
+                f". Latest offer — {top_brands[0]['brand']}: {_clean(top_brands[0]['latest_offer'], 80)}"
+                if top_brands and top_brands[0].get("latest_offer")
                 else ""
             )
         )

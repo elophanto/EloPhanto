@@ -44,6 +44,8 @@ import click
 import yaml
 from rich.console import Console
 
+from core.model_aliases import RETIRED_MODELS
+
 console = Console()
 
 _PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -311,63 +313,70 @@ class Rewrite:
     apply: Callable[[str], str]
 
 
-_RETIRED_CODEX = "gpt-5.5"
-_CURRENT_CODEX = "gpt-6.1-sol"
-# ``gpt-5.5`` exactly — not ``gpt-5.5-mini`` or ``gpt-5.55``.
-_RETIRED_RE = re.compile(r"gpt-5\.5(?![\w.-])")
+# A scalar that *is* a retired model id, bare or path-prefixed: ``gpt-5.5``,
+# ``"codex/gpt-5.5"``, ``- openai/gpt-5.5-mini``. Comments and free text that
+# merely mention one are left alone.
+_RETIRED_VALUE_RE = re.compile(
+    r"(?P<lead>(?::|-)\s+[\"']?(?:[\w.-]+/)*)"
+    r"(?P<model>"
+    + "|".join(re.escape(m) for m in sorted(RETIRED_MODELS, key=len, reverse=True))
+    + r")(?=[\"']?\s*$)"
+)
 
 
-def _codex_retired_pending(cfg: dict[str, Any]) -> bool:
-    llm = cfg.get("llm") or {}
-    codex = (llm.get("providers") or {}).get("codex") or {}
-    if str(codex.get("default_model") or "") == _RETIRED_CODEX:
-        return True
-    for route in (llm.get("routing") or {}).values():
-        models = (route or {}).get("models") if isinstance(route, dict) else None
-        if isinstance(models, dict) and str(models.get("codex") or "") == _RETIRED_CODEX:
-            return True
-    for section, key in (("llm", "vision_model"), ("browser", "vision_model")):
-        if str((cfg.get(section) or {}).get(key) or "") == f"codex/{_RETIRED_CODEX}":
-            return True
+def _split_comment(line: str) -> tuple[str, str]:
+    """Split a YAML line into its value part and a trailing ``# comment``.
+    A ``#`` starts a comment only outside quotes and after whitespace."""
+    quote = ""
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return line[:i], line[i:]
+    return line, ""
+
+
+def _names_retired_model(node: Any) -> bool:
+    if isinstance(node, str):
+        return node.strip().rpartition("/")[2] in RETIRED_MODELS
+    if isinstance(node, dict):
+        return any(_names_retired_model(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_names_retired_model(v) for v in node)
     return False
 
 
-def _codex_retired_apply(text: str) -> str:
-    """Replace gpt-5.5 where it names a Codex model: ``codex/gpt-5.5``
-    anywhere, a routing ``codex: gpt-5.5`` entry, and ``default_model``
-    inside the ``providers.codex`` block. ``openai: gpt-5.5`` (the direct
-    API) is left alone."""
+def _retired_models_pending(cfg: dict[str, Any]) -> bool:
+    return _names_retired_model(cfg)
+
+
+def _retired_models_apply(text: str) -> str:
+    """Replace every retired model id with its successor, wherever it is the
+    value: provider ``default_model``, routing entries for any provider,
+    ``codex/`` or ``openai/`` vision models. Comments survive untouched."""
     out: list[str] = []
-    codex_indent: int | None = None
     for line in text.splitlines(keepends=True):
-        stripped = line.lstrip(" ")
-        indent = len(line) - len(stripped)
-        if codex_indent is not None and stripped.strip() and indent <= codex_indent:
-            codex_indent = None
-        if re.match(r"codex:\s*(#.*)?$", stripped.rstrip("\n")):
-            codex_indent = indent  # entering the providers.codex block
-        elif re.match(r"codex:\s*[\"']?gpt-5\.5[\"']?\s*(#.*)?$", stripped.rstrip("\n")):
-            line = _RETIRED_RE.sub(_CURRENT_CODEX, line, count=1)
-        elif codex_indent is not None and stripped.startswith("default_model:"):
-            line = _RETIRED_RE.sub(_CURRENT_CODEX, line, count=1)
-        line = re.sub(
-            rf"codex/{re.escape(_RETIRED_CODEX)}(?![\w.-])", f"codex/{_CURRENT_CODEX}", line
+        value, comment = _split_comment(line)
+        value = _RETIRED_VALUE_RE.sub(
+            lambda m: m.group("lead") + RETIRED_MODELS[m.group("model")], value
         )
-        out.append(line)
+        out.append(value + comment)
     return "".join(out)
 
 
 _REWRITES: list[Rewrite] = [
     Rewrite(
-        id="codex-gpt-6-2026-09",
+        id="gpt-5.5-retired-2026-10",
         banner=(
-            "Codex retires gpt-5.5 on 2026-10-14. Codex model references "
-            "(providers.codex.default_model, routing `codex:` entries, "
-            "codex/gpt-5.5 vision) move to gpt-6.1-sol. Direct-API "
-            "`openai:` entries are left as they are."
+            "gpt-5.5 is retired. Every gpt-5.5 model id (Codex and direct "
+            "OpenAI: default_model, routing entries, vision models) moves to "
+            "gpt-6.1-sol, and gpt-5.5-mini to gpt-6-luna."
         ),
-        pending=_codex_retired_pending,
-        apply=_codex_retired_apply,
+        pending=_retired_models_pending,
+        apply=_retired_models_apply,
     ),
 ]
 

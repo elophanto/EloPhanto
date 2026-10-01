@@ -13,13 +13,13 @@ from core.router import CostTracker
 
 def test_record_stores_the_task_type() -> None:
     t = CostTracker()
-    t.record("codex", "gpt-5.5", 100, 20, 0.01, "analysis")
+    t.record("codex", "gpt-6.1-sol", 100, 20, 0.01, "analysis")
     assert t.calls[-1]["task_type"] == "analysis"
 
 
 def test_default_is_unknown_not_a_crash() -> None:
     t = CostTracker()
-    t.record("codex", "gpt-5.5", 1, 1, 0.0)
+    t.record("codex", "gpt-6.1-sol", 1, 1, 0.0)
     assert t.calls[-1]["task_type"] == "unknown"
 
 

@@ -20,6 +20,7 @@ import litellm
 
 from core.agent_isolation import current_isolation
 from core.config import Config
+from core.model_aliases import current_model
 from core.provider_tracker import ProviderEvent, ProviderTracker, detect_truncation
 
 logger = logging.getLogger(__name__)
@@ -149,9 +150,7 @@ class CostTracker:
         return state.cost_task_total if state is not None else self.task_total
 
     def within_budget(self, daily_limit: float, task_limit: float) -> bool:
-        return (
-            self.daily_total < daily_limit and self.effective_task_total < task_limit
-        )
+        return self.daily_total < daily_limit and self.effective_task_total < task_limit
 
     async def flush(self, db: Any) -> None:
         """Persist pending records to the llm_usage table.
@@ -308,7 +307,9 @@ class LLMRouter:
         """
         self._provider_health[provider] = False
         self._provider_failed_at[provider] = time.time()
-        self._provider_cooldown[provider] = float(cooldown or self.HEALTH_RECOVERY_SECONDS)
+        self._provider_cooldown[provider] = float(
+            cooldown or self.HEALTH_RECOVERY_SECONDS
+        )
 
     def _is_healthy(self, provider: str) -> bool:
         """Check if a provider is healthy, recovering after cooldown."""
@@ -342,18 +343,29 @@ class LLMRouter:
             try:
                 if provider == "zai":
                     result = await self._call_zai(
-                        messages, model, tools, temperature, max_tokens,
+                        messages,
+                        model,
+                        tools,
+                        temperature,
+                        max_tokens,
                         task_type=task_type,
                         reasoning_effort=reasoning_effort,
                     )
                 elif provider == "kimi":
                     result = await self._call_kimi(
-                        _strip_private_keys(messages), model, tools, temperature,
-                        max_tokens, task_type=task_type,
+                        _strip_private_keys(messages),
+                        model,
+                        tools,
+                        temperature,
+                        max_tokens,
+                        task_type=task_type,
                     )
                 elif provider == "codex":
                     result = await self._call_codex(
-                        _strip_private_keys(messages), model, tools, reasoning_effort,
+                        _strip_private_keys(messages),
+                        model,
+                        tools,
+                        reasoning_effort,
                         task_type=task_type,
                     )
                 else:
@@ -404,7 +416,10 @@ class LLMRouter:
                         "code 1113",
                     )
                 ) or bool(
-                    re.search(r"\b(?:status(?:_code)?|error|http)\s*[:=]?\s*402\b", _billing_text)
+                    re.search(
+                        r"\b(?:status(?:_code)?|error|http)\s*[:=]?\s*402\b",
+                        _billing_text,
+                    )
                 )
 
                 quota_wait = _usage_limit_cooldown(str(e))
@@ -422,7 +437,9 @@ class LLMRouter:
                         f"— provider parked for {self.BILLING_RECOVERY_SECONDS}s. "
                         f"Top up the account or change provider_priority."
                     )
-                    self._mark_unhealthy(provider, cooldown=self.BILLING_RECOVERY_SECONDS)
+                    self._mark_unhealthy(
+                        provider, cooldown=self.BILLING_RECOVERY_SECONDS
+                    )
                     raise
 
                 if is_timeout:
@@ -681,7 +698,10 @@ class LLMRouter:
             _routing = self._route(task_type)
             if reasoning_effort is not None:
                 _reasoning_effort = reasoning_effort
-            elif task_type == "deliberation" and "deliberation" not in self._config.llm.routing:
+            elif (
+                task_type == "deliberation"
+                and "deliberation" not in self._config.llm.routing
+            ):
                 # Borrowing `planning`'s models, not its effort: operators run
                 # planning low for latency, and thinking is where effort pays.
                 _reasoning_effort = "high"
@@ -754,7 +774,23 @@ class LLMRouter:
         model_override: str | None,
         exclude: set[str] | None = None,
     ) -> tuple[str, str]:
-        """Select the best provider and model for the given task type."""
+        """Select the best provider and model for the given task type.
+
+        A retired model id left in config.yaml (routing, default_model,
+        vision_model) is swapped for its replacement here, so every call
+        path gets a live model.
+        """
+        provider, model = self._pick_provider_and_model(
+            task_type, model_override, exclude
+        )
+        return provider, current_model(model)
+
+    def _pick_provider_and_model(
+        self,
+        task_type: str,
+        model_override: str | None,
+        exclude: set[str] | None = None,
+    ) -> tuple[str, str]:
         exclude = exclude or set()
 
         # 1. Explicit override
@@ -764,9 +800,10 @@ class LLMRouter:
             # model name. ``codex/gpt-6.1-sol`` → provider="codex",
             # model="gpt-6.1-sol". The prefix is purely a routing hint;
             # the Codex adapter expects the raw OpenAI-style id.
-            if provider in ("codex", *_PREFIXED_PROVIDERS) and model_override.startswith(
-                f"{provider}/"
-            ):
+            if provider in (
+                "codex",
+                *_PREFIXED_PROVIDERS,
+            ) and model_override.startswith(f"{provider}/"):
                 return provider, model_override[len(provider) + 1 :]
             return provider, model_override
 
@@ -962,7 +999,7 @@ class LLMRouter:
         Used by godmode racing to get the right model per provider.
         Falls back to the provider's default model.
         """
-        return self._resolve_model(provider, task_type) or ""
+        return current_model(self._resolve_model(provider, task_type) or "")
 
     async def _call_litellm(
         self,
@@ -973,7 +1010,7 @@ class LLMRouter:
         temperature: float,
         max_tokens: int | None,
         reasoning_effort: str = "",
-            task_type: str = "unknown",
+        task_type: str = "unknown",
     ) -> LLMResponse:
         """Call via litellm (OpenAI, OpenRouter, or Ollama)."""
         kwargs: dict[str, Any] = {
@@ -1129,7 +1166,7 @@ class LLMRouter:
         tools: list[dict[str, Any]] | None,
         temperature: float,
         max_tokens: int | None,
-            task_type: str = "unknown",
+        task_type: str = "unknown",
         reasoning_effort: str = "",
     ) -> LLMResponse:
         """Call via Z.ai custom adapter.
@@ -1179,7 +1216,7 @@ class LLMRouter:
         model: str,
         tools: list[dict[str, Any]] | None,
         reasoning_effort: str,
-            task_type: str = "unknown",
+        task_type: str = "unknown",
     ) -> LLMResponse:
         """Call via ChatGPT Codex subscription adapter."""
         adapter = self._get_codex_adapter()
@@ -1221,7 +1258,7 @@ class LLMRouter:
         tools: list[dict[str, Any]] | None,
         temperature: float,
         max_tokens: int | None,
-            task_type: str = "unknown",
+        task_type: str = "unknown",
     ) -> LLMResponse:
         """Call via Kimi custom adapter."""
         adapter = self._get_kimi_adapter()

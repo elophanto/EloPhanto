@@ -1939,7 +1939,9 @@ def _slide_profile(
     # Right: observations → implications, model-written from filed facts —
     # and, when players have said enough about this brand, what they say.
     x = 6.1
-    has_voice = bool(voice_brand) and not voice_brand.get("too_few") and (voice_brand.get("quotes") or [])
+    has_voice = bool(
+        voice_brand and not voice_brand.get("too_few") and (voice_brand.get("quotes") or [])
+    )
     _eyebrow(s, "Observations", y=top + 0.1, x=x, color=_PEER)
     _bullets(
         s,
@@ -1955,7 +1957,7 @@ def _slide_profile(
         accent_bullet=False,
         max_items=3 if has_voice else 4,
     )
-    if has_voice:
+    if has_voice and voice_brand:
         _voice_strip(s, voice_brand, x=x, y=top + 2.4, w=6.4)
     imp_y = top + (3.7 if has_voice else 3.3)   # the quote strip is ~1.2in; it used to sit on the heading
     _eyebrow(s, "Implications for us", y=imp_y, x=x, color=_ACCENT)
@@ -2614,7 +2616,7 @@ def _slide_tone(prs: Any, tone: dict[str, Any], narrative: dict[str, Any], page:
     for ci, w in enumerate((1.9, 1.9, 0.8, 0.9, 0.9, 5.5)):
         tbl.columns[ci].width = Inches(w)
 
-    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8) -> None:
+    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: float = 8) -> None:
         cell = tbl.cell(r, c)
         cell.text = text
         cell.fill.solid()
@@ -3084,7 +3086,7 @@ def _slide_packages(prs: Any, catalog: dict[str, Any], page: int, deck_title: st
     for ci, w in enumerate((2.1, 1.2, 3.3, 4.0, 1.3)):
         tbl.columns[ci].width = Inches(w)
 
-    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8) -> None:
+    def cw(r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: float = 8) -> None:
         cell = tbl.cell(r, c)
         cell.text = text
         cell.fill.solid()
@@ -3750,7 +3752,7 @@ def _slide_heatmap(prs: Any, card: dict[str, Any], page: int, deck_title: str) -
         tbl.columns[2 + ci].width = Inches(dim_w)
 
     def cell_write(
-        r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: int = 8
+        r: int, c: int, text: str, *, bg: str, fg: str = _INK, bold: bool = False, size: float = 8
     ) -> None:
         cell = tbl.cell(r, c)
         cell.text = text

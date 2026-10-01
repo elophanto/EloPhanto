@@ -11,9 +11,9 @@ from cli.config_cmd import (
     _MIGRATIONS,
     _REWRITES,
     _apply_migration,
-    _codex_retired_apply,
-    _codex_retired_pending,
     _pending_migrations,
+    _retired_models_apply,
+    _retired_models_pending,
     config_cmd,
 )
 
@@ -55,25 +55,52 @@ def _by_id(mid: str):
     return next(m for m in _MIGRATIONS if m.id == mid)
 
 
-def test_rewrite_replaces_codex_gpt55_only() -> None:
-    assert _codex_retired_pending(yaml.safe_load(_OLD))
-    out = _codex_retired_apply(_OLD)
+def test_rewrite_replaces_every_gpt55_model_id() -> None:
+    assert _retired_models_pending(yaml.safe_load(_OLD))
+    out = _retired_models_apply(_OLD)
     cfg = yaml.safe_load(out)
     llm = cfg["llm"]
     assert llm["providers"]["codex"]["default_model"] == "gpt-6.1-sol"
-    # The direct OpenAI API is a different transport — left alone.
-    assert llm["providers"]["openai"]["default_model"] == "gpt-5.5"
+    assert llm["providers"]["openai"]["default_model"] == "gpt-6.1-sol"
     assert llm["routing"]["planning"]["models"] == {
         "codex": "gpt-6.1-sol",
-        "openai": "gpt-5.5",
+        "openai": "gpt-6.1-sol",
     }
-    assert llm["routing"]["simple"]["models"]["codex"] == "gpt-5.5-mini"
+    assert llm["routing"]["simple"]["models"]["codex"] == "gpt-6-luna"
     assert llm["vision_model"] == "codex/gpt-6.1-sol"
     assert cfg["browser"]["vision_model"] == "codex/gpt-6.1-sol"
     assert "# subscription" in out
-    assert not _codex_retired_pending(cfg)
+    assert "gpt-5.5" not in out
+    assert not _retired_models_pending(cfg)
     # Idempotent.
-    assert _codex_retired_apply(out) == out
+    assert _retired_models_apply(out) == out
+
+
+def test_rewrite_leaves_comments_free_text_and_lookalikes_alone() -> None:
+    text = """llm:
+  providers:
+    codex:
+      # gpt-5.5 retired 2026-10-14
+      default_model: gpt-6.1-sol  # was gpt-5.5
+    openai:
+      default_model: "gpt-5.55"
+  note: "we moved off gpt-5.5 last month"
+  routing:
+    simple:
+      models:
+        openrouter: openai/gpt-5.5-codex
+"""
+    assert not _retired_models_pending(yaml.safe_load(text))
+    assert _retired_models_apply(text) == text
+
+
+def test_rewrite_handles_list_items_and_openrouter_ids() -> None:
+    text = """fallbacks:
+  - gpt-5.5
+  - "openai/gpt-5.5-mini"
+"""
+    out = _retired_models_apply(text)
+    assert yaml.safe_load(out)["fallbacks"] == ["gpt-6.1-sol", "openai/gpt-6-luna"]
 
 
 def test_nested_migration_goes_into_existing_routing() -> None:
@@ -130,9 +157,10 @@ def test_cli_applies_and_backs_up(tmp_path: Path) -> None:
     path.write_text(_OLD, encoding="utf-8")
     result = CliRunner().invoke(config_cmd, ["migrate", "--config", str(path), "-y"])
     assert result.exit_code == 0, result.output
-    assert "codex-gpt-6-2026-09" in result.output
+    assert "gpt-5.5-retired-2026-10" in result.output
     assert (tmp_path / "config.yaml.bak").read_text(encoding="utf-8") == _OLD
     cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert cfg["llm"]["providers"]["codex"]["default_model"] == "gpt-6.1-sol"
+    assert cfg["llm"]["providers"]["openai"]["default_model"] == "gpt-6.1-sol"
     again = CliRunner().invoke(config_cmd, ["migrate", "--config", str(path), "-y"])
     assert "Up to date" in again.output

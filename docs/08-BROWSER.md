@@ -401,7 +401,7 @@ browser:
   # ── Shared (apply to both backends) ─────────────────────────
   viewport_width: 1280
   viewport_height: 720
-  vision_model: codex/gpt-5.5   # Screenshot analysis. codex/gpt-5.5 = ChatGPT subscription
+  vision_model: codex/gpt-6.1-sol   # Screenshot analysis. codex/gpt-6.1-sol = ChatGPT subscription
                                 #   (no API spend). Alternatives:
                                 #   openrouter/x-ai/grok-4.3, openrouter/google/gemini-3.1-flash-lite
   bridge_vision_model: perceptron/perceptron-mk1  # Node bridge's own DOM-annotation vision

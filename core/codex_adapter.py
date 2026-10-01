@@ -35,6 +35,7 @@ from typing import Any
 import httpx
 
 from core.config import Config
+from core.model_aliases import current_model
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +66,6 @@ def _strip_summary_separators(text: str) -> str:
 # Reasoning effort clamping per model family (from openai/codex source).
 # Different models reject different effort values — clamp before sending.
 _EFFORT_CLAMP: dict[str, dict[str, str]] = {
-    # gpt-5.5 family rejects "minimal" (only accepts none/low/medium/high/xhigh)
-    "gpt-5.5": {"minimal": "low"},
-    "gpt-5.5-mini": {"minimal": "low"},
     "gpt-5.3-codex": {"minimal": "low"},
     "gpt-5.2-codex": {"minimal": "low"},
     "gpt-5.1-codex-mini": {
@@ -107,10 +105,6 @@ _COSTS = {
     "gpt-6.1-sol": {"input": 0.002, "output": 0.010},
     "gpt-6-sol": {"input": 0.002, "output": 0.010},
     "gpt-6-luna": {"input": 0.0001, "output": 0.0005},
-    # gpt-5.5 pricing approximate — ChatGPT subscription is flat-rate but
-    # we track token usage for observability.
-    "gpt-5.5": {"input": 0.003, "output": 0.015},
-    "gpt-5.5-mini": {"input": 0.0008, "output": 0.004},
     "gpt-5.3-codex": {"input": 0.002, "output": 0.010},
     "gpt-5.2-codex": {"input": 0.002, "output": 0.010},
     "gpt-5.1-codex-max": {"input": 0.002, "output": 0.010},
@@ -413,6 +407,7 @@ class CodexAdapter:
         """Make a Responses API streaming call, return aggregated text."""
         from core.router import LLMResponse
 
+        model = current_model(model)
         await self._ensure_fresh()
 
         instructions, input_blocks = self._build_input(messages)
@@ -517,7 +512,10 @@ class CodexAdapter:
                     # confirmed without spending quota: retry once at the
                     # model's default instead of failing the call.
                     logger.warning(
-                        "Codex rejected effort %r for %s — retrying at %r", effort, model, fallback
+                        "Codex rejected effort %r for %s — retrying at %r",
+                        effort,
+                        model,
+                        fallback,
                     )
                     return await self.complete(
                         messages, model, tools, 0.0, None, fallback, _effort_retry=True

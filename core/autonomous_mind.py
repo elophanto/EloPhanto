@@ -1440,7 +1440,7 @@ class AutonomousMind:
         _intent = self._last_arbiter_top
         _label = (
             f"Mind cycle: {_intent.action_spec[:200]}"
-            if _intent is not None and getattr(_intent, "action_spec", "")
+            if _intent is not None and bool(getattr(_intent, "action_spec", ""))
             else "Mind cycle"
         )
 

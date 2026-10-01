@@ -1,24 +1,23 @@
 # 63 — Codex Subscription Provider
 
 > Use your ChatGPT Plus/Pro subscription as EloPhanto's LLM backend.
-> Default model: **gpt-5.5**.
+> Default model: **gpt-6.1-sol**.
 
 **Status:** Complete
 **Priority:** P2 — Alternative LLM provider
 
 ---
 
-## ⚠️ ToS caveat — read first
+## Using a ChatGPT plan in EloPhanto
 
-OpenAI sells ChatGPT Plus/Pro as a UI product, not as an API. Their terms
-say the ChatGPT subscription does **not** include API access, and the
-Codex auth path is intended for the Codex CLI agent itself. Repurposing
-it for arbitrary scripted calls is a **grey area** — it works technically,
-it isn't officially sanctioned, and OpenAI could change/break it at any
-time.
+OpenAI now encourages bringing a ChatGPT plan into third-party apps: it
+announced *Sign in with ChatGPT* at DevDay on 2026-09-29. EloPhanto signs
+in through the Codex login described below today, and will move to the
+official mechanism once accepted into that program. Usage counts against
+the plan's limits.
 
-**For ToS-clean programmatic access, use the OpenAI API directly** (set
-`openai` provider with an API key from [platform.openai.com](https://platform.openai.com)).
+For metered API billing instead, use the `openai` provider with an API key
+from [platform.openai.com](https://platform.openai.com).
 
 See `CODEX_INTEGRATION.md` in the project root for the full integration
 reference (endpoints, wire protocol, auth flow, quirks).
@@ -37,7 +36,7 @@ codex login   # opens browser → OAuth → writes ~/.codex/auth.json
 ### 2. Enable the provider
 
 Codex auto-detects on startup — if `~/.codex/auth.json` exists with
-`auth_mode: chatgpt`, the provider auto-enables with `gpt-5.5` as the
+`auth_mode: chatgpt`, the provider auto-enables with `gpt-6.1-sol` as the
 default model.
 
 To enable explicitly in `config.yaml`:
@@ -48,7 +47,7 @@ llm:
     codex:
       enabled: true
       base_url: "https://chatgpt.com/backend-api/codex"
-      default_model: "gpt-5.5"
+      default_model: "gpt-6.1-sol"
 ```
 
 To route specific tasks to Codex:
@@ -60,7 +59,7 @@ llm:
       preferred_provider: codex
       reasoning_effort: high
       models:
-        codex: gpt-5.5
+        codex: gpt-6.1-sol
 ```
 
 ---
@@ -69,8 +68,9 @@ llm:
 
 | Model | Context | Notes |
 |---|---|---|
-| `gpt-5.5` | ~1M tokens | Top model, multimodal, **default** |
-| `gpt-5.5-mini` | ~272K | Cheaper variant |
+| `gpt-6.1-sol` | | Near-Astra at a fifth of Astra's API price, multimodal, **default** |
+| `gpt-6-astra` | | Most capable |
+| `gpt-6-luna` | | Efficient; High / Max effort only |
 | `gpt-5.3-codex` | | Previous Codex default |
 | `gpt-5.3-codex-spark` | | Reasoning-only, free tier |
 | `gpt-5.2-codex` | | |
@@ -92,7 +92,8 @@ different ranges). Examples:
 
 | Model | Clamping |
 |---|---|
-| `gpt-5.5`, `gpt-5.5-mini` | `minimal` → `low` |
+| `gpt-6.1-sol` | `none` / `minimal` → `low` |
+| `gpt-6-luna` | anything below `high` → `high` |
 | `gpt-5.1-codex-mini` | `high`/`xhigh` → `medium` |
 | `gpt-5.1`, `gpt-5.1-codex` | `xhigh` → `high` |
 

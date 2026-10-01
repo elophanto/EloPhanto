@@ -61,7 +61,7 @@ def _make_config(codex_enabled: bool = True) -> Config:
         providers["codex"] = ProviderConfig(
             enabled=True,
             base_url="https://chatgpt.com/backend-api/codex",
-            default_model="gpt-5.5",
+            default_model="gpt-6.1-sol",
         )
     return Config(llm=LLMConfig(providers=providers))
 
@@ -106,11 +106,11 @@ class TestJWTHelpers:
 
 
 class TestEffortClamp:
-    def test_gpt54_minimal_clamps_to_low(self) -> None:
-        assert _clamp_effort("gpt-5.5", "minimal") == "low"
+    def test_gpt53_codex_minimal_clamps_to_low(self) -> None:
+        assert _clamp_effort("gpt-5.3-codex", "minimal") == "low"
 
-    def test_gpt54_high_passthrough(self) -> None:
-        assert _clamp_effort("gpt-5.5", "high") == "high"
+    def test_gpt53_codex_high_passthrough(self) -> None:
+        assert _clamp_effort("gpt-5.3-codex", "high") == "high"
 
     def test_gpt51_codex_mini_clamps_high(self) -> None:
         assert _clamp_effort("gpt-5.1-codex-mini", "high") == "medium"
@@ -125,7 +125,7 @@ class TestEffortClamp:
         assert _clamp_effort("unknown-model", "medium") == "medium"
 
     def test_empty_effort_passthrough(self) -> None:
-        assert _clamp_effort("gpt-5.5", "") == ""
+        assert _clamp_effort("gpt-6.1-sol", "") == ""
 
     def test_gpt61_sol_takes_low_to_max(self) -> None:
         # developers.openai.com/api/docs/guides/reasoning (2026-09-29): no

@@ -20,6 +20,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
+from core.model_aliases import RETIRED_MODELS
+
 console = Console()
 
 # Section names → descriptions (used in both wizard numbering and edit menu)
@@ -526,8 +528,8 @@ def _edit_models(config: dict) -> None:
     cloud_providers = ["codex", "openrouter", "zai", "kimi"]
 
     # Default models per (provider, task), mirroring config.demo.yaml
-    # (verified against the providers' model lists 2026-09-29; Codex's
-    # gpt-5.5 retires 2026-10-14). "deliberation" is the thinking steps —
+    # (verified against the providers' model lists 2026-09-29). "deliberation"
+    # is the thinking steps —
     # checkpoint plans, critiques, final checks, judges (docs/95).
     defaults: dict[str, dict[str, str]] = {
         "codex": {
@@ -910,14 +912,15 @@ def _edit_browser(config: dict) -> None:
             "codex/gpt-6.1-sol" if codex_on else "openrouter/x-ai/grok-4.3"
         )
         current_vision = browser_cfg.get("vision_model", smart_default)
-        # Stale defaults upgrade transparently: gemini-2 is old, Codex's
-        # gpt-5.5 retires 2026-10-14, codex/gpt-6-astra was the default for
-        # a day before gpt-6.1-sol (near-Astra at a fifth of the price), and
-        # a bare ``zai/…`` value used to be sent to OpenRouter as an invalid
-        # model.
+        # Stale defaults upgrade transparently: gemini-2 is old, retired
+        # models (core/model_aliases.py) are gone, codex/gpt-6-astra was the
+        # default for a day before gpt-6.1-sol (near-Astra at a fifth of the
+        # price), and a bare ``zai/…`` value used to be sent to OpenRouter as
+        # an invalid model.
         if (
             "gemini-2.0-flash" in current_vision
-            or current_vision in ("codex/gpt-5.5", "codex/gpt-6-astra")
+            or current_vision.rpartition("/")[2] in RETIRED_MODELS
+            or current_vision == "codex/gpt-6-astra"
             or current_vision.lower().startswith("zai/glm-5.3-flash")
         ):
             current_vision = smart_default

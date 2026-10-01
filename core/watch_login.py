@@ -736,7 +736,9 @@ async def settled_session_state(bm: Any, *, tries: int = 3, wait_ms: int = 3000)
     """These lobbies are JS apps: three seconds after navigation the page
     can still be a spinner, and an empty page reads as logged out. Wait
     until the page has words, then judge."""
-    state, hits_in, hits_out = "logged_out", [], []
+    state = "logged_out"
+    hits_in: list[str] = []
+    hits_out: list[str] = []
     for i in range(max(1, tries)):
         text = await page_text(bm)
         state, hits_in, hits_out = await session_state(bm)

@@ -64,7 +64,6 @@ llm:
       base_url: "https://chatgpt.com/backend-api/codex"
       # gpt-6.1-sol (near-Astra, a fifth of Astra's price — the default) |
       # gpt-6-astra (most capable) | gpt-6-luna (efficient).
-      # gpt-5.5 retires 2026-10-14.
       default_model: "gpt-6.1-sol"
 
   # When messages contain image_url blocks (screenshots), this model is used

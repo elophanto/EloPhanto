@@ -476,7 +476,8 @@ def parse_app_store_feed(
             continue
         rid = str((e.get("id") or {}).get("label") or "")
         try:
-            rating: float | None = float((e.get("im:rating") or {}).get("label"))
+            raw_rating = (e.get("im:rating") or {}).get("label")
+            rating: float | None = float(raw_rating) if raw_rating is not None else None
         except Exception:
             rating = None
         text = strip_pii(raw)

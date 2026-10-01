@@ -349,8 +349,11 @@ async def decide_mind_action(
     )
     if not isinstance(data, dict):
         return None
+    raw_pick = data.get("pick")
+    if raw_pick is None:
+        return None
     try:
-        pick = int(data.get("pick"))
+        pick = int(raw_pick)
     except (TypeError, ValueError):
         return None
     if not 1 <= pick <= n_candidates:

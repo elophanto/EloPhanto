@@ -181,12 +181,12 @@ llm:
       preferred_provider: openai
       tool_profile: coding          # profile for this task type
       models:
-        openai: gpt-5.5
+        openai: gpt-6.1-sol
     planning:
       preferred_provider: openai
       tool_profile: full
       models:
-        openai: gpt-5.5
+        openai: gpt-6.1-sol
 
   providers:
     openai:

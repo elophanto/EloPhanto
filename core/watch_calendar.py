@@ -187,9 +187,9 @@ def demand_calendar(
             if start <= dt <= end:
                 items.append({"date": dt.isoformat(), "label": lab, "kind": "benefit"})
     for ev in events or []:
-        dt = str(ev.get("date") or "")[:10]
-        if dt and start.isoformat() <= dt <= end.isoformat():
-            items.append({"date": dt, "label": str(ev.get("label") or ""), "kind": str(ev.get("kind") or "event")})
+        ev_date = str(ev.get("date") or "")[:10]
+        if ev_date and start.isoformat() <= ev_date <= end.isoformat():
+            items.append({"date": ev_date, "label": str(ev.get("label") or ""), "kind": str(ev.get("kind") or "event")})
     items.sort(key=lambda i: (i["date"], i["kind"], i["label"]))
     weeks_out: list[dict[str, Any]] = []
     for w in range(int(weeks)):

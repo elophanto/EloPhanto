@@ -1348,7 +1348,8 @@ def source_dates(src: dict[str, Any]) -> dict[str, str]:
     page's own markup, else the published date. A ``modified_at`` that came
     from the HTTP ``Last-Modified`` header is the site's deploy time, an
     upper bound on the page's age, and never the best date."""
-    ds = src.get("date_sources") if isinstance(src.get("date_sources"), dict) else {}
+    raw_ds = src.get("date_sources")
+    ds = raw_ds if isinstance(raw_ds, dict) else {}
     published = parse_date_text(str(src.get("published_at") or src.get("published") or src.get("published_date") or ""))
     modified = parse_date_text(str(src.get("modified_at") or src.get("updated_at") or ""))
     header_only = str(ds.get("modified_at") or "").startswith("http:")
@@ -1388,7 +1389,8 @@ def _search_conflicts(data: Any) -> list[dict[str, Any]]:
             continue
         sides = {}
         for side in ("newer", "older"):
-            raw = c.get(side) if isinstance(c.get(side), dict) else {}
+            side_raw = c.get(side)
+            raw = side_raw if isinstance(side_raw, dict) else {}
             sides[side] = {
                 "claim": str(raw.get("claim") or ""),
                 "url": str(raw.get("source_url") or raw.get("url") or ""),

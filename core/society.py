@@ -22,7 +22,7 @@ from collections import deque
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import unquote, urlsplit
 
 from core.config import SocietyConfig
@@ -444,10 +444,8 @@ class SocietyService:
             def do_GET(self) -> None:
                 # Block DNS rebinding and cross-origin scripted access. No CORS.
                 authority = self.headers.get("Host", "")
-                allowed = {
-                    f"127.0.0.1:{self.server.server_port}",
-                    f"localhost:{self.server.server_port}",
-                }
+                port = cast(ThreadingHTTPServer, self.server).server_port
+                allowed = {f"127.0.0.1:{port}", f"localhost:{port}"}
                 origin = self.headers.get("Origin")
                 if authority not in allowed or (
                     origin and origin not in {f"http://{host}" for host in allowed}
